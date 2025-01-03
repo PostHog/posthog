@@ -131,3 +131,11 @@ Do not return anything from the custom few shot example prompts provided above.
 
 When you receive new information, begin your response with an information processing analysis, then proceed with the memory update if applicable, and conclude with "[Done]".
 """.strip()
+
+TOOL_CALL_ERROR_PROMPT = """
+The arguments of the tool call are invalid and raised a Pydantic validation error.
+
+{{validation_error_message}}
+
+Fix the error and return the correct response.
+"""

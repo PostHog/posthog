@@ -24,3 +24,9 @@ class AssistantNode(ABC):
             return CoreMemory.objects.get(team=self._team)
         except CoreMemory.DoesNotExist:
             return None
+
+    @property
+    def product_core_memory(self) -> str:
+        if not self.core_memory:
+            return ""
+        return self.core_memory.formatted_text

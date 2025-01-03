@@ -9,6 +9,7 @@ from langchain_core.messages import (
     AIMessageChunk,
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
+    ToolMessage as LangchainToolMessage,
 )
 from langchain_core.output_parsers import PydanticToolsParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -26,6 +27,7 @@ from ee.hogai.memory.prompts import (
     INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT,
     MEMORY_COLLECTOR_PROMPT,
+    TOOL_CALL_ERROR_PROMPT,
 )
 from ee.hogai.utils.helpers import filter_messages, find_last_message_of_type, slice_messages_to_conversation_start
 from ee.hogai.utils.markdown import remove_markdown
@@ -262,14 +264,22 @@ class MemoryCollectorNode(AssistantNode):
         try:
             response = chain.invoke(
                 {
-                    "core_memory": self.core_memory.text,
+                    "core_memory": self.product_core_memory,
                     "date": timezone.now().strftime("%Y-%m-%d"),
                 },
                 config=config,
             )
         except MemoryCollectionCompleted:
-            return PartialAssistantState(memory_updated=True)
-        return PartialAssistantState(memory_collection_message=cast(LangchainAIMessage, response))
+            return PartialAssistantState(memory_updated=True, memory_collection_messages=[])
+        return PartialAssistantState(
+            memory_collection_messages=[*state.memory_collection_messages, cast(LangchainAIMessage, response)]
+        )
+
+    def router(self, state: AssistantState) -> Literal["interrupt", "continue"]:
+        last_message = state.messages[-1]
+        if isinstance(last_message, AssistantMessage) and last_message.content == "[Done]":
+            return "continue"
+        return "interrupt"
 
     @property
     def _model(self):
@@ -277,31 +287,60 @@ class MemoryCollectorNode(AssistantNode):
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         start_id = state.start_id
+        node_messages = state.memory_collection_messages or []
+
         filtered_messages = filter_messages(
             slice_messages_to_conversation_start(state.messages, start_id),
             entity_filter=(HumanMessage, AssistantMessage),
         )
         conversation: list[BaseMessage] = []
+
         for message in filtered_messages:
             if isinstance(message, HumanMessage):
                 conversation.append(LangchainHumanMessage(content=message.content, id=message.id))
             elif isinstance(message, AssistantMessage):
                 conversation.append(LangchainAIMessage(content=message.content, id=message.id))
-        return conversation
+
+        return conversation + node_messages
 
 
 class MemoryCollectorToolsNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        node_messages = state.memory_collection_messages
+        if not node_messages:
+            raise ValueError("No memory collection messages found.")
+        last_message = node_messages[-1]
+        if not isinstance(last_message, LangchainAIMessage):
+            raise ValueError("Last message must be an AI message.")
+        core_memory = self.core_memory
+        if not core_memory:
+            raise ValueError("No core memory found.")
+
         tools_parser = PydanticToolsParser(tools=memory_collector_tools)
         try:
-            tool_call: Union[core_memory_append, core_memory_replace] = tools_parser.invoke(
-                state.memory_collection_message, config=config
+            tool_calls: list[Union[core_memory_append, core_memory_replace]] = tools_parser.invoke(
+                last_message, config=config
             )
-        except ValidationError:
-            pass
-            # return PartialAssistantState(memory_updated=True)
-        if isinstance(tool_call, core_memory_append):
-            return PartialAssistantState(memory_updated=True)
-        if isinstance(tool_call, core_memory_replace):
-            return PartialAssistantState(memory_updated=True)
-        return PartialAssistantState(memory_collection_message=tool_call)
+        except ValidationError as e:
+            failover_messages = ChatPromptTemplate.from_messages(("user", TOOL_CALL_ERROR_PROMPT)).format_messages(
+                validation_error_message=e.errors(include_url=False)
+            )
+            return PartialAssistantState(
+                memory_collection_messages=state.memory_collection_messages + failover_messages,
+            )
+
+        new_messages: list[LangchainToolMessage] = []
+        for tool_call, schema in zip(last_message.tool_calls, tool_calls):
+            if isinstance(schema, core_memory_append):
+                core_memory.append_core_memory(schema.memory_content)
+                new_messages.append(LangchainToolMessage(content="Memory appended.", tool_call_id=tool_call["id"]))
+            if isinstance(schema, core_memory_replace):
+                try:
+                    core_memory.replace_core_memory(schema.original_fragment, schema.new_fragment)
+                    new_messages.append(LangchainToolMessage(content="Memory replaced.", tool_call_id=tool_call["id"]))
+                except ValueError as e:
+                    new_messages.append(LangchainToolMessage(content=str(e), tool_call_id=tool_call["id"]))
+
+        return PartialAssistantState(
+            memory_collection_messages=state.memory_collection_messages + new_messages,
+        )

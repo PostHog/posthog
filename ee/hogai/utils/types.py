@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Annotated, Optional, Union
 
 from langchain_core.agents import AgentAction
-from langchain_core.messages import AIMessage as LangchainAIMessage
+from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
@@ -36,9 +36,9 @@ class _SharedAssistantState(BaseModel):
     """
     Whether the memory was updated in the `MemoryCollectorNode`.
     """
-    memory_collection_message: Optional[LangchainAIMessage] = Field(default=None)
+    memory_collection_messages: Optional[Sequence[LangchainBaseMessage]] = Field(default=None)
     """
-    The message with tool calls to collect memory in the `MemoryCollectorToolsNode`.
+    The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
     """
 
 

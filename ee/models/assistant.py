@@ -130,3 +130,17 @@ class CoreMemory(UUIDModel):
         self.initial_text = text
         self.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
         self.save()
+
+    def append_core_memory(self, text: str):
+        self.text = self.text + "\n" + text
+        self.save()
+
+    def replace_core_memory(self, original_fragment: str, new_fragment: str):
+        if original_fragment not in self.text:
+            raise ValueError(f"Original fragment {original_fragment} not found in core memory")
+        self.text = self.text.replace(original_fragment, new_fragment)
+        self.save()
+
+    @property
+    def formatted_text(self) -> str:
+        return self.text[0:5000]
