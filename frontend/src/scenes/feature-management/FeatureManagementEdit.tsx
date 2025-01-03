@@ -7,20 +7,23 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { featureManagementNewLogic } from './featureManagementNewLogic'
+import { featureManagementEditLogic } from './featureManagementEditLogic'
 
 export const scene: SceneExport = {
-    component: FeatureManagementNew,
-    logic: featureManagementNewLogic,
+    component: FeatureManagementEdit,
+    logic: featureManagementEditLogic,
+    paramsToProps: ({ params: { id } }): (typeof featureManagementEditLogic)['props'] => ({
+        id: id && id !== 'new' ? id : 'new',
+    }),
 }
 
-function FeatureManagementNew(): JSX.Element {
-    const { props } = useValues(featureManagementNewLogic)
+function FeatureManagementEdit(): JSX.Element {
+    const { props } = useValues(featureManagementEditLogic)
 
     return (
         <Form
             id="feature-creation"
-            logic={featureManagementNewLogic}
+            logic={featureManagementEditLogic}
             props={props}
             formKey="feature"
             enableFormOnSubmit
@@ -36,7 +39,12 @@ function FeatureManagementNew(): JSX.Element {
                         >
                             Cancel
                         </LemonButton>
-                        <LemonButton type="primary" data-attr="save-feature-flag" htmlType="submit" form="feature-flag">
+                        <LemonButton
+                            type="primary"
+                            data-attr="save-feature-flag"
+                            htmlType="submit"
+                            form="feature-creation"
+                        >
                             Save
                         </LemonButton>
                     </div>
@@ -68,6 +76,10 @@ function FeatureManagementNew(): JSX.Element {
                             disabled
                         />
                     </LemonField>
+                    <span className="text-muted text-sm">
+                        This will be used to monitor feature usage. Feature keys must be unique to other features and
+                        feature flags.
+                    </span>
 
                     <LemonField name="description" label="Description">
                         <LemonTextArea className="ph-ignore-input" data-attr="feature-description" />
@@ -84,7 +96,7 @@ function FeatureManagementNew(): JSX.Element {
                 >
                     Cancel
                 </LemonButton>
-                <LemonButton type="primary" data-attr="save-feature-flag" htmlType="submit" form="feature-flag">
+                <LemonButton type="primary" data-attr="save-feature-flag" htmlType="submit" form="feature-creation">
                     Save
                 </LemonButton>
             </div>

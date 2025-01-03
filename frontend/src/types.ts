@@ -3015,8 +3015,8 @@ export interface CombinedFeatureFlagAndValueType {
     value: boolean | string
 }
 
-export interface Feature {
-    id: number | null
+export interface FeatureType {
+    id: string
     key: string
     name: string
     description: string

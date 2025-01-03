@@ -2,19 +2,20 @@ import { actions, afterMount, connect, kea, listeners, path, props, reducers, se
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, Feature } from '~/types'
+import { Breadcrumb, FeatureType } from '~/types'
 
 import type { featureManagementLogicType } from './featureManagementLogicType'
 
 export interface FeatureManagementLogicProps {
-    id?: Feature['id']
+    id?: FeatureType['id']
 }
 export interface FeaturesResult {
-    results: Feature[]
+    results: FeatureType[]
     count: number
     next?: string | null
     previous?: string | null
@@ -24,14 +25,14 @@ export const featureManagementLogic = kea<featureManagementLogicType>([
     props({} as FeatureManagementLogicProps),
     path(['scenes', 'features', 'featureManagementLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], projectLogic, ['currentProjectId']],
     }),
     actions({
-        setActiveFeatureId: (activeFeatureId: Feature['id']) => ({ activeFeatureId }),
+        setActiveFeatureId: (activeFeatureId: FeatureType['id']) => ({ activeFeatureId }),
     }),
     reducers({
         activeFeatureId: [
-            null as Feature['id'] | null,
+            null as FeatureType['id'] | null,
             {
                 setActiveFeatureId: (_, { activeFeatureId }) => activeFeatureId,
             },
@@ -39,7 +40,7 @@ export const featureManagementLogic = kea<featureManagementLogicType>([
     }),
     loaders(({ values }) => ({
         features: [
-            null as null | FeaturesResult,
+            { results: [], count: 0, offset: 0 } as FeaturesResult,
             {
                 loadFeatures: async () => {
                     const response = await api.get(`api/projects/${values.currentTeamId}/features`)
@@ -91,7 +92,7 @@ export const featureManagementLogic = kea<featureManagementLogicType>([
     urlToAction(({ actions, values }) => ({
         '/features/:id': ({ id }) => {
             if (id && String(values.activeFeatureId) !== id && id !== 'new') {
-                actions.setActiveFeatureId(Number(id))
+                actions.setActiveFeatureId(id)
             }
         },
     })),

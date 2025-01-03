@@ -2,9 +2,9 @@ from rest_framework import viewsets, serializers
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.db.models import QuerySet
-from posthog.models import Feature, FeatureAlertConfiguration
+from posthog.models import Feature, EarlyAccessFeature, FeatureAlertConfiguration
 from posthog.api.alert import AlertSerializer
-from posthog.api.early_access_feature import EarlyAccessFeatureSerializer
+from posthog.api.early_access_feature import EarlyAccessFeatureSerializer, EarlyAccessFeatureSerializerCreateOnly
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -23,10 +23,9 @@ class FeatureSerializer(serializers.ModelSerializer):
         model = Feature
         fields = [
             "id",
+            "key",
             "name",
             "description",
-            "documentation_url",
-            "issue_url",
             "primary_early_access_feature_id",
             "created_at",
             "created_by",
@@ -39,8 +38,30 @@ class FeatureSerializer(serializers.ModelSerializer):
 
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = request.user
-        validated_data["primary_early_access_feature_id"] = request.data.get("primary_early_access_feature_id")
-        return super().create(validated_data)
+
+        early_access_feature_id = validated_data.get("primary_early_access_feature_id", None)
+
+        # Attempt to get the early access feature if one was provided, just to ensure it exists
+        if early_access_feature_id:
+            early_access_feature = EarlyAccessFeature.objects.get(pk=early_access_feature_id)
+
+        # Attempt to create a primary early access feature (and feature flag) for this feature if one was not provided
+        if not early_access_feature_id:
+            early_access_feature_serializer = EarlyAccessFeatureSerializerCreateOnly(
+                data={
+                    "name": validated_data["name"],
+                    "description": validated_data["description"],
+                    "stage": EarlyAccessFeature.Stage.DRAFT,
+                },
+                context=self.context,
+            )
+            early_access_feature_serializer.is_valid(raise_exception=True)
+            early_access_feature = early_access_feature_serializer.save()
+
+        validated_data["primary_early_access_feature_id"] = early_access_feature.id
+        feature: Feature = super().create(validated_data)
+
+        return feature
 
     def get_primary_early_access_feature(self, feature: Feature):
         return EarlyAccessFeatureSerializer(feature.primary_early_access_feature, context=self.context).data
@@ -53,7 +74,7 @@ class FeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         # Base queryset with team filtering
-        queryset = Feature.objects.filter(team_id=self.team_id)
+        queryset = Feature.objects.filter(team_id=self.team_id, deleted=False)
 
         if self.action == "primary_early_access_feature":
             queryset = queryset.select_related("primary_early_access_feature")

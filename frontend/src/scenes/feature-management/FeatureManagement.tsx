@@ -20,11 +20,11 @@ export function FeatureManagement(): JSX.Element {
 
     return (
         <div className="flex gap-4">
-            <div className="w-1/6 space-y-px">
+            <div className="flex-none w-80">
                 <FeatureManagementList />
             </div>
 
-            <div className="w-5/6">
+            <div className="grow">
                 <FeatureManagementDetail />
             </div>
         </div>
