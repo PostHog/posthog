@@ -11,7 +11,7 @@ import { LemonButton, LemonButtonProps } from '../LemonButton'
 
 export interface LemonCollapsePanel<K extends React.Key> {
     key: K
-    header: ReactNode
+    header: string | LemonButtonProps
     content: ReactNode
     dataAttr?: string
     className?: string
@@ -120,21 +120,28 @@ function LemonCollapsePanel({
 }: LemonCollapsePanelProps): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
 
+    const headerProps: LemonButtonProps = React.isValidElement(header)
+        ? { children: header }
+        : typeof header === 'string'
+        ? { children: header }
+        : header ?? {}
+
     return (
         <div className="LemonCollapsePanel" aria-expanded={isExpanded}>
             {content ? (
                 <LemonButton
-                    onClick={() => {
+                    {...headerProps}
+                    fullWidth
+                    className="LemonCollapsePanel__header"
+                    onClick={(e) => {
                         onHeaderClick && onHeaderClick()
                         onChange(!isExpanded)
+                        headerProps.onClick?.(e)
                     }}
                     icon={isExpanded ? <IconCollapse /> : <IconExpand />}
-                    className="LemonCollapsePanel__header"
                     {...(dataAttr ? { 'data-attr': dataAttr } : {})}
                     size={size}
-                >
-                    {header}
-                </LemonButton>
+                />
             ) : (
                 <LemonButton
                     className="LemonCollapsePanel__header LemonCollapsePanel__header--disabled"
