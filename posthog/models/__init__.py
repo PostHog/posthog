@@ -25,6 +25,7 @@ from .cohort import Cohort, CohortPeople
 from .comment import Comment
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
+from .data_color_theme import DataColorTheme
 from .dashboard_tile import DashboardTile, Text
 from .early_access_feature import EarlyAccessFeature
 from .element import Element
@@ -103,6 +104,7 @@ __all__ = [
     "Dashboard",
     "DashboardTile",
     "DashboardTemplate",
+    "DataColorTheme",
     "DeletionType",
     "EarlyAccessFeature",
     "Element",
