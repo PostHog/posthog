@@ -25,6 +25,11 @@ services:
             service: db
         ports:
             - '5432:5432'
+        # something in the django app when running in dev mode
+        # (maybe only in Pycharm) keeps many idle transactions open
+        # and eventually kills postgres, these settings aim to stop that happening.
+        # They are only for DEV and should not be used in production.
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
 
     redis:
         extends:
@@ -38,11 +43,15 @@ services:
             file: docker-compose.base.yml
             service: clickhouse
         ports:
-            - '8123:8123'
-            - '9000:9000'
-            - '9440:9440'
-            - '9009:9009'
+            - '28123:8123'
+            - '28443:8443'
+            - '29000:9000'
+            - '29440:9440'
+            - '29009:9009'
         volumes:
+            # this new entrypoint file is to fix a bug detailed here https://github.com/ClickHouse/ClickHouse/pull/59991
+            # revert this when we upgrade clickhouse
+            - ./docker/clickhouse/entrypoint.sh:/entrypoint.sh
             - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
@@ -89,7 +98,7 @@ services:
         ports:
             - '2080:2080'
         environment:
-            - PORT=2080
+            - LISTEN_PORT=2080
 
     worker:
         extends:
@@ -183,18 +192,21 @@ services:
             service: elasticsearch
         expose:
             - 9200
+
     temporal:
         extends:
             file: docker-compose.base.yml
             service: temporal
         ports:
             - 7233:7233
+
     temporal-admin-tools:
         extends:
             file: docker-compose.base.yml
             service: temporal-admin-tools
         depends_on:
             - temporal
+
     temporal-ui:
         extends:
             file: docker-compose.base.yml
