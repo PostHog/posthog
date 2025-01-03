@@ -325,7 +325,7 @@ export function LineGraph_({
             ? getBarColorFromStatus(dataset.status)
             : isHorizontal
             ? dataset.backgroundColor
-            : getTrendsColor(dataset)
+            : getTrendsColor(dataset) || '#000000' // Default to black if no color found
         const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
