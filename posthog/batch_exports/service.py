@@ -79,6 +79,7 @@ class S3BatchExportInputs:
         region: The AWS region where the bucket is located.
         prefix: A prefix for the file name to be created in S3.
             For example, for one hour batches, this should be 3600.
+        max_file_size_mb: The maximum file size in MB for each file to be uploaded.
         data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
             scheduled runs and for backfills.
     """
@@ -99,6 +100,7 @@ class S3BatchExportInputs:
     kms_key_id: str | None = None
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
+    max_file_size_mb: int | None = None
     is_backfill: bool = False
     is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None

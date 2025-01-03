@@ -407,14 +407,14 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
 # Use 0 to test that the file is not split up and 6MB since this is slightly
 # larger than the default 5MB chunk size for multipart uploads.
-@pytest.mark.parametrize("max_file_size_bytes", [0, 1024 * 1024 * 6])
+@pytest.mark.parametrize("max_file_size_mb", [None, 6])
 async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     clickhouse_client,
     bucket_name,
     minio_client,
     activity_environment,
     compression,
-    max_file_size_bytes,
+    max_file_size_mb,
     exclude_events,
     file_format,
     data_interval_start,
@@ -492,6 +492,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,
+        max_file_size_mb=max_file_size_mb,
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
     )
@@ -499,7 +500,6 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     with override_settings(
         # 5MB, the minimum for Multipart uploads
         BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
-        BATCH_EXPORT_S3_UPLOAD_MAX_FILE_SIZE_BYTES=max_file_size_bytes,
     ):
         records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
@@ -541,7 +541,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
             key_name = f"{key_name}.{compression_extension}"
         return key_name
 
-    if max_file_size_bytes == 0:
+    if max_file_size_mb is None:
         # we only expect 1 file
         assert num_files == 1
     else:

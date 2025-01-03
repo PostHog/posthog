@@ -308,9 +308,7 @@ class Consumer:
 
                 records_count += writer.records_since_last_flush
 
-                if multiple_files:
-                    await writer.hard_flush()
-                elif max_file_size_bytes > 0 and writer.bytes_total >= max_file_size_bytes:
+                if multiple_files or (max_file_size_bytes > 0 and writer.bytes_total >= max_file_size_bytes):
                     await writer.hard_flush()
                 else:
                     await writer.flush()
