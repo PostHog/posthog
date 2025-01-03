@@ -1,6 +1,6 @@
 import { KafkaConsumer, Message } from 'node-rdkafka'
 
-import { createAdminClient, ensureTopicExists } from '../../../src/kafka/admin'
+import { createAdminClient, deleteTopic, ensureTopicExists } from '../../../src/kafka/admin'
 import { createRdConnectionConfigFromEnvVars } from '../../../src/kafka/config'
 import { createKafkaConsumer } from '../../../src/kafka/consumer'
 import { Hub } from '../../../src/types'
@@ -17,12 +17,20 @@ export type TestKafkaObserver = {
 }
 
 export const createKafkaObserver = async (hub: Hub, topics: string[]): Promise<TestKafkaObserver> => {
-    const consumer = await createKafkaConsumer({
-        ...createRdConnectionConfigFromEnvVars(hub),
-        'group.id': `test-group-${new UUIDT().toString()}`,
-    })
+    const groupId = `test-group-${new UUIDT().toString()}`
+    const consumer = await createKafkaConsumer(
+        {
+            ...createRdConnectionConfigFromEnvVars(hub),
+            'group.id': groupId,
+            'queued.min.messages': 1,
+        },
+        {
+            'auto.offset.reset': 'earliest',
+        }
+    )
 
     const adminClient = createAdminClient(createRdConnectionConfigFromEnvVars(hub))
+    await Promise.all(topics.map((topic) => deleteTopic(adminClient, topic, 1000)))
     await Promise.all(topics.map((topic) => ensureTopicExists(adminClient, topic, 1000)))
     adminClient.disconnect()
 
@@ -40,7 +48,10 @@ export const createKafkaObserver = async (hub: Hub, topics: string[]): Promise<T
         }
         const newMessages = await new Promise<Message[]>((res, rej) =>
             consumer.consume(10, (err, messages) => (err ? rej(err) : res(messages)))
-        )
+        ).catch((err) => {
+            console.log('Error consuming messages', { err })
+            return []
+        })
 
         messages.push(
             ...newMessages.map((message) => ({

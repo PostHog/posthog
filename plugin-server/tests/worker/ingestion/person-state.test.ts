@@ -12,7 +12,7 @@ import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../helpers/sql'
 
-jest.setTimeout(5000) // 5 sec timeout
+jest.setTimeout(30000) // NOTE Timeouts should be in the waiting code, not here
 
 const timestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
 const timestamp2 = DateTime.fromISO('2020-02-02T12:00:05.200Z').toUTC()
@@ -1113,7 +1113,9 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), {
+                minLength: 2,
+            }) // wait until merge and delete processed
             const clickhousePersons = await fetchPersonsRows() // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
@@ -1180,7 +1182,9 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), {
+                minLength: 2,
+            }) // wait until merge and delete processed
             const clickhousePersons = await fetchPersonsRows() // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
@@ -1353,7 +1357,9 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), {
+                minLength: 2,
+            }) // wait until merge and delete processed
             const clickhousePersons = await fetchPersonsRows() // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
@@ -1533,7 +1539,9 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), {
+                minLength: 2,
+            }) // wait until merge and delete processed
             const clickhousePersons = await fetchPersonsRows() // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
@@ -1955,7 +1963,9 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId]))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), {
+                minLength: 2,
+            }) // wait until merge and delete processed
             const clickhousePersons = await fetchPersonsRows() // but verify full state
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([

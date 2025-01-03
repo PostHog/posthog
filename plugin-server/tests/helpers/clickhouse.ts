@@ -34,14 +34,18 @@ export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<Pl
 
 export async function delayUntilEventIngested<T extends any[] | number>(
     fetchData: () => T | Promise<T>,
-    minLength = 1,
-    delayMs = 100,
-    maxDelayCount = 100
+    options: {
+        minLength?: number
+        delayMs?: number
+        maxDelayMs?: number
+    } = {}
 ): Promise<T> {
+    const { minLength = 1, delayMs = 100, maxDelayMs = 30000 } = options
     const timer = performance.now()
     let data: T
     let dataLength = 0
-    for (let i = 0; i < maxDelayCount; i++) {
+
+    while (performance.now() - timer < maxDelayMs) {
         data = await fetchData()
         dataLength = typeof data === 'number' ? data : data.length
         status.debug(
