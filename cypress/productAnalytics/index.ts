@@ -167,6 +167,7 @@ export const dashboard = {
 
         cy.get('[data-attr=dashboard-add-graph-header]').contains('Add insight').click()
         cy.get('[data-attr=toast-close-button]').click({ multiple: true })
+        cy.get('[data-attr=dashboard-add-new-insight]').contains('New insight').click()
 
         if (insightName) {
             cy.get('[data-attr="top-bar-name"] button').click()
