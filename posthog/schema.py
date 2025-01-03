@@ -1717,6 +1717,7 @@ class WebStatsBreakdown(StrEnum):
     INITIAL_PAGE = "InitialPage"
     EXIT_PAGE = "ExitPage"
     EXIT_CLICK = "ExitClick"
+    SCREEN_NAME = "ScreenName"
     INITIAL_CHANNEL_TYPE = "InitialChannelType"
     INITIAL_REFERRING_DOMAIN = "InitialReferringDomain"
     INITIAL_UTM_SOURCE = "InitialUTMSource"

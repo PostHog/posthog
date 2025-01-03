@@ -143,7 +143,7 @@ SELECT
 FROM events
 WHERE and(
     events.`$session_id` IS NOT NULL,
-    event = '$pageview' OR {action_where},
+    event = '$pageview' OR event = '$screen' OR {action_where},
     {periods_expression},
     {event_properties},
     {session_properties}

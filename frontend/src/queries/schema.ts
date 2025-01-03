@@ -1850,6 +1850,7 @@ export enum WebStatsBreakdown {
     InitialPage = 'InitialPage',
     ExitPage = 'ExitPage', // not supported in the legacy version
     ExitClick = 'ExitClick',
+    ScreenName = 'ScreenName',
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',

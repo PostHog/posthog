@@ -16,6 +16,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     CustomEventConversionGoal,
     ActionConversionGoal,
+    BounceRatePageViewMode,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -44,8 +45,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             for timestamp, session_id, *extra in timestamps:
                 url = None
                 elements = None
+                screen_name = None
                 if event == "$pageview":
                     url = extra[0] if extra else None
+                elif event == "$screen":
+                    screen_name = extra[0] if extra else None
                 elif event == "$autocapture":
                     elements = extra[0] if extra else None
                 properties = extra[1] if extra and len(extra) > 1 else {}
@@ -59,6 +63,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "$session_id": session_id,
                         "$pathname": url,
                         "$current_url": url,
+                        "$screen_name": screen_name,
                         **properties,
                     },
                     elements=elements,
@@ -129,8 +134,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         custom_event: Optional[str] = None,
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
         filter_test_accounts: Optional[bool] = False,
+        bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
     ):
-        modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
+        modifiers = HogQLQueryModifiers(
+            sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
+        )
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=properties or [],
@@ -175,6 +183,30 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 ["/", (2, None), (2, None)],
                 ["/login", (1, None), (1, None)],
+            ],
+            results,
+        )
+
+    def test_increase_in_users_on_mobile(self):
+        s1a = str(uuid7("2023-12-02"))
+        s1b = str(uuid7("2023-12-13"))
+        s2 = str(uuid7("2023-12-10"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1a, "Home"), ("2023-12-03", s1a, "Login"), ("2023-12-13", s1b, "Docs")]),
+                ("p2", [("2023-12-10", s2, "Home")]),
+            ],
+            event="$screen",
+        )
+
+        results = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-11", breakdown_by=WebStatsBreakdown.SCREEN_NAME
+        ).results
+
+        self.assertEqual(
+            [
+                ["Home", (2, None), (2, None)],
+                ["Login", (1, None), (1, None)],
             ],
             results,
         )
