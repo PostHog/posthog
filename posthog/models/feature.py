@@ -9,7 +9,7 @@ class Feature(CreatedMetaFields, UUIDModel):
     key = models.CharField(max_length=400, blank=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400, blank=False)
-    description = models.TextField(default="")
+    description = models.TextField(default="", blank=True)
     primary_early_access_feature = models.ForeignKey(
         "posthog.EarlyAccessFeature", on_delete=models.RESTRICT, blank=False
     )
