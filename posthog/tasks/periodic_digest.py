@@ -17,14 +17,15 @@ from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
 from posthog.models.messaging import MessagingRecord
-from posthog.models.notification_setting import (
-    NotificationSetting,
-    should_send_notification,
-)
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
+)
+from posthog.tasks.email import (
+    NotificationSetting,
+    NotificationSettingType,
+    should_send_notification,
 )
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.usage_report import USAGE_REPORT_TASK_KWARGS, get_instance_metadata
@@ -297,7 +298,7 @@ def send_digest_notifications(
     organization_id: Optional[str],
     event_name: str,
     properties: dict[str, Any],
-    notification_type: NotificationSetting,
+    notification_type: NotificationSettingType,
     timestamp: Optional[datetime] = None,
 ) -> None:
     """
