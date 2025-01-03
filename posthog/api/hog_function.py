@@ -208,8 +208,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         validate_input_and_filters(attrs)
 
         if attrs.get("mappings", None) is not None:
-            if hog_type != "site_destination":
-                raise serializers.ValidationError({"mappings": "Mappings are only allowed for site destinations."})
+            if hog_type not in ["site_destination", "destination"]:
+                raise serializers.ValidationError({"mappings": "Mappings are only allowed for destinations."})
             for mapping in attrs["mappings"]:
                 validate_input_and_filters(mapping)
 

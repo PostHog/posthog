@@ -22,6 +22,29 @@ class TestTemplateWebhook(BaseHogFunctionTemplateTest):
         )
         assert self.get_mock_print_calls() == snapshot([])
 
+    def test_function_merges_headers(self):
+        self.run_function(
+            inputs={
+                "url": "https://posthog.com",
+                "method": "GET",
+                "headers": {"Content-Type": "application/json"},
+                "additional_headers": {"X-Custom-Header": "test"},
+                "body": {"hello": "world"},
+                "debug": False,
+            }
+        )
+
+        assert self.get_mock_fetch_calls()[0] == snapshot(
+            (
+                "https://posthog.com",
+                {
+                    "headers": {"Content-Type": "application/json", "X-Custom-Header": "test"},
+                    "body": {"hello": "world"},
+                    "method": "GET",
+                },
+            )
+        )
+
     def test_prints_when_debugging(self):
         self.run_function(
             inputs={
