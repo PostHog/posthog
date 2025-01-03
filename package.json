@@ -161,6 +161,7 @@
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
+        "posthog-design-system": "file:.yalc/posthog-design-system",
         "posthog-js": "1.203.1",
         "posthog-js-lite": "3.0.0",
         "prettier": "^2.8.8",
