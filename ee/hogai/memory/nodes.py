@@ -258,6 +258,8 @@ memory_collector_tools = [core_memory_append, core_memory_replace]
 
 class MemoryCollectorNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        node_messages = state.memory_collection_messages or []
+
         prompt = ChatPromptTemplate.from_messages(("system", MEMORY_COLLECTOR_PROMPT)) + self._construct_messages(state)
         chain = prompt | self._model | raise_memory_updated
 
@@ -271,9 +273,7 @@ class MemoryCollectorNode(AssistantNode):
             )
         except MemoryCollectionCompleted:
             return PartialAssistantState(memory_updated=True, memory_collection_messages=[])
-        return PartialAssistantState(
-            memory_collection_messages=[*state.memory_collection_messages, cast(LangchainAIMessage, response)]
-        )
+        return PartialAssistantState(memory_collection_messages=[*node_messages, cast(LangchainAIMessage, response)])
 
     def router(self, state: AssistantState) -> Literal["interrupt", "continue"]:
         last_message = state.messages[-1]
@@ -301,7 +301,7 @@ class MemoryCollectorNode(AssistantNode):
             elif isinstance(message, AssistantMessage):
                 conversation.append(LangchainAIMessage(content=message.content, id=message.id))
 
-        return conversation + node_messages
+        return [*conversation, *node_messages]
 
 
 class MemoryCollectorToolsNode(AssistantNode):
@@ -326,7 +326,7 @@ class MemoryCollectorToolsNode(AssistantNode):
                 validation_error_message=e.errors(include_url=False)
             )
             return PartialAssistantState(
-                memory_collection_messages=state.memory_collection_messages + failover_messages,
+                memory_collection_messages=[*node_messages, *failover_messages],
             )
 
         new_messages: list[LangchainToolMessage] = []
@@ -342,5 +342,5 @@ class MemoryCollectorToolsNode(AssistantNode):
                     new_messages.append(LangchainToolMessage(content=str(e), tool_call_id=tool_call["id"]))
 
         return PartialAssistantState(
-            memory_collection_messages=state.memory_collection_messages + new_messages,
+            memory_collection_messages=[*node_messages, *new_messages],
         )
