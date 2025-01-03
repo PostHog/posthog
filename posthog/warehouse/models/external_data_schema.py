@@ -77,6 +77,10 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
 
         last_value_py = last_value.item() if isinstance(last_value, numpy.generic) else last_value
+        last_value_json: Any
+
+        if last_value_py is None:
+            return
 
         if (
             incremental_field_type == IncrementalFieldType.Integer
@@ -85,9 +89,17 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             if isinstance(last_value_py, int | float):
                 last_value_json = last_value_py
             elif isinstance(last_value_py, datetime):
-                last_value_json = str(last_value_py)
+                last_value_json = last_value_py.isoformat()
             else:
                 last_value_json = int(last_value_py)
+        elif (
+            incremental_field_type == IncrementalFieldType.DateTime
+            or incremental_field_type == IncrementalFieldType.Timestamp
+        ):
+            if isinstance(last_value_py, datetime):
+                last_value_json = last_value_py.isoformat()
+            else:
+                last_value_json = str(last_value_py)
         else:
             last_value_json = str(last_value_py)
 

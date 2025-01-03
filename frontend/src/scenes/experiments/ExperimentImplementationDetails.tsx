@@ -192,7 +192,7 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
     }
 
     return (
-        <div>
+        <div className="mb-4">
             <h2 className="font-semibold text-lg mb-2">Implementation</h2>
             <div className="border rounded bg-bg-light">
                 <div className="p-6 space-y-4">

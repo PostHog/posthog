@@ -58,6 +58,7 @@ export type SettingId =
     | 'autocapture-data-attributes'
     | 'date-and-time'
     | 'internal-user-filtering'
+    | 'data-theme'
     | 'correlation-analysis'
     | 'person-display-name'
     | 'path-cleaning'
@@ -100,10 +101,12 @@ export type SettingId =
     | 'hedgehog-mode'
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
+    | 'bounce-rate-duration'
     | 'session-table-version'
     | 'web-vitals-autocapture'
     | 'dead-clicks-autocapture'
     | 'channel-type'
+    | 'cookieless-server-hash-mode'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
