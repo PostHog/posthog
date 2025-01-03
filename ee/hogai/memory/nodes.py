@@ -1,16 +1,23 @@
 import re
-from typing import Literal, cast
+from typing import Literal, Union, cast
 from uuid import uuid4
 
+from django.utils import timezone
 from langchain_community.chat_models import ChatPerplexity
-from langchain_core.messages import AIMessageChunk
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.messages import (
+    AIMessage as LangchainAIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage as LangchainHumanMessage,
+)
+from langchain_core.output_parsers import PydanticToolsParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.errors import NodeInterrupt
+from pydantic import BaseModel, Field, ValidationError
 
-from ee.hogai.memory.parsers import compressed_memory_parser
+from ee.hogai.memory.parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
 from ee.hogai.memory.prompts import (
     COMPRESSION_PROMPT,
     FAILED_SCRAPING_MESSAGE,
@@ -18,8 +25,9 @@ from ee.hogai.memory.prompts import (
     INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT,
+    MEMORY_COLLECTOR_PROMPT,
 )
-from ee.hogai.utils.helpers import find_last_message_of_type
+from ee.hogai.utils.helpers import filter_messages, find_last_message_of_type, slice_messages_to_conversation_start
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -222,3 +230,78 @@ class MemoryInitializerInterruptNode(AssistantNode):
         Remove markdown and source reference tags like [1], [2], etc.
         """
         return remove_markdown(memory)
+
+
+# Lower casing matters here. Do not change it.
+class core_memory_append(BaseModel):
+    """
+    Appends a new memory fragment to persistent storage.
+    """
+
+    memory_content: str = Field(description="The content of a new memory to be added to storage.")
+
+
+# Lower casing matters here. Do not change it.
+class core_memory_replace(BaseModel):
+    """
+    Replaces a specific fragment of memory (word, sentence, paragraph, etc.) with another in persistent storage.
+    """
+
+    original_fragment: str = Field(description="The content of the memory to be replaced.")
+    new_fragment: str = Field(description="The content to replace the existing memory with.")
+
+
+memory_collector_tools = [core_memory_append, core_memory_replace]
+
+
+class MemoryCollectorNode(AssistantNode):
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        prompt = ChatPromptTemplate.from_messages(("system", MEMORY_COLLECTOR_PROMPT)) + self._construct_messages(state)
+        chain = prompt | self._model | raise_memory_updated
+
+        try:
+            response = chain.invoke(
+                {
+                    "core_memory": self.core_memory.text,
+                    "date": timezone.now().strftime("%Y-%m-%d"),
+                },
+                config=config,
+            )
+        except MemoryCollectionCompleted:
+            return PartialAssistantState(memory_updated=True)
+        return PartialAssistantState(memory_collection_message=cast(LangchainAIMessage, response))
+
+    @property
+    def _model(self):
+        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True).bind_tools(memory_collector_tools)
+
+    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
+        start_id = state.start_id
+        filtered_messages = filter_messages(
+            slice_messages_to_conversation_start(state.messages, start_id),
+            entity_filter=(HumanMessage, AssistantMessage),
+        )
+        conversation: list[BaseMessage] = []
+        for message in filtered_messages:
+            if isinstance(message, HumanMessage):
+                conversation.append(LangchainHumanMessage(content=message.content, id=message.id))
+            elif isinstance(message, AssistantMessage):
+                conversation.append(LangchainAIMessage(content=message.content, id=message.id))
+        return conversation
+
+
+class MemoryCollectorToolsNode(AssistantNode):
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        tools_parser = PydanticToolsParser(tools=memory_collector_tools)
+        try:
+            tool_call: Union[core_memory_append, core_memory_replace] = tools_parser.invoke(
+                state.memory_collection_message, config=config
+            )
+        except ValidationError:
+            pass
+            # return PartialAssistantState(memory_updated=True)
+        if isinstance(tool_call, core_memory_append):
+            return PartialAssistantState(memory_updated=True)
+        if isinstance(tool_call, core_memory_replace):
+            return PartialAssistantState(memory_updated=True)
+        return PartialAssistantState(memory_collection_message=tool_call)
