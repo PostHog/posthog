@@ -9,6 +9,12 @@ import { createInvocation } from '../../utils'
 import { compileHog } from '../compiler'
 import { HogFunctionTemplate, HogFunctionTemplateCompiled } from '../helpers'
 
+export type DeepPartialHogFunctionInvocationGlobals = {
+    event?: Partial<HogFunctionInvocationGlobals['event']>
+    person?: Partial<HogFunctionInvocationGlobals['person']>
+    source?: Partial<HogFunctionInvocationGlobals['source']>
+}
+
 export class TemplateTester {
     public template: HogFunctionTemplateCompiled
     private executor: HogExecutor
@@ -39,14 +45,14 @@ export class TemplateTester {
         this.executor = new HogExecutor(mockHub, mockHogFunctionManager)
     }
 
-    private createGlobals(globals: Partial<HogFunctionInvocationGlobals> = {}): HogFunctionInvocationGlobals {
+    private createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobals {
         return {
             project: { id: 1, name: 'project-name', url: 'https://us.posthog.com/projects/1' },
             event: {
                 uuid: 'event-id',
                 event: 'event-name',
                 distinct_id: 'distinct-id',
-                properties: { $current_url: 'https://example.com' },
+                properties: { $current_url: 'https://example.com', ...(globals.event?.properties ?? {}) },
                 timestamp: '2024-01-01T00:00:00Z',
                 elements_chain: '',
                 url: 'https://us.posthog.com/projects/1/events/1234',
@@ -55,7 +61,7 @@ export class TemplateTester {
             person: {
                 id: 'person-id',
                 name: 'person-name',
-                properties: { email: 'example@posthog.com' },
+                properties: { email: 'example@posthog.com', ...(globals.person?.properties ?? {}) },
                 url: 'https://us.posthog.com/projects/1/persons/1234',
                 ...globals.person,
             },
@@ -83,7 +89,7 @@ export class TemplateTester {
         }
     }
 
-    async invoke(_inputs: Record<string, any>, _globals?: Partial<HogFunctionInvocationGlobals>) {
+    async invoke(_inputs: Record<string, any>, _globals?: DeepPartialHogFunctionInvocationGlobals) {
         const defaultInputs = this.template.inputs_schema.reduce((acc, input) => {
             if (typeof input.default !== 'undefined') {
                 acc[input.key] = {
@@ -101,7 +107,7 @@ export class TemplateTester {
 
         const compiledInputs = compiledEntries.reduce((acc, [key, value]) => {
             acc[key] = {
-                value: allInputs[key].value,
+                value: allInputs[key],
                 bytecode: value,
             }
             return acc
@@ -125,7 +131,7 @@ export class TemplateTester {
         const modifiedInvocation = {
             ...invocation,
             queue: 'hog' as const,
-            queue_parameters: response,
+            queueParameters: response,
         }
 
         return this.executor.execute(modifiedInvocation)

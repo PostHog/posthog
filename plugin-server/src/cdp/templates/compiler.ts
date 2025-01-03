@@ -8,8 +8,8 @@ import { UUIDT } from '../../utils/utils'
 import { HogBytecode } from '../types'
 
 const ROOT_DIR = path.join(__dirname, '..', '..', '..', '..')
-
 const CACHE_FILE = path.join(__dirname, '.tmp/cache.json')
+
 let CACHE: Record<string, HogBytecode> | null = null
 
 export async function compileHog(hog: string): Promise<HogBytecode> {
