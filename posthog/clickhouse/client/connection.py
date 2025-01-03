@@ -3,6 +3,7 @@ from enum import Enum
 from functools import cache
 
 from clickhouse_connect import get_client
+from clickhouse_connect.driver import Client as HttpClient
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from django.conf import settings
@@ -18,6 +19,41 @@ class Workload(Enum):
 
 
 _default_workload = Workload.ONLINE
+
+
+class ProxyClient:
+    def __init__(self, client: HttpClient):
+        self._client = client
+
+    def execute(
+        self,
+        query,
+        params=None,
+        with_column_types=False,
+        external_tables=None,
+        query_id=None,
+        settings=None,
+        types_check=False,
+        columnar=False,
+    ):
+        if query_id:
+            settings["query_id"] = query_id
+        result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
+
+        # we must play with result summary here
+        written_rows = int(result.summary.get("written_rows", 0))
+        if written_rows > 0:
+            return written_rows
+        if with_column_types:
+            column_types_driver_format = list(zip(result.column_names, result.column_types))
+            return result.result_set, column_types_driver_format
+        return result.result_set
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
 
 
 def get_http_client(**overrides):
@@ -36,11 +72,16 @@ def get_http_client(**overrides):
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,
         **overrides,
     }
-    return get_client(**kwargs)
+    return ProxyClient(get_client(**kwargs))
 
 
-def get_client_from_pool(workload: Workload = Workload.DEFAULT, team_id=None, readonly=False, use_ch_proxy=True):
-    if use_ch_proxy:
+def get_client_from_pool(workload: Workload = Workload.DEFAULT, team_id=None, readonly=False, use_http=True):
+    """
+    Returns the client for a given workload.
+
+    The connection pool for HTTP is managed by a library.
+    """
+    if use_http:
         if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
             return get_http_client(**settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)])
 
@@ -112,6 +153,7 @@ def make_ch_pool(**overrides) -> ChPool:
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
+        # "port": 29000,
         "secure": settings.CLICKHOUSE_SECURE,
         "user": settings.CLICKHOUSE_USER,
         "password": settings.CLICKHOUSE_PASSWORD,
