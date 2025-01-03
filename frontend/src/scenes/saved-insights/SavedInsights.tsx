@@ -108,7 +108,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Lifecycle',
         description: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
         tooltipDescription:
-            "Understand growth by breaking down new, resurrected, returning and dormant users. Doesn't include any users only seen in anonymous events.",
+            "Understand growth by breaking down new, resurrected, returning and dormant users. Doesn't include anonymous events and users/groups appear as new when they are first identified.",
         icon: IconLifecycle,
         inMenu: true,
     },
