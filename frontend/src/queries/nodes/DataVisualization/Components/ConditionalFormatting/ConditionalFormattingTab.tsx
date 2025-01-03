@@ -3,10 +3,8 @@ import './ConditionalFormattingTab.scss'
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
+import { ColorGlyph } from 'lib/components/SeriesGlyph'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ColorPickerButton } from '~/queries/nodes/DataVisualization/Components/ColorPickerButton'
 import { ConditionalFormattingRule } from '~/queries/schema'
 
@@ -33,7 +31,6 @@ const getRuleHeader = (rule: ConditionalFormattingRule): string => {
 }
 
 export const ConditionalFormattingTab = (): JSX.Element => {
-    const { isDarkModeOn } = useValues(themeLogic)
     const { conditionalFormattingRules, conditionalFormattingRulesPanelActiveKeys } = useValues(dataVisualizationLogic)
     const { addConditionalFormattingRule, setConditionalFormattingRulesPanelActiveKeys } =
         useActions(dataVisualizationLogic)
@@ -53,17 +50,7 @@ export const ConditionalFormattingTab = (): JSX.Element => {
                         key: rule.id,
                         header: (
                             <>
-                                <SeriesGlyph
-                                    style={{
-                                        borderColor: rule.color,
-                                        color: rule.color,
-                                        backgroundColor: isDarkModeOn
-                                            ? RGBToRGBA(lightenDarkenColor(rule.color, -20), 0.3)
-                                            : hexToRGBA(rule.color, 0.2),
-                                    }}
-                                >
-                                    <></>
-                                </SeriesGlyph>
+                                <ColorGlyph color={rule.color} />
                                 <span className="ml-2">{getRuleHeader(rule)}</span>
                             </>
                         ),
