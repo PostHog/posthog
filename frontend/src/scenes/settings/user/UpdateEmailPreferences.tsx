@@ -28,7 +28,10 @@ export function UpdateEmailPreferences(): JSX.Element {
                 label="Get notified of data pipeline errors."
             />
 
-            <h3>Weekly project digests</h3>
+            <h3>Weekly digest</h3>
+            <p>
+                The weekly digest keeps you up to date with everything that's happening in your PostHog organizations.
+            </p>
             <div className="space-y-2">
                 <LemonSwitch
                     id="all-digests-disabled"
@@ -45,49 +48,55 @@ export function UpdateEmailPreferences(): JSX.Element {
                     checked={!user?.notification_settings.all_weekly_digest_disabled}
                     disabled={userLoading}
                     bordered
-                    label="Get weekly digests for projects"
+                    label="Receive the weekly digests"
+                    tooltip="This option applies to all organizations you belong to. If you want to opt out of digests for a specific organization, disable all the individual project settings below."
                 />
                 {!user?.notification_settings.all_weekly_digest_disabled ? (
                     <>
                         <h4 className="ml-12">Individual project settings:</h4>
-                        <div className="flex flex-col gap-2 w-fit">
+                        <ul className="flex flex-col gap-2 w-fit">
                             {currentOrganization?.teams?.map((team) => (
-                                <div key={team.id} className="pl-12 flex items-center grow">
-                                    <span className="text-muted-alt mr-2">-</span>
-                                    <LemonSwitch
-                                        id={`project-digest-${team.id}`}
-                                        data-attr={`project_digest_${team.id}`}
-                                        onChange={() => {
-                                            user?.notification_settings &&
-                                                updateUser({
-                                                    notification_settings: {
-                                                        ...user?.notification_settings,
-                                                        project_weekly_digest_disabled: {
-                                                            ...user.notification_settings
-                                                                .project_weekly_digest_disabled,
-                                                            [team.id]:
-                                                                !user.notification_settings
-                                                                    .project_weekly_digest_disabled?.[team.id],
+                                <li key={team.id} className="ml-16 grow list-disc">
+                                    <div className="flex items-center grow">
+                                        <LemonSwitch
+                                            id={`project-digest-${team.id}`}
+                                            data-attr={`project_digest_${team.id}`}
+                                            onChange={() => {
+                                                user?.notification_settings &&
+                                                    updateUser({
+                                                        notification_settings: {
+                                                            ...user?.notification_settings,
+                                                            project_weekly_digest_disabled: {
+                                                                ...user.notification_settings
+                                                                    .project_weekly_digest_disabled,
+                                                                [team.id]:
+                                                                    !user.notification_settings
+                                                                        .project_weekly_digest_disabled?.[team.id],
+                                                            },
                                                         },
-                                                    },
-                                                })
-                                        }}
-                                        checked={!user?.notification_settings.project_weekly_digest_disabled?.[team.id]}
-                                        disabled={userLoading || user?.notification_settings.all_weekly_digest_disabled}
-                                        bordered
-                                        label={
-                                            <>
-                                                {team.name}
-                                                <LemonTag type="muted" className="ml-2">
-                                                    id: {team.id.toString()}
-                                                </LemonTag>
-                                            </>
-                                        }
-                                        fullWidth
-                                    />
-                                </div>
+                                                    })
+                                            }}
+                                            checked={
+                                                !user?.notification_settings.project_weekly_digest_disabled?.[team.id]
+                                            }
+                                            disabled={
+                                                userLoading || user?.notification_settings.all_weekly_digest_disabled
+                                            }
+                                            bordered
+                                            label={
+                                                <>
+                                                    {team.name}
+                                                    <LemonTag type="muted" className="ml-2">
+                                                        id: {team.id.toString()}
+                                                    </LemonTag>
+                                                </>
+                                            }
+                                            fullWidth
+                                        />
+                                    </div>
+                                </li>
                             ))}
-                        </div>
+                        </ul>
                     </>
                 ) : null}
             </div>
