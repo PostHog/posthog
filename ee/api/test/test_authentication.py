@@ -25,8 +25,10 @@ SAML_MOCK_SETTINGS = {
     "SOCIAL_AUTH_SAML_SECURITY_CONFIG": {
         "wantAttributeStatement": False,  # already present in settings
         "allowSingleLabelDomains": True,  # to allow `http://testserver` in tests
-    }
+    },
+    "SITE_URL": "http://localhost:8000",  # http://localhost:8010 is now the default, but fixtures use 8000
 }
+SAML_MOCK_SETTINGS["SOCIAL_AUTH_SAML_SP_ENTITY_ID"] = SAML_MOCK_SETTINGS["SITE_URL"]
 
 GOOGLE_MOCK_SETTINGS = {
     "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY": "google_key",
