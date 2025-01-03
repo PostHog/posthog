@@ -1,4 +1,4 @@
-import { HogFunctionTemplate, SUB_TEMPLATE_COMMON } from '../helpers'
+import { HogFunctionTemplate, SUB_TEMPLATE_COMMON } from '../../helpers'
 
 export const template: HogFunctionTemplate = {
     status: 'beta',

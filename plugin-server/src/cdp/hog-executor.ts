@@ -581,7 +581,8 @@ export class HogExecutor {
             }
         })
 
-        return values
+        // We don't want to add "REDACTED" for empty strings
+        return values.filter((v) => v.trim())
     }
 }
 
