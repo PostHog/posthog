@@ -1,3 +1,4 @@
+import { DataColorToken } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import {
@@ -42,6 +43,10 @@ export { ChartDisplayCategory }
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
 type integer = number
+
+// Type alias for a numerical key. Needs to be reflected as string in json-schema, as JSON only supports string keys.
+/** @asType string */
+export type numerical_key = number
 
 /**
  * PostHog Query Schema definition.
@@ -236,6 +241,7 @@ export interface HogQLQueryModifiers {
     s3TableUseInvalidColumns?: boolean
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
+    bounceRateDurationSeconds?: number
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
@@ -839,12 +845,19 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
     aggregation_group_type_index?: integer | null
     /** Sampling rate */
     samplingFactor?: number | null
+    /** Colors used in the insight's visualization */
+    dataColorTheme?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as` */
 export type TrendsFilterLegacy = Omit<TrendsFilterType, keyof FilterType | 'shown_as'>
+
+export enum ResultCustomizationBy {
+    Value = 'value',
+    Position = 'position',
+}
 
 export type TrendsFilter = {
     /** @default 1 */
@@ -869,6 +882,15 @@ export type TrendsFilter = {
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
     hiddenLegendIndexes?: integer[]
+    /**
+     * Wether result datasets are associated by their values or by their order.
+     * @default value
+     **/
+    resultCustomizationBy?: ResultCustomizationBy
+    /** Customizations for the appearance of result datasets. */
+    resultCustomizations?:
+        | Record<string, ResultCustomizationByValue>
+        | Record<numerical_key, ResultCustomizationByPosition>
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
@@ -894,6 +916,20 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<s
 }
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
+
+export type ResultCustomizationBase = {
+    color: DataColorToken
+}
+
+export interface ResultCustomizationByPosition extends ResultCustomizationBase {
+    assignmentBy: ResultCustomizationBy.Position
+}
+
+export interface ResultCustomizationByValue extends ResultCustomizationBase {
+    assignmentBy: ResultCustomizationBy.Value
+}
+
+export type ResultCustomization = ResultCustomizationByValue | ResultCustomizationByPosition
 
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
@@ -1368,6 +1404,8 @@ export type FunnelsFilter = {
     /** @default total */
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
     useUdf?: boolean
+    /** Customizations for the appearance of result datasets. */
+    resultCustomizations?: Record<string, ResultCustomizationByValue>
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -1822,6 +1860,7 @@ export enum WebStatsBreakdown {
     InitialUTMSourceMediumCampaign = 'InitialUTMSourceMediumCampaign',
     Browser = 'Browser',
     OS = 'OS',
+    Viewport = 'Viewport',
     DeviceType = 'DeviceType',
     Country = 'Country',
     Region = 'Region',
@@ -2003,6 +2042,7 @@ export interface ExperimentFunnelsQueryResponse {
     significance_code: ExperimentSignificanceCode
     expected_loss: number
     credible_intervals: Record<string, [number, number]>
+    stats_version?: integer
 }
 
 export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<ExperimentFunnelsQueryResponse>
@@ -2012,6 +2052,7 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
     name?: string
     experiment_id?: integer
     funnels_query: FunnelsQuery
+    stats_version?: integer
 }
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
@@ -2377,6 +2418,7 @@ export enum AlertCalculationInterval {
 export interface TrendsAlertConfig {
     type: 'TrendsAlertConfig'
     series_index: integer
+    check_ongoing_interval?: boolean
 }
 
 export interface HogCompileResponse {
@@ -2420,6 +2462,7 @@ export type EventTaxonomyResponse = EventTaxonomyItem[]
 export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse> {
     kind: NodeKind.EventTaxonomyQuery
     event: string
+    properties?: string[]
 }
 
 export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse>

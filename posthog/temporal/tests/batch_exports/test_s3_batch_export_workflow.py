@@ -39,6 +39,7 @@ from posthog.temporal.batch_exports.s3_batch_export import (
     insert_into_s3_activity,
     s3_default_fields,
 )
+from posthog.temporal.batch_exports.temporary_file import UnsupportedFileFormatError
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
@@ -251,10 +252,6 @@ async def assert_clickhouse_records_in_s3(
         for record in record_batch.to_pylist():
             expected_record = {}
             for k, v in record.items():
-                if k not in schema_column_names or k == "_inserted_at":
-                    # _inserted_at is not exported, only used for tracking progress.
-                    continue
-
                 if k in json_columns and v is not None:
                     expected_record[k] = json.loads(v)
                 elif isinstance(v, dt.datetime):
@@ -563,6 +560,51 @@ async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
         file_format=file_format,
         is_backfill=False,
     )
+
+
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("file_format", ["invalid"])
+async def test_insert_into_s3_activity_fails_on_invalid_file_format(
+    clickhouse_client,
+    bucket_name,
+    minio_client,
+    activity_environment,
+    compression,
+    exclude_events,
+    file_format,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel | BatchExportSchema | None,
+    ateam,
+):
+    """Test the insert_into_s3_activity function fails with an invalid file format."""
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
+
+    insert_inputs = S3InsertInputs(
+        bucket_name=bucket_name,
+        region="us-east-1",
+        prefix="any",
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        compression=compression,
+        exclude_events=exclude_events,
+        file_format=file_format,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+    )
+
+    with pytest.raises(UnsupportedFileFormatError):
+        with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+            await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
 
 @pytest_asyncio.fixture

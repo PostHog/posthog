@@ -32,16 +32,34 @@ class TestPeriodicDigestReport(APIBaseTest):
                 name="Test Dashboard",
             )
 
+            #  create a dashboard that is generated for a feature flag, should be excluded from the digest
+            Dashboard.objects.create(
+                team=self.team,
+                name="Generated Dashboard: test-flag Usage",
+            )
+
             # Create an event definition
             event_definition = EventDefinition.objects.create(
                 team=self.team,
                 name="Test Event",
             )
 
-            # Create a playlist
+            # Create playlists - one with name, one without name, one with empty string name
             playlist = SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name="Test Playlist",
+            )
+            # This should be excluded from the digest because it has no name and no derived name
+            SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name=None,
+                derived_name=None,
+            )
+            # This should be included in the digest but use the derived name
+            derived_playlist = SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name="",
+                derived_name="Derived Playlist",
             )
 
             # Create experiments
@@ -101,8 +119,8 @@ class TestPeriodicDigestReport(APIBaseTest):
             completed_experiment = Experiment.objects.create(
                 team=self.team,
                 name="Completed Experiment",
-                start_date=now() + timedelta(days=1),
-                end_date=now() + timedelta(days=6),
+                start_date=now() + timedelta(days=6),
+                end_date=now() + timedelta(days=7),
                 feature_flag=flag_for_completed_experiment,
             )
 
@@ -113,7 +131,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         expected_properties = {
             "team_id": self.team.id,
             "team_name": self.team.name,
-            "template": "periodic_digest_report",
+            "template_name": "periodic_digest_report",
             "users_who_logged_in": [],
             "users_who_logged_in_count": 0,
             "users_who_signed_up": [],
@@ -126,7 +144,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             "plugins_installed": {},
             "product": "open source",
             "realm": "hosted-clickhouse",
-            "site_url": "http://localhost:8000",
+            "site_url": "http://localhost:8010",
             "table_sizes": ANY,
             "clickhouse_version": ANY,
             "deployment_infrastructure": "unknown",
@@ -148,7 +166,11 @@ class TestPeriodicDigestReport(APIBaseTest):
                 {
                     "name": "Test Playlist",
                     "id": playlist.short_id,
-                }
+                },
+                {
+                    "name": "Derived Playlist",
+                    "id": derived_playlist.short_id,
+                },
             ],
             "new_experiments_launched": [
                 {
@@ -227,7 +249,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         expected_properties = {
             "team_id": self.team.id,
             "team_name": self.team.name,
-            "template": "periodic_digest_report",
+            "template_name": "periodic_digest_report",
             "users_who_logged_in": [],
             "users_who_logged_in_count": 0,
             "users_who_signed_up": [],
@@ -240,7 +262,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             "plugins_installed": {},
             "product": "open source",
             "realm": "hosted-clickhouse",
-            "site_url": "http://localhost:8000",
+            "site_url": "http://localhost:8010",
             "table_sizes": ANY,
             "clickhouse_version": ANY,
             "deployment_infrastructure": "unknown",

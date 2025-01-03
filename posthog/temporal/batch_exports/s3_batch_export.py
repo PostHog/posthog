@@ -44,11 +44,12 @@ from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
-    run_consumer_loop,
+    run_consumer,
     wait_for_schema_or_producer,
 )
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
+    UnsupportedFileFormatError,
     WriterFormat,
 )
 from posthog.temporal.batch_exports.utils import set_status_to_running_task
@@ -71,6 +72,8 @@ NON_RETRYABLE_ERROR_TYPES = [
     "RecordBatchConsumerNonRetryableExceptionGroup",
     # Invalid S3 endpoint URL
     "InvalidS3EndpointError",
+    # Invalid file_format input
+    "UnsupportedFileFormatError",
 ]
 
 FILE_FORMAT_EXTENSIONS = {
@@ -107,7 +110,11 @@ def get_s3_key(inputs) -> str:
     """Return an S3 key given S3InsertInputs."""
     template_variables = get_allowed_template_variables(inputs)
     key_prefix = inputs.prefix.format(**template_variables)
-    file_extension = FILE_FORMAT_EXTENSIONS[inputs.file_format]
+
+    try:
+        file_extension = FILE_FORMAT_EXTENSIONS[inputs.file_format]
+    except KeyError:
+        raise UnsupportedFileFormatError(inputs.file_format, "S3")
 
     base_file_name = f"{inputs.data_interval_start}-{inputs.data_interval_end}"
     if inputs.compression is not None:
@@ -469,10 +476,17 @@ class S3Consumer(Consumer):
         heartbeater: Heartbeater,
         heartbeat_details: S3HeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        data_interval_end: dt.datetime | str,
         writer_format: WriterFormat,
         s3_upload: S3MultiPartUpload,
     ):
-        super().__init__(heartbeater, heartbeat_details, data_interval_start, writer_format)
+        super().__init__(
+            heartbeater=heartbeater,
+            heartbeat_details=heartbeat_details,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            writer_format=writer_format,
+        )
         self.heartbeat_details: S3HeartbeatDetails = heartbeat_details
         self.s3_upload = s3_upload
 
@@ -699,22 +713,25 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             # Until we figure it out, we set all fields to nullable. There are some fields we know
             # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
             # between batches.
-            [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
+            [field.with_nullable(True) for field in record_batch_schema]
         )
 
         async with s3_upload as s3_upload:
-            records_completed = await run_consumer_loop(
-                queue=queue,
-                consumer_cls=S3Consumer,
-                producer_task=producer_task,
+            consumer = S3Consumer(
                 heartbeater=heartbeater,
                 heartbeat_details=details,
                 data_interval_end=data_interval_end,
                 data_interval_start=data_interval_start,
-                schema=record_batch_schema,
                 writer_format=WriterFormat.from_str(inputs.file_format, "S3"),
-                max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
                 s3_upload=s3_upload,
+            )
+            records_completed = await run_consumer(
+                consumer=consumer,
+                queue=queue,
+                producer_task=producer_task,
+                schema=record_batch_schema,
+                max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+                include_inserted_at=True,
                 writer_file_kwargs={"compression": inputs.compression},
             )
 

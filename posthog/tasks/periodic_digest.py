@@ -54,7 +54,11 @@ def get_teams_for_digest() -> list[Team]:
 
 
 def get_teams_with_new_dashboards(end: datetime, begin: datetime) -> QuerySet:
-    return Dashboard.objects.filter(created_at__gt=begin, created_at__lte=end).values("team_id", "name", "id")
+    return (
+        Dashboard.objects.filter(created_at__gt=begin, created_at__lte=end)
+        .exclude(name__contains="Generated Dashboard")
+        .values("team_id", "name", "id")
+    )
 
 
 def get_teams_with_new_event_definitions(end: datetime, begin: datetime) -> QuerySet:
@@ -62,14 +66,34 @@ def get_teams_with_new_event_definitions(end: datetime, begin: datetime) -> Quer
 
 
 def get_teams_with_new_playlists(end: datetime, begin: datetime) -> QuerySet:
-    return SessionRecordingPlaylist.objects.filter(created_at__gt=begin, created_at__lte=end).values(
-        "team_id", "name", "short_id"
+    return (
+        SessionRecordingPlaylist.objects.filter(
+            created_at__gt=begin,
+            created_at__lte=end,
+        )
+        .exclude(
+            name__isnull=True,
+            derived_name__isnull=True,
+        )
+        .exclude(
+            name="",
+            derived_name="",
+        )
+        .values("team_id", "name", "short_id", "derived_name")
     )
 
 
 def get_teams_with_new_experiments_launched(end: datetime, begin: datetime) -> QuerySet:
-    return Experiment.objects.filter(start_date__gt=begin, start_date__lte=end).values(
-        "team_id", "name", "id", "start_date"
+    return (
+        Experiment.objects.filter(
+            start_date__gt=begin,
+            start_date__lte=end,
+        )
+        .exclude(
+            end_date__gt=begin,
+            end_date__lte=end,
+        )
+        .values("team_id", "name", "id", "start_date")
     )
 
 
@@ -144,7 +168,7 @@ def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> p
             for event_definition in all_digest_data["teams_with_new_event_definitions"].get(team.id, [])
         ],
         new_playlists=[
-            {"name": playlist.get("name"), "id": playlist.get("short_id")}
+            {"name": playlist.get("name") or playlist.get("derived_name", "Untitled"), "id": playlist.get("short_id")}
             for playlist in all_digest_data["teams_with_new_playlists"].get(team.id, [])
         ],
         new_experiments_launched=[
@@ -212,7 +236,7 @@ def send_periodic_digest_report(
     full_report_dict = {
         "team_id": team_id,
         "team_name": team_name,
-        "template": "periodic_digest_report",
+        "template_name": "periodic_digest_report",
         "digest_items_with_data": digest_items_with_data,
         **periodic_digest_report,
         **instance_metadata,

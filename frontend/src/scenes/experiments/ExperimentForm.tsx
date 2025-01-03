@@ -1,5 +1,3 @@
-import './Experiment.scss'
-
 import { IconMagicWand, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -141,7 +139,9 @@ const ExperimentFormFields = (): JSX.Element => {
                 )}
                 <div className="mt-10">
                     <h3 className="mb-1">Variants</h3>
-                    <div className="text-xs text-muted">Add up to 9 variants to test against your control.</div>
+                    <div className="text-xs text-muted">
+                        Add up to {MAX_EXPERIMENT_VARIANTS - 1} variants to test against your control.
+                    </div>
                     <LemonDivider />
                     <div className="grid grid-cols-2 gap-4 max-w-160">
                         <div className="max-w-60">

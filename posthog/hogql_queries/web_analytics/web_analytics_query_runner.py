@@ -88,8 +88,9 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         )
 
     def _previous_period_expression(self, field="start_timestamp"):
+        # NOTE: Returning `ast.Constant(value=None)` is painfully slow, make sure we return a boolean
         if not self.query_compare_to_date_range:
-            return ast.Constant(value=None)
+            return ast.Constant(value=False)
 
         return ast.Call(
             name="and",

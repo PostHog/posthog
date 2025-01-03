@@ -1,3 +1,4 @@
+import asyncio
 import collections.abc
 import contextlib
 import csv
@@ -53,6 +54,11 @@ Fields = collections.abc.Iterable[PostgreSQLField]
 
 class PostgreSQLConnectionError(Exception):
     pass
+
+
+class MissingPrimaryKeyError(Exception):
+    def __init__(self, table: sql.Identifier, primary_key: sql.Composed):
+        super().__init__(f"An operation could not be completed as '{table}' is missing a primary key on {primary_key}")
 
 
 @dataclasses.dataclass
@@ -346,7 +352,10 @@ class PostgreSQLClient:
                     await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
                 await cursor.execute("SET TRANSACTION READ WRITE")
 
-                await cursor.execute(merge_query)
+                try:
+                    await cursor.execute(merge_query)
+                except psycopg.errors.InvalidColumnReference:
+                    raise MissingPrimaryKeyError(final_table_identifier, conflict_fields)
 
     async def copy_tsv_to_postgres(
         self,
@@ -379,7 +388,10 @@ class PostgreSQLClient:
                         fields=sql.SQL(",").join(sql.Identifier(column) for column in schema_columns),
                     )
                 ) as copy:
-                    while data := tsv_file.read():
+                    while data := await asyncio.to_thread(tsv_file.read):
+                        # \u0000 cannot be present in PostgreSQL's jsonb type, and will cause an error.
+                        # See: https://www.postgresql.org/docs/17/datatype-json.html
+                        data = data.replace(b"\\u0000", b"")
                         await copy.write(data)
 
 
@@ -598,6 +610,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                         ("team_id", "INT"),
                         ("distinct_id", "TEXT"),
                     )
+
                     await pg_client.amerge_person_tables(
                         final_table_name=pg_table,
                         stage_table_name=pg_stage_table,
@@ -704,6 +717,11 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 "DiskFull",
                 # Raised by our PostgreSQL client when failing to connect after several attempts.
                 "PostgreSQLConnectionError",
+                # Raised when merging without a primary key.
+                "MissingPrimaryKeyError",
+                # Raised when the database doesn't support a particular feature we use.
+                # Generally, we have seen this when the database is read-only.
+                "FeatureNotSupported",
             ],
             finish_inputs=finish_inputs,
         )

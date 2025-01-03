@@ -512,6 +512,13 @@ GROUP BY session_id, breakdown_value
                 return ast.Field(chain=["properties", "$browser"])
             case WebStatsBreakdown.OS:
                 return ast.Field(chain=["properties", "$os"])
+            case WebStatsBreakdown.VIEWPORT:
+                return ast.Tuple(
+                    exprs=[
+                        ast.Field(chain=["properties", "$viewport_width"]),
+                        ast.Field(chain=["properties", "$viewport_height"]),
+                    ]
+                )
             case WebStatsBreakdown.DEVICE_TYPE:
                 return ast.Field(chain=["properties", "$device_type"])
             case WebStatsBreakdown.COUNTRY:
@@ -555,6 +562,11 @@ GROUP BY session_id, breakdown_value
         match self.query.breakdownBy:
             case WebStatsBreakdown.REGION | WebStatsBreakdown.CITY:
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
+            case WebStatsBreakdown.VIEWPORT:
+                return parse_expr(
+                    "tupleElement(breakdown_value, 1) IS NOT NULL AND tupleElement(breakdown_value, 2) IS NOT NULL AND "
+                    "tupleElement(breakdown_value, 1) != 0 AND tupleElement(breakdown_value, 2) != 0"
+                )
             case (
                 WebStatsBreakdown.INITIAL_UTM_SOURCE
                 | WebStatsBreakdown.INITIAL_UTM_CAMPAIGN
