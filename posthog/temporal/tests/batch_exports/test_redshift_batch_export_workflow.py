@@ -2,8 +2,8 @@ import datetime as dt
 import json
 import operator
 import os
-import warnings
 import uuid
+import warnings
 
 import psycopg
 import pytest
@@ -29,8 +29,8 @@ from posthog.temporal.batch_exports.redshift_batch_export import (
     RedshiftInsertInputs,
     insert_into_redshift_activity,
     redshift_default_fields,
-    remove_escaped_whitespace_recursive,
 )
+from posthog.temporal.batch_exports.temporary_file import remove_escaped_whitespace_recursive
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
