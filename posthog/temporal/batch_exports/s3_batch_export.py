@@ -90,6 +90,38 @@ COMPRESSION_EXTENSIONS = {
 }
 
 
+@dataclasses.dataclass
+class S3InsertInputs:
+    """Inputs for S3 exports."""
+
+    # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
+    # to keep track of where credentials are being stored and increases the
+    # attach surface for credential leaks.
+
+    bucket_name: str
+    region: str
+    prefix: str
+    team_id: int
+    data_interval_start: str | None
+    data_interval_end: str
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    compression: str | None = None
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
+    encryption: str | None = None
+    kms_key_id: str | None = None
+    endpoint_url: str | None = None
+    # TODO: In Python 3.11, this could be a enum.StrEnum.
+    file_format: str = "JSONLines"
+    max_file_size_mb: int | None = None
+    run_id: str | None = None
+    is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    # TODO: Remove after updating existing batch exports
+    batch_export_schema: BatchExportSchema | None = None
+
+
 def get_allowed_template_variables(inputs) -> dict[str, str]:
     """Derive from inputs a dictionary of supported template variables for the S3 key prefix."""
     export_datetime = dt.datetime.fromisoformat(inputs.data_interval_end)
@@ -106,7 +138,7 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
     }
 
 
-def get_s3_key(inputs, file_number: int | None = None) -> str:
+def get_s3_key(inputs: S3InsertInputs, file_number: int = 0) -> str:
     """Return an S3 key given S3InsertInputs."""
     template_variables = get_allowed_template_variables(inputs)
     key_prefix = inputs.prefix.format(**template_variables)
@@ -118,7 +150,7 @@ def get_s3_key(inputs, file_number: int | None = None) -> str:
 
     base_file_name = f"{inputs.data_interval_start}-{inputs.data_interval_end}"
     # to maintain backwards compatibility with the old file naming scheme
-    if file_number is not None and file_number > 0:
+    if inputs.max_file_size_mb is not None:
         base_file_name = f"{base_file_name}-{file_number}"
     if inputs.compression is not None:
         file_name = base_file_name + f".{file_extension}.{COMPRESSION_EXTENSIONS[inputs.compression]}"
@@ -424,38 +456,6 @@ class S3MultiPartUpload:
         We re-raise any exceptions captured.
         """
         return False
-
-
-@dataclasses.dataclass
-class S3InsertInputs:
-    """Inputs for S3 exports."""
-
-    # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
-    # to keep track of where credentials are being stored and increases the
-    # attach surface for credential leaks.
-
-    bucket_name: str
-    region: str
-    prefix: str
-    team_id: int
-    data_interval_start: str | None
-    data_interval_end: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
-    compression: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    encryption: str | None = None
-    kms_key_id: str | None = None
-    endpoint_url: str | None = None
-    # TODO: In Python 3.11, this could be a enum.StrEnum.
-    file_format: str = "JSONLines"
-    max_file_size_mb: int | None = None
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    # TODO: Remove after updating existing batch exports
-    batch_export_schema: BatchExportSchema | None = None
 
 
 @dataclasses.dataclass

@@ -419,7 +419,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: BatchExportModel,
     ateam,
 ):
     """Test that the insert_into_s3_activity function splits up large files into
@@ -461,13 +461,6 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
 
     events_to_export_created = events_1 + events_2
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
-        batch_export_model = model
-    elif model is not None:
-        batch_export_schema = model
-
     heartbeat_details: list[S3HeartbeatDetails] = []
 
     def track_hearbeat_details(*details):
@@ -493,8 +486,8 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
         exclude_events=exclude_events,
         file_format=file_format,
         max_file_size_mb=max_file_size_mb,
-        batch_export_schema=batch_export_schema,
-        batch_export_model=batch_export_model,
+        batch_export_schema=None,
+        batch_export_model=model,
     )
 
     with override_settings(
@@ -527,11 +520,12 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
         data_interval_end: dt.datetime,
         file_format: str,
         compression: str,
+        max_file_size_mb: int | None,
     ):
         file_extension = FILE_FORMAT_EXTENSIONS[file_format]
         base_key_name = f"{prefix}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}"
-        # for backwards compatibility with the old file naming scheme if file_number is 0 we exclude it from the name
-        if file_number == 0:
+        # for backwards compatibility with the old file naming scheme
+        if max_file_size_mb is None:
             key_name = base_key_name
         else:
             key_name = f"{base_key_name}-{file_number}"
@@ -548,7 +542,17 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
         assert num_files > 1
 
     for i in range(num_files):
-        assert expected_s3_key(i, data_interval_start, data_interval_end, file_format, compression) in s3_keys
+        assert (
+            expected_s3_key(
+                file_number=i,
+                data_interval_start=data_interval_start,
+                data_interval_end=data_interval_end,
+                file_format=file_format,
+                compression=compression,
+                max_file_size_mb=max_file_size_mb,
+            )
+            in s3_keys
+        )
 
     # check heartbeat details
     assert len(heartbeat_details) > 0
@@ -1666,6 +1670,16 @@ base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}
                 **base_inputs,  # type: ignore
             ),
             "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.parquet.br",
+        ),
+        (
+            S3InsertInputs(
+                prefix="/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                max_file_size_mb=1,
+                **base_inputs,  # type: ignore
+            ),
+            "2023-01-01 00:00:00-2023-01-01 01:00:00-0.jsonl",
         ),
     ],
 )
