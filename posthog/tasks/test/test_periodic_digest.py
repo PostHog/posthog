@@ -32,16 +32,31 @@ class TestPeriodicDigestReport(APIBaseTest):
                 name="Test Dashboard",
             )
 
+            #  create a dashboard that is generated for a feature flag, should be excluded from the digest
+            Dashboard.objects.create(
+                team=self.team,
+                name="Generated Dashboard: test-flag Usage",
+            )
+
             # Create an event definition
             event_definition = EventDefinition.objects.create(
                 team=self.team,
                 name="Test Event",
             )
 
-            # Create a playlist
+            # Create playlists - one with name, one without name, one with empty string name
             playlist = SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name="Test Playlist",
+            )
+            # These should be excluded from the digest
+            SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name=None,
+            )
+            SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name="",
             )
 
             # Create experiments
@@ -101,8 +116,8 @@ class TestPeriodicDigestReport(APIBaseTest):
             completed_experiment = Experiment.objects.create(
                 team=self.team,
                 name="Completed Experiment",
-                start_date=now() + timedelta(days=1),
-                end_date=now() + timedelta(days=6),
+                start_date=now() + timedelta(days=6),
+                end_date=now() + timedelta(days=7),
                 feature_flag=flag_for_completed_experiment,
             )
 
@@ -126,7 +141,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             "plugins_installed": {},
             "product": "open source",
             "realm": "hosted-clickhouse",
-            "site_url": "http://localhost:8000",
+            "site_url": "http://localhost:8010",
             "table_sizes": ANY,
             "clickhouse_version": ANY,
             "deployment_infrastructure": "unknown",
@@ -240,7 +255,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             "plugins_installed": {},
             "product": "open source",
             "realm": "hosted-clickhouse",
-            "site_url": "http://localhost:8000",
+            "site_url": "http://localhost:8010",
             "table_sizes": ANY,
             "clickhouse_version": ANY,
             "deployment_infrastructure": "unknown",
@@ -351,3 +366,36 @@ class TestPeriodicDigestReport(APIBaseTest):
         # Verify no capture call and no messaging record
         mock_capture.delay.assert_not_called()
         self.assertEqual(MessagingRecord.objects.count(), 0)
+
+    @freeze_time("2024-01-20T00:01:00Z")
+    @patch("posthog.tasks.periodic_digest.capture_report")
+    def test_periodic_digest_excludes_playlists_without_names(self, mock_capture: MagicMock) -> None:
+        # Create test data from "last week"
+        with freeze_time("2024-01-15T00:01:00Z"):
+            # Create playlists with various name states
+            valid_playlist = SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name="Valid Playlist",
+            )
+            SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name=None,  # Null name should be excluded
+            )
+            SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name="",  # Empty string name should be excluded
+            )
+
+        # Run the periodic digest report task
+        send_all_periodic_digest_reports()
+
+        # Extract the playlists from the capture call
+        call_args = mock_capture.delay.call_args
+        self.assertIsNotNone(call_args)
+        full_report_dict = call_args[1]["full_report_dict"]
+        playlists = full_report_dict["new_playlists"]
+
+        # Verify only the valid playlist is included
+        self.assertEqual(len(playlists), 1)
+        self.assertEqual(playlists[0]["name"], "Valid Playlist")
+        self.assertEqual(playlists[0]["id"], valid_playlist.short_id)
