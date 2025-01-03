@@ -49,14 +49,17 @@ class TestPeriodicDigestReport(APIBaseTest):
                 team=self.team,
                 name="Test Playlist",
             )
-            # These should be excluded from the digest
+            # This should be excluded from the digest because it has no name and no derived name
             SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name=None,
+                derived_name=None,
             )
-            SessionRecordingPlaylist.objects.create(
+            # This should be included in the digest but use the derived name
+            derived_playlist = SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name="",
+                derived_name="Derived Playlist",
             )
 
             # Create experiments
@@ -141,7 +144,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             "plugins_installed": {},
             "product": "open source",
             "realm": "hosted-clickhouse",
-            "site_url": "http://localhost:8000",
+            "site_url": "http://localhost:8010",
             "table_sizes": ANY,
             "clickhouse_version": ANY,
             "deployment_infrastructure": "unknown",
@@ -163,7 +166,11 @@ class TestPeriodicDigestReport(APIBaseTest):
                 {
                     "name": "Test Playlist",
                     "id": playlist.short_id,
-                }
+                },
+                {
+                    "name": "Derived Playlist",
+                    "id": derived_playlist.short_id,
+                },
             ],
             "new_experiments_launched": [
                 {
@@ -258,7 +265,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             "plugins_installed": {},
             "product": "open source",
             "realm": "hosted-clickhouse",
-            "site_url": "http://localhost:8000",
+            "site_url": "http://localhost:8010",
             "table_sizes": ANY,
             "clickhouse_version": ANY,
             "deployment_infrastructure": "unknown",

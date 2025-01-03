@@ -719,6 +719,9 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 "PostgreSQLConnectionError",
                 # Raised when merging without a primary key.
                 "MissingPrimaryKeyError",
+                # Raised when the database doesn't support a particular feature we use.
+                # Generally, we have seen this when the database is read-only.
+                "FeatureNotSupported",
             ],
             finish_inputs=finish_inputs,
         )

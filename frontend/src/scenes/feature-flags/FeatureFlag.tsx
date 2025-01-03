@@ -274,7 +274,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <span className="text-warning">
                                                 <b>Warning! </b>Changing this key will
                                                 <Link
-                                                    to={`https://posthog.com/docs/features/feature-flags${UTM_TAGS}#feature-flag-persistence`}
+                                                    to={`https://posthog.com/docs/feature-flags${UTM_TAGS}#feature-flag-persistence`}
                                                     target="_blank"
                                                     targetBlankIcon
                                                 >
