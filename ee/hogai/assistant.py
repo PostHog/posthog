@@ -1,6 +1,6 @@
 import json
 from collections.abc import Generator, Iterator
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from uuid import uuid4
 
 from langchain_core.messages import AIMessageChunk
@@ -63,7 +63,6 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
 STREAMING_NODES: set[AssistantNodeName] = {
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
-    AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.SUMMARIZER,
 }
 
@@ -257,11 +256,13 @@ class Assistant:
                     return VisualizationMessage(answer=parsed_message.query, initiator=initiator_id)
             elif node_name in STREAMING_NODES:
                 self._chunks += langchain_message  # type: ignore
-                if (
-                    node_name == AssistantNodeName.MEMORY_INITIALIZER
-                    and not MemoryInitializerNode.should_process_message_chunk(langchain_message)
-                ):
-                    return None
+                if node_name == AssistantNodeName.MEMORY_INITIALIZER:
+                    if not MemoryInitializerNode.should_process_message_chunk(langchain_message):
+                        return None
+                    else:
+                        return AssistantMessage(
+                            content=MemoryInitializerNode.format_message(cast(str, self._chunks.content))
+                        )
                 return AssistantMessage(content=self._chunks.content)
         return None
 

@@ -7,9 +7,12 @@ from langchain_core.messages import AIMessageChunk
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
+from langchain_openai import ChatOpenAI
 from langgraph.errors import NodeInterrupt
 
+from ee.hogai.memory.parsers import compressed_memory_parser
 from ee.hogai.memory.prompts import (
+    COMPRESSION_PROMPT,
     FAILED_SCRAPING_MESSAGE,
     INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT,
@@ -127,7 +130,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         if "no data available." in answer.lower():
             core_memory.change_status_to_skipped()
             return PartialAssistantState(messages=[AssistantMessage(content=FAILED_SCRAPING_MESSAGE, id=str(uuid4()))])
-        return PartialAssistantState(messages=[AssistantMessage(content=answer, id=str(uuid4()))])
+        return PartialAssistantState(messages=[AssistantMessage(content=self.format_message(answer), id=str(uuid4()))])
 
     def router(self, state: AssistantState) -> Literal["interrupt", "continue"]:
         last_message = state.messages[-1]
@@ -140,6 +143,10 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         placeholder = "no data available"
         content = cast(str, message.content)
         return placeholder not in content.lower() and len(content) > len(placeholder)
+
+    @classmethod
+    def format_message(cls, message: str) -> str:
+        return re.sub(r"\[\d+\]", "", message)
 
     def _model(self):
         return ChatPerplexity(model="llama-3.1-sonar-large-128k-online", temperature=0, streaming=True)
@@ -186,7 +193,17 @@ class MemoryInitializerInterruptNode(AssistantNode):
         if not assistant_message:
             raise ValueError("No memory message found.")
 
-        core_memory.set_core_memory(self._format_memory(assistant_message.content))
+        # Compress the memory before saving it. It removes unneeded redundancy.
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", COMPRESSION_PROMPT),
+                ("human", self._format_memory(assistant_message.content)),
+            ]
+        )
+        chain = prompt | self._model | StrOutputParser() | compressed_memory_parser
+        compressed_memory = cast(str, chain.invoke({}, config=config))
+        core_memory.set_core_memory(compressed_memory)
+
         return PartialAssistantState(
             messages=[
                 AssistantMessage(
@@ -196,8 +213,12 @@ class MemoryInitializerInterruptNode(AssistantNode):
             ]
         )
 
+    @property
+    def _model(self):
+        return ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
     def _format_memory(self, memory: str) -> str:
         """
         Remove markdown and source reference tags like [1], [2], etc.
         """
-        return re.sub(r"\[\d+\]", "", remove_markdown(memory))
+        return remove_markdown(memory)

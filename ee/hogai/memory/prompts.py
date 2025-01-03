@@ -57,3 +57,7 @@ The provided bundle ID{{#bundle_ids.length > 1}}s are{{/bundle_ids.length > 1}}{
 FAILED_SCRAPING_MESSAGE = """
 Unfortunately, I couldn't find any information about your product. You could edit my initial memory in Settings. Let me help with your request.
 """.strip()
+
+COMPRESSION_PROMPT = """
+Your goal is to shorten paragraphs in the given text to have only a single sentence for each paragraph, preserving the original meaning and maintaining the cohesiveness of the text. Remove all found headers. You must keep the original structure. Remove linking words. Do not use markdown or any other text formatting.
+""".strip()
