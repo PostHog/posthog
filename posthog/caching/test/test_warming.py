@@ -1,4 +1,4 @@
-from posthog.caching.warming import priority_insights, schedule_warming_for_teams_task
+from posthog.caching.warming import insights_to_cache, schedule_warming_for_teams_task
 from posthog.models import Insight, DashboardTile, InsightViewed, Dashboard
 
 from datetime import datetime, timedelta, UTC
@@ -48,7 +48,7 @@ class TestWarming(APIBaseTest):
     @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
     def test_priority_insights_no_stale_insights(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = []
-        insights = list(priority_insights(self.team))
+        insights = list(insights_to_cache(self.team))
         self.assertEqual(insights, [])
 
     @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
@@ -56,7 +56,7 @@ class TestWarming(APIBaseTest):
         mock_get_stale_insights.return_value = [
             "2345:",
         ]
-        insights = list(priority_insights(self.team))
+        insights = list(insights_to_cache(self.team))
         exptected_results = [
             (2345, None),
         ]
@@ -68,7 +68,7 @@ class TestWarming(APIBaseTest):
             "1234:5678",
             "3456:7890",
         ]
-        insights = list(priority_insights(self.team))
+        insights = list(insights_to_cache(self.team))
         expected_results = [
             (3456, 7890),
         ]
@@ -82,7 +82,7 @@ class TestWarming(APIBaseTest):
             "3456:7890",
             "8888:7777",
         ]
-        insights = list(priority_insights(self.team))
+        insights = list(insights_to_cache(self.team))
         expected_results = [
             (3456, 7890),
         ]
@@ -91,13 +91,13 @@ class TestWarming(APIBaseTest):
     @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
     def test_priority_insights_insights_not_viewed_recently(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = ["4567:"]
-        insights = list(priority_insights(self.team))
+        insights = list(insights_to_cache(self.team))
         self.assertEqual(insights, [])
 
     @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
     def test_priority_insights_dashboards_not_accessed_recently(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = ["5678:8901"]
-        insights = list(priority_insights(self.team))
+        insights = list(insights_to_cache(self.team))
         self.assertEqual(insights, [])
 
     @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
@@ -108,7 +108,7 @@ class TestWarming(APIBaseTest):
             "3456:7890",
             "4567:",
         ]
-        insights = list(priority_insights(self.team))
+        insights = list(insights_to_cache(self.team))
         expected_results = [
             (2345, None),
             (3456, 7890),
