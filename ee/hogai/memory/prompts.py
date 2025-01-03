@@ -29,7 +29,9 @@ The provided URL is "{{url}}".
 
 INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT = """
 Your goal is to describe what the startup with the given application bundle IDs does.
+""".strip()
 
+INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT = """
 <sources>
 - Retrieve information about app identifiers from app listings of App Store and Google Play.
 - If a website URL is provided on the app listing, check the website and retrieve information about the app.
@@ -39,18 +41,19 @@ Your goal is to describe what the startup with the given application bundle IDs 
 <instructions>
 - Describe the product itself and the market where the company operates.
 - Describe the target audience of the product.
-- Describe the business model of the company.
-- List all features that the product has.
-- Describe each feature in as much detail as possible.
+- Describe the company's business model.
+- List all the features of the product and describe each feature in as much detail as possible.
 </instructions>
 
 <format_instructions>
-Output your answer in paragraphs with two to three sentences. Separate new paragraphs with a newline.
-Answer "No data available." if the given website doesn't exist.
-</format_instructions>
-""".strip()
+Output your answer in paragraphs with two to three sentences. Separate new paragraphs with a new line.
+IMPORTANT: DO NOT OUTPUT markdown or headers. It must be plain text.
 
-INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT = """
+Answer a single sentence "No data available." if:
+- the given website doesn't exist, or the URL does not match any of the sources given.
+- the URL is not a valid website or points to a local environment, for example, localhost, 127.0.0.1, etc.
+</format_instructions>
+
 The provided bundle ID{{#bundle_ids.length > 1}}s are{{/bundle_ids.length > 1}}{{^bundle_ids.length > 1}} is{{/bundle_ids.length > 1}} {{#bundle_ids}}"{{.}}"{{^last}}, {{/last}}{{/bundle_ids}}.
 """.strip()
 
