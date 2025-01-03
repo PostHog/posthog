@@ -471,7 +471,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         allTabs: () => {
             // keep selected tab up to date
             const activeTab = values.allTabs.find((tab) => tab.uri.path === values.activeModelUri?.uri.path)
-            activeTab && actions.selectTab(activeTab)
+            if (activeTab && activeTab.uri.path != values.activeModelUri?.uri.path) {
+                actions.selectTab(activeTab)
+            }
         },
     })),
     selectors({
