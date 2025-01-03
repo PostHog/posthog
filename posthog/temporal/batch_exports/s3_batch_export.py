@@ -770,28 +770,25 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             [field.with_nullable(True) for field in record_batch_schema]
         )
 
-        async with s3_upload as s3_upload:
-            consumer = S3Consumer(
-                heartbeater=heartbeater,
-                heartbeat_details=details,
-                data_interval_end=data_interval_end,
-                data_interval_start=data_interval_start,
-                writer_format=WriterFormat.from_str(inputs.file_format, "S3"),
-                s3_upload=s3_upload,
-                s3_inputs=inputs,
-            )
-            records_completed = await run_consumer(
-                consumer=consumer,
-                queue=queue,
-                producer_task=producer_task,
-                schema=record_batch_schema,
-                max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
-                include_inserted_at=True,
-                writer_file_kwargs={"compression": inputs.compression},
-                max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
-            )
-
-            await s3_upload.complete()
+        consumer = S3Consumer(
+            heartbeater=heartbeater,
+            heartbeat_details=details,
+            data_interval_end=data_interval_end,
+            data_interval_start=data_interval_start,
+            writer_format=WriterFormat.from_str(inputs.file_format, "S3"),
+            s3_upload=s3_upload,
+            s3_inputs=inputs,
+        )
+        records_completed = await run_consumer(
+            consumer=consumer,
+            queue=queue,
+            producer_task=producer_task,
+            schema=record_batch_schema,
+            max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+            include_inserted_at=True,
+            writer_file_kwargs={"compression": inputs.compression},
+            max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
+        )
 
         return records_completed
 
