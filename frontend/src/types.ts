@@ -3016,9 +3016,16 @@ export interface CombinedFeatureFlagAndValueType {
     value: boolean | string
 }
 
-export interface Feature {
-    id: number | null
+export interface FeatureType {
+    id: string
+    key: string
     name: string
+    description: string
+    primary_early_access_feature_id: string
+    archived: boolean
+    deleted: boolean
+    created_at: string | null
+    created_by: UserBasicType | null
 }
 
 export enum EarlyAccessFeatureStage {

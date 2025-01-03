@@ -1,7 +1,30 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 
 import { featureManagementDetailLogic } from './featureManagementDetailLogic'
+
+function Header(): JSX.Element {
+    const { activeFeature } = useValues(featureManagementDetailLogic)
+    const { deleteFeature } = useActions(featureManagementDetailLogic)
+
+    return (
+        <div className="flex justify-between items-center">
+            <div className="text-xl font-bold">{activeFeature?.name}</div>
+            <More
+                overlay={
+                    <>
+                        <LemonButton fullWidth>Edit</LemonButton>
+                        <LemonDivider />
+                        <LemonButton status="danger" fullWidth onClick={() => deleteFeature(activeFeature)}>
+                            Delete feature
+                        </LemonButton>
+                    </>
+                }
+            />
+        </div>
+    )
+}
 
 function Metadata(): JSX.Element {
     return (
@@ -70,11 +93,9 @@ function Permissions(): JSX.Element {
 }
 
 export function FeatureManagementDetail(): JSX.Element {
-    const { activeFeature } = useValues(featureManagementDetailLogic)
-
     return (
         <div className="flex flex-col gap-16">
-            <div className="text-xl font-bold">{activeFeature?.name}</div>
+            <Header />
             <Metadata />
             <Rollout />
             <Usage />
