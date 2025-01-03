@@ -450,6 +450,7 @@ class S3InsertInputs:
     endpoint_url: str | None = None
     # TODO: In Python 3.11, this could be a enum.StrEnum.
     file_format: str = "JSONLines"
+    max_file_size_mb: int | None = None
     run_id: str | None = None
     is_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
@@ -495,7 +496,7 @@ class S3HeartbeatDetails(BatchExportRangeHeartbeatDetails):
         remaining["_remaining"] = remaining["_remaining"][1:]
 
         try:
-            files_uploaded = second_detail or 0
+            files_uploaded = int(second_detail)
         except (TypeError, ValueError) as e:
             raise HeartbeatParseError("files_uploaded") from e
 
@@ -671,7 +672,8 @@ def s3_default_fields() -> list[BatchExportField]:
 async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
     """Activity to batch export data from PostHog's ClickHouse to S3.
 
-    It currently only creates a single file per run, and uploads as a multipart upload.
+    It will upload multiple files if the max_file_size_mb is set, otherwise it
+    will upload a single file. File uploads are done using multipart upload.
 
     TODO: this implementation currently tries to export as one run, but it could
     be a very big date range and time consuming, better to split into multiple
@@ -786,7 +788,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
                 include_inserted_at=True,
                 writer_file_kwargs={"compression": inputs.compression},
-                max_file_size_bytes=settings.BATCH_EXPORT_S3_UPLOAD_MAX_FILE_SIZE_BYTES,
+                max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             )
 
             await s3_upload.complete()
@@ -859,6 +861,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             encryption=inputs.encryption,
             kms_key_id=inputs.kms_key_id,
             file_format=inputs.file_format,
+            max_file_size_mb=inputs.max_file_size_mb,
             run_id=run_id,
             is_backfill=inputs.is_backfill,
             batch_export_model=inputs.batch_export_model,
