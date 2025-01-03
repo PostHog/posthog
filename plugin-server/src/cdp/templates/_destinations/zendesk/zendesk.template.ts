@@ -6,8 +6,8 @@ export const template: HogFunctionTemplate = {
     id: 'template-zendesk',
     name: 'Zendesk',
     description: 'Update contacts in Zendesk',
-    category: ['Customer Success'],
     icon_url: '/static/services/zendesk.png',
+    category: ['Customer Success'],
     hog: `
 if (empty(inputs.email) or empty(inputs.name)) {
     print('\`email\` or \`name\` input is empty. Not creating a contact.')
@@ -31,13 +31,12 @@ for (let key, value in inputs.attributes) {
 
 fetch(f'https://{inputs.subdomain}.zendesk.com/api/v2/users/create_or_update', {
   'headers': {
-    'Authorization': f'Basic {base64Encode(f'{inputs.admin_email}/token:{inputs.token}')}',
+    'Authorization': f'Basic {base64Encode(f\'{inputs.admin_email}/token:{inputs.token}\')}',
     'Content-Type': 'application/json'
   },
   'body': body,
   'method': 'POST'
-});
-`,
+});`,
     inputs_schema: [
         {
             key: 'subdomain',
@@ -63,7 +62,7 @@ fetch(f'https://{inputs.subdomain}.zendesk.com/api/v2/users/create_or_update', {
             label: 'API token',
             secret: true,
             required: true,
-            description: 'Enter your Zendesk API Token',
+            hint: 'Enter your Zendesk API Token',
         },
         {
             key: 'email',
@@ -72,7 +71,7 @@ fetch(f'https://{inputs.subdomain}.zendesk.com/api/v2/users/create_or_update', {
             default: '{person.properties.email}',
             secret: false,
             required: true,
-            description: 'The email of the user you want to create or update.',
+            hint: 'The email of the user you want to create or update.',
         },
         {
             key: 'name',
@@ -81,7 +80,7 @@ fetch(f'https://{inputs.subdomain}.zendesk.com/api/v2/users/create_or_update', {
             default: '{person.properties.name}',
             secret: false,
             required: true,
-            description: 'The name of the user you want to create or update.',
+            hint: 'The name of the user you want to create or update.',
         },
         {
             key: 'attributes',
@@ -99,8 +98,18 @@ fetch(f'https://{inputs.subdomain}.zendesk.com/api/v2/users/create_or_update', {
     ],
     filters: {
         events: [
-            { id: '$identify', name: '$identify', type: 'events', order: 0 },
-            { id: '$set', name: '$set', type: 'events', order: 1 },
+            {
+                id: '$identify',
+                name: '$identify',
+                type: 'events',
+                order: 0,
+            },
+            {
+                id: '$set',
+                name: '$set',
+                type: 'events',
+                order: 1,
+            },
         ],
         actions: [],
         filter_test_accounts: true,

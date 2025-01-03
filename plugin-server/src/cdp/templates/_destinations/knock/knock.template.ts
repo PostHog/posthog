@@ -23,7 +23,6 @@ let body := {
     'timestamp': event.timestamp
 }
 
-print(inputs, body)
 if (inputs.include_all_properties and not empty(event.elements_chain)) {
     body['properties']['$elements_chain'] := event.elements_chain
 }
@@ -44,8 +43,7 @@ let res := fetch(inputs.webhookUrl, {
 
 if (res.status >= 400) {
     throw Error(f'Error from knock.app (status {res.status}): {res.body}')
-}
-`,
+}`,
     inputs_schema: [
         {
             key: 'webhookUrl',
