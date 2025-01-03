@@ -30,6 +30,24 @@ export interface SessionSummaryResponse {
     content: string
 }
 
+export function countryTitleFrom(
+    recordingProperties: Record<string, any> | undefined,
+    personProperties?: Record<string, any> | undefined
+): string {
+    const props = recordingProperties || personProperties
+    if (!props) {
+        return ''
+    }
+
+    // these prop names are safe between recording and person properties
+    // the "initial" person properties share the same name as the event properties
+    const country = countryCodeToName[props['$geoip_country_code'] as keyof typeof countryCodeToName]
+    const subdivision = props['$geoip_subdivision_1_name']
+    const city = props['$geoip_city_name']
+
+    return [city, subdivision, country].filter(Boolean).join(', ')
+}
+
 export const playerMetaLogic = kea<playerMetaLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -243,15 +261,13 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                             : TaxonomicFilterGroupType.PersonProperties
                         const value = recordingProperties[property] || personProperties[property]
 
-                        const tooltipTitle =
-                            property === '$geoip_country_code' && value in countryCodeToName
-                                ? countryCodeToName[value as keyof typeof countryCodeToName]
-                                : value
-
                         items.push({
                             label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
                             value,
-                            tooltipTitle,
+                            tooltipTitle:
+                                property === '$geoip_country_code' && value in countryCodeToName
+                                    ? countryTitleFrom(recordingProperties, personProperties)
+                                    : value,
                             type: 'property',
                             property,
                         })

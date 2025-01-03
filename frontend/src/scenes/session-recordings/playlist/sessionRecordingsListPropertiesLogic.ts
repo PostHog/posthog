@@ -45,8 +45,10 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                                     any(properties.$browser) as $browser, 
                                     any(properties.$device_type) as $device_type, 
                                     any(properties.$os) as $os, 
-                                    any(properties.$os_name) as $os_name ,
-                                    argMin(properties.$referring_domain, timestamp) as $referring_domain
+                                    any(properties.$os_name) as $os_name,
+                                    argMin(properties.$referring_domain, timestamp) as $referring_domain,
+                                    any(properties.$geoip_subdivision_1_name) as $geoip_subdivision_1_name,
+                                    any(properties.$geoip_city_name) as $geoip_city_name
                                 FROM events
                                 WHERE event IN ${Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP['events'])}
                                 AND session_id IN ${sessionIds}
@@ -75,6 +77,8 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                                 $os: x[4],
                                 $os_name: x[5],
                                 $referring_domain: x[6],
+                                $geoip_subdivision_1_name: x[7],
+                                $geoip_city_name: x[8],
                             },
                         }
                     })
