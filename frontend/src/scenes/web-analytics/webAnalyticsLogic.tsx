@@ -1,3 +1,4 @@
+import { IconGear } from '@posthog/icons'
 import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
@@ -5,7 +6,10 @@ import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
@@ -102,7 +106,7 @@ export interface QueryTile extends BaseTile {
     title?: string
     query: QuerySchema
     showIntervalSelect?: boolean
-    showPathCleaningControls?: boolean
+    control?: JSX.Element
     insightProps: InsightLogicProps
     canOpenModal: boolean
     canOpenInsight?: boolean
@@ -114,7 +118,7 @@ export interface TabsTileTab {
     linkText: string
     query: QuerySchema
     showIntervalSelect?: boolean
-    showPathCleaningControls?: boolean
+    control?: JSX.Element
     insightProps: InsightLogicProps
     canOpenModal?: boolean
     canOpenInsight?: boolean
@@ -146,7 +150,7 @@ export interface WebDashboardModalQuery {
     query: QuerySchema
     insightProps: InsightLogicProps
     showIntervalSelect?: boolean
-    showPathCleaningControls?: boolean
+    control?: JSX.Element
     canOpenInsight?: boolean
 }
 
@@ -681,6 +685,44 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
+                const pathCleaningSettingsUrl = urls.settings('project-product-analytics', 'path-cleaning')
+                const customChannelTypesUrl = urls.settings('environment-web-analytics', 'channel-type')
+
+                const pathCleaningControl = (
+                    <LemonSwitch
+                        label={
+                            <div className="flex flex-row space-x-2">
+                                <Tooltip
+                                    title={
+                                        <>
+                                            Check{' '}
+                                            <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
+                                                our path cleaning rules documentation
+                                            </Link>{' '}
+                                            to learn more about path cleaning
+                                        </>
+                                    }
+                                    interactive
+                                >
+                                    <span>Enable path cleaning</span>
+                                </Tooltip>
+                                <LemonButton
+                                    icon={<IconGear />}
+                                    type="tertiary"
+                                    status="alt"
+                                    size="small"
+                                    noPadding={true}
+                                    tooltip="Edit path cleaning settings"
+                                    to={pathCleaningSettingsUrl}
+                                />
+                            </div>
+                        }
+                        checked={!!isPathCleaningEnabled}
+                        onChange={(value) => actions.setIsPathCleaningEnabled(value)}
+                        className="h-full"
+                    />
+                )
+
                 const allTiles: (WebDashboardTile | null)[] = [
                     {
                         kind: 'query',
@@ -780,7 +822,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         doPathCleaning: !!isPathCleaningEnabled,
                                     },
                                     {
-                                        showPathCleaningControls: true,
+                                        control: pathCleaningControl,
                                         docs: {
                                             url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                             title: 'Paths',
@@ -823,7 +865,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         doPathCleaning: !!isPathCleaningEnabled,
                                     },
                                     {
-                                        showPathCleaningControls: true,
+                                        control: pathCleaningControl,
                                         docs: {
                                             url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                             title: 'Entry Path',
@@ -857,7 +899,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         doPathCleaning: !!isPathCleaningEnabled,
                                     },
                                     {
-                                        showPathCleaningControls: true,
+                                        control: pathCleaningControl,
                                         docs: {
                                             url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                             title: 'End Path',
@@ -929,6 +971,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 WebStatsBreakdown.InitialChannelType,
                                 {},
                                 {
+                                    control: (
+                                        <LemonButton
+                                            className="font-medium" // match the label elsewhere on the page
+                                            sideIcon={<IconGear />}
+                                            type="tertiary"
+                                            status="alt"
+                                            noPadding={true}
+                                            to={customChannelTypesUrl}
+                                            size="medium"
+                                        >
+                                            Customize channel types
+                                        </LemonButton>
+                                    ),
                                     docs: {
                                         url: 'https://posthog.com/docs/data/channel-type',
                                         title: 'Channels',
@@ -1419,7 +1474,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabId,
                         title: tab.title,
                         showIntervalSelect: tab.showIntervalSelect,
-                        showPathCleaningControls: tab.showPathCleaningControls,
+                        control: tab.control,
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, tabId, true),
                             loadPriority: 0,
@@ -1434,7 +1489,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId,
                         title: tile.title,
                         showIntervalSelect: tile.showIntervalSelect,
-                        showPathCleaningControls: tile.showPathCleaningControls,
+                        control: tile.control,
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, undefined, true),
                             loadPriority: 0,

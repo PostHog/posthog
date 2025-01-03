@@ -2560,6 +2560,9 @@ export enum CustomChannelField {
     UTMMedium = 'utm_medium',
     UTMCampaign = 'utm_campaign',
     ReferringDomain = 'referring_domain',
+    URL = 'url',
+    Pathname = 'pathname',
+    Hostname = 'hostname',
 }
 
 export enum CustomChannelOperator {

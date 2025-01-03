@@ -44,6 +44,18 @@ const keyOptions = [
         label: 'UTM Campaign',
         value: CustomChannelField.UTMCampaign,
     },
+    {
+        label: 'URL',
+        value: CustomChannelField.URL,
+    },
+    {
+        label: 'Hostname',
+        value: CustomChannelField.Hostname,
+    },
+    {
+        label: 'Pathname',
+        value: CustomChannelField.Pathname,
+    },
 ]
 
 const opOptions = Object.values(CustomChannelOperator).map((op) => {
@@ -78,6 +90,12 @@ function keyToSessionProperty(key: CustomChannelField): string {
             return '$entry_utm_medium'
         case CustomChannelField.UTMCampaign:
             return '$entry_utm_campaign'
+        case CustomChannelField.URL:
+            return '$entry_url'
+        case CustomChannelField.Hostname:
+            return '$entry_hostname'
+        case CustomChannelField.Pathname:
+            return '$entry_pathname'
         default:
             throw new UnexpectedNeverError(key)
     }
