@@ -15,7 +15,7 @@ import {
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { DashboardPrivilegeLevel, OrganizationMembershipLevel } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -919,8 +919,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         canEditDashboard: [
-            (s) => [s.dashboard],
-            (dashboard) => !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
+            (s) => [s.dashboard, s.featureFlags],
+            (dashboard, featureFlags) => {
+                if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
+                    return true
+                    // TODO: figure out how to access this method
+                    // return hasResourceAccess({ userAccessLevel: dashboard.user_access_level, requiredLevels: ['admin', 'editor'] })
+                }
+                return !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+            },
         ],
         canRestrictDashboard: [
             // Sync conditions with backend can_user_restrict
@@ -965,8 +972,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s._dashboardLoading, s.dashboardFailedToLoad],
-            (dashboard, dashboardLoading, dashboardFailedToLoad): Breadcrumb[] => [
+            (s) => [s.dashboard, s._dashboardLoading, s.dashboardFailedToLoad, s.canEditDashboard],
+            (dashboard, dashboardLoading, dashboardFailedToLoad, canEditDashboard): Breadcrumb[] => [
                 {
                     key: Scene.Dashboards,
                     name: 'Dashboards',
@@ -981,15 +988,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         : !dashboardLoading
                         ? 'Not found'
                         : null,
-                    onRename: async (name) => {
-                        if (dashboard) {
-                            await dashboardsModel.asyncActions.updateDashboard({
-                                id: dashboard.id,
-                                name,
-                                allowUndo: true,
-                            })
-                        }
-                    },
+                    onRename: canEditDashboard
+                        ? async (name) => {
+                              if (dashboard) {
+                                  await dashboardsModel.asyncActions.updateDashboard({
+                                      id: dashboard.id,
+                                      name,
+                                      allowUndo: true,
+                                  })
+                              }
+                          }
+                        : undefined,
                 },
             ],
         ],

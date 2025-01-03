@@ -231,6 +231,7 @@ const insightActionsMapping: Record<
     disable_baseline: () => null,
     dashboard_tiles: () => null,
     query_status: () => null,
+    user_access_level: () => null,
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {

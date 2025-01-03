@@ -1,15 +1,22 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
+import { toast } from 'react-toastify'
 import { userLogic } from 'scenes/userLogic'
 
 import type { apiStatusLogicType } from './apiStatusLogicType'
 
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
+    connect({
+        actions: [router, ['locationChanged']],
+    }),
     actions({
-        onApiResponse: (response?: Response, error?: any) => ({ response, error }),
+        onApiResponse: (response?: Response, error?: any, extra?: { method: string }) => ({ response, error, extra }),
         setInternetConnectionIssue: (issue: boolean) => ({ issue }),
         setTimeSensitiveAuthenticationRequired: (required: boolean) => ({ required }),
+        setResourceAccessDenied: (resource: string) => ({ resource }),
+        clearResourceAccessDenied: true,
     }),
 
     reducers({
@@ -26,9 +33,17 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 setTimeSensitiveAuthenticationRequired: (_, { required }) => required,
             },
         ],
+        resourceAccessDenied: [
+            null as string | null,
+            {
+                setResourceAccessDenied: (_, { resource }) => resource,
+                clearResourceAccessDenied: () => null,
+            },
+        ],
     }),
     listeners(({ cache, actions, values }) => ({
-        onApiResponse: async ({ response, error }, breakpoint) => {
+        onApiResponse: async ({ response, error, extra }, breakpoint) => {
+            const { method } = extra || {}
             if (error || !response?.status) {
                 await breakpoint(50)
                 // Likely CORS headers errors (i.e. request failing without reaching Django))
@@ -46,6 +61,13 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                     const data = await response?.json()
                     if (data.detail === 'This action requires you to be recently authenticated.') {
                         actions.setTimeSensitiveAuthenticationRequired(true)
+                    } else if (data.code === 'permission_denied') {
+                        // TODO - only do if the RBAC feature flag is enabled
+                        if (method === 'GET') {
+                            actions.setResourceAccessDenied(data.resource || 'resource')
+                        } else {
+                            toast.error('You are not authorized to perform this action')
+                        }
                     }
                 }
             } catch (e) {
@@ -71,6 +93,11 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                     })
                 }
             }
+        },
+    })),
+    listeners(({ actions }) => ({
+        locationChanged: () => {
+            actions.clearResourceAccessDenied()
         },
     })),
 ])

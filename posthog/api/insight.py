@@ -216,7 +216,7 @@ class DashboardTileBasicSerializer(serializers.ModelSerializer):
         fields = ["id", "dashboard_id", "deleted"]
 
 
-class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
     """
@@ -245,6 +245,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
             "created_at",
             "last_modified_at",
             "favorited",
+            "user_access_level",
         ]
         read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
@@ -272,7 +273,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
+class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
@@ -1188,7 +1189,7 @@ When set, the specified dashboard's filters and date range override will be appl
     # /projects/:id/insights/:short_id/viewed
     # Creates or updates an InsightViewed object for the user/insight combo
     # ******************************************
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         InsightViewed.objects.update_or_create(
             team=self.team,

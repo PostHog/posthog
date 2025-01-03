@@ -2,10 +2,12 @@ import './Navigation.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { ReactNode } from 'react'
 import { SceneConfig } from 'scenes/sceneTypes'
 
@@ -29,6 +31,8 @@ export function Navigation({
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { activeNavbarItem, mode } = useValues(navigation3000Logic)
+
+    const { resourceAccessDenied } = useValues(apiStatusLogic)
 
     if (mode !== 'full') {
         return (
@@ -60,7 +64,7 @@ export function Navigation({
                 >
                     {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
                     {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
-                    {children}
+                    {resourceAccessDenied ? <AccessDenied /> : children}
                 </div>
             </main>
             <SidePanel />

@@ -222,6 +222,7 @@ export const dashboard: DashboardType = {
                 effective_privilege_level: 37,
                 timezone: null,
                 tags: [],
+                user_access_level: 'editor',
             },
         } as DashboardTile,
         {
@@ -369,6 +370,7 @@ export const dashboard: DashboardType = {
                 effective_privilege_level: 37,
                 timezone: null,
                 tags: [],
+                user_access_level: 'editor',
             },
         } as DashboardTile,
         {
@@ -547,6 +549,7 @@ export const dashboard: DashboardType = {
                 effective_privilege_level: 37,
                 timezone: null,
                 tags: [],
+                user_access_level: 'editor',
             },
         } as DashboardTile,
         {
@@ -688,6 +691,7 @@ export const dashboard: DashboardType = {
                 effective_privilege_level: 37,
                 timezone: null,
                 tags: [],
+                user_access_level: 'editor',
             },
         } as DashboardTile,
         {
@@ -1107,6 +1111,7 @@ export const dashboard: DashboardType = {
                 effective_privilege_level: 37,
                 timezone: null,
                 tags: [],
+                user_access_level: 'editor',
             },
         } as DashboardTile,
         {
@@ -1245,6 +1250,7 @@ export const dashboard: DashboardType = {
                 effective_privilege_level: 37,
                 timezone: null,
                 tags: [],
+                user_access_level: 'editor',
             },
         } as DashboardTile,
     ],
@@ -1258,4 +1264,5 @@ export const dashboard: DashboardType = {
     effective_restriction_level: 37,
     effective_privilege_level: 37,
     tags: [],
+    user_access_level: 'editor',
 }

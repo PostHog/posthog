@@ -446,7 +446,7 @@ def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     return usage_dashboard
 
 
-class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
+class MinimalFeatureFlagSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     filters = serializers.DictField(source="get_filters", required=False)
 
     class Meta:
@@ -460,6 +460,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "deleted",
             "active",
             "ensure_experience_continuity",
+            "user_access_level",
         ]
 
 

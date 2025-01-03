@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
@@ -178,17 +179,26 @@ export function DashboardHeader(): JSX.Element | null {
                                                 </>
                                             )}
                                             {canEditDashboard && (
-                                                <LemonButton
-                                                    onClick={() =>
-                                                        setDashboardMode(
-                                                            DashboardMode.Edit,
-                                                            DashboardEventSource.MoreDropdown
-                                                        )
-                                                    }
-                                                    fullWidth
+                                                <AccessControlAction
+                                                    userAccessLevel={dashboard.user_access_level}
+                                                    requiredLevels={['admin', 'editor']}
+                                                    resourceType="dashboard"
                                                 >
-                                                    Edit layout (E)
-                                                </LemonButton>
+                                                    {({ disabledReason: accessControlDisabledReason }) => (
+                                                        <LemonButton
+                                                            onClick={() =>
+                                                                setDashboardMode(
+                                                                    DashboardMode.Edit,
+                                                                    DashboardEventSource.MoreDropdown
+                                                                )
+                                                            }
+                                                            fullWidth
+                                                            disabledReason={accessControlDisabledReason}
+                                                        >
+                                                            Edit layout (E)
+                                                        </LemonButton>
+                                                    )}
+                                                </AccessControlAction>
                                             )}
                                             <LemonButton
                                                 onClick={() =>
@@ -243,14 +253,23 @@ export function DashboardHeader(): JSX.Element | null {
                                                 </LemonButton>
                                             )}
                                             <LemonDivider />
-                                            <LemonButton
-                                                onClick={() => {
-                                                    showDuplicateDashboardModal(dashboard.id, dashboard.name)
-                                                }}
-                                                fullWidth
+                                            <AccessControlAction
+                                                userAccessLevel={dashboard.user_access_level}
+                                                requiredLevels={['admin', 'editor']}
+                                                resourceType="dashboard"
                                             >
-                                                Duplicate dashboard
-                                            </LemonButton>
+                                                {({ disabledReason: accessControlDisabledReason }) => (
+                                                    <LemonButton
+                                                        onClick={() => {
+                                                            showDuplicateDashboardModal(dashboard.id, dashboard.name)
+                                                        }}
+                                                        fullWidth
+                                                        disabledReason={accessControlDisabledReason}
+                                                    >
+                                                        Duplicate dashboard
+                                                    </LemonButton>
+                                                )}
+                                            </AccessControlAction>
                                             <LemonButton
                                                 onClick={() => createNotebookFromDashboard(dashboard)}
                                                 fullWidth
@@ -258,15 +277,24 @@ export function DashboardHeader(): JSX.Element | null {
                                                 Create notebook from dashboard
                                             </LemonButton>
                                             {canEditDashboard && (
-                                                <LemonButton
-                                                    onClick={() => {
-                                                        showDeleteDashboardModal(dashboard.id)
-                                                    }}
-                                                    status="danger"
-                                                    fullWidth
+                                                <AccessControlAction
+                                                    userAccessLevel={dashboard.user_access_level}
+                                                    requiredLevels={['admin', 'editor']}
+                                                    resourceType="dashboard"
                                                 >
-                                                    Delete dashboard
-                                                </LemonButton>
+                                                    {({ disabledReason: accessControlDisabledReason }) => (
+                                                        <LemonButton
+                                                            onClick={() => {
+                                                                showDeleteDashboardModal(dashboard.id)
+                                                            }}
+                                                            status="danger"
+                                                            fullWidth
+                                                            disabledReason={accessControlDisabledReason}
+                                                        >
+                                                            Delete dashboard
+                                                        </LemonButton>
+                                                    )}
+                                                </AccessControlAction>
                                             )}
                                         </>
                                     ) : undefined
@@ -288,36 +316,48 @@ export function DashboardHeader(): JSX.Element | null {
                                     </LemonButton>
                                 </>
                             )}
-                            {dashboard ? (
-                                <LemonButton
-                                    to={urls.insightNew(undefined, dashboard.id)}
-                                    type="primary"
-                                    data-attr="dashboard-add-graph-header"
-                                    disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
-                                    sideAction={{
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <>
-                                                    <LemonButton
-                                                        fullWidth
-                                                        onClick={() => {
-                                                            push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                                        }}
-                                                        data-attr="add-text-tile-to-dashboard"
-                                                    >
-                                                        Add text card
-                                                    </LemonButton>
-                                                </>
-                                            ),
-                                        },
-                                        disabled: false,
-                                        'data-attr': 'dashboard-add-dropdown',
-                                    }}
+                            {dashboard && (
+                                <AccessControlAction
+                                    userAccessLevel={dashboard.user_access_level}
+                                    requiredLevels={['admin', 'editor']}
+                                    resourceType="dashboard"
                                 >
-                                    Add insight
-                                </LemonButton>
-                            ) : null}
+                                    {({ disabledReason: accessControlDisabledReason }) => (
+                                        <LemonButton
+                                            to={urls.insightNew(undefined, dashboard.id)}
+                                            type="primary"
+                                            data-attr="dashboard-add-graph-header"
+                                            disabledReason={
+                                                accessControlDisabledReason ||
+                                                (canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE)
+                                            }
+                                            sideAction={{
+                                                dropdown: {
+                                                    placement: 'bottom-end',
+                                                    overlay: (
+                                                        <>
+                                                            <LemonButton
+                                                                fullWidth
+                                                                onClick={() => {
+                                                                    push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                                }}
+                                                                data-attr="add-text-tile-to-dashboard"
+                                                                disabledReason={accessControlDisabledReason}
+                                                            >
+                                                                Add text card
+                                                            </LemonButton>
+                                                        </>
+                                                    ),
+                                                },
+                                                disabled: false,
+                                                'data-attr': 'dashboard-add-dropdown',
+                                            }}
+                                        >
+                                            Add insight
+                                        </LemonButton>
+                                    )}
+                                </AccessControlAction>
+                            )}
                         </>
                     )
                 }
