@@ -15,14 +15,14 @@ export type HogBytecode = any[]
 // subset of EntityFilter
 export interface HogFunctionFilterBase {
     id: string
-    name?: string
-    order?: number
-    properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+    name: string | null
+    order: number
+    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
 }
 
 export interface HogFunctionFilterEvent extends HogFunctionFilterBase {
     type: 'events'
-    bytecode?: HogBytecode
+    bytecode: HogBytecode
 }
 
 export interface HogFunctionFilterAction extends HogFunctionFilterBase {
@@ -33,7 +33,7 @@ export interface HogFunctionFilterAction extends HogFunctionFilterBase {
 
 export type HogFunctionFilter = HogFunctionFilterEvent | HogFunctionFilterAction
 
-export type HogFunctionMasking = {
+export type HogFunctionFiltersMasking = {
     ttl: number | null
     hash: string
     bytecode: HogBytecode
@@ -298,7 +298,7 @@ export type HogFunctionType = {
     inputs?: Record<string, HogFunctionInputType>
     encrypted_inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
-    masking?: HogFunctionMasking | null
+    masking?: HogFunctionFiltersMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
 }
 
