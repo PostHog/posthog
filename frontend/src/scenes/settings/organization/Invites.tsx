@@ -2,6 +2,8 @@ import { IconX } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { useRestrictedArea } from 'lib/components/RestrictedArea'
+import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -61,6 +63,11 @@ export function Invites(): JSX.Element {
     const { deleteInvite, showInviteModal } = useActions(inviteLogic)
     const { preflight } = useValues(preflightLogic)
 
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
+
     const columns: LemonTableColumns<OrganizationInviteType> = [
         {
             key: 'user_profile_picture',
@@ -106,7 +113,7 @@ export function Invites(): JSX.Element {
             title: '',
             key: 'actions',
             width: 24,
-            render: makeActionsComponent(deleteInvite),
+            render: restrictionReason ? undefined : makeActionsComponent(deleteInvite),
         },
     ]
 
@@ -121,7 +128,12 @@ export function Invites(): JSX.Element {
                 data-attr="invites-table"
                 emptyState="There are no outstanding invitations. You can invite another team member above."
             />
-            <LemonButton type="primary" onClick={showInviteModal} data-attr="invite-teammate-button">
+            <LemonButton
+                type="primary"
+                onClick={showInviteModal}
+                data-attr="invite-teammate-button"
+                disabledReason={restrictionReason}
+            >
                 Invite team member
             </LemonButton>
         </div>

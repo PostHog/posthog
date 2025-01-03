@@ -1,4 +1,4 @@
-import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
+import { IconEllipsis, IconInfo } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -148,13 +148,8 @@ export function ManagedReverseProxy(): JSX.Element {
                         </LemonBanner>
                     ) : (
                         <div className="flex">
-                            <LemonButton
-                                onClick={showForm}
-                                type="secondary"
-                                icon={<IconPlus />}
-                                disabledReason={restrictionReason}
-                            >
-                                New managed proxy
+                            <LemonButton onClick={showForm} type="primary" disabledReason={restrictionReason}>
+                                Add managed proxy
                             </LemonButton>
                         </div>
                     )
