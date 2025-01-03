@@ -145,7 +145,7 @@ export const lineageTabLogic = kea<lineageTabLogicType>([
     events(({ cache, actions }) => ({
         afterMount: () => {
             if (!cache.pollingInterval) {
-                cache.pollingInterval = setInterval(actions.loadDataWarehouseSavedQueries, 5000)
+                cache.pollingInterval = setInterval(actions.loadDataWarehouseSavedQueries, 10000)
             }
         },
         beforeUnmount: () => {

@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, events, kea, listeners, path, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -16,6 +16,23 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         values: [userLogic, ['user'], databaseTableListLogic, ['views', 'databaseLoading']],
         actions: [databaseTableListLogic, ['loadDatabase']],
     })),
+    reducers({
+        initialDataWarehouseSavedQueryLoading: [
+            true,
+            {
+                loadDataWarehouseSavedQueriesSuccess: () => false,
+                loadDataWarehouseSavedQueriesFailure: () => false,
+            },
+        ],
+        updatingDataWarehouseSavedQuery: [
+            false,
+            {
+                updateDataWarehouseSavedQuery: () => true,
+                updateDataWarehouseSavedQuerySuccess: () => false,
+                updateDataWarehouseSavedQueryFailure: () => false,
+            },
+        ],
+    }),
     actions({
         runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
     }),
@@ -60,6 +77,10 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         updateDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
+            lemonToast.success('View updated')
+        },
+        updateDataWarehouseSavedQueryError: () => {
+            lemonToast.error('Failed to update view')
         },
         runDataWarehouseSavedQuery: async ({ viewId }) => {
             try {

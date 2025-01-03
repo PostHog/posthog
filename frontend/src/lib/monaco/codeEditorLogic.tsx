@@ -50,7 +50,8 @@ export interface CodeEditorLogicProps {
     globals?: Record<string, any>
     multitab?: boolean
     onError?: (error: string | null, isValidView: boolean) => void
-    onMetadata?: (metadata: HogQLMetadataResponse) => void
+    onMetadata?: (metadata: HogQLMetadataResponse | null) => void
+    onMetadataLoading?: (loading: boolean) => void
 }
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
@@ -78,11 +79,13 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 reloadMetadata: async (_, breakpoint) => {
                     const model = props.editor?.getModel()
                     if (!model || !props.monaco || !METADATA_LANGUAGES.includes(props.language as HogLanguage)) {
+                        props.onMetadata?.(null)
                         return null
                     }
                     await breakpoint(300)
                     const query = props.query
                     if (query === '') {
+                        props.onMetadata?.(null)
                         return null
                     }
 
@@ -280,6 +283,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         },
         error: (error) => {
             props.onError?.(error, values.isValidView)
+        },
+        metadataLoading: (loading) => {
+            props.onMetadataLoading?.(loading)
         },
     })),
     propsChanged(({ actions, props }, oldProps) => {

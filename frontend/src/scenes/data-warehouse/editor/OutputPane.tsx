@@ -1,7 +1,7 @@
 import 'react-data-grid/lib/styles.css'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
@@ -42,11 +42,12 @@ export function OutputPane(): JSX.Element {
     const { setActiveTab } = useActions(outputPaneLogic)
     const { variablesForInsight } = useValues(variablesLogic)
 
-    const { editingView, sourceQuery, exportContext, isValidView, error, editorKey } = useValues(multitabEditorLogic)
+    const { editingView, sourceQuery, exportContext, isValidView, error, editorKey, metadataLoading } =
+        useValues(multitabEditorLogic)
     const { saveAsInsight, saveAsView, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
-    const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
+    const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { visualizationType, queryCancelled } = useValues(dataVisualizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -100,11 +101,19 @@ export function OutputPane(): JSX.Element {
                             ? [
                                   {
                                       key: OutputTab.Info,
-                                      label: 'Info',
+                                      label: (
+                                          <span className="flex flex-row items-center gap-2">
+                                              Info {metadataLoading ? <Spinner /> : null}
+                                          </span>
+                                      ),
                                   },
                                   {
                                       key: OutputTab.Lineage,
-                                      label: 'Lineage',
+                                      label: (
+                                          <span className="flex flex-row items-center gap-2">
+                                              Lineage {metadataLoading ? <Spinner /> : null}
+                                          </span>
+                                      ),
                                   },
                               ]
                             : []),
@@ -136,7 +145,7 @@ export function OutputPane(): JSX.Element {
                     {editingView ? (
                         <>
                             <LemonButton
-                                loading={dataWarehouseSavedQueriesLoading}
+                                loading={updatingDataWarehouseSavedQuery}
                                 type="secondary"
                                 onClick={() =>
                                     updateDataWarehouseSavedQuery({

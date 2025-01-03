@@ -36,8 +36,17 @@ export function QueryWindow(): JSX.Element {
     })
 
     const { allTabs, activeModelUri, queryInput, editingView, sourceQuery } = useValues(logic)
-    const { selectTab, deleteTab, createTab, setQueryInput, runQuery, setError, setIsValidView, setMetadata } =
-        useActions(logic)
+    const {
+        selectTab,
+        deleteTab,
+        createTab,
+        setQueryInput,
+        runQuery,
+        setError,
+        setIsValidView,
+        setMetadata,
+        setMetadataLoading,
+    } = useActions(logic)
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
@@ -82,6 +91,9 @@ export function QueryWindow(): JSX.Element {
                     },
                     onMetadata: (metadata) => {
                         setMetadata(metadata)
+                    },
+                    onMetadataLoading: (loading) => {
+                        setMetadataLoading(loading)
                     },
                 }}
             />

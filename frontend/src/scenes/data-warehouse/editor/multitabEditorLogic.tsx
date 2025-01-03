@@ -78,7 +78,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         setError: (error: string | null) => ({ error }),
         setIsValidView: (isValidView: boolean) => ({ isValidView }),
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({ sourceQuery }),
-        setMetadata: (metadata: HogQLMetadataResponse) => ({ metadata }),
+        setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
+        setMetadataLoading: (loading: boolean) => ({ loading }),
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
@@ -153,6 +154,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             false,
             {
                 setIsValidView: (_, { isValidView }) => isValidView,
+            },
+        ],
+        metadataLoading: [
+            true,
+            {
+                setMetadataLoading: (_, { loading }) => loading,
             },
         ],
         metadata: [

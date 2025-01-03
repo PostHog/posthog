@@ -1,3 +1,4 @@
+from datetime import datetime
 from functools import cached_property
 from typing import Union
 
@@ -104,7 +105,7 @@ class Migration(AsyncMigrationDefinition):
             str,
         ),
         "TIMESTAMP_UPPER_BOUND": (
-            "2025-01-01",
+            f"{datetime.now().year + 1}-01-01",
             "Timestamp upper bound for events to backfill",
             str,
         ),

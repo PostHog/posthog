@@ -1094,3 +1094,54 @@ async def test_postgres_uuid_type(team, postgres_config, postgres_connection):
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         mock_data_response=[{"id": uuid.uuid4()}],
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_decimal_down_scales(team, postgres_config, postgres_connection):
+    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
+        await postgres_connection.execute(
+            "CREATE TABLE IF NOT EXISTS {schema}.downsizing_column (id integer, dec_col numeric(10, 2))".format(
+                schema=postgres_config["schema"]
+            )
+        )
+        await postgres_connection.execute(
+            "INSERT INTO {schema}.downsizing_column (id, dec_col) VALUES (1, 12345.60)".format(
+                schema=postgres_config["schema"]
+            )
+        )
+
+        await postgres_connection.commit()
+
+        workflow_id, inputs = await _run(
+            team=team,
+            schema_name="downsizing_column",
+            table_name="postgres_downsizing_column",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+        )
+
+        await postgres_connection.execute(
+            "ALTER TABLE {schema}.downsizing_column ALTER COLUMN dec_col type numeric(9, 2) using dec_col::numeric(9, 2);".format(
+                schema=postgres_config["schema"]
+            )
+        )
+
+        await postgres_connection.execute(
+            "INSERT INTO {schema}.downsizing_column (id, dec_col) VALUES (1, 1234567.89)".format(
+                schema=postgres_config["schema"]
+            )
+        )
+
+        await postgres_connection.commit()
+
+        await _execute_run(str(uuid.uuid4()), inputs, [])

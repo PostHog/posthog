@@ -164,7 +164,11 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
         ]:
-            if is_posthog_team(inputs.team_id) or is_enabled_for_team(inputs.team_id):
+            if (
+                is_posthog_team(inputs.team_id)
+                or is_enabled_for_team(inputs.team_id)
+                or settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2
+            ):
                 from posthog.temporal.data_imports.pipelines.sql_database_v2 import sql_source_for_type
             else:
                 from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type

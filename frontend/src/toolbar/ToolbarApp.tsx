@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import root from 'react-shadow'
 import { Slide, ToastContainer } from 'react-toastify'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { ToolbarProps } from '~/types'
@@ -14,7 +15,7 @@ type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
 
 export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
     const { apiURL } = useValues(toolbarConfigLogic(props))
-
+    const { isDarkModeOn } = useValues(themeLogic)
     const shadowRef = useRef<HTMLElementWithShadowRoot | null>(null)
     const [didLoadStyles, setDidLoadStyles] = useState(false)
 
@@ -61,6 +62,7 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                     closeOnClick={false}
                     draggable={false}
                     position="bottom-center"
+                    theme={isDarkModeOn ? 'dark' : 'light'}
                 />
             </root.div>
         </>
