@@ -142,6 +142,10 @@ def sync_execute(
 
         try:
             result = client.query(query=prepared_sql, parameters=prepared_args, settings=settings)
+            # we must play with result summary here
+            # result.summary['']
+            # if result.affected_rows:
+            #    return result.affected_rows
             return result.result_set, result.column_types
             # result = client.execute(
             #     prepared_sql,
