@@ -275,6 +275,7 @@ export const experimentLogic = kea<experimentLogicType>([
         openPrimaryMetricModal: (index: number) => ({ index }),
         closePrimaryMetricModal: true,
         setPrimaryMetricsResultErrors: (errors: any[]) => ({ errors }),
+        setEditingPrimaryMetricIndex: (index: number | null) => ({ index }),
         updateDistributionModal: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         openSecondaryMetricModal: (index: number) => ({ index }),
         closeSecondaryMetricModal: true,
@@ -511,6 +512,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 openPrimaryMetricModal: (_, { index }) => index,
                 closePrimaryMetricModal: () => null,
                 updateExperimentGoal: () => null,
+                setEditingPrimaryMetricIndex: (_, { index }) => index,
             },
         ],
         primaryMetricsResultErrors: [
