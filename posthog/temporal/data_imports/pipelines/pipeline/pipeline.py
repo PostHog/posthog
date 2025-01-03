@@ -139,10 +139,7 @@ class PipelineNonDLT:
             self._logger.debug("No deltalake table, not continuing with post-run ops")
             return
 
-        self._logger.debug("Skipping compact and vacuuming")
-        # self._logger.info("Compacting delta table")
-        # delta_table.optimize.compact()
-        # delta_table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        self._logger.debug("Spawning new process for deltatable compact and vacuuming")
         process = subprocess.Popen(
             [
                 "python",
