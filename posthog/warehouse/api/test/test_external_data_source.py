@@ -810,3 +810,27 @@ class TestExternalDataSource(APIBaseTest):
             assert response.status_code, status.HTTP_200_OK
             assert len(data) == 1
             assert data[0]["id"] == str(job3.pk)
+
+    def test_trimming_payload(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "client_secret": "  sk_test_123   ",
+                    "account_id": "  blah   ",
+                    "schemas": [
+                        {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        payload = response.json()
+
+        assert response.status_code == 201
+
+        source = ExternalDataSource.objects.get(id=payload["id"])
+        assert source.job_inputs is not None
+
+        assert source.job_inputs["stripe_secret_key"] == "sk_test_123"
+        assert source.job_inputs["stripe_account_id"] == "blah"

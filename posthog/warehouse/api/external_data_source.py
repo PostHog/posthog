@@ -299,6 +299,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
+        # Strip leading and trailing whitespace
+        payload = request.data["payload"]
+        if payload is not None:
+            for key, value in payload.items():
+                if isinstance(value, str):
+                    payload[key] = value.strip()
+
         # TODO: remove dummy vars
         if source_type == ExternalDataSource.Type.STRIPE:
             new_source_model = self._handle_stripe_source(request, *args, **kwargs)
