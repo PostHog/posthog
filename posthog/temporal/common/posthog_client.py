@@ -1,4 +1,3 @@
-import asyncio
 from typing import Any, Optional
 from posthoganalytics.client import Client
 from temporalio.worker import (
@@ -20,7 +19,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         except:
             raise
         finally:
-            await asyncio.to_thread(ph_client.flush)
+            ph_client.flush()
 
         return activity_result
 
@@ -34,7 +33,7 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         except:
             raise
         finally:
-            await asyncio.to_thread(ph_client.flush)
+            ph_client.flush()
 
         return workflow_result
 
