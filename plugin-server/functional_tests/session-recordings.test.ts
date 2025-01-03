@@ -177,7 +177,6 @@ test.skip('consumer updates timestamp exported to prometheus', async () => {
         topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         message: Buffer.from(''),
         key: '',
-        waitForAck: true,
     })
 
     await waitForExpect(async () => {
@@ -250,7 +249,6 @@ test.skip(`handles message with no token or with token and no associated team_id
         topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         message: Buffer.from(JSON.stringify({ uuid: noTokenUuid, data: JSON.stringify({}) })),
         key: noTokenKey,
-        waitForAck: true,
     })
     await produce({
         topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
@@ -258,7 +256,6 @@ test.skip(`handles message with no token or with token and no associated team_id
             JSON.stringify({ uuid: noAssociatedTeamUuid, token: 'no associated team', data: JSON.stringify({}) })
         ),
         key: noAssociatedTeamKey,
-        waitForAck: true,
     })
 
     await capture(makeSessionMessage(teamId, 'should be ingested'))

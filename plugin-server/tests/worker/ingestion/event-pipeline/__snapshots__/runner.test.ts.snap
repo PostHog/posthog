@@ -5,6 +5,7 @@ Array [
   Array [
     "populateTeamDataStep",
     Array [
+      "__this__",
       Object {
         "distinct_id": "my_id",
         "event": "default event",
@@ -22,6 +23,7 @@ Array [
   Array [
     "pluginsProcessEventStep",
     Array [
+      "__this__",
       Object {
         "distinct_id": "my_id",
         "event": "default event",
@@ -38,12 +40,24 @@ Array [
   Array [
     "normalizeEventStep",
     Array [
+      Object {
+        "distinct_id": "my_id",
+        "event": "default event",
+        "ip": "127.0.0.1",
+        "now": "2020-02-23T02:15:00.000Z",
+        "properties": Object {},
+        "site_url": "http://localhost",
+        "team_id": 2,
+        "timestamp": "2020-02-23T02:15:00.000Z",
+        "uuid": "uuid1",
+      },
       true,
     ],
   ],
   Array [
     "processPersonsStep",
     Array [
+      "__this__",
       Object {
         "distinct_id": "my_id",
         "event": "default event",
@@ -64,6 +78,7 @@ Array [
   Array [
     "prepareEventStep",
     Array [
+      "__this__",
       Object {
         "distinct_id": "my_id",
         "event": "default event",
@@ -83,6 +98,7 @@ Array [
   Array [
     "extractHeatmapDataStep",
     Array [
+      "__this__",
       Object {
         "distinctId": "my_id",
         "elementsList": Array [],
@@ -99,6 +115,7 @@ Array [
   Array [
     "createEventStep",
     Array [
+      "__this__",
       Object {
         "distinctId": "my_id",
         "elementsList": Array [],
@@ -111,19 +128,16 @@ Array [
         "timestamp": "2020-02-23T02:15:00.000Z",
       },
       Object {
-        "person": Object {
-          "created_at": "2020-02-23T02:15:00.000Z",
-          "id": 123,
-          "is_identified": true,
-          "is_user_id": 0,
-          "properties": Object {},
-          "properties_last_operation": Object {},
-          "properties_last_updated_at": Object {},
-          "team_id": 2,
-          "uuid": "uuid",
-          "version": 0,
-        },
-        "personUpdateProperties": Object {},
+        "created_at": "2020-02-23T02:15:00.000Z",
+        "id": 123,
+        "is_identified": true,
+        "is_user_id": 0,
+        "properties": Object {},
+        "properties_last_operation": Object {},
+        "properties_last_updated_at": Object {},
+        "team_id": 2,
+        "uuid": "uuid",
+        "version": 0,
       },
       true,
     ],
@@ -131,6 +145,7 @@ Array [
   Array [
     "emitEventStep",
     Array [
+      "__this__",
       Object {
         "created_at": "2024-11-18 14:54:33.606",
         "distinct_id": "my_id",

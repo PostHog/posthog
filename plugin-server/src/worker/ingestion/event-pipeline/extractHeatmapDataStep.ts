@@ -6,7 +6,7 @@ import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { isDistinctIdIllegal } from '../person-state'
 import { captureIngestionWarning } from '../utils'
-import { EventPipelineRunner } from './runner'
+import { EventPipelineRunner, StepResult } from './runner'
 
 // This represents the scale factor for the heatmap data. Essentially how much we are reducing the resolution by.
 const SCALE_FACTOR = 16
@@ -23,10 +23,10 @@ type HeatmapData = Record<string, HeatmapDataItem[]>
 export async function extractHeatmapDataStep(
     runner: EventPipelineRunner,
     event: PreIngestionEvent
-): Promise<[PreIngestionEvent, Promise<void>[]]> {
+): Promise<StepResult<PreIngestionEvent>> {
     const { eventUuid, teamId } = event
 
-    let acks: Promise<void>[] = []
+    const acks: Promise<void>[] = []
 
     try {
         const team = await runner.hub.teamManager.fetchTeam(teamId)
@@ -34,15 +34,15 @@ export async function extractHeatmapDataStep(
         if (team?.heatmaps_opt_in !== false) {
             const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []
 
-            // eslint-disable-next-line @typescript-eslint/no-floating-promises
-            acks = heatmapEvents.map((rawEvent) => {
-                return runner.hub.kafkaProducer.produce({
+            acks.push(
+                runner.hub.kafkaProducer.queueMessages({
                     topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                    key: eventUuid,
-                    value: Buffer.from(JSON.stringify(rawEvent)),
-                    waitForAck: true,
+                    messages: heatmapEvents.map((rawEvent) => ({
+                        key: eventUuid,
+                        value: JSON.stringify(rawEvent),
+                    })),
                 })
-            })
+            )
         }
     } catch (e) {
         acks.push(
@@ -55,7 +55,7 @@ export async function extractHeatmapDataStep(
     // We don't want to ingest this data to the events table
     delete event.properties['$heatmap_data']
 
-    return [event, acks]
+    return { result: event, ackPromises: acks }
 }
 
 function replacePathInUrl(url: string, newPath: string): string {

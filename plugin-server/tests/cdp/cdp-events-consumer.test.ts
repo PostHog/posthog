@@ -1,3 +1,6 @@
+// eslint-disable-next-line simple-import-sort/imports
+import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer.mock'
+
 import { CdpInternalEventsConsumer, CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
 import { HogWatcherState } from '../../src/cdp/hog-watcher'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
@@ -44,34 +47,32 @@ jest.mock('../../src/utils/fetch', () => {
     }
 })
 
-jest.mock('../../src/utils/db/kafka-producer-wrapper', () => {
-    const mockKafkaProducer = {
-        producer: {
-            connect: jest.fn(),
-        },
-        disconnect: jest.fn(),
-        produce: jest.fn(() => Promise.resolve()),
-    }
-    return {
-        KafkaProducerWrapper: jest.fn(() => mockKafkaProducer),
-    }
-})
-
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
-
-const mockProducer = require('../../src/utils/db/kafka-producer-wrapper').KafkaProducerWrapper()
 
 jest.setTimeout(1000)
 
-const decodeKafkaMessage = (message: any): any => {
-    return {
-        ...message,
-        value: JSON.parse(message.value.toString()),
-    }
+type DecodedKafkaMessage = {
+    topic: string
+    key?: any
+    value: Record<string, unknown>
 }
 
-const decodeAllKafkaMessages = (): any[] => {
-    return mockProducer.produce.mock.calls.map((x) => decodeKafkaMessage(x[0]))
+const decodeAllKafkaMessages = (): DecodedKafkaMessage[] => {
+    const queuedMessages = getParsedQueuedMessages()
+
+    const result: DecodedKafkaMessage[] = []
+
+    for (const topicMessage of queuedMessages) {
+        for (const message of topicMessage.messages) {
+            result.push({
+                topic: topicMessage.topic,
+                key: message.key,
+                value: message.value ?? {},
+            })
+        }
+    }
+
+    return result
 }
 
 /**
@@ -98,6 +99,8 @@ describe.each([
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
+        hub.kafkaProducer = mockProducer
+
         team = await getFirstTeam(hub)
 
         processor = new Consumer(hub)
@@ -262,7 +265,6 @@ describe.each([
                             state: expect.any(String),
                         },
                         key: expect.stringContaining(fnFetchNoFilters.id.toString()),
-                        waitForAck: true,
                     },
                 ])
             })
@@ -314,7 +316,7 @@ describe.each([
                 const invocations = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(0)
-                expect(mockProducer.produce).toHaveBeenCalledTimes(2)
+                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
 
                 expect(decodeAllKafkaMessages()).toMatchObject([
                     {

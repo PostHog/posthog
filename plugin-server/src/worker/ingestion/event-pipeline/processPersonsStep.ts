@@ -3,14 +3,14 @@ import { DateTime } from 'luxon'
 import { Person } from 'types'
 
 import { PersonState } from '../person-state'
-import { EventPipelineRunner } from './runner'
+import { EventPipelineRunner, StepResult } from './runner'
 
 export async function processPersonsStep(
     runner: EventPipelineRunner,
     event: PluginEvent,
     timestamp: DateTime,
     processPerson: boolean
-): Promise<[PluginEvent, Person, Promise<void>]> {
+): Promise<StepResult<{ event: PluginEvent; person: Person }>> {
     const [person, kafkaAck] = await new PersonState(
         event,
         event.team_id,
@@ -20,5 +20,11 @@ export async function processPersonsStep(
         runner.hub.db
     ).update()
 
-    return [event, person, kafkaAck]
+    return {
+        result: {
+            event,
+            person,
+        },
+        ackPromises: [kafkaAck],
+    }
 }

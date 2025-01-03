@@ -52,7 +52,7 @@ const teamTwo: Team = {
 }
 
 describe('prepareEventStep()', () => {
-    let runner: Pick<EventPipelineRunner, 'hub' | 'eventsProcessor'>
+    let runner: EventPipelineRunner
     let hub: Hub
 
     beforeEach(async () => {
@@ -63,7 +63,7 @@ describe('prepareEventStep()', () => {
         await hub.db.createPerson(person.created_at, {}, {}, {}, pluginEvent.team_id, null, false, person.uuid, [
             { distinctId: 'my_id' },
         ])
-        hub.db.kafkaProducer!.queueMessage = jest.fn()
+        hub.db.kafkaProducer!.queueMessages = jest.fn()
 
         // eslint-disable-next-line @typescript-eslint/require-await
         hub.teamManager.fetchTeam = jest.fn(async (teamId) => {
@@ -73,7 +73,7 @@ describe('prepareEventStep()', () => {
         runner = {
             hub,
             eventsProcessor: new EventsProcessor(hub),
-        }
+        } as EventPipelineRunner
     })
 
     afterEach(async () => {
@@ -81,9 +81,9 @@ describe('prepareEventStep()', () => {
     })
 
     it('goes to `createEventStep` for normal events', async () => {
-        const response = await prepareEventStep(runner, pluginEvent)
+        const { result } = await prepareEventStep(runner, pluginEvent, false)
 
-        expect(response).toEqual({
+        expect(result).toEqual({
             distinctId: 'my_id',
             event: 'default event',
             eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
@@ -94,7 +94,7 @@ describe('prepareEventStep()', () => {
             projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
-        expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
+        expect(hub.db.kafkaProducer!.queueMessages).not.toHaveBeenCalled()
     })
 
     it('scrubs IPs when team.anonymize_ips=true', async () => {
@@ -102,9 +102,9 @@ describe('prepareEventStep()', () => {
             ...teamTwo,
             anonymize_ips: true,
         })
-        const response = await prepareEventStep(runner, pluginEvent)
+        const { result } = await prepareEventStep(runner, pluginEvent, false)
 
-        expect(response).toEqual({
+        expect(result).toEqual({
             distinctId: 'my_id',
             event: 'default event',
             eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
@@ -113,14 +113,14 @@ describe('prepareEventStep()', () => {
             projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
-        expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
+        expect(hub.db.kafkaProducer!.queueMessages).not.toHaveBeenCalled()
     })
 
     // Tests combo of prepareEvent + createEvent
     it('extracts elements_chain from properties', async () => {
         const event: PluginEvent = { ...pluginEvent, ip: null, properties: { $elements_chain: 'random string', a: 1 } }
-        const preppedEvent = await prepareEventStep(runner, event)
-        const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person)
+        const { result } = await prepareEventStep(runner, event, false)
+        const chEvent = runner.eventsProcessor.createEvent(result, person, false)
 
         expect(chEvent.elements_chain).toEqual('random string')
         expect(chEvent.properties).toEqual('{"a":1}')
@@ -136,8 +136,8 @@ describe('prepareEventStep()', () => {
                 $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
             },
         }
-        const preppedEvent = await prepareEventStep(runner, event)
-        const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person)
+        const { result } = await prepareEventStep(runner, event, false)
+        const chEvent = runner.eventsProcessor.createEvent(result, person, false)
 
         expect(chEvent.elements_chain).toEqual('random string')
         expect(chEvent.properties).toEqual('{"a":1}')
@@ -150,8 +150,8 @@ describe('prepareEventStep()', () => {
             ip: null,
             properties: { a: 1, $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }] },
         }
-        const preppedEvent = await prepareEventStep(runner, event)
-        const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person)
+        const { result } = await prepareEventStep(runner, event, false)
+        const chEvent = runner.eventsProcessor.createEvent(result, person, false)
 
         expect(chEvent.elements_chain).toEqual('div:nth-child="1"nth-of-type="2"text="text"')
         expect(chEvent.properties).toEqual('{"a":1}')

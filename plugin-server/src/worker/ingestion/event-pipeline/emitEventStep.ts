@@ -1,6 +1,10 @@
 import { RawKafkaEvent } from '../../../types'
-import { EventPipelineRunner } from './runner'
+import { EventPipelineRunner, StepResult } from './runner'
 
-export function emitEventStep(runner: EventPipelineRunner, event: RawKafkaEvent): [Promise<void>] {
-    return [runner.eventsProcessor.emitEvent(event)]
+export function emitEventStep(runner: EventPipelineRunner, event: RawKafkaEvent): Promise<StepResult<null>> {
+    const emitEventPromise = runner.eventsProcessor.emitEvent(event)
+    return Promise.resolve({
+        result: null,
+        kafkaAcks: [emitEventPromise],
+    })
 }

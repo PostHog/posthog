@@ -4,8 +4,12 @@ import { DateTime } from 'luxon'
 import { normalizeEvent, normalizeProcessPerson } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { parseEventTimestamp } from '../timestamps'
+import { StepResult } from './runner'
 
-export function normalizeEventStep(event: PluginEvent, processPerson: boolean): Promise<[PluginEvent, DateTime]> {
+export function normalizeEventStep(
+    event: PluginEvent,
+    processPerson: boolean
+): Promise<StepResult<{ event: PluginEvent; timestamp: DateTime }>> {
     let timestamp: DateTime
     try {
         event = normalizeEvent(event)
@@ -21,5 +25,10 @@ export function normalizeEventStep(event: PluginEvent, processPerson: boolean): 
     }
 
     // We need to be "async" to deal with how `runStep` currently works.
-    return Promise.resolve([event, timestamp])
+    return Promise.resolve({
+        result: {
+            event,
+            timestamp,
+        },
+    })
 }

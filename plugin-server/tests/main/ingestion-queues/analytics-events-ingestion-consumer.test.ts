@@ -101,7 +101,6 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
             topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
             value: message.value,
             key: null,
-            waitForAck: true,
         })
 
         // Event is not processed here
@@ -126,7 +125,6 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
                 topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
                 value: message.value,
                 key: overflowMode === IngestionOverflowMode.Reroute ? message.key : null,
-                waitForAck: true,
             })
         }
     )

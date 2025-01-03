@@ -1,7 +1,5 @@
 import { DateTime } from 'luxon'
-import { HighLevelProducer } from 'node-rdkafka'
 
-import { produce } from '../../../../../src/kafka/producer'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { ReplayEventsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/replay-events-ingester'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
@@ -10,7 +8,8 @@ import { status } from '../../../../../src/utils/status'
 import { castTimestampOrNow } from '../../../../../src/utils/utils'
 
 jest.mock('../../../../../src/utils/status')
-jest.mock('../../../../../src/kafka/producer')
+
+import { getParsedQueuedMessages, mockProducer } from '../../../../helpers/mocks/producer.mock'
 
 const makeIncomingMessage = (
     source: string | null,
@@ -41,15 +40,10 @@ const makeIncomingMessage = (
 
 describe('replay events ingester', () => {
     let ingester: ReplayEventsIngester
-    const mockProducer: jest.Mock = jest.fn()
 
     beforeEach(() => {
-        mockProducer.mockClear()
-        mockProducer['connect'] = jest.fn()
-        mockProducer['isConnected'] = () => true
-
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
-        ingester = new ReplayEventsIngester(mockProducer as unknown as HighLevelProducer, mockedHighWaterMarker)
+        ingester = new ReplayEventsIngester(mockProducer, mockedHighWaterMarker)
     })
 
     test('does not ingest messages from a month in the future', async () => {
@@ -60,13 +54,11 @@ describe('replay events ingester', () => {
         await ingester.consume(makeIncomingMessage("mickey's fun house", twoMonthsFromNow.toMillis()))
 
         expect(jest.mocked(status.debug).mock.calls).toEqual([])
-        expect(jest.mocked(produce).mock.calls).toHaveLength(1)
-        expect(jest.mocked(produce).mock.calls[0]).toHaveLength(1)
-        const call = jest.mocked(produce).mock.calls[0][0]
-
-        expect(call.topic).toEqual('clickhouse_ingestion_warnings_test')
-        // call.value is a Buffer convert it to a string
-        const value = call.value ? JSON.parse(call.value.toString()) : null
+        expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
+        const topicMessages = getParsedQueuedMessages()
+        expect(topicMessages).toHaveLength(1)
+        expect(topicMessages[0].topic).toEqual('clickhouse_ingestion_warnings_test')
+        const value = topicMessages[0].messages[0].value!
         const expectedTimestamp = castTimestampOrNow(twoMonthsFromNow, TimestampFormat.ClickHouse)
 
         expect(value.source).toEqual('plugin-server')
@@ -87,12 +79,13 @@ describe('replay events ingester', () => {
         await ingester.consume(makeIncomingMessage("mickey's fun house", ts))
 
         expect(jest.mocked(status.debug).mock.calls).toEqual([])
-        expect(jest.mocked(produce).mock.calls).toHaveLength(1)
-        expect(jest.mocked(produce).mock.calls[0]).toHaveLength(1)
-        const call = jest.mocked(produce).mock.calls[0][0]
-        expect(call.topic).toEqual('clickhouse_session_replay_events_test')
+        expect(jest.mocked(mockProducer.queueMessages).mock.calls).toHaveLength(1)
+        expect(jest.mocked(mockProducer.queueMessages).mock.calls[0]).toHaveLength(1)
+        const topicMessages = getParsedQueuedMessages()
+        expect(topicMessages).toHaveLength(1)
+        expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
         // call.value is a Buffer convert it to a string
-        const value = call.value ? JSON.parse(call.value.toString()) : null
+        const value = topicMessages[0].messages[0].value!
         expect(value).toEqual({
             active_milliseconds: 0,
             click_count: 0,
@@ -121,12 +114,11 @@ describe('replay events ingester', () => {
         await ingester.consume(makeIncomingMessage(null, ts))
 
         expect(jest.mocked(status.debug).mock.calls).toEqual([])
-        expect(jest.mocked(produce).mock.calls).toHaveLength(1)
-        expect(jest.mocked(produce).mock.calls[0]).toHaveLength(1)
-        const call = jest.mocked(produce).mock.calls[0][0]
-        expect(call.topic).toEqual('clickhouse_session_replay_events_test')
-        // call.value is a Buffer convert it to a string
-        const value = call.value ? JSON.parse(call.value.toString()) : null
+        expect(jest.mocked(mockProducer.queueMessages).mock.calls).toHaveLength(1)
+        const topicMessages = getParsedQueuedMessages()
+        expect(topicMessages).toHaveLength(1)
+        expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
+        const value = topicMessages[0].messages[0].value!
         expect(value).toEqual({
             active_milliseconds: 0,
             click_count: 0,
@@ -164,12 +156,11 @@ describe('replay events ingester', () => {
         )
 
         expect(jest.mocked(status.debug).mock.calls).toEqual([])
-        expect(jest.mocked(produce).mock.calls).toHaveLength(1)
-        expect(jest.mocked(produce).mock.calls[0]).toHaveLength(1)
-        const call = jest.mocked(produce).mock.calls[0][0]
-        expect(call.topic).toEqual('clickhouse_session_replay_events_test')
-        // call.value is a Buffer convert it to a string
-        const value = call.value ? JSON.parse(call.value.toString()) : null
+        expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
+        const topicMessages = getParsedQueuedMessages()
+        expect(topicMessages).toHaveLength(1)
+        expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
+        const value = topicMessages[0].messages[0].value!
         expect(value).toEqual({
             active_milliseconds: 0,
             click_count: 0,

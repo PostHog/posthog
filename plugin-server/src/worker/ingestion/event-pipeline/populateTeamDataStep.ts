@@ -6,12 +6,12 @@ import { sanitizeString } from '../../../utils/db/utils'
 import { UUID } from '../../../utils/utils'
 import { captureIngestionWarning } from '../utils'
 import { tokenOrTeamPresentCounter } from './metrics'
-import { EventPipelineRunner } from './runner'
+import { EventPipelineRunner, StepResult } from './runner'
 
 export async function populateTeamDataStep(
     runner: EventPipelineRunner,
     event: PipelineEvent
-): Promise<PluginEvent | null> {
+): Promise<StepResult<PluginEvent | null>> {
     /**
      * Implements team_id resolution and applies the team's ingestion settings (dropping event.ip if requested).
      * Resolution can fail if PG is unavailable, leading to the consumer taking lag until retries succeed.
@@ -39,7 +39,7 @@ export async function populateTeamDataStep(
                 drop_cause: 'no_token',
             })
             .inc()
-        return null
+        return { result: null }
     } else if (event.team_id) {
         team = await runner.hub.teamManager.fetchTeam(event.team_id)
     } else if (event.token) {
@@ -57,7 +57,7 @@ export async function populateTeamDataStep(
                 drop_cause: 'invalid_token',
             })
             .inc()
-        return null
+        return { result: null }
     }
 
     // Check for an invalid UUID, which should be blocked by capture, when team_id is present
@@ -85,5 +85,5 @@ export async function populateTeamDataStep(
         team_id: team.id,
     }
 
-    return event as PluginEvent
+    return { result: event as PluginEvent }
 }
