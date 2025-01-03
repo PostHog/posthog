@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
                 ("key", models.CharField(max_length=400, blank=False)),
                 ("team", models.ForeignKey(on_delete=models.deletion.CASCADE, to="posthog.team")),
                 ("name", models.CharField(max_length=400, blank=False)),
-                ("description", models.TextField(default="")),
+                ("description", models.TextField(default="", blank=True)),
                 (
                     "primary_early_access_feature",
                     models.ForeignKey(on_delete=models.deletion.RESTRICT, to="posthog.earlyaccessfeature"),

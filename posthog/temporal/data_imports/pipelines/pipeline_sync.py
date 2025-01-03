@@ -445,6 +445,12 @@ def save_last_incremental_value(schema_id: str, team_id: str, source: DltSource,
 
     logger.debug(f"Updating incremental_field_last_value with {last_value}")
 
+    if last_value is None:
+        logger.debug(
+            f"Incremental value is None. This could mean the table has zero rows. Full incremental object: {incremental_object}"
+        )
+        return
+
     schema.update_incremental_field_last_value(last_value)
 
 

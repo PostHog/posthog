@@ -19,6 +19,7 @@ import {
     ReplayTabs,
 } from '~/types'
 
+import { BillingSectionId } from './billing/types'
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
 export const preloadedScenes: Record<string, LoadedScene> = {
@@ -253,12 +254,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
-    [Scene.DataModel]: {
-        projectBased: true,
-        name: 'Visualize person schema',
-        defaultDocsPath: '/docs/data-datawarehouse',
-        layout: 'app-canvas',
-    },
     [Scene.DataWarehouse]: {
         projectBased: true,
         name: 'Data warehouse',
@@ -385,6 +380,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         hideProjectNotice: true,
         organizationBased: true,
         defaultDocsPath: '/pricing',
+    },
+    [Scene.BillingSection]: {
+        name: 'Billing',
+        hideProjectNotice: true,
+        organizationBased: true,
     },
     [Scene.BillingAuthorizationStatus]: {
         hideProjectNotice: true,
@@ -588,7 +588,6 @@ export const routes: Record<string, Scene> = {
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,
-    [urls.dataModel()]: Scene.DataModel,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
     [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
@@ -605,6 +604,7 @@ export const routes: Record<string, Scene> = {
     [urls.max()]: Scene.Max,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationBilling()]: Scene.Billing,
+    [urls.organizationBillingSection(':section' as BillingSectionId)]: Scene.BillingSection,
     [urls.billingAuthorizationStatus()]: Scene.BillingAuthorizationStatus,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,

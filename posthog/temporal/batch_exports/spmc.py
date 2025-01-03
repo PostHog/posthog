@@ -178,12 +178,14 @@ class Consumer:
         heartbeater: Heartbeater,
         heartbeat_details: BatchExportRangeHeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        data_interval_end: dt.datetime | str,
         writer_format: WriterFormat,
     ):
         self.flush_start_event = asyncio.Event()
         self.heartbeater = heartbeater
         self.heartbeat_details = heartbeat_details
         self.data_interval_start = data_interval_start
+        self.data_interval_end = data_interval_end
         self.writer_format = writer_format
         self.logger = logger
 
@@ -196,6 +198,35 @@ class Consumer:
     def bytes_exported_counter(self) -> temporalio.common.MetricCounter:
         """Access the bytes exported metric counter."""
         return get_bytes_exported_metric()
+
+    def create_consumer_task(
+        self,
+        queue: RecordBatchQueue,
+        producer_task: asyncio.Task,
+        max_bytes: int,
+        schema: pa.Schema,
+        json_columns: collections.abc.Sequence[str],
+        multiple_files: bool = False,
+        include_inserted_at: bool = False,
+        task_name: str = "record_batch_consumer",
+        **kwargs,
+    ) -> asyncio.Task:
+        """Create a record batch consumer task."""
+        consumer_task = asyncio.create_task(
+            self.start(
+                queue=queue,
+                producer_task=producer_task,
+                max_bytes=max_bytes,
+                schema=schema,
+                json_columns=json_columns,
+                multiple_files=multiple_files,
+                include_inserted_at=include_inserted_at,
+                **kwargs,
+            ),
+            name=task_name,
+        )
+
+        return consumer_task
 
     @abc.abstractmethod
     async def flush(
@@ -249,25 +280,29 @@ class Consumer:
         Returns:
             Total number of records in all consumed record batches.
         """
-        await logger.adebug("Starting record batch consumer")
-
         schema = cast_record_batch_schema_json_columns(schema, json_columns=json_columns)
         writer = get_batch_export_writer(self.writer_format, self.flush, schema=schema, max_bytes=max_bytes, **kwargs)
 
         record_batches_count = 0
+        record_batches_count_total = 0
         records_count = 0
 
-        await self.logger.adebug("Starting record batch writing loop")
+        await self.logger.adebug("Consuming record batches from producer %s", producer_task.get_name())
 
         writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
 
         async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
             record_batches_count += 1
+            record_batches_count_total += 1
             record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
 
             await writer.write_record_batch(record_batch, flush=False, include_inserted_at=include_inserted_at)
 
             if writer.should_flush():
+                await self.logger.adebug(
+                    "Flushing %s records from %s record batches", writer.records_since_last_flush, record_batches_count
+                )
+
                 records_count += writer.records_since_last_flush
 
                 if multiple_files:
@@ -281,9 +316,15 @@ class Consumer:
                 record_batches_count = 0
 
         records_count += writer.records_since_last_flush
+
+        await self.logger.adebug(
+            "Finished consuming %s records from %s record batches, will flush any pending data",
+            records_count,
+            record_batches_count_total,
+        )
+
         await writer.close_temporary_file()
 
-        await self.logger.adebug("Consumed %s records", records_count)
         self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
         return records_count
 
@@ -308,6 +349,11 @@ class Consumer:
 
             yield record_batch
 
+    def complete_heartbeat(self):
+        """Complete this consumer's heartbeats."""
+        self.heartbeat_details.complete_done_ranges(self.data_interval_end)
+        self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
+
 
 class RecordBatchConsumerRetryableExceptionGroup(ExceptionGroup):
     """ExceptionGroup raised when at least one task fails with a retryable exception."""
@@ -323,24 +369,19 @@ class RecordBatchConsumerNonRetryableExceptionGroup(ExceptionGroup):
         return RecordBatchConsumerNonRetryableExceptionGroup(self.message, excs)
 
 
-async def run_consumer_loop(
+async def run_consumer(
     queue: RecordBatchQueue,
-    consumer_cls: type[Consumer],
+    consumer: Consumer,
     producer_task: asyncio.Task,
-    heartbeater: Heartbeater,
-    heartbeat_details: BatchExportRangeHeartbeatDetails,
-    data_interval_end: dt.datetime | str,
-    data_interval_start: dt.datetime | str | None,
-    schema: pa.Schema,
-    writer_format: WriterFormat,
     max_bytes: int,
+    schema: pa.Schema,
     json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
-    writer_file_kwargs: collections.abc.Mapping[str, typing.Any] | None = None,
     multiple_files: bool = False,
+    writer_file_kwargs: collections.abc.Mapping[str, typing.Any] | None = None,
     include_inserted_at: bool = False,
     **kwargs,
 ) -> int:
-    """Run record batch consumers in a loop.
+    """Run one record batch consumer.
 
     When a consumer starts flushing, a new consumer will be started, and so on in
     a loop. Once there is nothing left to consumer from the `RecordBatchQueue`, no
@@ -362,7 +403,6 @@ async def run_consumer_loop(
     """
     consumer_tasks_pending: set[asyncio.Task] = set()
     consumer_tasks_done = set()
-    consumer_number = 0
     records_completed = 0
 
     def consumer_done_callback(task: asyncio.Task):
@@ -378,27 +418,22 @@ async def run_consumer_loop(
         consumer_tasks_pending.remove(task)
         consumer_tasks_done.add(task)
 
-    await logger.adebug("Starting record batch consumer loop")
+    await logger.adebug("Starting record batch consumer")
 
-    consumer = consumer_cls(heartbeater, heartbeat_details, data_interval_start, writer_format, **kwargs)
-    consumer_task = asyncio.create_task(
-        consumer.start(
-            queue=queue,
-            producer_task=producer_task,
-            max_bytes=max_bytes,
-            schema=schema,
-            json_columns=json_columns,
-            multiple_files=multiple_files,
-            include_inserted_at=include_inserted_at,
-            **writer_file_kwargs or {},
-        ),
-        name=f"record_batch_consumer_{consumer_number}",
+    consumer_task = consumer.create_consumer_task(
+        queue=queue,
+        producer_task=producer_task,
+        max_bytes=max_bytes,
+        schema=schema,
+        json_columns=json_columns,
+        multiple_files=multiple_files,
+        include_inserted_at=include_inserted_at,
+        **writer_file_kwargs or {},
     )
     consumer_tasks_pending.add(consumer_task)
     consumer_task.add_done_callback(consumer_done_callback)
-    consumer_number += 1
 
-    await asyncio.wait([consumer_task])
+    await asyncio.wait(consumer_tasks_pending)
 
     if consumer_task.done():
         consumer_task_exception = consumer_task.exception()
@@ -406,13 +441,10 @@ async def run_consumer_loop(
         if consumer_task_exception is not None:
             raise consumer_task_exception
 
-    await logger.adebug("Finished consuming record batches")
-
     await raise_on_task_failure(producer_task)
-    await logger.adebug("Successfully consumed all record batches")
+    await logger.adebug("Successfully finished record batch consumer")
 
-    heartbeat_details.complete_done_ranges(data_interval_end)
-    heartbeater.set_from_heartbeat_details(heartbeat_details)
+    consumer.complete_heartbeat()
 
     return records_completed
 

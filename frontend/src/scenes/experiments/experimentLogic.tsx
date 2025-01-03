@@ -275,6 +275,7 @@ export const experimentLogic = kea<experimentLogicType>([
         openPrimaryMetricModal: (index: number) => ({ index }),
         closePrimaryMetricModal: true,
         setPrimaryMetricsResultErrors: (errors: any[]) => ({ errors }),
+        setEditingPrimaryMetricIndex: (index: number | null) => ({ index }),
         updateDistributionModal: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         openSecondaryMetricModal: (index: number) => ({ index }),
         closeSecondaryMetricModal: true,
@@ -511,6 +512,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 openPrimaryMetricModal: (_, { index }) => index,
                 closePrimaryMetricModal: () => null,
                 updateExperimentGoal: () => null,
+                setEditingPrimaryMetricIndex: (_, { index }) => index,
             },
         ],
         primaryMetricsResultErrors: [
@@ -1787,12 +1789,14 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
 ])
 
-function percentageDistribution(variantCount: number): number[] {
-    const percentageRounded = Math.round(100 / variantCount)
-    const totalRounded = percentageRounded * variantCount
-    const delta = totalRounded - 100
-    const percentages = new Array(variantCount).fill(percentageRounded)
-    percentages[variantCount - 1] = percentageRounded - delta
+export function percentageDistribution(variantCount: number): number[] {
+    const basePercentage = Math.floor(100 / variantCount)
+    const percentages = new Array(variantCount).fill(basePercentage)
+    let remaining = 100 - basePercentage * variantCount
+    for (let i = 0; remaining > 0; i++, remaining--) {
+        // try to equally distribute `remaining` across variants
+        percentages[i] += 1
+    }
     return percentages
 }
 
