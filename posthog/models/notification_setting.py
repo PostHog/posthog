@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from posthog.models import User
 
@@ -7,12 +7,14 @@ from posthog.models import User
 class NotificationSetting(Enum):
     WEEKLY_PROJECT_DIGEST = "weekly_project_digest"
     PLUGIN_DISABLED = "plugin_disabled"
-    # Add more notification types as needed
+
+
+NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled"]
 
 
 def should_send_notification(
     user: User,
-    notification_type: NotificationSetting,
+    notification_type: NotificationSettingType,
     team_id: Optional[int] = None,
 ) -> bool:
     """
@@ -43,4 +45,7 @@ def should_send_notification(
     elif notification_type == NotificationSetting.PLUGIN_DISABLED.value:
         return not settings.get("plugin_disabled", True)  # Default to True (disabled) if not set
 
-    return True  # Default to sending if notification type not recognized
+    # The below typeerror is ignored because we're currently handling the notification
+    # types above, so technically it's unreachable. However if another is added but
+    # not handled in this function, we want this as a fallback.
+    return True  # type: ignore

@@ -210,8 +210,8 @@ class UserSerializer(serializers.ModelSerializer):
         raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
 
     def validate_notification_settings(self, notification_settings: Notifications) -> Notifications:
-        # Get current settings with defaults
-        current_settings = {**NOTIFICATION_DEFAULTS, **(self.instance.partial_notification_settings or {})}
+        instance = cast(User, self.instance)
+        current_settings = {**NOTIFICATION_DEFAULTS, **(instance.partial_notification_settings or {})}
 
         for key, value in notification_settings.items():
             if key not in Notifications.__annotations__:
@@ -245,7 +245,7 @@ class UserSerializer(serializers.ModelSerializer):
                     )
                 current_settings[key] = value
 
-        return current_settings
+        return cast(Notifications, current_settings)
 
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
