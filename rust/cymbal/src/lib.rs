@@ -4,7 +4,7 @@ use app_context::AppContext;
 use common_types::ClickHouseEvent;
 use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
-use issue_resolution::resolve_issue;
+use issue_resolution::{resolve_issue, track_issue_metadata};
 use tracing::warn;
 use types::{Exception, RawErrProps, Stacktrace};
 
@@ -54,6 +54,11 @@ pub async fn handle_event(
     let fingerprinted = props.to_fingerprinted(fingerprint.clone());
 
     let mut output = resolve_issue(&context.pool, event.team_id, fingerprinted).await?;
+
+    // TODO: Tracking issue metadata is currently a best-effort operation, and we don't want to
+    // fail the event processing if it fails. Also, unclear what should happen on merges with redis storage.
+    // Right now, I expect this to go out of sync so we should have some nightly celery task to keep it in sync.
+    track_issue_metadata(event.team_id, output.issue_id, context.redis.clone(), event.timestamp.clone()).await?;
 
     // TODO - I'm not sure we actually want to do this? Maybe junk drawer stuff should end up in clickhouse, and
     // be directly queryable by users? Stripping it for now, so it only ends up in postgres

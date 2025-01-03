@@ -1,5 +1,10 @@
+use std::sync::Arc;
+
 use sqlx::postgres::any::AnyConnectionBackend;
 use uuid::Uuid;
+
+use redis::{RedisError, AsyncCommands};
+use tracing::error;
 
 use crate::{
     error::UnhandledError,
@@ -182,4 +187,37 @@ where
     }
 
     Ok(fingerprinted.to_output(issue_override.issue_id))
+}
+
+pub async fn track_issue_metadata(
+    team_id: i32,
+    issue_id: Uuid,
+    redis: Arc<redis::Client>,
+    // TODO: Confirm timestamp format
+    timestamp: String,
+) -> Result<(), UnhandledError>
+{
+
+    let mut conn = match redis.get_multiplexed_async_connection().await {
+        Ok(conn) => conn,
+        Err(e) => {
+            error!("Error tracking issue metadata: {:?}", e);
+            return Ok(());
+        }
+    };
+
+    let redis_key = format!("issue_metadata:{}:{}", team_id, issue_id);
+
+    let res: Result<(), RedisError> = redis::pipe()
+        .hset(redis_key.clone(), "last_seen", timestamp)
+        .hincr(redis_key, "occurrences", 1)
+        .query_async(&mut conn)
+        .await;
+
+    // on error, log the error but don't propagate it
+    if let Err(e) = res {
+        error!("Error tracking issue metadata: {:?}", e);
+    }
+
+    Ok(())
 }
