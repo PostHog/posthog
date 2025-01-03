@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -14,12 +14,8 @@ import type { featureManagementLogicType } from './featureManagementLogicType'
 export interface FeatureManagementLogicProps {
     id?: FeatureType['id']
 }
-export interface FeaturesResult {
-    results: FeatureType[]
-    count: number
-    next?: string | null
-    previous?: string | null
-}
+
+export type FeaturesResult = CountedPaginatedResponse<FeatureType>
 
 export const featureManagementLogic = kea<featureManagementLogicType>([
     props({} as FeatureManagementLogicProps),
@@ -38,17 +34,14 @@ export const featureManagementLogic = kea<featureManagementLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders({
         features: [
             { results: [], count: 0, offset: 0 } as FeaturesResult,
             {
-                loadFeatures: async () => {
-                    const response = await api.get(`api/projects/${values.currentTeamId}/features`)
-                    return response as FeaturesResult
-                },
+                loadFeatures: () => api.features.list(),
             },
         ],
-    })),
+    }),
     selectors({
         activeFeature: [
             (s) => [s.activeFeatureId, s.features],

@@ -1051,16 +1051,24 @@ const api = {
     },
 
     features: {
-        async list(teamId?: TeamType['id']): Promise<PaginatedResponse<FeatureFlagType>> {
+        async list(
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<CountedPaginatedResponse<FeatureType>> {
             return await new ApiRequest().features(teamId).get()
         },
-        async get(id: FeatureType['id'], teamId?: TeamType['id']): Promise<FeatureType> {
+        async get(id: FeatureType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<FeatureType> {
             return await new ApiRequest().feature(id, teamId).get()
         },
-        async create(feature: NewFeatureForm, teamId?: TeamType['id']): Promise<FeatureType> {
+        async create(
+            feature: NewFeatureForm,
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<FeatureType> {
             return await new ApiRequest().features(teamId).create({ data: feature })
         },
-        async update(feature: FeatureType, teamId?: TeamType['id']): Promise<FeatureType> {
+        async update(
+            feature: FeatureType,
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<FeatureType> {
             return await new ApiRequest().feature(feature.id, teamId).update({ data: feature })
         },
     },

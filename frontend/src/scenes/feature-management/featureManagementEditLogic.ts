@@ -31,13 +31,19 @@ export const featureManagementEditLogic = kea<featureManagementEditLogicType>([
     connect({
         actions: [featureManagementLogic, ['loadFeatures']],
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, actions }) => ({
         feature: {
             saveFeature: async (updatedFeature: NewFeatureForm | FeatureType) => {
+                let feature
                 if (props.id === 'new') {
-                    return api.features.create(updatedFeature)
+                    feature = await api.features.create(updatedFeature)
+                } else {
+                    feature = await api.features.update(updatedFeature as FeatureType)
                 }
-                return api.features.update(updatedFeature as FeatureType)
+
+                // Reset the form after creation
+                actions.resetFeature()
+                return feature
             },
         },
     })),
