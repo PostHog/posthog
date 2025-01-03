@@ -47,7 +47,7 @@ class PipelineNonDLT:
         assert schema is not None
         self._schema = schema
 
-        self._delta_table_helper = DeltaTableHelper(resource_name, self._job)
+        self._delta_table_helper = DeltaTableHelper(resource_name, self._job, self._logger)
         self._internal_schema = HogQLSchema()
 
     def run(self):
