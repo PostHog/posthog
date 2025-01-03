@@ -1,11 +1,11 @@
 import {
     BaseIcon,
-    IconBug,
     IconCheck,
     IconDashboard,
     IconGear,
     IconInfo,
     IconSearch,
+    IconStethoscope,
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonMenuItem, Tooltip } from '@posthog/lemon-ui'
@@ -30,7 +30,7 @@ export const TabToIcon = {
     [FilterableInspectorListItemTypes.EVENTS]: IconUnverifiedEvent,
     [FilterableInspectorListItemTypes.CONSOLE]: IconTerminal,
     [FilterableInspectorListItemTypes.NETWORK]: IconDashboard,
-    [FilterableInspectorListItemTypes.DOCTOR]: IconBug,
+    [FilterableInspectorListItemTypes.DOCTOR]: IconStethoscope,
 }
 
 export function PlayerInspectorControls(): JSX.Element {
@@ -129,7 +129,7 @@ export function PlayerInspectorControls(): JSX.Element {
                     mode !== SessionRecordingPlayerMode.Sharing && (
                         <SettingsToggle
                             title="Doctor events help diagnose the health of a recording, and are used by PostHog support"
-                            icon={<IconBug />}
+                            icon={<IconStethoscope />}
                             label="Doctor"
                             active={!!miniFiltersByKey['doctor']?.enabled}
                             onClick={() => setMiniFilter('doctor', !miniFiltersByKey['doctor']?.enabled)}

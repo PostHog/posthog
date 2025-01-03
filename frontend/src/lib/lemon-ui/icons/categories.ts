@@ -55,6 +55,9 @@ export const OBJECTS = {
         'IconPlug',
         'IconPuzzle',
         'IconActivity',
+        'IconRabbit',
+        'IconTortoise',
+        'IconStethoscope',
     ],
     People: [
         'IconPeople',
@@ -72,7 +75,15 @@ export const OBJECTS = {
 }
 
 export const TECHNOLOGY = {
-    Messaging: ['IconSend', 'IconHeadset', 'IconMessage', 'IconNotification', 'IconChat', 'IconThoughtBubble'],
+    Messaging: [
+        'IconSend',
+        'IconHeadset',
+        'IconMessage',
+        'IconNotification',
+        'IconChat',
+        'IconThoughtBubble',
+        'IconChatHelp',
+    ],
     Hardware: [
         'IconLaptop',
         'IconPhone',
@@ -104,6 +115,7 @@ export const TECHNOLOGY = {
         'IconSidePanel',
         'IconMouseScrollDown',
         'IconDrag',
+        'IconPointer',
     ],
 }
 
