@@ -108,16 +108,14 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     urlToAction(({ actions, values }) => {
         return {
             '/replay/:tab': ({ tab }) => {
-                if (tab !== values.tab) {
-                    // we saw a page get stuck in a redirect loop between recent and home
-                    // see https://posthog.sentry.io/issues/6176801992/?notification_uuid=093e1a3f-c266-4c17-9610-68816996d304&project=1899813&referrer=assigned_activity-email
-                    // so, we're extra careful that the value being set is a valid tab
-                    const validTab = Object.values(ReplayTabs).includes(tab as ReplayTabs)
-                        ? (tab as ReplayTabs)
-                        : ReplayTabs.Home
-                    if (validTab !== values.tab) {
-                        actions.setTab(validTab)
-                    }
+                // we saw a page get stuck in a redirect loop between recent and home
+                // see https://posthog.sentry.io/issues/6176801992/?notification_uuid=093e1a3f-c266-4c17-9610-68816996d304&project=1899813&referrer=assigned_activity-email
+                // so, we're extra careful that the value being set is a valid tab
+                const validTab = Object.values(ReplayTabs).includes(tab as ReplayTabs)
+                    ? (tab as ReplayTabs)
+                    : ReplayTabs.Home
+                if (validTab !== values.tab) {
+                    actions.setTab(validTab)
                 }
             },
         }
