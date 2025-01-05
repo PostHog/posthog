@@ -509,6 +509,8 @@ class Producer:
         fields: list[BatchExportField] | None = None,
         destination_default_fields: list[BatchExportField] | None = None,
         use_latest_schema: bool = False,
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
         **parameters,
     ) -> asyncio.Task:
         if fields is None:
@@ -575,7 +577,13 @@ class Producer:
 
         self._task = asyncio.create_task(
             self.produce_batch_export_record_batches_from_range(
-                query=query, full_range=full_range, done_ranges=done_ranges, queue=queue, query_parameters=parameters
+                query=query,
+                full_range=full_range,
+                done_ranges=done_ranges,
+                queue=queue,
+                query_parameters=parameters,
+                max_record_batch_size_bytes=max_record_batch_size_bytes,
+                min_records_per_batch=min_records_per_batch,
             ),
             name="record_batch_producer",
         )
@@ -589,16 +597,84 @@ class Producer:
         done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
         queue: RecordBatchQueue,
         query_parameters: dict[str, typing.Any],
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
     ):
+        """Produce Arrow record batches for a given date range into `queue`.
+
+        Arguments:
+            query: The ClickHouse query used to obtain record batches. The query should be have a
+                `FORMAT ArrowStream` clause, although we do not enforce this.
+            full_range: The full date range of record batches to produce.
+            done_ranges: Date ranges of record batches that have already been exported, and thus
+                should be skipped.
+            queue: The queue where to produce record batches.
+            query_parameters: Additional query parameters.
+            max_record_batch_size_bytes: The max size in bytes of a record batch to insert in `queue`.
+                If a record batch is larger than this, `slice_record_batch` will be used to slice it
+                into smaller record batches.
+            min_records_batch_per_batch: If slicing a record batch, each slice should contain at least
+                this number of records.
+        """
         for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
             if interval_start is not None:
                 query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
             query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
             query_id = uuid.uuid4()
 
-            await self.clickhouse_client.aproduce_query_as_arrow_record_batches(
-                query, queue=queue, query_parameters=query_parameters, query_id=str(query_id)
-            )
+            try:
+                async for record_batch in self.clickhouse_client.astream_query_as_arrow(
+                    query, query_parameters=query_parameters, query_id=str(query_id)
+                ):
+                    for record_batch_slice in slice_record_batch(
+                        record_batch, max_record_batch_size_bytes, min_records_per_batch
+                    ):
+                        await queue.put(record_batch_slice)
+
+            except Exception as e:
+                await logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
+                raise
+
+
+def slice_record_batch(
+    record_batch: pa.RecordBatch, max_record_batch_size_bytes: int = 0, min_records_per_batch: int = 100
+) -> typing.Iterator[pa.RecordBatch]:
+    """Slice a large Arrow record batch into one or more record batches.
+
+    The underlying call to `pa.RecordBatch.slice` is a zero-copy operation, so the
+    memory footprint of slicing is very low, beyond some additional metadata
+    required for the slice.
+
+    Arguments:
+        record_batch: The record batch to slice.
+        max_record_batch_size_bytes: The max size in bytes of a record batch to
+            yield. If the provided `record_batch` is larger than this, then it
+            will be sliced into multiple record batches.
+        min_records_batch_per_batch: Each slice yielded should contain at least
+            this number of records.
+    """
+    total_rows = record_batch.num_rows
+    yielded_rows = 0
+    offset = 0
+    length = total_rows
+
+    if max_record_batch_size_bytes <= 0 or max_record_batch_size_bytes > record_batch.nbytes:
+        yield record_batch
+        return
+
+    while yielded_rows < total_rows:
+        sliced_record_batch = record_batch.slice(offset=offset, length=length)
+        current_rows = sliced_record_batch.num_rows
+
+        if max_record_batch_size_bytes < sliced_record_batch.nbytes and min_records_per_batch < current_rows:
+            length -= 1
+            continue
+
+        yield sliced_record_batch
+
+        yielded_rows += current_rows
+        offset = offset + length
+        length = total_rows - yielded_rows
 
 
 def generate_query_ranges(
