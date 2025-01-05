@@ -5,6 +5,7 @@ import { useValues } from 'kea'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { PanelFilters } from './panels/Filters'
+import { PanelOverview } from './panels/Overview'
 import { PanelPlayback } from './panels/Playback'
 import { PanelPlaylist } from './panels/Playlist'
 import { PlayerInspector } from './player/inspector/PlayerInspector'
@@ -28,14 +29,8 @@ export function PanelsUI(): JSX.Element {
             <PanelContainer primary className="PanelLayout__primary">
                 {workspaceConfig.overview && (
                     <PanelContainer primary={false} className="w-full">
-                        <Panel primary className="">
-                            <>
-                                <p>This is a line</p>
-                                <p>This is a line</p>
-                                <p>This is a line</p>
-                                <p>This is a line</p>
-                                <p>This is a line</p>
-                            </>
+                        <Panel primary className="PanelLayout__overview">
+                            <PanelOverview />
                         </Panel>
                     </PanelContainer>
                 )}
