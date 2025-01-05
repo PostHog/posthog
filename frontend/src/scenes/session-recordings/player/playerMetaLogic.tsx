@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
-import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
+import { ceilMsToClosestSecond, findLastIndex, humanFriendlyDuration, objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
@@ -20,12 +20,30 @@ import { SimpleTimeLabel } from '../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 
-const browserPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
+const browserPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os', '$referring_domain']
 const mobilePropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
 export interface SessionSummaryResponse {
     content: string
+}
+
+export function countryTitleFrom(
+    recordingProperties: Record<string, any> | undefined,
+    personProperties?: Record<string, any> | undefined
+): string {
+    const props = recordingProperties || personProperties
+    if (!props) {
+        return ''
+    }
+
+    // these prop names are safe between recording and person properties
+    // the "initial" person properties share the same name as the event properties
+    const country = countryCodeToName[props['$geoip_country_code'] as keyof typeof countryCodeToName]
+    const subdivision = props['$geoip_subdivision_1_name']
+    const city = props['$geoip_city_name']
+
+    return [city, subdivision, country].filter(Boolean).join(', ')
 }
 
 export const playerMetaLogic = kea<playerMetaLogicType>([
@@ -83,6 +101,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         },
     })),
     selectors(() => ({
+        loading: [
+            (s) => [s.sessionPlayerMetaDataLoading, s.recordingPropertiesLoading],
+            (sessionPlayerMetaDataLoading, recordingPropertiesLoading) =>
+                sessionPlayerMetaDataLoading || recordingPropertiesLoading,
+        ],
         sessionPerson: [
             (s) => [s.sessionPlayerData],
             (playerData): PersonType | null => {
@@ -180,27 +203,21 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
             },
         ],
-        sessionProperties: [
-            (s) => [s.sessionPlayerData, s.recordingPropertiesById, (_, props) => props],
-            (sessionPlayerData, recordingPropertiesById, props) => {
-                return recordingPropertiesById[props.sessionRecordingId] ?? sessionPlayerData.person?.properties
-            },
-        ],
         overviewItems: [
-            (s) => [s.sessionPlayerMetaData, s.startTime, s.endTime],
-            (sessionPlayerMetaData, startTime, endTime) => {
+            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById],
+            (sessionPlayerMetaData, startTime, recordingPropertiesById) => {
                 const items: OverviewItem[] = []
                 if (startTime) {
                     items.push({
-                        label: 'Session start',
+                        label: 'Start',
                         value: <SimpleTimeLabel muted={false} size="small" isUTC={true} startTime={startTime} />,
                         type: 'text',
                     })
                 }
-                if (endTime) {
+                if (sessionPlayerMetaData?.recording_duration) {
                     items.push({
-                        label: 'Session end',
-                        value: <SimpleTimeLabel muted={false} size="small" isUTC={true} startTime={endTime} />,
+                        label: 'Duration',
+                        value: humanFriendlyDuration(sessionPlayerMetaData.recording_duration),
                         type: 'text',
                     })
                 }
@@ -224,26 +241,31 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     }
                 })
 
+                const recordingProperties = sessionPlayerMetaData?.id
+                    ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
+                    : {}
                 const personProperties = sessionPlayerMetaData?.person?.properties ?? {}
 
-                const deviceType = personProperties['$device_type'] || personProperties['$initial_device_type']
+                const deviceType =
+                    recordingProperties['$device_type'] ||
+                    personProperties['$device_type'] ||
+                    personProperties['$initial_device_type']
                 const deviceTypePropertyKeys = deviceType === 'Mobile' ? mobilePropertyKeys : browserPropertyKeys
 
                 deviceTypePropertyKeys.forEach((property) => {
-                    if (personProperties[property]) {
-                        const value = personProperties[property]
-
-                        const tooltipTitle =
-                            property === '$geoip_country_code' && value in countryCodeToName
-                                ? countryCodeToName[value as keyof typeof countryCodeToName]
-                                : value
+                    if (recordingProperties[property] || personProperties[property]) {
+                        const propertyType = recordingProperties[property]
+                            ? TaxonomicFilterGroupType.EventProperties
+                            : TaxonomicFilterGroupType.PersonProperties
+                        const value = recordingProperties[property] || personProperties[property]
 
                         items.push({
-                            label:
-                                getCoreFilterDefinition(property, TaxonomicFilterGroupType.PersonProperties)?.label ??
-                                property,
+                            label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
                             value,
-                            tooltipTitle,
+                            tooltipTitle:
+                                property === '$geoip_country_code' && value in countryCodeToName
+                                    ? countryTitleFrom(recordingProperties, personProperties)
+                                    : value,
                             type: 'property',
                             property,
                         })
@@ -256,7 +278,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     listeners(({ actions, values, props }) => ({
         loadRecordingMetaSuccess: () => {
-            if (values.sessionPlayerMetaData && !values.recordingPropertiesLoading) {
+            if (values.sessionPlayerMetaData) {
                 actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
             }
         },

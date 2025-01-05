@@ -858,11 +858,11 @@ class TestUserAPI(APIBaseTest):
     def test_redirect_user_to_site_with_toolbar(self, patched_token):
         patched_token.return_value = "tokenvalue"
 
-        self.team.app_urls = ["http://127.0.0.1:8000"]
+        self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
         response = self.client.get(
-            "/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8000"
+            "/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8010"
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         locationHeader = response.headers.get("location", "not found")
@@ -870,18 +870,18 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         self.assertEqual(
             unquote(locationHeader),
-            'http://127.0.0.1:8000#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
     def test_redirect_user_to_site_with_experiments_toolbar(self, patched_token):
         patched_token.return_value = "tokenvalue"
 
-        self.team.app_urls = ["http://127.0.0.1:8000"]
+        self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
         response = self.client.get(
-            "/api/user/redirect_to_site/?userIntent=edit-experiment&experimentId=12&appUrl=http%3A%2F%2F127.0.0.1%3A8000"
+            "/api/user/redirect_to_site/?userIntent=edit-experiment&experimentId=12&appUrl=http%3A%2F%2F127.0.0.1%3A8010"
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         locationHeader = response.headers.get("location", "not found")
@@ -889,7 +889,7 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         self.assertEqual(
             unquote(locationHeader),
-            'http://127.0.0.1:8000#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
