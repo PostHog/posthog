@@ -124,6 +124,7 @@ def sql_source_for_type(
         db_incremental_field_last_value=db_incremental_field_last_value,
         team_id=team_id,
         connect_args=connect_args,
+        chunk_size=DEFAULT_CHUNK_SIZE,
     )
 
     return db_source
@@ -198,6 +199,7 @@ def snowflake_source(
         table_names=table_names,
         incremental=incremental,
         db_incremental_field_last_value=db_incremental_field_last_value,
+        chunk_size=DEFAULT_CHUNK_SIZE,
     )
 
     return db_source
@@ -243,6 +245,7 @@ def bigquery_source(
         table_names=[table_name],
         incremental=incremental,
         db_incremental_field_last_value=db_incremental_field_last_value,
+        chunk_size=DEFAULT_CHUNK_SIZE,
     )
 
 

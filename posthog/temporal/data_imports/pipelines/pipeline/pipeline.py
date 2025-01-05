@@ -47,7 +47,7 @@ class PipelineNonDLT:
         assert schema is not None
         self._schema = schema
 
-        self._delta_table_helper = DeltaTableHelper(resource_name, self._job)
+        self._delta_table_helper = DeltaTableHelper(resource_name, self._job, self._logger)
         self._internal_schema = HogQLSchema()
 
     def run(self):
@@ -100,8 +100,14 @@ class PipelineNonDLT:
             self._post_run_operations(row_count=row_count)
         finally:
             # Help reduce the memory footprint of each job
+            delta_table = self._delta_table_helper.get_delta_table()
+            self._delta_table_helper.get_delta_table.cache_clear()
+            if delta_table:
+                del delta_table
+
             del self._resource
             del self._delta_table_helper
+
             if "buffer" in locals() and buffer is not None:
                 del buffer
             if "py_table" in locals() and py_table is not None:
@@ -131,9 +137,10 @@ class PipelineNonDLT:
             self._logger.debug("No deltalake table, not continuing with post-run ops")
             return
 
-        self._logger.info("Compacting delta table")
-        delta_table.optimize.compact()
-        delta_table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        self._logger.debug("Skipping compact and vacuuming")
+        # self._logger.info("Compacting delta table")
+        # delta_table.optimize.compact()
+        # delta_table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
 
         file_uris = delta_table.file_uris()
         self._logger.info(f"Preparing S3 files - total parquet files: {len(file_uris)}")
