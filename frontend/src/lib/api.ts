@@ -37,6 +37,7 @@ import {
     DashboardTemplateListParams,
     DashboardTemplateType,
     DashboardType,
+    DataColorThemeModel,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -943,6 +944,15 @@ class ApiRequest {
 
     public async delete(): Promise<any> {
         return await api.delete(this.assembleFullUrl())
+    }
+
+    // Data color themes
+    public dataColorThemes(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_color_themes')
+    }
+
+    public dataColorTheme(id: DataColorThemeModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
     }
 }
 
@@ -2517,6 +2527,18 @@ const api = {
         },
         async delete(alertId: AlertType['id']): Promise<void> {
             return await new ApiRequest().alert(alertId).delete()
+        },
+    },
+
+    dataColorThemes: {
+        async list(): Promise<DataColorThemeModel[]> {
+            return await new ApiRequest().dataColorThemes().get()
+        },
+        async create(data: Partial<DataColorThemeModel>): Promise<DataColorThemeModel> {
+            return await new ApiRequest().dataColorThemes().create({ data })
+        },
+        async update(id: DataColorThemeModel['id'], data: Partial<DataColorThemeModel>): Promise<DataColorThemeModel> {
+            return await new ApiRequest().dataColorTheme(id).update({ data })
         },
     },
 

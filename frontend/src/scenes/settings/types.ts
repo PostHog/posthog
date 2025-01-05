@@ -58,6 +58,7 @@ export type SettingId =
     | 'autocapture-data-attributes'
     | 'date-and-time'
     | 'internal-user-filtering'
+    | 'data-theme'
     | 'correlation-analysis'
     | 'person-display-name'
     | 'path-cleaning'
