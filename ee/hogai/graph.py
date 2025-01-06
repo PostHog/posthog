@@ -11,7 +11,13 @@ from ee.hogai.funnels.nodes import (
     FunnelPlannerNode,
     FunnelPlannerToolsNode,
 )
-from ee.hogai.memory.nodes import MemoryInitializerInterruptNode, MemoryInitializerNode, MemoryOnboardingNode
+from ee.hogai.memory.nodes import (
+    MemoryCollectorNode,
+    MemoryCollectorToolsNode,
+    MemoryInitializerInterruptNode,
+    MemoryInitializerNode,
+    MemoryOnboardingNode,
+)
 from ee.hogai.router.nodes import RouterNode
 from ee.hogai.summarizer.nodes import SummarizerNode
 from ee.hogai.trends.nodes import (
@@ -200,9 +206,29 @@ class AssistantGraph:
 
         return self
 
+    def add_memory_collector(self, next_node: AssistantNodeName = AssistantNodeName.END):
+        builder = self._graph
+        self._has_start_node = True
+
+        memory_collector = MemoryCollectorNode(self._team)
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_COLLECTOR)
+        builder.add_node(AssistantNodeName.MEMORY_COLLECTOR, memory_collector.run)
+        builder.add_conditional_edges(
+            AssistantNodeName.MEMORY_COLLECTOR,
+            memory_collector.router,
+            path_map={"tools": AssistantNodeName.MEMORY_COLLECTOR_TOOLS, "next": next_node},
+        )
+
+        memory_collector_tools = MemoryCollectorToolsNode(self._team)
+        builder.add_node(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, memory_collector_tools.run)
+        builder.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
+
+        return self
+
     def compile_full_graph(self):
         return (
             self.add_memory_initializer()
+            .add_memory_collector()
             .add_router()
             .add_trends_planner()
             .add_trends_generator()

@@ -272,14 +272,13 @@ class MemoryCollectorNode(AssistantNode):
                 config=config,
             )
         except MemoryCollectionCompleted:
-            return PartialAssistantState(memory_updated=True, memory_collection_messages=[])
+            return PartialAssistantState(memory_updated=len(node_messages) > 0, memory_collection_messages=[])
         return PartialAssistantState(memory_collection_messages=[*node_messages, cast(LangchainAIMessage, response)])
 
-    def router(self, state: AssistantState) -> Literal["interrupt", "continue"]:
-        last_message = state.messages[-1]
-        if isinstance(last_message, AssistantMessage) and last_message.content == "[Done]":
-            return "continue"
-        return "interrupt"
+    def router(self, state: AssistantState) -> Literal["tools", "next"]:
+        if not state.memory_collection_messages:
+            return "next"
+        return "tools"
 
     @property
     def _model(self):

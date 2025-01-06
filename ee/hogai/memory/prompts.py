@@ -77,7 +77,7 @@ Here is the initial core memory about the user's product:
 <responsibilities>
 Your responsibilities include:
 1. Analyzing new information provided by users.
-2. Determining if the information is relevant to the company or product.
+2. Determining if the information is relevant to the company or product and essential to save in the core memory.
 3. Categorizing relevant information into appropriate memory types.
 4. Updating the core memory by either appending new information or replacing conflicting information.
 </responsibilities>

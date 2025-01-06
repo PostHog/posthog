@@ -66,3 +66,5 @@ class AssistantNodeName(StrEnum):
     FUNNEL_GENERATOR = "funnel_generator"
     FUNNEL_GENERATOR_TOOLS = "funnel_generator_tools"
     SUMMARIZER = "summarizer"
+    MEMORY_COLLECTOR = "memory_collector"
+    MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"
