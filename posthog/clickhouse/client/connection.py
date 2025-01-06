@@ -3,7 +3,7 @@ from enum import Enum
 from functools import cache
 
 from clickhouse_connect import get_client
-from clickhouse_connect.driver import Client as HttpClient
+from clickhouse_connect.driver import Client as HttpClient, httputil
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from django.conf import settings
@@ -56,6 +56,13 @@ class ProxyClient:
         pass
 
 
+_clickhouse_http_pool_mgr = httputil.get_pool_manager(
+    maxsize=settings.CLICKHOUSE_CONN_POOL_MAX,  # max number of open connection per pool
+    block=True,  # makes the maxsize limit per pool, keeps connections
+    num_pools=12,  # number of pools
+)
+
+
 def get_http_client(**overrides):
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
@@ -65,11 +72,11 @@ def get_http_client(**overrides):
         "password": settings.CLICKHOUSE_PASSWORD,
         "ca_cert": settings.CLICKHOUSE_CA,
         "verify": settings.CLICKHOUSE_VERIFY,
-        # "connections_min": settings.CLICKHOUSE_CONN_POOL_MIN,
-        # "connections_max": settings.CLICKHOUSE_CONN_POOL_MAX,
         "settings": {"mutations_sync": "1"} if settings.TEST else {},
         # Without this, OPTIMIZE table and other queries will regularly run into timeouts
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,
+        "autogenerate_session_id": True,  # beware, this makes each query to run in a separate session - no temporary tables will work
+        "pool_mgr": _clickhouse_http_pool_mgr,
         **overrides,
     }
     return ProxyClient(get_client(**kwargs))
