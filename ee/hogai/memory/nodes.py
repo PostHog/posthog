@@ -260,7 +260,9 @@ class MemoryCollectorNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         node_messages = state.memory_collection_messages or []
 
-        prompt = ChatPromptTemplate.from_messages(("system", MEMORY_COLLECTOR_PROMPT)) + self._construct_messages(state)
+        prompt = ChatPromptTemplate.from_messages(
+            ("system", MEMORY_COLLECTOR_PROMPT), template_format="mustache"
+        ) + self._construct_messages(state)
         chain = prompt | self._model | raise_memory_updated
 
         try:

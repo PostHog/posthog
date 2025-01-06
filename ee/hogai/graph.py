@@ -206,7 +206,11 @@ class AssistantGraph:
 
         return self
 
-    def add_memory_collector(self, next_node: AssistantNodeName = AssistantNodeName.END):
+    def add_memory_collector(
+        self,
+        next_node: AssistantNodeName = AssistantNodeName.END,
+        tools_node: AssistantNodeName = AssistantNodeName.MEMORY_COLLECTOR_TOOLS,
+    ):
         builder = self._graph
         self._has_start_node = True
 
@@ -216,19 +220,22 @@ class AssistantGraph:
         builder.add_conditional_edges(
             AssistantNodeName.MEMORY_COLLECTOR,
             memory_collector.router,
-            path_map={"tools": AssistantNodeName.MEMORY_COLLECTOR_TOOLS, "next": next_node},
+            path_map={"tools": tools_node, "next": next_node},
         )
+        return self
 
+    def add_memory_collector_tools(self):
+        builder = self._graph
         memory_collector_tools = MemoryCollectorToolsNode(self._team)
         builder.add_node(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, memory_collector_tools.run)
         builder.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
-
         return self
 
     def compile_full_graph(self):
         return (
             self.add_memory_initializer()
             .add_memory_collector()
+            .add_memory_collector_tools()
             .add_router()
             .add_trends_planner()
             .add_trends_generator()
