@@ -327,7 +327,7 @@ class S3MultiPartUpload:
 
         return self.upload_id
 
-    async def complete(self) -> str:
+    async def complete(self) -> str | None:
         if self.is_upload_in_progress() is False:
             raise NoUploadInProgressError()
 
@@ -343,7 +343,7 @@ class S3MultiPartUpload:
         self.upload_id = None
         self.parts = []
 
-        return response["Location"]
+        return response.get("Key")
 
     async def abort(self):
         """Abort this S3 multi-part upload."""
