@@ -46,7 +46,7 @@ export type NavbarItem = NavbarItemBase | SceneNavbarItem | SidebarNavbarItem
 export type ListItemSaveHandler = (newName: string) => Promise<void>
 
 export interface SidebarCategoryBase {
-    key: string | number | string[]
+    key: string
     /** Category content noun. If the plural form is non-standard, provide a tuple with both forms. @example 'person' */
     noun: string | [singular: string, plural: string]
     items: BasicListItem[] | ExtendedListItem[] | ListItemAccordion[]

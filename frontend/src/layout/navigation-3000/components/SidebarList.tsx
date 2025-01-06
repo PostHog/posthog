@@ -72,7 +72,7 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
                               Array.isArray(parentKey) ? parentKey.join(ITEM_KEY_PART_SEPARATOR) : parentKey,
                               item.key,
                           ].join(ITEM_KEY_PART_SEPARATOR)
-                        : item.key,
+                        : item.key.toString(),
                 })
                 if (isListItemAccordion(item)) {
                     flatten(
@@ -298,7 +298,11 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
     } else if (isItemClickable(item)) {
         content = (
             // eslint-disable-next-line react/forbid-dom-props
-            <li className="SidebarListItem__button" onClick={item.onClick} style={{ '--depth': item.depth }}>
+            <li
+                className="SidebarListItem__button"
+                onClick={item.onClick}
+                style={{ '--depth': item.depth } as React.CSSProperties}
+            >
                 {item.icon && <div className="SidebarListItem__icon">{item.icon}</div>}
                 <h5 className="SidebarListItem__name">{item.name}</h5>
             </li>
@@ -431,7 +435,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
     return (
         <li
             id={`sidebar-${item.key}`}
-            title={!isItemTentative(item) ? item.name : 'New item'}
+            title={!isItemTentative(item) && !isListItemAccordion(item) ? item.name : 'New item'}
             className={clsx(
                 'SidebarListItem',
                 'menuItems' in item && item.menuItems?.length && 'SidebarListItem--has-menu',
@@ -441,7 +445,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                 'marker' in item && !!item.marker?.status && `SidebarListItem--marker-status-${item.marker.status}`,
                 'summary' in item && 'SidebarListItem--extended'
             )}
-            aria-disabled={!isItemTentative(item) && !item.url}
+            aria-disabled={!isItemTentative(item) && !isListItemAccordion(item) && !item.url}
             aria-current={active ? 'page' : undefined}
             aria-invalid={!!newNameValidationError}
             style={style} // eslint-disable-line react/forbid-dom-props
@@ -558,7 +562,7 @@ function SidebarListItemAccordion({ category }: { category: ListItemAccordion })
                 role="button"
                 aria-expanded={isExpanded}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{ '--depth': category.depth }}
+                style={{ '--depth': category.depth } as React.CSSProperties}
                 onClick={isExpanded || items.length > 0 ? () => toggleListItemAccordion(keyString) : undefined}
             >
                 <IconChevronRight />
