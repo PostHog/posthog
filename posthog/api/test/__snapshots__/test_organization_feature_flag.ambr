@@ -1857,7 +1857,8 @@
          "posthog_experiment"."type",
          "posthog_experiment"."variants",
          "posthog_experiment"."metrics",
-         "posthog_experiment"."metrics_secondary"
+         "posthog_experiment"."metrics_secondary",
+         "posthog_experiment"."stats_config"
   FROM "posthog_experiment"
   WHERE "posthog_experiment"."feature_flag_id" = 99999
   '''
