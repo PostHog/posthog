@@ -3332,6 +3332,9 @@ export interface Experiment {
     updated_at: string | null
     holdout_id?: number | null
     holdout?: Holdout
+    stats_config?: {
+        version?: number
+    }
 }
 
 export interface FunnelExperimentVariant {

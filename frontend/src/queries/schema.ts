@@ -2052,7 +2052,6 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
     name?: string
     experiment_id?: integer
     funnels_query: FunnelsQuery
-    stats_version?: integer
 }
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
@@ -2063,7 +2062,6 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     // Defaults to $feature_flag_called if not specified
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
-    stats_version?: integer
 }
 
 /**

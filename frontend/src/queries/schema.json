@@ -6017,9 +6017,6 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
-                },
-                "stats_version": {
-                    "type": "integer"
                 }
             },
             "required": ["funnels_query", "kind"],
@@ -6121,9 +6118,6 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendsQueryResponse"
-                },
-                "stats_version": {
-                    "type": "integer"
                 }
             },
             "required": ["count_query", "kind"],
