@@ -70,7 +70,7 @@ def teams_enabled_for_cache_warming() -> list[int]:
     return enabled_team_ids
 
 
-def insights_to_cache(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]], None, None]:
+def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]], None, None]:
     """
     This is the place to decide which insights should be kept warm for the provided team.
     The reasoning is that this will be a yes or no decision. If we need to keep it warm, we try our best
@@ -156,7 +156,7 @@ def schedule_warming_for_teams_task():
     expire_after = datetime.now(UTC) + timedelta(minutes=50)
 
     for team, shared_only in all_teams:
-        insight_tuples = insights_to_cache(team, shared_only=shared_only)
+        insight_tuples = list(insights_to_keep_fresh(team, shared_only=shared_only))
 
         report_team_action(
             team,
