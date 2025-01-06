@@ -595,8 +595,17 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         ],
         sidebarContentsFlattened: [
             (s) => [(state) => s.activeNavbarItem(state)?.logic?.findMounted()?.selectors.contents(state) || null],
-            (sidebarContents): BasicListItem[] | ExtendedListItem[] =>
-                sidebarContents ? sidebarContents.flatMap((item) => ('items' in item ? item.items : item)) : [],
+            (sidebarContents): BasicListItem[] | ExtendedListItem[] => {
+                const flattenItems = (items: any[]): (BasicListItem | ExtendedListItem)[] => {
+                    return items.flatMap((item) => {
+                        if ('items' in item) {
+                            return flattenItems(item.items)
+                        }
+                        return item
+                    })
+                }
+                return sidebarContents ? flattenItems(sidebarContents) : []
+            },
         ],
         normalizedActiveListItemKey: [
             (s) => [
