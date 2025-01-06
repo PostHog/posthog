@@ -1263,8 +1263,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   users who return to perform any event in the following weeks.
                                               </p>
                                               <p>
-                                                  You want the numbers numbers to be the highest possible, suggesting
-                                                  that people that come to your page continue coming to your page - and
+                                                  You want the numbers to be the highest possible, suggesting that
+                                                  people that come to your page continue coming to your page - and
                                                   performing an actions. Also, the further down the table the higher the
                                                   numbers should be (or at least as high), which would indicate that
                                                   you're either increasing or keeping your retention at the same level.
