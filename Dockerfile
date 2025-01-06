@@ -6,6 +6,8 @@
 #
 # Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
 #
+# With pnpm workspaces, we install all JS dependencies once and then build all packages together.
+#
 # The stages are used to:
 #
 # - frontend-build: build the frontend (static assets)
@@ -25,7 +27,7 @@ FROM node:18.19.1-bullseye-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches/ patches/
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
