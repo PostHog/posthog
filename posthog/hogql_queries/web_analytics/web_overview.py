@@ -88,10 +88,19 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             return ast.Call(
                 name="countIf",
                 args=[
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["event"]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value="$pageview"),
+                    ast.Or(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["event"]),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Constant(value="$pageview"),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["event"]),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Constant(value="$screen"),
+                            ),
+                        ]
                     )
                 ],
             )
