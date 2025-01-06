@@ -301,6 +301,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
         feature_flag_serializer.is_valid(raise_exception=True)
         feature_flag = feature_flag_serializer.save()
 
+        if not validated_data.get("stats_config"):
+            validated_data["stats_config"] = {"version": 2}
+
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
         )
