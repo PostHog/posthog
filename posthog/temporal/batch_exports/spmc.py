@@ -209,6 +209,7 @@ class Consumer:
         multiple_files: bool = False,
         include_inserted_at: bool = False,
         task_name: str = "record_batch_consumer",
+        max_file_size_bytes: int = 0,
         **kwargs,
     ) -> asyncio.Task:
         """Create a record batch consumer task."""
@@ -221,6 +222,7 @@ class Consumer:
                 json_columns=json_columns,
                 multiple_files=multiple_files,
                 include_inserted_at=include_inserted_at,
+                max_file_size_bytes=max_file_size_bytes,
                 **kwargs,
             ),
             name=task_name,
@@ -264,6 +266,7 @@ class Consumer:
         json_columns: collections.abc.Sequence[str],
         multiple_files: bool = False,
         include_inserted_at: bool = False,
+        max_file_size_bytes: int = 0,
         **kwargs,
     ) -> int:
         """Start consuming record batches from queue.
@@ -305,15 +308,16 @@ class Consumer:
 
                 records_count += writer.records_since_last_flush
 
-                if multiple_files:
-                    await writer.close_temporary_file()
-                    writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
+                if multiple_files or (max_file_size_bytes > 0 and writer.bytes_total >= max_file_size_bytes):
+                    await writer.hard_flush()
                 else:
                     await writer.flush()
 
                 for _ in range(record_batches_count):
                     queue.task_done()
                 record_batches_count = 0
+
+            self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
 
         records_count += writer.records_since_last_flush
 
@@ -324,9 +328,14 @@ class Consumer:
         )
 
         await writer.close_temporary_file()
+        await self.close()
 
         self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
         return records_count
+
+    async def close(self):
+        """This method can be overridden by subclasses to perform any additional cleanup."""
+        pass
 
     async def generate_record_batches_from_queue(
         self,
@@ -379,6 +388,7 @@ async def run_consumer(
     multiple_files: bool = False,
     writer_file_kwargs: collections.abc.Mapping[str, typing.Any] | None = None,
     include_inserted_at: bool = False,
+    max_file_size_bytes: int = 0,
     **kwargs,
 ) -> int:
     """Run one record batch consumer.
@@ -428,6 +438,7 @@ async def run_consumer(
         json_columns=json_columns,
         multiple_files=multiple_files,
         include_inserted_at=include_inserted_at,
+        max_file_size_bytes=max_file_size_bytes,
         **writer_file_kwargs or {},
     )
     consumer_tasks_pending.add(consumer_task)
