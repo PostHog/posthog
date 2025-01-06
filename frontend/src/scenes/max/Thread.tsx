@@ -29,10 +29,10 @@ import {
     NodeKind,
     VisualizationMessage,
 } from '~/queries/schema'
+import { InsightQueryNode } from '~/queries/schema'
 
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
 import {
-    castAssistantQuery,
     isAssistantMessage,
     isFailureMessage,
     isHumanMessage,
@@ -217,7 +217,7 @@ function VisualizationAnswer({
         if (message.answer) {
             return {
                 kind: NodeKind.InsightVizNode,
-                source: castAssistantQuery(message.answer),
+                source: message.answer as InsightQueryNode,
                 showHeader: true,
             }
         }
