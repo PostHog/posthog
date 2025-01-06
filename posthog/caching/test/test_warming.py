@@ -46,13 +46,13 @@ class TestWarming(APIBaseTest):
         )
 
     @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
-    def test_priority_insights_no_stale_insights(self, mock_get_stale_insights):
+    def test_insights_to_keep_fresh_no_stale_insights(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = []
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
 
     @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
-    def test_priority_insights_no_stale_dashboard_insights(self, mock_get_stale_insights):
+    def test_insights_to_keep_fresh_no_stale_dashboard_insights(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = [
             "2345:",
         ]
@@ -63,7 +63,7 @@ class TestWarming(APIBaseTest):
         self.assertEqual(insights, exptected_results)
 
     @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
-    def test_priority_insights_only_insights_with_dashboards(self, mock_get_stale_insights):
+    def test_insights_to_keep_fresh_only_insights_with_dashboards(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = [
             "1234:5678",
             "3456:7890",
@@ -75,7 +75,7 @@ class TestWarming(APIBaseTest):
         self.assertEqual(insights, expected_results)
 
     @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
-    def test_priority_insights_mixed_valid_and_invalid_combos(self, mock_get_stale_insights):
+    def test_insights_to_keep_fresh_mixed_valid_and_invalid_combos(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = [
             "1234:5678",
             "9999:",
@@ -89,19 +89,19 @@ class TestWarming(APIBaseTest):
         self.assertEqual(insights, expected_results)
 
     @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
-    def test_priority_insights_insights_not_viewed_recently(self, mock_get_stale_insights):
+    def test_insights_to_keep_fresh_insights_not_viewed_recently(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = ["4567:"]
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
 
     @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
-    def test_priority_insights_dashboards_not_accessed_recently(self, mock_get_stale_insights):
+    def test_insights_to_keep_fresh_dashboards_not_accessed_recently(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = ["5678:8901"]
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
 
     @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
-    def test_priority_insights_combination_of_cases(self, mock_get_stale_insights):
+    def test_insights_to_keep_fresh_combination_of_cases(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = [
             "1234:5678",
             "2345:",
@@ -124,31 +124,31 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
         self.team2 = self.create_team_with_organization(organization=self.organization)
 
     @patch("posthog.caching.warming.largest_teams")
-    @patch("posthog.caching.warming.priority_insights")
+    @patch("posthog.caching.warming.insights_to_keep_fresh")
     @patch("posthog.caching.warming.warm_insight_cache_task.si")
     def test_schedule_warming_for_teams_task_with_empty_insight_tuples(
-        self, mock_warm_insight_cache_task_si, mock_priority_insights, mock_largest_teams
+        self, mock_warm_insight_cache_task_si, mock_insights_to_keep_fresh, mock_largest_teams
     ):
         mock_largest_teams.return_value = [self.team1.pk, self.team2.pk]
-        mock_priority_insights.return_value = iter([])
+        mock_insights_to_keep_fresh.return_value = iter([])
 
         schedule_warming_for_teams_task()
 
-        mock_priority_insights.assert_called()
+        mock_insights_to_keep_fresh.assert_called()
         mock_warm_insight_cache_task_si.assert_not_called()
 
     @patch("posthog.caching.warming.largest_teams")
-    @patch("posthog.caching.warming.priority_insights")
+    @patch("posthog.caching.warming.insights_to_keep_fresh")
     @patch("posthog.caching.warming.warm_insight_cache_task.si")
     def test_schedule_warming_for_teams_task_with_non_empty_insight_tuples(
-        self, mock_warm_insight_cache_task_si, mock_priority_insights, mock_largest_teams
+        self, mock_warm_insight_cache_task_si, mock_insights_to_keep_fresh, mock_largest_teams
     ):
         mock_largest_teams.return_value = [self.team1.pk, self.team2.pk]
-        mock_priority_insights.return_value = iter([("1234", "5678"), ("2345", None)])
+        mock_insights_to_keep_fresh.return_value = iter([("1234", "5678"), ("2345", None)])
 
         schedule_warming_for_teams_task()
 
-        mock_priority_insights.assert_called()
+        mock_insights_to_keep_fresh.assert_called()
         self.assertEqual(mock_warm_insight_cache_task_si.call_count, 2)
         self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][0], "1234")
         self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][1], "5678")
