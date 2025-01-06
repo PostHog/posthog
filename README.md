@@ -120,3 +120,7 @@ Come help us make PostHog even better. We're growing fast [and would love for yo
 <!-- prettier-ignore-end -->
 
 <!-- ALL-CONTRIBUTORS-LIST:END -->
+
+## Star History ✨
+
+[![Star History](https://api.lucabubi.me/chart?username=PostHog&repository=posthog&color=violet)](https://github.com/lucabubi/star-history)
