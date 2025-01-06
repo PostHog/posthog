@@ -37,7 +37,7 @@ class QueryCompareToDateRange(QueryDateRange):
             self.compare_to,
             self._team.timezone_info,
             now=current_period_date_from,
-            human_friendly_comparison_periods=self._team.human_friendly_comparison_periods,
+            human_friendly_comparison_periods=bool(self._team.human_friendly_comparison_periods),
         )
 
         return (
