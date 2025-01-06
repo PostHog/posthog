@@ -25,6 +25,7 @@ from ee.hogai.taxonomy_agent.parsers import (
     parse_react_agent_output,
 )
 from ee.hogai.taxonomy_agent.prompts import (
+    CORE_MEMORY_INSTRUCTIONS,
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
@@ -95,6 +96,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
+                        "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                     },
                     config,
                 ),
@@ -298,6 +300,6 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         )
 
     def router(self, state: AssistantState):
-        if state.plan is not None:
+        if state.plan:
             return "plan_found"
         return "continue"
