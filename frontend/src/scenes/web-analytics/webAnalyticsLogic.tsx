@@ -754,66 +754,51 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         activeTabId: graphsTab,
                         setTabId: actions.setGraphsTab,
-                        tabs: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE]
-                            ? [
-                                  createTableTab(
-                                      TileId.PATHS,
-                                      PathTab.SCREEN_NAME,
-                                      'Screens',
-                                      'Screen',
-                                      WebStatsBreakdown.ScreenName,
-                                      {},
-                                      {}
-                                  ),
-                              ]
-                            : (
-                                  [
-                                      createGraphsTrendsTab(GraphsTab.UNIQUE_USERS, 'Unique visitors', 'Visitors', [
-                                          uniqueUserSeries,
-                                      ]),
-                                      !conversionGoal
-                                          ? createGraphsTrendsTab(GraphsTab.PAGE_VIEWS, 'Page views', 'Views', [
-                                                pageViewsSeries,
-                                            ])
-                                          : null,
-                                      !conversionGoal
-                                          ? createGraphsTrendsTab(
-                                                GraphsTab.NUM_SESSION,
-                                                'Unique sessions',
-                                                'Sessions',
-                                                [sessionsSeries]
-                                            )
-                                          : null,
-                                      conversionGoal && uniqueConversionsSeries
-                                          ? createGraphsTrendsTab(
-                                                GraphsTab.UNIQUE_CONVERSIONS,
-                                                'Unique conversions',
-                                                'Unique conversions',
-                                                [uniqueConversionsSeries]
-                                            )
-                                          : null,
-                                      conversionGoal && totalConversionSeries
-                                          ? createGraphsTrendsTab(
-                                                GraphsTab.TOTAL_CONVERSIONS,
-                                                'Total conversions',
-                                                'Total conversions',
-                                                [totalConversionSeries]
-                                            )
-                                          : null,
-                                      conversionGoal && uniqueUserSeries && uniqueConversionsSeries
-                                          ? createGraphsTrendsTab(
-                                                GraphsTab.CONVERSION_RATE,
-                                                'Conversion rate',
-                                                'Conversion rate',
-                                                [uniqueConversionsSeries, uniqueUserSeries],
-                                                {
-                                                    formula: 'A / B',
-                                                    aggregationAxisFormat: 'percentage_scaled',
-                                                }
-                                            )
-                                          : null,
-                                  ] as (TabsTileTab | null)[]
-                              ).filter(isNotNil),
+                        tabs: (
+                            [
+                                createGraphsTrendsTab(GraphsTab.UNIQUE_USERS, 'Unique visitors', 'Visitors', [
+                                    uniqueUserSeries,
+                                ]),
+                                !conversionGoal
+                                    ? createGraphsTrendsTab(GraphsTab.PAGE_VIEWS, 'Page views', 'Views', [
+                                          pageViewsSeries,
+                                      ])
+                                    : null,
+                                !conversionGoal
+                                    ? createGraphsTrendsTab(GraphsTab.NUM_SESSION, 'Unique sessions', 'Sessions', [
+                                          sessionsSeries,
+                                      ])
+                                    : null,
+                                conversionGoal && uniqueConversionsSeries
+                                    ? createGraphsTrendsTab(
+                                          GraphsTab.UNIQUE_CONVERSIONS,
+                                          'Unique conversions',
+                                          'Unique conversions',
+                                          [uniqueConversionsSeries]
+                                      )
+                                    : null,
+                                conversionGoal && totalConversionSeries
+                                    ? createGraphsTrendsTab(
+                                          GraphsTab.TOTAL_CONVERSIONS,
+                                          'Total conversions',
+                                          'Total conversions',
+                                          [totalConversionSeries]
+                                      )
+                                    : null,
+                                conversionGoal && uniqueUserSeries && uniqueConversionsSeries
+                                    ? createGraphsTrendsTab(
+                                          GraphsTab.CONVERSION_RATE,
+                                          'Conversion rate',
+                                          'Conversion rate',
+                                          [uniqueConversionsSeries, uniqueUserSeries],
+                                          {
+                                              formula: 'A / B',
+                                              aggregationAxisFormat: 'percentage_scaled',
+                                          }
+                                      )
+                                    : null,
+                            ] as (TabsTileTab | null)[]
+                        ).filter(isNotNil),
                     },
                     {
                         kind: 'tabs',
@@ -989,17 +974,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 {},
                                 {
                                     control: (
-                                        <LemonButton
-                                            className="font-medium" // match the label elsewhere on the page
-                                            sideIcon={<IconGear />}
-                                            type="tertiary"
-                                            status="alt"
-                                            noPadding={true}
-                                            to={customChannelTypesUrl}
-                                            size="medium"
-                                        >
-                                            Customize channel types
-                                        </LemonButton>
+                                        <div className="flex flex-row space-x-2 font-medium">
+                                            <span>Customize channel types</span>
+                                            <LemonButton
+                                                icon={<IconGear />}
+                                                type="tertiary"
+                                                status="alt"
+                                                size="small"
+                                                noPadding={true}
+                                                tooltip="Customize channel types"
+                                                to={customChannelTypesUrl}
+                                            />
+                                        </div>
                                     ),
                                     docs: {
                                         url: 'https://posthog.com/docs/data/channel-type',
