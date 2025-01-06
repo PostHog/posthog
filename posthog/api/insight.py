@@ -806,6 +806,9 @@ class InsightViewSet(
             queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = self._filter_request(self.request, queryset)
 
+        # Add access level filtering for list actions
+        queryset = self._filter_queryset_by_access_level(queryset)
+
         order = self.request.GET.get("order", None)
         if order:
             queryset = queryset.order_by(order)

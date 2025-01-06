@@ -411,7 +411,6 @@ class UserAccessControl:
     def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin=False) -> QuerySet:
         # Find all items related to the queryset model that have access controls such that the effective level for the user is "none"
         # and exclude them from the queryset
-
         model = cast(Model, queryset.model)
         resource = model_to_resource(model)
 
