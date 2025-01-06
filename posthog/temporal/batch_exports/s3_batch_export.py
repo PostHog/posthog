@@ -630,7 +630,7 @@ async def initialize_and_resume_multipart_upload(
     return s3_upload, details
 
 
-def initialize_upload(inputs: S3InsertInputs, file_number: int | None) -> S3MultiPartUpload:
+def initialize_upload(inputs: S3InsertInputs, file_number: int) -> S3MultiPartUpload:
     """Initialize a S3MultiPartUpload."""
 
     try:
