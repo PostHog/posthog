@@ -41,23 +41,26 @@ LAST_VIEWED_THRESHOLD = timedelta(days=7)
 
 
 def teams_enabled_for_cache_warming() -> list[int]:
-    all_teams = Team.objects.all()
     enabled_team_ids = []
 
-    for team in all_teams:
+    for team_id, organization_id, uuid in Team.objects.values_list(
+        "id",
+        "organization_id",
+        "uuid",
+    ).iterator(chunk_size=1000):
         enabled = posthoganalytics.feature_enabled(
             "cache-warming",
-            str(team.uuid),
+            str(uuid),
             groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
+                "organization": str(organization_id),
+                "project": str(team_id),
             },
             group_properties={
                 "organization": {
-                    "id": str(team.organization_id),
+                    "id": str(organization_id),
                 },
                 "project": {
-                    "id": str(team.id),
+                    "id": str(team_id),
                 },
             },
             only_evaluate_locally=True,
@@ -65,7 +68,7 @@ def teams_enabled_for_cache_warming() -> list[int]:
         )
 
         if enabled:
-            enabled_team_ids.append(team.id)
+            enabled_team_ids.append(team_id)
 
     return enabled_team_ids
 
