@@ -80,7 +80,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
 }
 
 export const Options = (): JSX.Element => {
-    const { dateRange, assignee, hasGroupActions } = useValues(errorTrackingLogic)
+    const { dateRange, assignee } = useValues(errorTrackingLogic)
     const { setDateRange, setAssignee } = useActions(errorTrackingLogic)
     const { orderBy } = useValues(errorTrackingSceneLogic)
     const { setOrderBy } = useActions(errorTrackingSceneLogic)
@@ -132,17 +132,15 @@ export const Options = (): JSX.Element => {
                 </div>
             </div>
             <div className="flex items-center gap-1">
-                {hasGroupActions && (
-                    <>
-                        <span>Assigned to:</span>
-                        <MemberSelect
-                            value={assignee}
-                            onChange={(user) => {
-                                setAssignee(user?.id || null)
-                            }}
-                        />
-                    </>
-                )}
+                <>
+                    <span>Assigned to:</span>
+                    <MemberSelect
+                        value={assignee}
+                        onChange={(user) => {
+                            setAssignee(user?.id || null)
+                        }}
+                    />
+                </>
             </div>
         </div>
     )

@@ -102,6 +102,11 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
+        self.assertEqual(response.json()["stats_config"], {})
+
+        id = response.json()["id"]
+        experiment = Experiment.objects.get(pk=id)
+        self.assertEqual(experiment.get_stats_config("version"), None)
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
@@ -110,13 +115,12 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
         self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
 
-        id = response.json()["id"]
         end_date = "2021-12-10T00:00"
 
         # Now update
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
-            {"description": "Bazinga", "end_date": end_date},
+            {"description": "Bazinga", "end_date": end_date, "stats_config": {"version": 2}},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -124,6 +128,7 @@ class TestExperimentCRUD(APILicensedTest):
         experiment = Experiment.objects.get(pk=id)
         self.assertEqual(experiment.description, "Bazinga")
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
+        self.assertEqual(experiment.get_stats_config("version"), 2)
 
     def test_creating_updating_web_experiment(self):
         ff_key = "a-b-tests"

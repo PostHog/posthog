@@ -28,7 +28,7 @@ const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading, hasGroupActions, tab } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, tab } = useValues(errorTrackingIssueSceneLogic)
     const { updateIssue, loadIssue, setTab } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
@@ -44,7 +44,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <>
                 <PageHeader
                     buttons={
-                        issue && hasGroupActions ? (
+                        issue ? (
                             issue.status === 'active' ? (
                                 <div className="flex divide-x gap-x-2">
                                     <AssigneeSelect
