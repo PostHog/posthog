@@ -1215,5 +1215,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {
-            "validation_errors": "2 validation errors for RecordingsQuery\nsession_ids\n  Input should be a valid list [type=list_type, input_value='invalid', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.9/v/list_type\ntomato\n  Extra inputs are not permitted [type=extra_forbidden, input_value='potato', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.9/v/extra_forbidden",
+            "validation_errors": [
+                {
+                    "type": "list_type",
+                    "loc": ["session_ids"],
+                    "msg": "Input should be a valid list",
+                    "input": "invalid",
+                    "url": "https://errors.pydantic.dev/2.9/v/list_type",
+                },
+                {
+                    "type": "extra_forbidden",
+                    "loc": ["tomato"],
+                    "msg": "Extra inputs are not permitted",
+                    "input": "potato",
+                    "url": "https://errors.pydantic.dev/2.9/v/extra_forbidden",
+                },
+            ],
         }
