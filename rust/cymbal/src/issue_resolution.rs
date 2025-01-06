@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::{
     error::UnhandledError,
+    metric_consts::ISSUE_CREATED,
     types::{FingerprintedErrProps, OutputErrProps},
 };
 
@@ -75,6 +76,10 @@ impl Issue {
         )
         .fetch_one(executor)
         .await?;
+
+        if (did_insert) {
+            metrics::counter!(ISSUE_CREATED).increment(1);
+        }
 
         // TODO - I'm fairly sure the Option here is a bug in sqlx, so the unwrap will
         // never be hit, but nonetheless I'm not 100% sure the "no rows" case actually
