@@ -1200,3 +1200,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             f"/api/projects/{self.team.id}/session_recordings/1/snapshots?",
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_400_when_invalid_list_query(self) -> None:
+        query_params = [
+            f'session_ids="invalid"',
+            "hogql_filtering=1",
+            "tomato=potato",
+            "version=2",
+        ].join("&")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings?{query_params}",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            # both version and hogql_filtering are expected invalid and ignored
+            "session_ids": "Input should be a valid list",
+            "tomato": "Extra inputs are not permitted",
+        }
