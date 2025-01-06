@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -38,7 +37,6 @@ import {
     NodeKind,
 } from '~/queries/schema'
 import {
-    ActionFilter as ActionFilterType,
     Breadcrumb,
     BreakdownAttributionType,
     ChartDisplayType,
@@ -110,20 +108,6 @@ export interface TabularSecondaryMetricResults {
 export interface ExperimentResultCalculationError {
     detail: string
     statusCode: number
-}
-
-// :FLAG: CLEAN UP AFTER MIGRATION
-export interface CachedSecondaryMetricExperimentFunnelsQueryResponse extends CachedExperimentFunnelsQueryResponse {
-    filters?: {
-        insight?: InsightType
-    }
-}
-
-// :FLAG: CLEAN UP AFTER MIGRATION
-export interface CachedSecondaryMetricExperimentTrendsQueryResponse extends CachedExperimentTrendsQueryResponse {
-    filters?: {
-        insight?: InsightType
-    }
 }
 
 export const experimentLogic = kea<experimentLogicType>([
@@ -1155,27 +1139,13 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         experimentMathAggregationForTrends: [
-            (s) => [s.experiment, s.featureFlags],
-            (experiment, featureFlags) => (): PropertyMathType | CountPerActorMathType | undefined => {
-                let entities: { math?: string }[] = []
-
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    const query = experiment?.metrics?.[0] as ExperimentTrendsQuery
-                    if (!query) {
-                        return undefined
-                    }
-                    entities = query.count_query?.series || []
-                } else {
-                    const filters = experiment?.filters
-                    if (!filters) {
-                        return undefined
-                    }
-                    entities = [
-                        ...(filters?.events || []),
-                        ...(filters?.actions || []),
-                        ...(filters?.data_warehouse || []),
-                    ] as ActionFilterType[]
+            (s) => [s.experiment],
+            (experiment) => (): PropertyMathType | CountPerActorMathType | undefined => {
+                const query = experiment?.metrics?.[0] as ExperimentTrendsQuery
+                if (!query) {
+                    return undefined
                 }
+                const entities = query.count_query?.series || []
 
                 // Find out if we're using count per actor math aggregates averages per user
                 const userMathValue = entities.filter((entity) =>
@@ -1387,11 +1357,7 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [],
             () =>
                 (
-                    metricResult:
-                        | Partial<ExperimentResults['result']>
-                        | CachedSecondaryMetricExperimentFunnelsQueryResponse
-                        | CachedSecondaryMetricExperimentTrendsQueryResponse
-                        | null,
+                    metricResult: Partial<ExperimentResults['result']> | null,
                     variantKey: string,
                     metricType: InsightType
                 ): [number, number] | null => {
@@ -1736,19 +1702,9 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         hasGoalSet: [
-            (s) => [s.experiment, s.featureFlags],
-            (experiment, featureFlags): boolean => {
-                // :FLAG: CLEAN UP AFTER MIGRATION
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    return !!experiment.metrics[0]
-                }
-
-                const filters = experiment?.filters
-                return !!(
-                    (filters?.actions && filters.actions.length > 0) ||
-                    (filters?.events && filters.events.length > 0) ||
-                    (filters?.data_warehouse && filters.data_warehouse.length > 0)
-                )
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                return !!experiment.metrics[0]
             },
         ],
     }),
