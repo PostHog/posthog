@@ -41,7 +41,7 @@ RUN pnpm build
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS plugin-server-build
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
 COPY ./rust ./rust
 COPY ./plugin-transpiler/ ./plugin-transpiler/
@@ -145,8 +145,8 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: newer images change the base image from bookworm to bookworm which makes compiled openssl versions have all sorts of issues
-FROM unit:1.32.0-python3.11 
+# NOTE: v1.32 is running bullseye, v1.33 is running bookworm
+FROM unit:1.33.0-python3.11 
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
