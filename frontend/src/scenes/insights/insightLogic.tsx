@@ -299,9 +299,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (s) => [s.insight, s.featureFlags],
             (insight, featureFlags) => {
                 if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
-                    return true
-                    // TODO: figure out how to access this method
-                    // return hasResourceAccess({ userAccessLevel: insight.user_access_level, requiredLevels: ['admin', 'editor'] })
+                    const requiredLevels = ['admin', 'editor']
+                    return insight.user_access_level ? requiredLevels.includes(insight.user_access_level) : true
                 }
                 return (
                     insight.effective_privilege_level == undefined ||

@@ -922,9 +922,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dashboard, s.featureFlags],
             (dashboard, featureFlags) => {
                 if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
-                    return true
-                    // TODO: figure out how to access this method
-                    // return hasResourceAccess({ userAccessLevel: dashboard.user_access_level, requiredLevels: ['admin', 'editor'] })
+                    const requiredLevels = ['admin', 'editor']
+                    return dashboard?.user_access_level ? requiredLevels.includes(dashboard.user_access_level) : true
                 }
                 return !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
             },
