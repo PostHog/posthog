@@ -298,6 +298,6 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         )
 
     def router(self, state: AssistantState):
-        if state.plan is not None:
+        if state.plan:
             return "plan_found"
         return "continue"

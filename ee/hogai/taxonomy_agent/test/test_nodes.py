@@ -295,3 +295,11 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         action, observation = state_update.intermediate_steps[0]
         self.assertIsNotNone(observation)
         self.assertIn("<pydantic_exception>", observation)
+
+    def test_router(self):
+        node = self._get_node()
+        self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Question")])), "continue")
+        self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Question")], plan="")), "continue")
+        self.assertEqual(
+            node.router(AssistantState(messages=[HumanMessage(content="Question")], plan="plan")), "plan_found"
+        )
