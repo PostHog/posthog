@@ -21,7 +21,7 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:18.19.1-bullseye-slim AS frontend-build
+FROM node:18.19.1-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -88,7 +88,7 @@ RUN corepack enable && \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.11.9-slim-bullseye AS posthog-build
+FROM python:3.11.9-slim-bookworm AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -125,7 +125,7 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgr
 #
 # ---------------------------------------------------------
 #
-FROM debian:bullseye-slim AS fetch-geoip-db
+FROM debian:bookworm-slim AS fetch-geoip-db
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -145,7 +145,7 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: newer images change the base image from bullseye to bookworm which makes compiled openssl versions have all sorts of issues
+# NOTE: newer images change the base image from bookworm to bookworm which makes compiled openssl versions have all sorts of issues
 FROM unit:1.32.0-python3.11 
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
