@@ -1,10 +1,11 @@
-import JSONCrush from 'jsoncrush'
 import api from 'lib/api'
+import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
+import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
@@ -19,6 +20,10 @@ import {
     Node,
     NodeKind,
     PathsFilter,
+    ResultCustomization,
+    ResultCustomizationBy,
+    ResultCustomizationByPosition,
+    ResultCustomizationByValue,
 } from '~/queries/schema'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 import {
@@ -30,6 +35,8 @@ import {
     EntityFilter,
     EntityTypes,
     EventType,
+    FlattenedFunnelStepByBreakdown,
+    FunnelStepWithConversionMetrics,
     GroupTypeIndex,
     InsightShortId,
     InsightType,
@@ -38,6 +45,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 import { insightLogic } from './insightLogic'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
@@ -436,6 +444,122 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
     return query ? urls.insightNew(undefined, undefined, query) : undefined
 }
 
+export function getFunnelDatasetKey(dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics): string {
+    const breakdown_value =
+        Array.isArray(dataset.breakdown_value) && dataset.breakdown_value.length == 1
+            ? dataset.breakdown_value[0]
+            : dataset.breakdown_value
+    const payload = { breakdown_value }
+
+    return JSON.stringify(payload)
+}
+
+export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
+    const payload = {
+        series: Number.isInteger(dataset.action?.order) ? dataset.action?.order : 'formula',
+        breakdown_value: dataset.breakdown_value,
+        compare_label: dataset.compare_label,
+    }
+
+    return JSON.stringify(payload)
+}
+
+export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
+    return dataset.colorIndex ?? dataset.seriesIndex ?? ((dataset as any).index as number)
+}
+
+/** Type guard to determine wether we have a FunnelStepWithConversionMetrics or a FlattenedFunnelStepByBreakdown */
+function isFunnelStepWithConversionMetrics(
+    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
+): dataset is FunnelStepWithConversionMetrics {
+    return (dataset as FlattenedFunnelStepByBreakdown).breakdownIndex == null
+}
+
+export function getFunnelDatasetPosition(
+    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics,
+    disableFunnelBreakdownBaseline?: boolean
+): number {
+    if (isFunnelStepWithConversionMetrics(dataset)) {
+        // increment the minimum order for funnels where there baseline is hidden
+        // i.e. funnels for experiments where only the respective variants matter
+        return disableFunnelBreakdownBaseline ? (dataset.order ?? 0) + 1 : dataset.order ?? 0
+    }
+
+    return dataset?.breakdownIndex ?? 0
+}
+
+export function getTrendResultCustomizationKey(
+    resultCustomizationBy: ResultCustomizationBy | null | undefined,
+    dataset: IndexedTrendResult
+): string {
+    const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === RESULT_CUSTOMIZATION_DEFAULT
+    return assignmentByValue ? getTrendDatasetKey(dataset) : getTrendDatasetPosition(dataset).toString()
+}
+
+export function getTrendResultCustomization(
+    resultCustomizationBy: ResultCustomizationBy | null | undefined,
+    dataset: IndexedTrendResult,
+    resultCustomizations:
+        | Record<string, ResultCustomizationByValue>
+        | Record<number, ResultCustomizationByPosition>
+        | null
+        | undefined
+): ResultCustomization | undefined {
+    const resultCustomizationKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
+    return resultCustomizations && Object.keys(resultCustomizations).includes(resultCustomizationKey)
+        ? resultCustomizations[resultCustomizationKey]
+        : undefined
+}
+
+export function getFunnelResultCustomization(
+    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics,
+    resultCustomizations: Record<string, ResultCustomizationByValue> | null | undefined
+): ResultCustomization | undefined {
+    const resultCustomizationKey = getFunnelDatasetKey(dataset)
+    return resultCustomizations && Object.keys(resultCustomizations).includes(resultCustomizationKey)
+        ? resultCustomizations[resultCustomizationKey]
+        : undefined
+}
+
+export function getTrendResultCustomizationColorToken(
+    resultCustomizationBy: ResultCustomizationBy | null | undefined,
+    resultCustomizations:
+        | Record<string, ResultCustomizationByValue>
+        | Record<number, ResultCustomizationByPosition>
+        | null
+        | undefined,
+    theme: DataColorTheme,
+    dataset: IndexedTrendResult
+): DataColorToken {
+    const resultCustomization = getTrendResultCustomization(resultCustomizationBy, dataset, resultCustomizations)
+
+    // for result customizations without a configuration, the color is determined
+    // by the position in the dataset. colors repeat after all options
+    // have been exhausted.
+    const datasetPosition = getTrendDatasetPosition(dataset)
+    const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
+
+    return resultCustomization && resultCustomization.color
+        ? resultCustomization.color
+        : (`preset-${tokenIndex}` as DataColorToken)
+}
+
+export function getFunnelResultCustomizationColorToken(
+    resultCustomizations: Record<string, ResultCustomizationByValue> | null | undefined,
+    theme: DataColorTheme,
+    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics,
+    disableFunnelBreakdownBaseline?: boolean
+): DataColorToken {
+    const resultCustomization = getFunnelResultCustomization(dataset, resultCustomizations)
+
+    const datasetPosition = getFunnelDatasetPosition(dataset, disableFunnelBreakdownBaseline)
+    const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
+
+    return resultCustomization && resultCustomization.color
+        ? resultCustomization.color
+        : (`preset-${tokenIndex}` as DataColorToken)
+}
+
 export function isQueryTooLarge(query: Node<Record<string, any>>): boolean {
     // Chrome has a 2MB limit for the HASH params, limit ours at 1MB
     const queryLength = encodeURI(JSON.stringify(query)).split(/%..|./).length - 1
@@ -445,40 +569,27 @@ export function isQueryTooLarge(query: Node<Record<string, any>>): boolean {
 export function parseDraftQueryFromLocalStorage(
     query: string
 ): { query: Node<Record<string, any>>; timestamp: number } | null {
-    // First try to uncrush the query if it's a JSONCrush query else fall back to parsing it as a JSON
     try {
-        const uncrushedQuery = JSONCrush.uncrush(query)
-        return JSON.parse(uncrushedQuery)
+        return JSON.parse(query)
     } catch (e) {
-        console.error('Error parsing uncrushed query', e)
-        try {
-            return JSON.parse(query)
-        } catch (e) {
-            console.error('Error parsing query', e)
-            return null
-        }
+        console.error('Error parsing query', e)
+        return null
     }
 }
 
 export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>, timestamp: number): string {
-    return JSONCrush.crush(JSON.stringify({ query, timestamp }))
+    return JSON.stringify({ query, timestamp })
 }
 
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
     try {
-        const uncrushedQuery = JSONCrush.uncrush(query)
-        return JSON.parse(uncrushedQuery)
+        return JSON.parse(query)
     } catch (e) {
-        console.error('Error parsing uncrushed query', e)
-        try {
-            return JSON.parse(query)
-        } catch (e) {
-            console.error('Error parsing query', e)
-            return null
-        }
+        console.error('Error parsing query', e)
+        return null
     }
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {
-    return JSONCrush.crush(JSON.stringify(query))
+    return JSON.stringify(query)
 }

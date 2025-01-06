@@ -15,6 +15,7 @@ from dlt.common.libs.pyarrow import pyarrow as pa
 from dlt.sources.credentials import ConnectionStringCredentials
 
 from posthog.settings.utils import get_from_env
+from posthog.temporal.data_imports.pipelines.sql_database_v2.settings import DEFAULT_CHUNK_SIZE
 from posthog.temporal.data_imports.pipelines.sql_database_v2._json import BigQueryJSON
 from posthog.utils import str_to_bool
 from posthog.warehouse.models import ExternalDataSource
@@ -123,6 +124,7 @@ def sql_source_for_type(
         db_incremental_field_last_value=db_incremental_field_last_value,
         team_id=team_id,
         connect_args=connect_args,
+        chunk_size=DEFAULT_CHUNK_SIZE,
     )
 
     return db_source
@@ -197,6 +199,7 @@ def snowflake_source(
         table_names=table_names,
         incremental=incremental,
         db_incremental_field_last_value=db_incremental_field_last_value,
+        chunk_size=DEFAULT_CHUNK_SIZE,
     )
 
     return db_source
@@ -242,6 +245,7 @@ def bigquery_source(
         table_names=[table_name],
         incremental=incremental,
         db_incremental_field_last_value=db_incremental_field_last_value,
+        chunk_size=DEFAULT_CHUNK_SIZE,
     )
 
 
@@ -252,7 +256,7 @@ def sql_database(
     schema: Optional[str] = dlt.config.value,
     metadata: Optional[MetaData] = None,
     table_names: Optional[list[str]] = dlt.config.value,
-    chunk_size: int = 50000,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
     backend: TableBackend = "pyarrow",
     detect_precision_hints: Optional[bool] = False,
     reflection_level: Optional[ReflectionLevel] = "full",
@@ -365,7 +369,7 @@ def sql_table(
     schema: Optional[str] = dlt.config.value,
     metadata: Optional[MetaData] = None,
     incremental: Optional[dlt.sources.incremental[Any]] = None,
-    chunk_size: int = 50000,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
     backend: TableBackend = "sqlalchemy",
     detect_precision_hints: Optional[bool] = None,
     reflection_level: Optional[ReflectionLevel] = "full",

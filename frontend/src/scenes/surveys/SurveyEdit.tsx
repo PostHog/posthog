@@ -2,8 +2,7 @@ import './EditSurvey.scss'
 
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { IconInfo } from '@posthog/icons'
-import { IconLock, IconPlus, IconTrash } from '@posthog/icons'
+import { IconInfo, IconLock, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelect,
@@ -538,12 +537,12 @@ export default function SurveyEdit(): JSX.Element {
                                                           appearance={value || defaultSurveyAppearance}
                                                           hasBranchingLogic={hasBranchingLogic}
                                                           deleteBranchingLogic={deleteBranchingLogic}
-                                                          customizeRatingButtons={
-                                                              survey.questions[0].type === SurveyQuestionType.Rating
-                                                          }
-                                                          customizePlaceholderText={
-                                                              survey.questions[0].type === SurveyQuestionType.Open
-                                                          }
+                                                          customizeRatingButtons={survey.questions.some(
+                                                              (question) => question.type === SurveyQuestionType.Rating
+                                                          )}
+                                                          customizePlaceholderText={survey.questions.some(
+                                                              (question) => question.type === SurveyQuestionType.Open
+                                                          )}
                                                           onAppearanceChange={(appearance) => {
                                                               onChange(appearance)
                                                           }}

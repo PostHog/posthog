@@ -458,7 +458,10 @@ def team_api_test_factory():
         def test_delete_batch_exports(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
+            ]
+            self.organization.save()
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             destination_data = {
@@ -486,16 +489,16 @@ def team_api_test_factory():
                     json.dumps(batch_export_data),
                     content_type="application/json",
                 )
-                self.assertEqual(response.status_code, 201)
+                assert response.status_code == 201, response.json()
 
                 batch_export = response.json()
                 batch_export_id = batch_export["id"]
 
                 response = self.client.delete(f"/api/environments/{team.id}")
-                self.assertEqual(response.status_code, 204)
+                assert response.status_code == 204, response.json()
 
                 response = self.client.get(f"/api/environments/{team.id}/batch_exports/{batch_export_id}")
-                self.assertEqual(response.status_code, 404)
+                assert response.status_code == 404, response.json()
 
                 with self.assertRaises(RPCError):
                     describe_schedule(temporal, batch_export_id)

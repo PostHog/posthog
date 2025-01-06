@@ -1,4 +1,3 @@
-import JSONCrush from 'jsoncrush'
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -21,10 +20,10 @@ import {
     SDKKey,
 } from '~/types'
 
+import { BillingSectionId } from './billing/types'
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 import { SurveysTabs } from './surveys/surveysLogic'
-
 /**
  * To add a new URL to the front end:
  * - add a URL function here
@@ -75,8 +74,7 @@ export const urls = {
     insightNew: (type?: InsightType, dashboardId?: DashboardType['id'] | null, query?: Node): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(type ? { insight: type } : {}),
-            // have to use JSONCrush directly rather than the util to avoid circular dep
-            ...(query ? { q: typeof query === 'string' ? query : JSONCrush.crush(JSON.stringify(query)) } : {}),
+            ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
         }).url,
     insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
         combineUrl(
@@ -159,6 +157,8 @@ export const urls = {
     cohorts: (): string => '/cohorts',
     experiment: (id: string | number): string => `/experiments/${id}`,
     experiments: (): string => '/experiments',
+    experimentsSavedMetrics: (): string => '/experiments/saved-metrics',
+    experimentsSavedMetric: (id: string | number): string => `/experiments/saved-metrics/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
@@ -173,7 +173,6 @@ export const urls = {
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
     customCss: (): string => '/themes/custom-css',
-    dataModel: (): string => '/data-model',
     dataWarehouse: (query?: string | Record<string, any>): string =>
         combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
             .url,
@@ -211,6 +210,8 @@ export const urls = {
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
+    organizationBillingSection: (section: BillingSectionId = 'overview'): string =>
+        combineUrl(`/organization/billing/${section}`).url,
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',

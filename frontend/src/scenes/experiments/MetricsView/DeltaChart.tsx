@@ -1,6 +1,15 @@
-import { IconActivity, IconPencil } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import {
+    IconActivity,
+    IconArrowRight,
+    IconFunnels,
+    IconGraph,
+    IconMinus,
+    IconPencil,
+    IconTrending,
+} from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
@@ -8,7 +17,9 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { VariantTag } from '../ExperimentView/components'
+import { ExploreButton, ResultsQuery, VariantTag } from '../ExperimentView/components'
+import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview'
+import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
 
 function formatTickValue(value: number): string {
@@ -32,8 +43,37 @@ function formatTickValue(value: number): string {
 
     return `${(value * 100).toFixed(decimals)}%`
 }
+const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
+    if (metric.name) {
+        return <span className="truncate">{metric.name}</span>
+    }
+
+    if (metricType === InsightType.TRENDS && metric.count_query?.series?.[0]?.name) {
+        return <span className="truncate">{metric.count_query.series[0].name}</span>
+    }
+
+    if (metricType === InsightType.FUNNELS && metric.funnels_query?.series) {
+        const series = metric.funnels_query.series
+        if (series.length > 0) {
+            const firstStep = series[0]?.name
+            const lastStep = series[series.length - 1]?.name
+
+            return (
+                <span className="inline-flex items-center gap-1 min-w-0">
+                    <IconFunnels className="text-muted flex-shrink-0" fontSize="14" />
+                    <span className="truncate">{firstStep}</span>
+                    <IconArrowRight className="text-muted flex-shrink-0" fontSize="14" />
+                    <span className="truncate">{lastStep}</span>
+                </span>
+            )
+        }
+    }
+
+    return <span className="text-muted truncate">Untitled metric</span>
+}
 
 export function DeltaChart({
+    isSecondary,
     result,
     error,
     variants,
@@ -44,6 +84,7 @@ export function DeltaChart({
     tickValues,
     chartBound,
 }: {
+    isSecondary: boolean
     result: any
     error: any
     variants: any[]
@@ -64,13 +105,32 @@ export function DeltaChart({
     } = useValues(experimentLogic)
 
     const { experiment } = useValues(experimentLogic)
-    const { openPrimaryMetricModal } = useActions(experimentLogic)
+    const {
+        openPrimaryMetricModal,
+        openSecondaryMetricModal,
+        openPrimarySavedMetricModal,
+        openSecondarySavedMetricModal,
+    } = useActions(experimentLogic)
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
+    const [isModalOpen, setIsModalOpen] = useState(false)
 
-    const BAR_HEIGHT = 8
-    const BAR_PADDING = 10
+    const getScaleAddition = (variantCount: number): number => {
+        if (variantCount < 3) {
+            return 6
+        }
+        if (variantCount < 4) {
+            return 3
+        }
+        if (variantCount < 5) {
+            return 1
+        }
+        return 0
+    }
+
+    const BAR_HEIGHT = 8 + getScaleAddition(variants.length)
+    const BAR_PADDING = 10 + getScaleAddition(variants.length)
     const TICK_PANEL_HEIGHT = 20
     const VIEW_BOX_WIDTH = 800
     const HORIZONTAL_PADDING = 20
@@ -82,8 +142,8 @@ export function DeltaChart({
         TICK_TEXT_COLOR: 'var(--text-secondary-3000)',
         BOUNDARY_LINES: 'var(--border-3000)',
         ZERO_LINE: 'var(--border-bold)',
-        BAR_NEGATIVE: isDarkModeOn ? 'rgb(206 66 54)' : '#F44435',
-        BAR_BEST: isDarkModeOn ? 'rgb(49 145 51)' : '#4DAF4F',
+        BAR_NEGATIVE: isDarkModeOn ? '#c32f45' : '#f84257',
+        BAR_POSITIVE: isDarkModeOn ? '#12a461' : '#36cd6f',
         BAR_DEFAULT: isDarkModeOn ? 'rgb(121 121 121)' : 'rgb(217 217 217)',
         BAR_CONTROL: isDarkModeOn ? 'rgba(217, 217, 217, 0.2)' : 'rgba(217, 217, 217, 0.4)',
         BAR_MIDDLE_POINT: 'black',
@@ -101,6 +161,7 @@ export function DeltaChart({
 
     const metricTitlePanelWidth = '20%'
     const variantsPanelWidth = '10%'
+    const detailedResultsPanelWidth = '125px'
 
     const ticksSvgRef = useRef<SVGSVGElement>(null)
     const chartSvgRef = useRef<SVGSVGElement>(null)
@@ -158,61 +219,141 @@ export function DeltaChart({
                     <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
                         <div className="space-y-1 pl-1">
                             <div className="flex items-center gap-2">
-                                <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow">
-                                    {metricIndex + 1}.{' '}
-                                    {metric.name || <span className="text-muted">Untitled metric</span>}
+                                <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
+                                    <span className="mr-1">{metricIndex + 1}.</span>
+                                    {getMetricTitle(metric, metricType)}
                                 </div>
                                 <LemonButton
                                     className="flex-shrink-0"
                                     type="secondary"
                                     size="xsmall"
                                     icon={<IconPencil fontSize="12" />}
-                                    onClick={() => openPrimaryMetricModal(metricIndex)}
+                                    onClick={() => {
+                                        if (metric.isSavedMetric) {
+                                            if (isSecondary) {
+                                                openSecondarySavedMetricModal(metric.savedMetricId)
+                                            } else {
+                                                openPrimarySavedMetricModal(metric.savedMetricId)
+                                            }
+                                            return
+                                        }
+                                        isSecondary
+                                            ? openSecondaryMetricModal(metricIndex)
+                                            : openPrimaryMetricModal(metricIndex)
+                                    }}
                                 />
                             </div>
-                            <LemonTag type="muted" size="small">
-                                {metric.kind === 'ExperimentFunnelsQuery' ? 'Funnel' : 'Trend'}
-                            </LemonTag>
+                            <div className="space-x-1">
+                                <LemonTag type="muted" size="small">
+                                    {metric.kind === 'ExperimentFunnelsQuery' ? 'Funnel' : 'Trend'}
+                                </LemonTag>
+                                {metric.isSavedMetric && (
+                                    <LemonTag type="option" size="small">
+                                        Shared
+                                    </LemonTag>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
-
+            {/* Detailed results panel */}
+            <div
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    display: 'inline-block',
+                    width: detailedResultsPanelWidth,
+                    verticalAlign: 'top',
+                }}
+            >
+                {isFirstMetric && (
+                    <svg
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ height: `${ticksSvgHeight}px`, width: '100%' }}
+                    />
+                )}
+                {isFirstMetric && <div className="w-full border-t border-border" />}
+                {result && (
+                    <div
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            height: `${chartSvgHeight}px`,
+                            borderRight: result ? `1px solid ${COLORS.BOUNDARY_LINES}` : 'none',
+                            display: 'flex',
+                            flexDirection: 'column',
+                        }}
+                    >
+                        <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
+                        {experiment.metrics.length > 1 && (
+                            <div className="flex justify-center">
+                                <LemonButton
+                                    className="mt-1"
+                                    type="secondary"
+                                    size="xsmall"
+                                    icon={<IconGraph />}
+                                    onClick={() => setIsModalOpen(true)}
+                                >
+                                    Detailed results
+                                </LemonButton>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
             {/* Variants panel */}
             {/* eslint-disable-next-line react/forbid-dom-props */}
             <div style={{ display: 'inline-block', width: variantsPanelWidth, verticalAlign: 'top' }}>
                 {isFirstMetric && (
                     <svg
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: `${ticksSvgHeight}px` }}
+                        style={{ height: `${ticksSvgHeight}px`, width: '100%' }}
                     />
                 )}
                 {isFirstMetric && <div className="w-full border-t border-border" />}
                 {/* eslint-disable-next-line react/forbid-dom-props */}
                 <div style={{ height: `${chartSvgHeight}px` }}>
-                    {variants.map((variant) => (
-                        <div
-                            key={variant.key}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                height: `${100 / variants.length}%`,
-                                display: 'flex',
-                                alignItems: 'center',
-                                paddingLeft: '10px',
-                            }}
-                        >
-                            <VariantTag experimentId={experimentId} variantKey={variant.key} fontSize={11} muted />
-                        </div>
-                    ))}
+                    {result &&
+                        variants.map((variant) => (
+                            <div
+                                key={variant.key}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    height: `${100 / variants.length}%`,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    paddingLeft: '10px',
+                                    position: 'relative',
+                                    minWidth: 0,
+                                    overflow: 'hidden',
+                                }}
+                            >
+                                <div
+                                    className="absolute inset-0"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        backgroundColor: 'var(--bg-light)',
+                                        opacity: 0.4,
+                                        pointerEvents: 'none',
+                                    }}
+                                />
+                                <div className="w-full overflow-hidden whitespace-nowrap">
+                                    <VariantTag
+                                        experimentId={experimentId}
+                                        variantKey={variant.key}
+                                        fontSize={11}
+                                        muted
+                                    />
+                                </div>
+                            </div>
+                        ))}
                 </div>
             </div>
-
             {/* SVGs container */}
             <div
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     display: 'inline-block',
-                    width: `calc(100% - ${metricTitlePanelWidth} - ${variantsPanelWidth})`,
+                    width: `calc(100% - ${metricTitlePanelWidth} - ${variantsPanelWidth} - ${detailedResultsPanelWidth})`,
                     verticalAlign: 'top',
                 }}
             >
@@ -363,7 +504,7 @@ export function DeltaChart({
                                                             H ${valueToX(0)}
                                                             V ${y}
                                                         `}
-                                                        fill={COLORS.BAR_BEST}
+                                                        fill={COLORS.BAR_POSITIVE}
                                                     />
                                                 </>
                                             ) : (
@@ -373,7 +514,7 @@ export function DeltaChart({
                                                     y={y}
                                                     width={x2 - x1}
                                                     height={BAR_HEIGHT}
-                                                    fill={upper <= 0 ? COLORS.BAR_NEGATIVE : COLORS.BAR_BEST}
+                                                    fill={upper <= 0 ? COLORS.BAR_NEGATIVE : COLORS.BAR_POSITIVE}
                                                     rx={4}
                                                     ry={4}
                                                 />
@@ -407,15 +548,6 @@ export function DeltaChart({
                             y={chartHeight / 2 - 10} // Roughly center vertically
                             width="200"
                             height="20"
-                            onMouseEnter={(e) => {
-                                const rect = e.currentTarget.getBoundingClientRect()
-                                setTooltipPosition({
-                                    x: rect.left + rect.width / 2,
-                                    y: rect.top,
-                                })
-                                setEmptyStateTooltipVisible(true)
-                            }}
-                            onMouseLeave={() => setEmptyStateTooltipVisible(false)}
                         >
                             <div
                                 className="flex items-center justify-center text-muted cursor-default"
@@ -449,7 +581,7 @@ export function DeltaChart({
                             </foreignObject>
                         ) : (
                             <foreignObject
-                                x={VIEW_BOX_WIDTH / 2 - 100}
+                                x={VIEW_BOX_WIDTH / 2 - 100 - (result ? 0 : 200)}
                                 y={chartHeight / 2 - 10}
                                 width="250"
                                 height="20"
@@ -517,6 +649,22 @@ export function DeltaChart({
                     >
                         <div className="flex flex-col gap-1">
                             <VariantTag experimentId={experimentId} variantKey={tooltipData.variant} />
+                            <div className="inline-flex">
+                                <span className="text-muted font-semibold mb-1">Win probability:</span>
+                                {result?.probability?.[tooltipData.variant] !== undefined ? (
+                                    <span className="flex items-center justify-between flex-1 pl-6">
+                                        <LemonProgress
+                                            className="w-3/4 mr-4"
+                                            percent={result.probability[tooltipData.variant] * 100}
+                                        />
+                                        <span className="font-semibold">
+                                            {(result.probability[tooltipData.variant] * 100).toFixed(2)}%
+                                        </span>
+                                    </span>
+                                ) : (
+                                    '—'
+                                )}
+                            </div>
                             {metricType === InsightType.TRENDS ? (
                                 <>
                                     <div className="flex justify-between items-center">
@@ -662,6 +810,72 @@ export function DeltaChart({
                     </div>
                 )}
             </div>
+
+            <LemonModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                width={1200}
+                title={`Metric results: ${metric.name || 'Untitled metric'}`}
+                footer={
+                    <LemonButton
+                        form="secondary-metric-modal-form"
+                        type="secondary"
+                        onClick={() => setIsModalOpen(false)}
+                    >
+                        Close
+                    </LemonButton>
+                }
+            >
+                <div className="flex justify-end">
+                    <ExploreButton result={result} />
+                </div>
+                <LemonBanner type="info" className="mb-4">
+                    <div className="items-center inline-flex flex-wrap">
+                        <WinningVariantText result={result} experimentId={experimentId} />
+                        <SignificanceText metricIndex={metricIndex} />
+                    </div>
+                </LemonBanner>
+                <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
+                <ResultsQuery result={result} showTable={true} />
+            </LemonModal>
         </div>
+    )
+}
+
+function SignificanceHighlight({
+    metricIndex = 0,
+    isSecondary = false,
+}: {
+    metricIndex?: number
+    isSecondary?: boolean
+}): JSX.Element {
+    const { isPrimaryMetricSignificant, isSecondaryMetricSignificant, significanceDetails } = useValues(experimentLogic)
+    const isSignificant = isSecondary
+        ? isSecondaryMetricSignificant(metricIndex)
+        : isPrimaryMetricSignificant(metricIndex)
+    const result: { color: LemonTagType; label: string } = isSignificant
+        ? { color: 'success', label: 'Significant' }
+        : { color: 'primary', label: 'Not significant' }
+
+    const inner = isSignificant ? (
+        <div className="bg-success-highlight text-success p-1 flex items-center gap-1">
+            <IconTrending fontSize={20} fontWeight={600} />
+            <span className="text-xs font-semibold">{result.label}</span>
+        </div>
+    ) : (
+        <div className="bg-warning-highlight text-warning p-1 flex items-center gap-1">
+            <IconMinus fontSize={20} fontWeight={600} />
+            <span className="text-xs font-semibold">{result.label}</span>
+        </div>
+    )
+
+    const details = significanceDetails(metricIndex)
+
+    return details ? (
+        <Tooltip title={details}>
+            <div className="cursor-default">{inner}</div>
+        </Tooltip>
+    ) : (
+        <div>{inner}</div>
     )
 }
