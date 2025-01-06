@@ -114,7 +114,9 @@ export function MetricDisplayOld({ filters }: { filters?: FilterType }): JSX.Ele
 
 export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
     const { experiment, featureFlags } = useValues(experimentLogic({ experimentId }))
-    const { updateExperimentExposure, loadExperiment, setExperiment } = useActions(experimentLogic({ experimentId }))
+    const { updateExperimentGoal, loadExperiment, setExperiment, setEditingPrimaryMetricIndex } = useActions(
+        experimentLogic({ experimentId })
+    )
     const [isModalOpen, setIsModalOpen] = useState(false)
 
     const metricIdx = 0
@@ -201,6 +203,7 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
                                     })
                                 }
                             }
+                            setEditingPrimaryMetricIndex(metricIdx)
                             setIsModalOpen(true)
                         }}
                         className="mr-2"
@@ -213,16 +216,13 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
                             status="danger"
                             size="xsmall"
                             onClick={() => {
-                                // :FLAG: CLEAN UP AFTER MIGRATION
-                                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                                    setExperiment({
-                                        ...experiment,
-                                        metrics: experiment.metrics.map((metric, idx) =>
-                                            idx === metricIdx ? { ...metric, exposure_query: undefined } : metric
-                                        ),
-                                    })
-                                }
-                                updateExperimentExposure(null)
+                                setExperiment({
+                                    ...experiment,
+                                    metrics: experiment.metrics.map((metric, idx) =>
+                                        idx === metricIdx ? { ...metric, exposure_query: undefined } : metric
+                                    ),
+                                })
+                                updateExperimentGoal()
                             }}
                         >
                             Reset
@@ -235,6 +235,7 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
                 isOpen={isModalOpen}
                 onClose={() => {
                     setIsModalOpen(false)
+                    setEditingPrimaryMetricIndex(null)
                     loadExperiment()
                 }}
             />
@@ -243,10 +244,10 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 }
 
 export function Goal(): JSX.Element {
-    const { experiment, experimentId, getMetricType, experimentMathAggregationForTrends, hasGoalSet, featureFlags } =
+    const { experiment, experimentId, _getMetricType, experimentMathAggregationForTrends, hasGoalSet, featureFlags } =
         useValues(experimentLogic)
     const { setExperiment, openPrimaryMetricModal } = useActions(experimentLogic)
-    const metricType = getMetricType(0)
+    const metricType = _getMetricType(experiment.metrics[0])
 
     // :FLAG: CLEAN UP AFTER MIGRATION
     const isDataWarehouseMetric =
