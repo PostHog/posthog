@@ -217,7 +217,7 @@ drf-exceptions-hog==0.4.0
     # via -r requirements.in
 drf-extensions==0.7.0
     # via -r requirements.in
-drf-spectacular==0.28.0
+drf-spectacular==0.27.2
     # via -r requirements.in
 et-xmlfile==1.1.0
     # via openpyxl
