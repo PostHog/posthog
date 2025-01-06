@@ -43,13 +43,13 @@ def get_pool(workload: Workload, team_id=None, readonly=False):
     return make_ch_pool()
 
 
-def default_client():
+def default_client(host=settings.CLICKHOUSE_HOST):
     """
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
     DO NOT USE THIS FOR QUERYING DATA
     """
     return SyncClient(
-        host=settings.CLICKHOUSE_HOST,
+        host=host,
         # We set "system" here as we don't necessarily have a "default" database,
         # which is what the clickhouse_driver would use by default. We are
         # assuming that this exists and we have permissions to access it. This

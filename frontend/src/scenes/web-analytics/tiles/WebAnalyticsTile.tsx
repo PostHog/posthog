@@ -127,6 +127,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>End Path</>
         case WebStatsBreakdown.ExitClick:
             return <>Exit Click</>
+        case WebStatsBreakdown.ScreenName:
+            return <>Screen Name</>
         case WebStatsBreakdown.InitialChannelType:
             return <>Initial Channel Type</>
         case WebStatsBreakdown.InitialReferringDomain:
@@ -145,6 +147,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Browser</>
         case WebStatsBreakdown.OS:
             return <>OS</>
+        case WebStatsBreakdown.Viewport:
+            return <>Viewport</>
         case WebStatsBreakdown.DeviceType:
             return <>Device Type</>
         case WebStatsBreakdown.Country:
@@ -173,6 +177,16 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     const { breakdownBy } = source
 
     switch (breakdownBy) {
+        case WebStatsBreakdown.Viewport:
+            if (Array.isArray(value)) {
+                const [width, height] = value
+                return (
+                    <>
+                        {width}x{height}
+                    </>
+                )
+            }
+            break
         case WebStatsBreakdown.Country:
             if (typeof value === 'string') {
                 const countryCode = value
@@ -246,6 +260,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$end_pathname', type: PropertyFilterType.Session }
         case WebStatsBreakdown.ExitClick:
             return { key: '$last_external_click_url', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ScreenName:
+            return { key: '$screen_name', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialChannelType:
             return { key: '$channel_type', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialReferringDomain:
@@ -264,6 +280,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$browser', type: PropertyFilterType.Event }
         case WebStatsBreakdown.OS:
             return { key: '$os', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Viewport:
+            return { key: '$viewport', type: PropertyFilterType.Event }
         case WebStatsBreakdown.DeviceType:
             return { key: '$device_type', type: PropertyFilterType.Event }
         case WebStatsBreakdown.Country:

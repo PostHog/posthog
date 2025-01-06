@@ -174,6 +174,7 @@ export enum DeviceTab {
     BROWSER = 'BROWSER',
     OS = 'OS',
     DEVICE_TYPE = 'DEVICE_TYPE',
+    VIEWPORT = 'VIEWPORT',
 }
 
 export enum PathTab {
@@ -181,6 +182,7 @@ export enum PathTab {
     INITIAL_PATH = 'INITIAL_PATH',
     END_PATH = 'END_PATH',
     EXIT_CLICK = 'EXIT_CLICK',
+    SCREEN_NAME = 'SCREEN_NAME',
 }
 
 export enum GeographyTab {
@@ -558,7 +560,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 const uniqueUserSeries: EventsNode = {
-                    event: '$pageview',
+                    event: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? '$screen' : '$pageview',
                     kind: NodeKind.EventsNode,
                     math: BaseMathType.UniqueUsers,
                     name: 'Pageview',
@@ -567,7 +569,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const pageViewsSeries = {
                     ...uniqueUserSeries,
                     math: BaseMathType.TotalCount,
-                    custom_name: 'Page views',
+                    custom_name: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? 'Screen Views' : 'Page views',
                 }
                 const sessionsSeries = {
                     ...uniqueUserSeries,
@@ -765,149 +767,160 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
-                        tabs: (
-                            [
-                                createTableTab(
-                                    TileId.PATHS,
-                                    PathTab.PATH,
-                                    'Paths',
-                                    'Path',
-                                    WebStatsBreakdown.Page,
-                                    {
-                                        includeScrollDepth: false, // TODO needs some perf work before it can be enabled
-                                        includeBounceRate: true,
-                                        doPathCleaning: !!isPathCleaningEnabled,
-                                    },
-                                    {
-                                        showPathCleaningControls: true,
-                                        docs: {
-                                            url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
-                                            title: 'Paths',
-                                            description: (
-                                                <div>
-                                                    <p>
-                                                        In this view you can validate all of the paths that were
-                                                        accessed in your application, regardless of when they were
-                                                        accessed through the lifetime of a user session.
-                                                    </p>
-                                                    {conversionGoal ? (
-                                                        <p>
-                                                            The conversion rate is the percentage of users who completed
-                                                            the conversion goal in this specific path.
-                                                        </p>
-                                                    ) : (
-                                                        <p>
-                                                            The{' '}
-                                                            <Link to="https://posthog.com/docs/web-analytics/dashboard#bounce-rate">
-                                                                bounce rate
-                                                            </Link>{' '}
-                                                            indicates the percentage of users who left your page
-                                                            immediately after visiting without capturing any event.
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            ),
-                                        },
-                                    }
-                                ),
-                                createTableTab(
-                                    TileId.PATHS,
-                                    PathTab.INITIAL_PATH,
-                                    'Entry paths',
-                                    'Entry path',
-                                    WebStatsBreakdown.InitialPage,
-                                    {
-                                        includeBounceRate: true,
-                                        includeScrollDepth: false,
-                                        doPathCleaning: !!isPathCleaningEnabled,
-                                    },
-                                    {
-                                        showPathCleaningControls: true,
-                                        docs: {
-                                            url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
-                                            title: 'Entry Path',
-                                            description: (
-                                                <div>
-                                                    <p>
-                                                        Entry paths are the paths a user session started, i.e. the first
-                                                        path they saw when they opened your website.
-                                                    </p>
-                                                    {conversionGoal && (
-                                                        <p>
-                                                            The conversion rate is the percentage of users who completed
-                                                            the conversion goal after the first path in their session
-                                                            being this path.
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            ),
-                                        },
-                                    }
-                                ),
-                                createTableTab(
-                                    TileId.PATHS,
-                                    PathTab.END_PATH,
-                                    'End paths',
-                                    'End path',
-                                    WebStatsBreakdown.ExitPage,
-                                    {
-                                        includeBounceRate: false,
-                                        includeScrollDepth: false,
-                                        doPathCleaning: !!isPathCleaningEnabled,
-                                    },
-                                    {
-                                        showPathCleaningControls: true,
-                                        docs: {
-                                            url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
-                                            title: 'End Path',
-                                            description: (
-                                                <div>
-                                                    End paths are the last path a user visited before their session
-                                                    ended, i.e. the last path they saw before leaving your
-                                                    website/closing the browser/turning their computer off.
-                                                </div>
-                                            ),
-                                        },
-                                    }
-                                ),
-                                {
-                                    id: PathTab.EXIT_CLICK,
-                                    title: 'Outbound link clicks',
-                                    linkText: 'Outbound clicks',
-                                    query: {
-                                        full: true,
-                                        kind: NodeKind.DataTableNode,
-                                        source: {
-                                            kind: NodeKind.WebExternalClicksTableQuery,
-                                            properties: webAnalyticsFilters,
-                                            dateRange,
-                                            compareFilter,
-                                            sampling,
-                                            limit: 10,
-                                            filterTestAccounts,
-                                            conversionGoal: featureFlags[
-                                                FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS
-                                            ]
-                                                ? conversionGoal
-                                                : undefined,
-                                            stripQueryParams: shouldStripQueryParams,
-                                        },
-                                        embedded: false,
-                                        columns: ['url', 'visitors', 'clicks'],
-                                    },
-                                    insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
-                                    canOpenModal: true,
-                                    docs: {
-                                        title: 'Outbound Clicks',
-                                        description: (
-                                            <div>
-                                                You'll be able to verify when someone leaves your website by clicking an
-                                                outbound link (to a separate domain)
-                                            </div>
-                                        ),
-                                    },
-                                },
-                            ] as (TabsTileTab | undefined)[]
+                        tabs: (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE]
+                            ? [
+                                  createTableTab(
+                                      TileId.PATHS,
+                                      PathTab.SCREEN_NAME,
+                                      'Screens',
+                                      'Screen',
+                                      WebStatsBreakdown.ScreenName,
+                                      {},
+                                      {}
+                                  ),
+                              ]
+                            : ([
+                                  createTableTab(
+                                      TileId.PATHS,
+                                      PathTab.PATH,
+                                      'Paths',
+                                      'Path',
+                                      WebStatsBreakdown.Page,
+                                      {
+                                          includeScrollDepth: false, // TODO needs some perf work before it can be enabled
+                                          includeBounceRate: true,
+                                          doPathCleaning: !!isPathCleaningEnabled,
+                                      },
+                                      {
+                                          showPathCleaningControls: true,
+                                          docs: {
+                                              url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
+                                              title: 'Paths',
+                                              description: (
+                                                  <div>
+                                                      <p>
+                                                          In this view you can validate all of the paths that were
+                                                          accessed in your application, regardless of when they were
+                                                          accessed through the lifetime of a user session.
+                                                      </p>
+                                                      {conversionGoal ? (
+                                                          <p>
+                                                              The conversion rate is the percentage of users who
+                                                              completed the conversion goal in this specific path.
+                                                          </p>
+                                                      ) : (
+                                                          <p>
+                                                              The{' '}
+                                                              <Link to="https://posthog.com/docs/web-analytics/dashboard#bounce-rate">
+                                                                  bounce rate
+                                                              </Link>{' '}
+                                                              indicates the percentage of users who left your page
+                                                              immediately after visiting without capturing any event.
+                                                          </p>
+                                                      )}
+                                                  </div>
+                                              ),
+                                          },
+                                      }
+                                  ),
+                                  createTableTab(
+                                      TileId.PATHS,
+                                      PathTab.INITIAL_PATH,
+                                      'Entry paths',
+                                      'Entry path',
+                                      WebStatsBreakdown.InitialPage,
+                                      {
+                                          includeBounceRate: true,
+                                          includeScrollDepth: false,
+                                          doPathCleaning: !!isPathCleaningEnabled,
+                                      },
+                                      {
+                                          showPathCleaningControls: true,
+                                          docs: {
+                                              url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
+                                              title: 'Entry Path',
+                                              description: (
+                                                  <div>
+                                                      <p>
+                                                          Entry paths are the paths a user session started, i.e. the
+                                                          first path they saw when they opened your website.
+                                                      </p>
+                                                      {conversionGoal && (
+                                                          <p>
+                                                              The conversion rate is the percentage of users who
+                                                              completed the conversion goal after the first path in
+                                                              their session being this path.
+                                                          </p>
+                                                      )}
+                                                  </div>
+                                              ),
+                                          },
+                                      }
+                                  ),
+                                  createTableTab(
+                                      TileId.PATHS,
+                                      PathTab.END_PATH,
+                                      'End paths',
+                                      'End path',
+                                      WebStatsBreakdown.ExitPage,
+                                      {
+                                          includeBounceRate: false,
+                                          includeScrollDepth: false,
+                                          doPathCleaning: !!isPathCleaningEnabled,
+                                      },
+                                      {
+                                          showPathCleaningControls: true,
+                                          docs: {
+                                              url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
+                                              title: 'End Path',
+                                              description: (
+                                                  <div>
+                                                      End paths are the last path a user visited before their session
+                                                      ended, i.e. the last path they saw before leaving your
+                                                      website/closing the browser/turning their computer off.
+                                                  </div>
+                                              ),
+                                          },
+                                      }
+                                  ),
+                                  {
+                                      id: PathTab.EXIT_CLICK,
+                                      title: 'Outbound link clicks',
+                                      linkText: 'Outbound clicks',
+                                      query: {
+                                          full: true,
+                                          kind: NodeKind.DataTableNode,
+                                          source: {
+                                              kind: NodeKind.WebExternalClicksTableQuery,
+                                              properties: webAnalyticsFilters,
+                                              dateRange,
+                                              compareFilter,
+                                              sampling,
+                                              limit: 10,
+                                              filterTestAccounts,
+                                              conversionGoal: featureFlags[
+                                                  FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS
+                                              ]
+                                                  ? conversionGoal
+                                                  : undefined,
+                                              stripQueryParams: shouldStripQueryParams,
+                                          },
+                                          embedded: false,
+                                          columns: ['url', 'visitors', 'clicks'],
+                                      },
+                                      insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
+                                      canOpenModal: true,
+                                      docs: {
+                                          title: 'Outbound Clicks',
+                                          description: (
+                                              <div>
+                                                  You'll be able to verify when someone leaves your website by clicking
+                                                  an outbound link (to a separate domain)
+                                              </div>
+                                          ),
+                                      },
+                                  },
+                              ] as (TabsTileTab | undefined)[])
                         ).filter(isNotNil),
                     },
                     {
@@ -1120,6 +1133,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 WebStatsBreakdown.Browser
                             ),
                             createTableTab(TileId.DEVICES, DeviceTab.OS, 'OS', 'OS', WebStatsBreakdown.OS),
+                            createTableTab(
+                                TileId.DEVICES,
+                                DeviceTab.VIEWPORT,
+                                'Viewports',
+                                'Viewport',
+                                WebStatsBreakdown.Viewport
+                            ),
                         ],
                     },
                     shouldShowGeographyTile
@@ -1255,8 +1275,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   users who return to perform any event in the following weeks.
                                               </p>
                                               <p>
-                                                  You want the numbers numbers to be the highest possible, suggesting
-                                                  that people that come to your page continue coming to your page - and
+                                                  You want the numbers to be the highest possible, suggesting that
+                                                  people that come to your page continue coming to your page - and
                                                   performing an actions. Also, the further down the table the higher the
                                                   numbers should be (or at least as high), which would indicate that
                                                   you're either increasing or keeping your retention at the same level.

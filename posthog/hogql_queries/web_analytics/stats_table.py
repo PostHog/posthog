@@ -149,7 +149,7 @@ FROM (
             min(session.$start_timestamp ) AS start_timestamp
         FROM events
         WHERE and(
-            events.event == '$pageview',
+            or(events.event == '$pageview', events.event == '$screen'),
             breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties},
@@ -172,7 +172,7 @@ LEFT JOIN (
             min(session.$start_timestamp) as start_timestamp
         FROM events
         WHERE and(
-            events.event == '$pageview',
+            or(events.event == '$pageview', events.event == '$screen'),
             breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties},
@@ -204,7 +204,7 @@ LEFT JOIN (
             min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            or(events.event == '$pageview', events.event == '$pageleave'),
+            or(events.event == '$pageview', events.event == '$pageleave', events.event == '$screen'),
             breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties_for_scroll},
@@ -263,7 +263,7 @@ FROM (
             min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            events.event == '$pageview',
+            or(events.event == '$pageview', events.event == '$screen'),
             {inside_periods},
             {event_properties},
             {session_properties},
@@ -286,7 +286,7 @@ LEFT JOIN (
             min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            events.event == '$pageview',
+            or(events.event == '$pageview', events.event == '$screen'),
             breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties},
@@ -481,6 +481,8 @@ GROUP BY session_id, breakdown_value
                 return self._apply_path_cleaning(ast.Field(chain=["session", "$end_pathname"]))
             case WebStatsBreakdown.EXIT_CLICK:
                 return ast.Field(chain=["session", "$last_external_click_url"])
+            case WebStatsBreakdown.SCREEN_NAME:
+                return ast.Field(chain=["events", "properties", "$screen_name"])
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["session", "$entry_referring_domain"])
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:
@@ -512,6 +514,13 @@ GROUP BY session_id, breakdown_value
                 return ast.Field(chain=["properties", "$browser"])
             case WebStatsBreakdown.OS:
                 return ast.Field(chain=["properties", "$os"])
+            case WebStatsBreakdown.VIEWPORT:
+                return ast.Tuple(
+                    exprs=[
+                        ast.Field(chain=["properties", "$viewport_width"]),
+                        ast.Field(chain=["properties", "$viewport_height"]),
+                    ]
+                )
             case WebStatsBreakdown.DEVICE_TYPE:
                 return ast.Field(chain=["properties", "$device_type"])
             case WebStatsBreakdown.COUNTRY:
@@ -555,6 +564,11 @@ GROUP BY session_id, breakdown_value
         match self.query.breakdownBy:
             case WebStatsBreakdown.REGION | WebStatsBreakdown.CITY:
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
+            case WebStatsBreakdown.VIEWPORT:
+                return parse_expr(
+                    "tupleElement(breakdown_value, 1) IS NOT NULL AND tupleElement(breakdown_value, 2) IS NOT NULL AND "
+                    "tupleElement(breakdown_value, 1) != 0 AND tupleElement(breakdown_value, 2) != 0"
+                )
             case (
                 WebStatsBreakdown.INITIAL_UTM_SOURCE
                 | WebStatsBreakdown.INITIAL_UTM_CAMPAIGN
