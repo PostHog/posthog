@@ -81,7 +81,7 @@ impl Issue {
         // means the insert was not done.
         .unwrap_or(false);
 
-        if (did_insert) {
+        if did_insert {
             metrics::counter!(ISSUE_CREATED).increment(1);
         }
 
