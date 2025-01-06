@@ -655,6 +655,7 @@ class TestSignupAPI(APIBaseTest):
         mock_request.return_value.json.return_value = {
             "access_token": "123",
             "email": "jane@hogflix.posthog.com",
+            "sub": "123",
         }
 
         response = self.client.get(url, follow=True)
@@ -789,6 +790,7 @@ class TestSignupAPI(APIBaseTest):
             mock_request.return_value.json.return_value = {
                 "access_token": "123",
                 "email": "jane@hogflix.posthog.com",
+                "sub": "123",
             }
 
             response = self.client.get(url, follow=True)
@@ -828,6 +830,7 @@ class TestSignupAPI(APIBaseTest):
         mock_request.return_value.json.return_value = {
             "access_token": "123",
             "email": "alice@posthog.net",
+            "sub": "123",
         }
 
         response = self.client.get(url, follow=True)
@@ -857,6 +860,7 @@ class TestSignupAPI(APIBaseTest):
         mock_request.return_value.json.return_value = {
             "access_token": "123",
             "email": "alice@posthog.net",
+            "sub": "123",
         }
 
         response = self.client.get(url, follow=True)
@@ -886,6 +890,7 @@ class TestSignupAPI(APIBaseTest):
         mock_request.return_value.json.return_value = {
             "access_token": "123",
             "email": "alice@evil.com",
+            "sub": "123",
         }  # note evil.com
 
         response = self.client.get(url, follow=True)
@@ -911,6 +916,7 @@ class TestSignupAPI(APIBaseTest):
             mock_request.return_value.json.return_value = {
                 "access_token": "123",
                 "email": "jane@hogflix.posthog.com",
+                "sub": "123",
             }
             response = self.client.get(url, follow=True)
 

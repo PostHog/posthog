@@ -165,9 +165,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         queryset=ExperimentHoldout.objects.all(), source="holdout", required=False, allow_null=True
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
-    saved_metrics_ids = serializers.ListField(
-        child=serializers.JSONField(), write_only=True, required=False, allow_null=True
-    )
+    saved_metrics_ids = serializers.ListField(child=serializers.JSONField(), required=False, allow_null=True)
 
     class Meta:
         model = Experiment
@@ -246,8 +244,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         variants = value.get("feature_flag_variants", [])
 
-        if len(variants) >= 11:
-            raise ValidationError("Feature flag variants must be less than 11")
+        if len(variants) >= 21:
+            raise ValidationError("Feature flag variants must be less than 21")
         elif len(variants) > 0:
             if "control" not in [variant["key"] for variant in variants]:
                 raise ValidationError("Feature flag variants must contain a control variant")

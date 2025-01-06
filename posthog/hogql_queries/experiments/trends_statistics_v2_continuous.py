@@ -26,31 +26,56 @@ def calculate_probabilities_v2_continuous(
 ) -> list[float]:
     """
     Calculate the win probabilities for each variant in an experiment using Bayesian analysis
-    for continuous metrics (e.g., revenue).
+    for continuous metrics (e.g., revenue) with log-normal distribution assumptions.
 
-    This function computes the probability that each variant is the best (i.e., has the highest
-    mean value) compared to all other variants, including the control. It uses samples
-    drawn from the posterior distributions of each variant's mean.
+    This function computes the probability that each variant is the best by comparing its
+    posterior distribution against all other variants. It uses a Normal-Inverse-Gamma prior
+    and performs analysis in log-space to handle right-skewed distributions typical of
+    metrics like revenue.
 
     Parameters:
     -----------
     control_variant : ExperimentVariantTrendsBaseStats
-        Statistics for the control group, including mean value and exposure (number of users)
+        Statistics for the control group, containing the mean value (in count field)
+        and exposure (number of users)
     test_variants : list[ExperimentVariantTrendsBaseStats]
         List of statistics for test variants to compare against the control
 
     Returns:
     --------
     list[float]
-        A list of probabilities where:
-        - The first element is the probability that the control variant is the best
-        - Subsequent elements are the probabilities that each test variant is the best
+        A list of probabilities where each element represents the probability that the
+        corresponding variant is the best (has highest mean value) among all variants:
+        - index 0: probability control variant is best
+        - index i>0: probability test variant i-1 is best
+        All probabilities sum to 1.0
 
     Notes:
     ------
-    - Uses a Bayesian approach with a t-distribution as the posterior
-    - Assumes a Normal-Inverse-Gamma prior
-    - Log-transforms the data to handle typical revenue distributions
+    - Uses log-transformation of data to handle right-skewed distributions
+    - Employs a Normal-Inverse-Gamma prior with parameters:
+      MU_0=0.0, KAPPA_0=1.0, ALPHA_0=1.0, BETA_0=1.0
+    - Assumes constant variance in log-space (LOG_VARIANCE=0.75)
+    - Draws SAMPLE_SIZE=10000 samples from each posterior for probability estimation
+
+    Example:
+    --------
+    >>> from posthog.schema import ExperimentVariantTrendsBaseStats
+    >>> from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import calculate_probabilities_v2_continuous
+    >>> control = ExperimentVariantTrendsBaseStats(
+    ...     key="control",
+    ...     count=50,  # mean revenue per user
+    ...     exposure=1.0,  # exposure relative to control
+    ...     absolute_exposure=500  # number of users
+    ... )
+    >>> test = ExperimentVariantTrendsBaseStats(
+    ...     key="test",
+    ...     count=60,  # mean revenue per user
+    ...     exposure=1,  # exposure relative to control
+    ...     absolute_exposure=500  # number of users
+    ... )
+    >>> calculate_probabilities_v2_continuous(control, [test])
+    >>> # Returns: [0.0004, 0.9996] indicating the test variant is very likely to be best
     """
     if len(test_variants) >= 10:
         raise ValidationError("Can't calculate experiment results for more than 10 variants", code="too_much_data")
@@ -161,12 +186,19 @@ def are_results_significant_v2_continuous(
 
 def calculate_credible_intervals_v2_continuous(variants, lower_bound=0.025, upper_bound=0.975):
     """
-    Calculate Bayesian credible intervals for each variant's mean value.
+    Calculate Bayesian credible intervals for each variant's mean value using a log-normal model.
+
+    This function computes credible intervals in log-space using a t-distribution posterior
+    derived from a Normal-Inverse-Gamma prior, then transforms the results back to the original
+    scale. This approach is particularly suitable for right-skewed metrics like revenue.
 
     Parameters:
     -----------
     variants : list[ExperimentVariantTrendsBaseStats]
-        List of variants containing mean values and exposure data
+        List of variants where each variant contains:
+        - count: the mean value of the metric
+        - absolute_exposure: number of users/observations
+        - key: identifier for the variant
     lower_bound : float, optional (default=0.025)
         Lower percentile for the credible interval (2.5% for 95% CI)
     upper_bound : float, optional (default=0.975)
@@ -175,7 +207,44 @@ def calculate_credible_intervals_v2_continuous(variants, lower_bound=0.025, uppe
     Returns:
     --------
     dict[str, tuple[float, float]]
-        Dictionary mapping variant keys to their credible intervals
+        Dictionary mapping variant keys to their credible intervals where:
+        - Key: variant identifier
+        - Value: tuple of (lower_bound, upper_bound) in original scale
+        Returns empty dict if any calculation errors occur
+
+    Notes:
+    ------
+    - Uses log-transformation to handle right-skewed distributions
+    - Employs Normal-Inverse-Gamma prior with parameters:
+      MU_0=0.0, KAPPA_0=1.0, ALPHA_0=1.0, BETA_0=1.0
+    - Assumes constant variance in log-space (LOG_VARIANCE=0.75)
+    - Results are transformed back to original scale and guaranteed non-negative
+    - Handles potential calculation errors gracefully by returning empty dict
+
+    Example:
+    --------
+    >>> from posthog.schema import ExperimentVariantTrendsBaseStats
+    >>> from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import calculate_credible_intervals_v2_continuous
+    >>> variants = [
+    ...     ExperimentVariantTrendsBaseStats(
+    ...         key="control",
+    ...         count=50.0,  # mean revenue per user
+    ...         exposure=1.0,  # exposure relative to control
+    ...         absolute_exposure=500  # number of users
+    ...     ),
+    ...     ExperimentVariantTrendsBaseStats(
+    ...         key="test",
+    ...         count=60.0,  # mean revenue per user
+    ...         exposure=1,  # exposure relative to control
+    ...         absolute_exposure=500  # number of users
+    ...     )
+    ... ]
+    >>> calculate_credible_intervals_v2_continuous(variants)
+    >>> # Returns something like:
+    >>> # {
+    >>> #     'control': (45.98, 53.53),  # 95% confident true mean is between $45.98-$53.53
+    >>> #     'test': (55.15, 64.22)     # 95% confident true mean is between $55.15-$64.22
+    >>> # }
     """
     intervals = {}
 

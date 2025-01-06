@@ -437,14 +437,20 @@ def create_hogql_database(
             joining_table = database.get_table(join.joining_table_name)
 
             field = parse_expr(join.source_table_key)
-            if not isinstance(field, ast.Field):
-                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
-            from_field = field.chain
+            if isinstance(field, ast.Field):
+                from_field = field.chain
+            elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
+                from_field = field.args[0].chain
+            else:
+                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
             field = parse_expr(join.joining_table_key)
-            if not isinstance(field, ast.Field):
-                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
-            to_field = field.chain
+            if isinstance(field, ast.Field):
+                to_field = field.chain
+            elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
+                to_field = field.args[0].chain
+            else:
+                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
             source_table.fields[join.field_name] = LazyJoin(
                 from_field=from_field,
