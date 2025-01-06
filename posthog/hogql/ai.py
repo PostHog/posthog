@@ -147,7 +147,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
 def hit_openai(messages, user) -> tuple[str, int, int]:
     result = openai.chat.completions.create(
         model="gpt-4o-mini",
-        temperature=0.8,
+        temperature=0,
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
     )
