@@ -338,13 +338,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         try:
             query = RecordingsQuery.model_validate(data_dict)
         except ValidationError as pydantic_validation_error:
-            # we want to get the invalid keys from the pydantic_validation_error
-            # so we can pass them as a more readable error
-            invalid_keys_dict = {
-                error.get("loc", ("unknown",))[0]: error.get("msg", "Invalid value provided")
-                for error in pydantic_validation_error.errors()
-            }
-            return Response(invalid_keys_dict, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"validation_errors": str(pydantic_validation_error)}, status=status.HTTP_400_BAD_REQUEST)
 
         self._maybe_report_recording_list_filters_changed(request, team=self.team)
         return list_recordings_response(
