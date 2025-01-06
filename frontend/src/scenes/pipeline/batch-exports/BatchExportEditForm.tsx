@@ -194,6 +194,12 @@ export function BatchExportsEditFields({
                                 label="Max file size (MiB)"
                                 showOptional
                                 className="flex-1"
+                                info={
+                                    <>
+                                        Files over this max file size will be split into multiple files. Leave empty or
+                                        set to 0 for no splitting regardless of file size
+                                    </>
+                                }
                             >
                                 <LemonInput type="number" min={0} />
                             </LemonField>
