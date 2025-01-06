@@ -40,6 +40,7 @@ from posthog.models.person.sql import (
 )
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
@@ -392,6 +393,7 @@ def _recalculate_cohortpeople_for_team_hogql(
         cohort_query, hogql_context = HogQLQueryExecutor(
             query_type="HogQLCohortQuery",
             query=query,
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
             team=team,
             limit_context=LimitContext.QUERY_ASYNC,
         ).generate_clickhouse_sql()

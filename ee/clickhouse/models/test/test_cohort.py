@@ -795,7 +795,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         with freeze_time((datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")):
             p2.version = 1
-            p2.properties = ({"$some_prop": "another", "$another_prop": "another"},)
+            p2.properties = {"$some_prop": "another", "$another_prop": "another"}
             p2.save()
 
         calculate_cohort_hogql_test_harness(cohort1, 1)
