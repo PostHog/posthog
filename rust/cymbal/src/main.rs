@@ -8,7 +8,7 @@ use cymbal::{
     config::Config,
     hack::kafka::{send_keyed_iter_to_kafka, RecvErr},
     handle_event,
-    metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, STACK_PROCESSED},
+    metric_consts::{ERRORS, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME},
 };
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
@@ -100,6 +100,8 @@ async fn main() {
                 }
             };
 
+            metrics::counter!(EVENT_PROCESSED).increment(1);
+
             output.push(event);
             offsets.push(offset);
         }
@@ -117,7 +119,6 @@ async fn main() {
             offset.store().unwrap();
         }
 
-        metrics::counter!(STACK_PROCESSED).increment(1);
         whole_loop.label("finished", "true").fin();
     }
 }
