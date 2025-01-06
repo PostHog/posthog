@@ -39,37 +39,48 @@ const isSidebarCategory = (category: SidebarCategory | SidebarCategoryBase): cat
 }
 
 export function SidebarList({ category }: { category: SidebarCategory | ListItemAccordion }): JSX.Element {
-    const { normalizedActiveListItemKey, sidebarWidth, newItemInlineCategory, savingNewItem } =
+    const { isListItemVisible, normalizedActiveListItemKey, sidebarWidth, newItemInlineCategory, savingNewItem } =
         useValues(navigation3000Logic)
     const { cancelNewItem } = useActions(navigation3000Logic)
     const { saveNewItem } = useAsyncActions(navigation3000Logic)
 
     const emptyStateSkeletonCount = useMemo(() => 4 + Math.floor(Math.random() * 4), [])
 
-    const { items } = category
+    const { items: _items } = category
 
     const listItems = useMemo(() => {
         const allItems: (BasicListItem | ExtendedListItem | ListItemAccordion)[] = []
 
         const flatten = (
             items: BasicListItem[] | ExtendedListItem[] | ListItemAccordion[],
-            depth: number = 1
+            depth: number = 1,
+            parentKey: string | number | string[] | null = null
         ): void => {
             items.forEach((item) => {
                 allItems.push({
                     ...item,
                     depth: depth,
+                    key: parentKey
+                        ? [
+                              Array.isArray(parentKey) ? parentKey.join(ITEM_KEY_PART_SEPARATOR) : parentKey,
+                              item.key,
+                          ].join(ITEM_KEY_PART_SEPARATOR)
+                        : item.key,
                 })
                 if (isListItemAccordion(item)) {
-                    flatten(item.items, depth + 1)
+                    flatten(
+                        item.items,
+                        depth + 1,
+                        parentKey ? `${parentKey}${ITEM_KEY_PART_SEPARATOR}${item.key}` : item.key
+                    )
                 }
             })
         }
 
-        flatten(items, 2)
+        flatten(_items, 1, category.key)
 
         return allItems
-    }, [items])
+    }, [_items])
 
     const remote = isSidebarCategory(category) ? category.remote : undefined
     const loading = isSidebarCategory(category) ? category.loading : false
@@ -111,6 +122,13 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
             const normalizedItemKey = Array.isArray(item.key)
                 ? item.key.map((keyPart) => `${category.key}${ITEM_KEY_PART_SEPARATOR}${keyPart}`)
                 : `${category.key}${ITEM_KEY_PART_SEPARATOR}${item.key}`
+
+            const itemKey = Array.isArray(item.key) ? item.key.join(ITEM_KEY_PART_SEPARATOR) : item.key.toString()
+
+            const isVisible = isListItemVisible(itemKey)
+            if (!isVisible) {
+                return <></>
+            }
 
             let active: boolean
             if (Array.isArray(normalizedItemKey)) {
@@ -262,7 +280,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
 
     let content: JSX.Element
     if (isListItemAccordion(item)) {
-        return <SidebarListItemAccordion category={item} />
+        content = <SidebarListItemAccordion category={item} />
     } else if (isItemClickable(item)) {
         content = (
             // eslint-disable-next-line react/forbid-dom-props
@@ -509,20 +527,25 @@ function SidebarListItemSkeleton({ style }: { style: React.CSSProperties }): JSX
 }
 
 function SidebarListItemAccordion({ category }: { category: ListItemAccordion }): JSX.Element {
-    const { toggleAccordion } = useActions(navigation3000Logic)
+    const { listItemAccordionCollapseMapping } = useValues(navigation3000Logic)
+    const { toggleListItemAccordion } = useActions(navigation3000Logic)
 
     const { key, items } = category
 
     const isEmpty = items.length === 0
-    const isExpanded = true
+    const keyString = Array.isArray(key) ? key.join(ITEM_KEY_PART_SEPARATOR) : key.toString()
+    const isExpanded = !(keyString in listItemAccordionCollapseMapping) || !listItemAccordionCollapseMapping[keyString]
 
     return (
-        <section className="Accordion" aria-disabled={isEmpty} aria-expanded={isExpanded}>
+        <li className="SidebarListItemAccordion" role="region" aria-expanded={isExpanded}>
             <div
-                className="Accordion__header"
+                id={`sidebar-list-item-accordion-${keyString}`}
+                className="SidebarListItemAccordion__header"
+                role="button"
+                aria-expanded={isExpanded}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ '--depth': category.depth }}
-                onClick={isExpanded || items.length > 0 ? () => toggleAccordion(key) : undefined}
+                onClick={isExpanded || items.length > 0 ? () => toggleListItemAccordion(keyString) : undefined}
             >
                 <IconChevronRight />
                 <h4>
@@ -535,6 +558,6 @@ function SidebarListItemAccordion({ category }: { category: ListItemAccordion })
                     )}
                 </h4>
             </div>
-        </section>
+        </li>
     )
 }
