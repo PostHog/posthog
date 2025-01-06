@@ -6,7 +6,6 @@ import {
     LemonDropdown,
     LemonInput,
     LemonLabel,
-    LemonSelect,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
@@ -42,9 +41,23 @@ const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
     id?: string | null
+
+    displayOptions?: {
+        showFilters?: boolean
+        showExpectedVolume?: boolean
+        showStatus?: boolean
+        showEnabled?: boolean
+        showTesting?: boolean
+        canEditSource?: boolean
+        showPersonsCount?: boolean
+    }
 }
 
-export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigurationProps): JSX.Element {
+export function HogFunctionConfiguration({
+    templateId,
+    id,
+    displayOptions = {},
+}: HogFunctionConfigurationProps): JSX.Element {
     const logicProps = { templateId, id }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {
@@ -66,9 +79,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         personsCountLoading,
         personsListQuery,
         template,
-        subTemplate,
         templateHasChanged,
-        forcedSubTemplateId,
         type,
     } = useValues(logic)
     const {
@@ -80,7 +91,6 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
-        setSubTemplateId,
     } = useActions(logic)
 
     if (loading && !loaded) {
@@ -152,13 +162,24 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
-    const showFilters = ['destination', 'site_destination', 'broadcast', 'transformation'].includes(type)
-    const showExpectedVolume = ['destination', 'site_destination'].includes(type)
-    const showStatus = ['destination', 'email', 'transformation'].includes(type)
-    const showEnabled = ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
-    const canEditSource = ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
-    const showPersonsCount = ['broadcast'].includes(type)
-    const showTesting = ['destination', 'transformation', 'broadcast', 'email'].includes(type)
+    const showFilters =
+        displayOptions.showFilters ??
+        ['destination', 'internal_destination', 'site_destination', 'broadcast', 'transformation'].includes(type)
+    const showExpectedVolume = displayOptions.showExpectedVolume ?? ['destination', 'site_destination'].includes(type)
+    const showStatus =
+        displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
+    const showEnabled =
+        displayOptions.showEnabled ??
+        ['destination', 'internal_destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(
+            type
+        )
+    const canEditSource =
+        displayOptions.canEditSource ??
+        ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
+    const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
+    const showTesting =
+        displayOptions.showTesting ??
+        ['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type)
 
     return (
         <div className="space-y-3">
@@ -359,41 +380,6 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                         </div>
 
                         <div className="space-y-4 flex-2 min-w-100">
-                            {!forcedSubTemplateId && template?.sub_templates && (
-                                <>
-                                    <div className="p-3 space-y-2 border rounded bg-bg-light">
-                                        <div className="flex items-center gap-2">
-                                            <LemonLabel className="flex-1">Choose template</LemonLabel>
-                                            <LemonSelect
-                                                size="small"
-                                                options={[
-                                                    {
-                                                        value: null,
-                                                        label: 'Default',
-                                                    },
-                                                    ...template.sub_templates.map((subTemplate) => ({
-                                                        value: subTemplate.id,
-                                                        label: subTemplate.name,
-                                                        labelInMenu: (
-                                                            <div className="my-1 space-y-1 max-w-120">
-                                                                <div className="font-semibold">{subTemplate.name}</div>
-                                                                <div className="font-sans text-xs text-muted">
-                                                                    {subTemplate.description}
-                                                                </div>
-                                                            </div>
-                                                        ),
-                                                    })),
-                                                ]}
-                                                value={subTemplate?.id}
-                                                onChange={(value) => {
-                                                    setSubTemplateId(value)
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
-                                </>
-                            )}
-
                             <div className="p-3 space-y-2 border rounded bg-bg-light">
                                 <div className="space-y-2">
                                     <HogFunctionInputs

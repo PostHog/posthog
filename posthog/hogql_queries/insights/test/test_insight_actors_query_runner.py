@@ -238,7 +238,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V1},
             )
 
-        self.assertEqual([("p2",)], response.results)
+        self.assertEqual([("p2", ["p2"])], response.results)
         assert "in(id," in queries[0]
         self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
 
@@ -266,7 +266,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V2},
             )
 
-        self.assertEqual([("p2",)], response.results)
+        self.assertEqual([("p2", ["p2"])], response.results)
         assert "in(person.id" in queries[0]
         self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
 

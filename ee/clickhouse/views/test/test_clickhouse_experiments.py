@@ -103,6 +103,11 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
+        self.assertEqual(response.json()["stats_config"], {"version": 2})
+
+        id = response.json()["id"]
+        experiment = Experiment.objects.get(pk=id)
+        self.assertEqual(experiment.get_stats_config("version"), 2)
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
@@ -111,13 +116,12 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
         self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
 
-        id = response.json()["id"]
         end_date = "2021-12-10T00:00"
 
         # Now update
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
-            {"description": "Bazinga", "end_date": end_date},
+            {"description": "Bazinga", "end_date": end_date, "stats_config": {"version": 1}},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -125,6 +129,7 @@ class TestExperimentCRUD(APILicensedTest):
         experiment = Experiment.objects.get(pk=id)
         self.assertEqual(experiment.description, "Bazinga")
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
+        self.assertEqual(experiment.get_stats_config("version"), 1)
 
     def test_creating_updating_web_experiment(self):
         ff_key = "a-b-tests"
@@ -371,7 +376,13 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
-                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
             },
         )
 
@@ -381,7 +392,10 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["description"], "Test description")
         self.assertEqual(
             response.json()["query"],
-            {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            {
+                "kind": "ExperimentTrendsQuery",
+                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            },
         )
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
 
@@ -419,7 +433,11 @@ class TestExperimentCRUD(APILicensedTest):
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
         self.assertEqual(saved_metric.id, saved_metric_id)
         self.assertEqual(
-            saved_metric.query, {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
+            saved_metric.query,
+            {
+                "kind": "ExperimentTrendsQuery",
+                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            },
         )
 
         # Now try updating experiment with new saved metric
@@ -428,7 +446,10 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "name": "Test Experiment saved metric 2",
                 "description": "Test description 2",
-                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                },
             },
         )
 
@@ -514,7 +535,10 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
-                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                },
             },
         )
 

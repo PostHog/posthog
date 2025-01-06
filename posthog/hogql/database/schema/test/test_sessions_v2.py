@@ -23,9 +23,11 @@ from posthog.test.base import (
 
 
 class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
-    def __execute(self, query, bounce_rate_mode=BounceRatePageViewMode.COUNT_PAGEVIEWS):
+    def __execute(self, query, bounce_rate_mode=BounceRatePageViewMode.COUNT_PAGEVIEWS, bounce_rate_duration=None):
         modifiers = HogQLQueryModifiers(
-            sessionTableVersion=SessionTableVersion.V2, bounceRatePageViewMode=bounce_rate_mode
+            sessionTableVersion=SessionTableVersion.V2,
+            bounceRatePageViewMode=bounce_rate_mode,
+            bounceRateDurationSeconds=bounce_rate_duration,
         )
         return execute_hogql_query(
             query=query,
@@ -515,6 +517,62 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             (0, s5),
         ]
 
+    @parameterized.expand(
+        [[BounceRatePageViewMode.UNIQ_PAGE_SCREEN_AUTOCAPTURES], [BounceRatePageViewMode.COUNT_PAGEVIEWS]]
+    )
+    def test_custom_bounce_rate_duration(self, bounce_rate_mode):
+        time = time_ns() // (10**6)
+        # ensure the sessions ids are sortable by giving them different time components
+        s = str(uuid7(time))
+
+        # 15 second session with a pageleave
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d4",
+            properties={"$session_id": s, "$current_url": "https://example.com/6"},
+            timestamp="2023-12-11T12:00:00",
+        )
+        _create_event(
+            event="$pageleave",
+            team=self.team,
+            distinct_id="d4",
+            properties={"$session_id": s, "$current_url": "https://example.com/6"},
+            timestamp="2023-12-11T12:00:15",
+        )
+
+        # with default settings this should not be a bounce
+        assert (
+            self.__execute(
+                parse_select(
+                    "select $is_bounce, session_id from sessions ORDER BY session_id",
+                ),
+                bounce_rate_mode=bounce_rate_mode,
+            )
+        ).results == [(0, s)]
+
+        # with a custom 10 second duration this should not be a bounce
+        assert (
+            self.__execute(
+                parse_select(
+                    "select $is_bounce, session_id from sessions ORDER BY session_id",
+                ),
+                bounce_rate_mode=bounce_rate_mode,
+                bounce_rate_duration=10,
+            )
+        ).results == [(0, s)]
+
+        # with a custom 30 second duration this should be a bounce
+        assert (
+            self.__execute(
+                parse_select(
+                    "select $is_bounce, session_id from sessions ORDER BY session_id",
+                ),
+                bounce_rate_mode=bounce_rate_mode,
+                bounce_rate_duration=30,
+            )
+        ).results == [(1, s)]
+
     def test_last_external_click_url(self):
         s1 = str(uuid7())
 
@@ -634,11 +692,13 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                 "$channel_type",
                 "$end_current_url",
                 "$end_pathname",
+                "$end_hostname",
                 "$end_timestamp",
                 "$entry_current_url",
                 "$entry_gad_source",
                 "$entry_gclid",
                 "$entry_pathname",
+                "$entry_hostname",
                 "$entry_referring_domain",
                 "$entry_utm_campaign",
                 "$entry_utm_content",
