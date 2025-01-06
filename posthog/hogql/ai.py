@@ -17,6 +17,7 @@ UNCLEAR_PREFIX = "UNCLEAR:"
 IDENTITY_MESSAGE = "HogQL is PostHog's variant of SQL. It supports most of ClickHouse SQL. You write HogQL based on a prompt. You don't help with other knowledge."
 
 HOGQL_EXAMPLE_MESSAGE = """Example HogQL query for prompt "weekly active users that performed event ACTIVATION_EVENT on example.com/foo/ 3 times or more, by week":
+
 SELECT week_of, countIf(weekly_event_count >= 3)
 FROM (
    SELECT person.id AS person_id, toStartOfWeek(timestamp) AS week_of, count() AS weekly_event_count
@@ -42,8 +43,8 @@ CURRENT_QUERY_MESSAGE = (
 
 REQUEST_MESSAGE = (
     "I need a robust HogQL query to get the following results: {prompt}\n"
-    "Return nothing besides the SQL, just the query. "
-    f'If my request doesn\'t make sense, return short and succint message starting with "{UNCLEAR_PREFIX}". '
+    "Return nothing besides the SQL, just the query. Do not wrap the SQL in backticks or quotes. "
+    f'If my request is irrelevant or doesn\'t make sense, return a short and succint message starting with "{UNCLEAR_PREFIX}". '
 )
 
 
