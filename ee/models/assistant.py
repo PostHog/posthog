@@ -118,7 +118,7 @@ class CoreMemory(UUIDModel):
     def is_scraping_pending(self) -> bool:
         return (
             self.scraping_status == CoreMemory.ScrapingStatus.PENDING
-            and self.scraping_started_at < timezone.now() - timedelta(minutes=5)
+            and self.scraping_started_at + timedelta(minutes=5) > timezone.now()
         )
 
     @property
