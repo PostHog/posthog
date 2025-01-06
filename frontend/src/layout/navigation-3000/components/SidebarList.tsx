@@ -39,8 +39,15 @@ const isSidebarCategory = (category: SidebarCategory | SidebarCategoryBase): cat
 }
 
 export function SidebarList({ category }: { category: SidebarCategory | ListItemAccordion }): JSX.Element {
-    const { isListItemVisible, normalizedActiveListItemKey, sidebarWidth, newItemInlineCategory, savingNewItem } =
-        useValues(navigation3000Logic)
+    const listRef = useRef<List | null>(null)
+    const {
+        isListItemVisible,
+        listItemAccordionCollapseMapping,
+        normalizedActiveListItemKey,
+        sidebarWidth,
+        newItemInlineCategory,
+        savingNewItem,
+    } = useValues(navigation3000Logic)
     const { cancelNewItem } = useActions(navigation3000Logic)
     const { saveNewItem } = useAsyncActions(navigation3000Logic)
 
@@ -79,8 +86,17 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
 
         flatten(_items, 1, category.key)
 
-        return allItems
-    }, [_items])
+        return allItems.filter((item) =>
+            isListItemVisible(Array.isArray(item.key) ? item.key.join(ITEM_KEY_PART_SEPARATOR) : item.key.toString())
+        )
+    }, [_items, isListItemVisible])
+
+    useEffect(() => {
+        if (listRef.current) {
+            listRef.current.recomputeRowHeights()
+            listRef.current.forceUpdateGrid()
+        }
+    }, [listItemAccordionCollapseMapping, listItems])
 
     const remote = isSidebarCategory(category) ? category.remote : undefined
     const loading = isSidebarCategory(category) ? category.loading : false
@@ -123,13 +139,6 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
                 ? item.key.map((keyPart) => `${category.key}${ITEM_KEY_PART_SEPARATOR}${keyPart}`)
                 : `${category.key}${ITEM_KEY_PART_SEPARATOR}${item.key}`
 
-            const itemKey = Array.isArray(item.key) ? item.key.join(ITEM_KEY_PART_SEPARATOR) : item.key.toString()
-
-            const isVisible = isListItemVisible(itemKey)
-            if (!isVisible) {
-                return <></>
-            }
-
             let active: boolean
             if (Array.isArray(normalizedItemKey)) {
                 active =
@@ -170,7 +179,12 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
                             )}
                         </InfiniteLoader>
                     ) : (
-                        <List {...listProps} height={height} rowCount={listItems.length + Number(addingNewItem)} />
+                        <List
+                            ref={listRef}
+                            {...listProps}
+                            height={height}
+                            rowCount={listItems.length + Number(addingNewItem)}
+                        />
                     )
                 }
             </AutoSizer>
