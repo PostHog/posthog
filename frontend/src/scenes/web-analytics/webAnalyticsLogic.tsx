@@ -1,3 +1,4 @@
+import { IconGear } from '@posthog/icons'
 import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
@@ -5,7 +6,10 @@ import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
@@ -102,7 +106,7 @@ export interface QueryTile extends BaseTile {
     title?: string
     query: QuerySchema
     showIntervalSelect?: boolean
-    showPathCleaningControls?: boolean
+    control?: JSX.Element
     insightProps: InsightLogicProps
     canOpenModal: boolean
     canOpenInsight?: boolean
@@ -114,7 +118,7 @@ export interface TabsTileTab {
     linkText: string
     query: QuerySchema
     showIntervalSelect?: boolean
-    showPathCleaningControls?: boolean
+    control?: JSX.Element
     insightProps: InsightLogicProps
     canOpenModal?: boolean
     canOpenInsight?: boolean
@@ -146,7 +150,7 @@ export interface WebDashboardModalQuery {
     query: QuerySchema
     insightProps: InsightLogicProps
     showIntervalSelect?: boolean
-    showPathCleaningControls?: boolean
+    control?: JSX.Element
     canOpenInsight?: boolean
 }
 
@@ -682,6 +686,44 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
+                const pathCleaningSettingsUrl = urls.settings('project-product-analytics', 'path-cleaning')
+                const customChannelTypesUrl = urls.settings('environment-web-analytics', 'channel-type')
+
+                const pathCleaningControl = (
+                    <LemonSwitch
+                        label={
+                            <div className="flex flex-row space-x-2">
+                                <Tooltip
+                                    title={
+                                        <>
+                                            Check{' '}
+                                            <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
+                                                our path cleaning rules documentation
+                                            </Link>{' '}
+                                            to learn more about path cleaning
+                                        </>
+                                    }
+                                    interactive
+                                >
+                                    <span>Enable path cleaning</span>
+                                </Tooltip>
+                                <LemonButton
+                                    icon={<IconGear />}
+                                    type="tertiary"
+                                    status="alt"
+                                    size="small"
+                                    noPadding={true}
+                                    tooltip="Edit path cleaning settings"
+                                    to={pathCleaningSettingsUrl}
+                                />
+                            </div>
+                        }
+                        checked={!!isPathCleaningEnabled}
+                        onChange={(value) => actions.setIsPathCleaningEnabled(value)}
+                        className="h-full"
+                    />
+                )
+
                 const allTiles: (WebDashboardTile | null)[] = [
                     {
                         kind: 'query',
@@ -767,7 +809,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
-                        tabs: (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE]
+                        tabs: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE]
                             ? [
                                   createTableTab(
                                       TileId.PATHS,
@@ -779,149 +821,151 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       {}
                                   ),
                               ]
-                            : ([
-                                  createTableTab(
-                                      TileId.PATHS,
-                                      PathTab.PATH,
-                                      'Paths',
-                                      'Path',
-                                      WebStatsBreakdown.Page,
+                            : (
+                                  [
+                                      createTableTab(
+                                          TileId.PATHS,
+                                          PathTab.PATH,
+                                          'Paths',
+                                          'Path',
+                                          WebStatsBreakdown.Page,
+                                          {
+                                              includeScrollDepth: false, // TODO needs some perf work before it can be enabled
+                                              includeBounceRate: true,
+                                              doPathCleaning: !!isPathCleaningEnabled,
+                                          },
+                                          {
+                                              control: pathCleaningControl,
+                                              docs: {
+                                                  url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
+                                                  title: 'Paths',
+                                                  description: (
+                                                      <div>
+                                                          <p>
+                                                              In this view you can validate all of the paths that were
+                                                              accessed in your application, regardless of when they were
+                                                              accessed through the lifetime of a user session.
+                                                          </p>
+                                                          {conversionGoal ? (
+                                                              <p>
+                                                                  The conversion rate is the percentage of users who
+                                                                  completed the conversion goal in this specific path.
+                                                              </p>
+                                                          ) : (
+                                                              <p>
+                                                                  The{' '}
+                                                                  <Link to="https://posthog.com/docs/web-analytics/dashboard#bounce-rate">
+                                                                      bounce rate
+                                                                  </Link>{' '}
+                                                                  indicates the percentage of users who left your page
+                                                                  immediately after visiting without capturing any
+                                                                  event.
+                                                              </p>
+                                                          )}
+                                                      </div>
+                                                  ),
+                                              },
+                                          }
+                                      ),
+                                      createTableTab(
+                                          TileId.PATHS,
+                                          PathTab.INITIAL_PATH,
+                                          'Entry paths',
+                                          'Entry path',
+                                          WebStatsBreakdown.InitialPage,
+                                          {
+                                              includeBounceRate: true,
+                                              includeScrollDepth: false,
+                                              doPathCleaning: !!isPathCleaningEnabled,
+                                          },
+                                          {
+                                              control: pathCleaningControl,
+                                              docs: {
+                                                  url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
+                                                  title: 'Entry Path',
+                                                  description: (
+                                                      <div>
+                                                          <p>
+                                                              Entry paths are the paths a user session started, i.e. the
+                                                              first path they saw when they opened your website.
+                                                          </p>
+                                                          {conversionGoal && (
+                                                              <p>
+                                                                  The conversion rate is the percentage of users who
+                                                                  completed the conversion goal after the first path in
+                                                                  their session being this path.
+                                                              </p>
+                                                          )}
+                                                      </div>
+                                                  ),
+                                              },
+                                          }
+                                      ),
+                                      createTableTab(
+                                          TileId.PATHS,
+                                          PathTab.END_PATH,
+                                          'End paths',
+                                          'End path',
+                                          WebStatsBreakdown.ExitPage,
+                                          {
+                                              includeBounceRate: false,
+                                              includeScrollDepth: false,
+                                              doPathCleaning: !!isPathCleaningEnabled,
+                                          },
+                                          {
+                                              control: pathCleaningControl,
+                                              docs: {
+                                                  url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
+                                                  title: 'End Path',
+                                                  description: (
+                                                      <div>
+                                                          End paths are the last path a user visited before their
+                                                          session ended, i.e. the last path they saw before leaving your
+                                                          website/closing the browser/turning their computer off.
+                                                      </div>
+                                                  ),
+                                              },
+                                          }
+                                      ),
                                       {
-                                          includeScrollDepth: false, // TODO needs some perf work before it can be enabled
-                                          includeBounceRate: true,
-                                          doPathCleaning: !!isPathCleaningEnabled,
-                                      },
-                                      {
-                                          showPathCleaningControls: true,
+                                          id: PathTab.EXIT_CLICK,
+                                          title: 'Outbound link clicks',
+                                          linkText: 'Outbound clicks',
+                                          query: {
+                                              full: true,
+                                              kind: NodeKind.DataTableNode,
+                                              source: {
+                                                  kind: NodeKind.WebExternalClicksTableQuery,
+                                                  properties: webAnalyticsFilters,
+                                                  dateRange,
+                                                  compareFilter,
+                                                  sampling,
+                                                  limit: 10,
+                                                  filterTestAccounts,
+                                                  conversionGoal: featureFlags[
+                                                      FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS
+                                                  ]
+                                                      ? conversionGoal
+                                                      : undefined,
+                                                  stripQueryParams: shouldStripQueryParams,
+                                              },
+                                              embedded: false,
+                                              columns: ['url', 'visitors', 'clicks'],
+                                          },
+                                          insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
+                                          canOpenModal: true,
                                           docs: {
-                                              url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
-                                              title: 'Paths',
+                                              title: 'Outbound Clicks',
                                               description: (
                                                   <div>
-                                                      <p>
-                                                          In this view you can validate all of the paths that were
-                                                          accessed in your application, regardless of when they were
-                                                          accessed through the lifetime of a user session.
-                                                      </p>
-                                                      {conversionGoal ? (
-                                                          <p>
-                                                              The conversion rate is the percentage of users who
-                                                              completed the conversion goal in this specific path.
-                                                          </p>
-                                                      ) : (
-                                                          <p>
-                                                              The{' '}
-                                                              <Link to="https://posthog.com/docs/web-analytics/dashboard#bounce-rate">
-                                                                  bounce rate
-                                                              </Link>{' '}
-                                                              indicates the percentage of users who left your page
-                                                              immediately after visiting without capturing any event.
-                                                          </p>
-                                                      )}
+                                                      You'll be able to verify when someone leaves your website by
+                                                      clicking an outbound link (to a separate domain)
                                                   </div>
                                               ),
                                           },
-                                      }
-                                  ),
-                                  createTableTab(
-                                      TileId.PATHS,
-                                      PathTab.INITIAL_PATH,
-                                      'Entry paths',
-                                      'Entry path',
-                                      WebStatsBreakdown.InitialPage,
-                                      {
-                                          includeBounceRate: true,
-                                          includeScrollDepth: false,
-                                          doPathCleaning: !!isPathCleaningEnabled,
                                       },
-                                      {
-                                          showPathCleaningControls: true,
-                                          docs: {
-                                              url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
-                                              title: 'Entry Path',
-                                              description: (
-                                                  <div>
-                                                      <p>
-                                                          Entry paths are the paths a user session started, i.e. the
-                                                          first path they saw when they opened your website.
-                                                      </p>
-                                                      {conversionGoal && (
-                                                          <p>
-                                                              The conversion rate is the percentage of users who
-                                                              completed the conversion goal after the first path in
-                                                              their session being this path.
-                                                          </p>
-                                                      )}
-                                                  </div>
-                                              ),
-                                          },
-                                      }
-                                  ),
-                                  createTableTab(
-                                      TileId.PATHS,
-                                      PathTab.END_PATH,
-                                      'End paths',
-                                      'End path',
-                                      WebStatsBreakdown.ExitPage,
-                                      {
-                                          includeBounceRate: false,
-                                          includeScrollDepth: false,
-                                          doPathCleaning: !!isPathCleaningEnabled,
-                                      },
-                                      {
-                                          showPathCleaningControls: true,
-                                          docs: {
-                                              url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
-                                              title: 'End Path',
-                                              description: (
-                                                  <div>
-                                                      End paths are the last path a user visited before their session
-                                                      ended, i.e. the last path they saw before leaving your
-                                                      website/closing the browser/turning their computer off.
-                                                  </div>
-                                              ),
-                                          },
-                                      }
-                                  ),
-                                  {
-                                      id: PathTab.EXIT_CLICK,
-                                      title: 'Outbound link clicks',
-                                      linkText: 'Outbound clicks',
-                                      query: {
-                                          full: true,
-                                          kind: NodeKind.DataTableNode,
-                                          source: {
-                                              kind: NodeKind.WebExternalClicksTableQuery,
-                                              properties: webAnalyticsFilters,
-                                              dateRange,
-                                              compareFilter,
-                                              sampling,
-                                              limit: 10,
-                                              filterTestAccounts,
-                                              conversionGoal: featureFlags[
-                                                  FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS
-                                              ]
-                                                  ? conversionGoal
-                                                  : undefined,
-                                              stripQueryParams: shouldStripQueryParams,
-                                          },
-                                          embedded: false,
-                                          columns: ['url', 'visitors', 'clicks'],
-                                      },
-                                      insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
-                                      canOpenModal: true,
-                                      docs: {
-                                          title: 'Outbound Clicks',
-                                          description: (
-                                              <div>
-                                                  You'll be able to verify when someone leaves your website by clicking
-                                                  an outbound link (to a separate domain)
-                                              </div>
-                                          ),
-                                      },
-                                  },
-                              ] as (TabsTileTab | undefined)[])
-                        ).filter(isNotNil),
+                                  ] as (TabsTileTab | undefined)[]
+                              ).filter(isNotNil),
                     },
                     {
                         kind: 'tabs',
@@ -941,6 +985,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 WebStatsBreakdown.InitialChannelType,
                                 {},
                                 {
+                                    control: (
+                                        <div className="flex flex-row space-x-2 font-medium">
+                                            <span>Customize channel types</span>
+                                            <LemonButton
+                                                icon={<IconGear />}
+                                                type="tertiary"
+                                                status="alt"
+                                                size="small"
+                                                noPadding={true}
+                                                tooltip="Customize channel types"
+                                                to={customChannelTypesUrl}
+                                            />
+                                        </div>
+                                    ),
                                     docs: {
                                         url: 'https://posthog.com/docs/data/channel-type',
                                         title: 'Channels',
@@ -1431,7 +1489,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabId,
                         title: tab.title,
                         showIntervalSelect: tab.showIntervalSelect,
-                        showPathCleaningControls: tab.showPathCleaningControls,
+                        control: tab.control,
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, tabId, true),
                             loadPriority: 0,
@@ -1446,7 +1504,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId,
                         title: tile.title,
                         showIntervalSelect: tile.showIntervalSelect,
-                        showPathCleaningControls: tile.showPathCleaningControls,
+                        control: tile.control,
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, undefined, true),
                             loadPriority: 0,
