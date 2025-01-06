@@ -753,6 +753,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
+            max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
         )
         records_completed = 0
 

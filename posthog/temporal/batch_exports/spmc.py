@@ -284,7 +284,14 @@ class Consumer:
             Total number of records in all consumed record batches.
         """
         schema = cast_record_batch_schema_json_columns(schema, json_columns=json_columns)
-        writer = get_batch_export_writer(self.writer_format, self.flush, schema=schema, max_bytes=max_bytes, **kwargs)
+        writer = get_batch_export_writer(
+            self.writer_format,
+            self.flush,
+            schema=schema,
+            max_bytes=max_bytes,
+            max_file_size_bytes=max_file_size_bytes,
+            **kwargs,
+        )
 
         record_batches_count = 0
         record_batches_count_total = 0
@@ -301,14 +308,14 @@ class Consumer:
 
             await writer.write_record_batch(record_batch, flush=False, include_inserted_at=include_inserted_at)
 
-            if writer.should_flush():
+            if writer.should_flush() or writer.should_hard_flush():
                 await self.logger.adebug(
                     "Flushing %s records from %s record batches", writer.records_since_last_flush, record_batches_count
                 )
 
                 records_count += writer.records_since_last_flush
 
-                if multiple_files or (max_file_size_bytes > 0 and writer.bytes_total >= max_file_size_bytes):
+                if multiple_files or writer.should_hard_flush():
                     await writer.hard_flush()
                 else:
                     await writer.flush()
