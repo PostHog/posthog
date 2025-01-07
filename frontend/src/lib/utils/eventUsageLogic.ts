@@ -793,7 +793,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture(`dashboard share toggled`, { is_shared: isShared })
         },
         reportDashboardWhitelabelToggled: async ({ isWhiteLabelled }) => {
-            posthog.capture(`dashboard whitelabelled`, { is_whitelabelled: isWhiteLabelled })
+            posthog.capture(`dashboard whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
         },
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)

@@ -175,6 +175,7 @@ export function SharingModalContent({
                                                     }
                                                     onChange={() =>
                                                         guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () => {
+                                                            // setEmbedConfigValue is used to update the form state and call the reportDashboardWhitelabelToggled event
                                                             setEmbedConfigValue('whitelabel', !value)
                                                         })
                                                     }
