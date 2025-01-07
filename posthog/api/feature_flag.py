@@ -455,7 +455,7 @@ def _create_usage_dashboard(feature_flag: FeatureFlag, user):
 def _update_feature_flag_dashboard(feature_flag: FeatureFlag, old_key: str) -> None:
     from posthog.helpers.dashboard_templates import update_feature_flag_dashboard
 
-    if not old_key or not feature_flag.usage_dashboard:
+    if not old_key:
         return
 
     update_feature_flag_dashboard(feature_flag, old_key)
