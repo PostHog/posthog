@@ -2,3 +2,4 @@ packages:
     - 'plugin-server' # The plugin server package
     - 'hogvm/typescript' # The hogvm package
     - 'frontend/@posthog/*' # Frontend internal packages like lemon-ui, apps-common
+    - 'rust/cyclotron-node'
