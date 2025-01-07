@@ -15,7 +15,6 @@ import type { QueryBasedInsightModel } from '~/types'
 import type { addSavedInsightsModalLogicType } from './addSavedInsightsModalLogicType'
 import { cleanFilters, SavedInsightFilters } from './savedInsightsLogic'
 
-// Page size for insights loaded into the modal
 export const INSIGHTS_PER_PAGE = 30
 
 export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
@@ -25,7 +24,6 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         logic: [eventUsageLogic],
     }),
     actions({
-        // Basic filtering & pagination
         setModalFilters: (filters: Partial<SavedInsightFilters>, merge: boolean = true, debounce: boolean = true) => ({
             filters,
             merge,
@@ -34,7 +32,6 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         loadInsights: true,
         setModalPage: (page: number) => ({ page }),
 
-        // Dashboard updates
         setDashboardUpdateLoading: (insightId: number, loading: boolean) => ({ insightId, loading }),
         addInsightToDashboard: (insight: QueryBasedInsightModel, dashboardId: number) => ({ insight, dashboardId }),
         removeInsightFromDashboard: (insight: QueryBasedInsightModel, dashboardId: number) => ({
@@ -42,7 +39,6 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             dashboardId,
         }),
 
-        // Update locally in this store
         updateInsight: (insight: QueryBasedInsightModel) => ({ insight }),
     }),
     loaders(({ values }) => ({
@@ -87,7 +83,6 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         },
     })),
     reducers({
-        // Keep our filters separate from the ones on the main page
         rawModalFilters: [
             null as Partial<SavedInsightFilters> | null,
             {
@@ -95,7 +90,6 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     return cleanFilters({
                         ...(merge ? state || {} : {}),
                         ...filters,
-                        // If we update search/order, reset to page=1
                         ...('page' in filters ? {} : { page: 1 }),
                     })
                 },
@@ -123,7 +117,6 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             (rawModalFilters): SavedInsightFilters => cleanFilters(rawModalFilters || {}),
         ],
         count: [(s) => [s.insights], (insights) => insights.count],
-        // For a standard table sorting object
         sorting: [
             (s) => [s.filters],
             (filters): Sorting | null =>
@@ -136,7 +129,6 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         modalPage: [(s) => [s.filters], (filters) => filters.page],
     }),
     listeners(({ actions, values, selectors }) => ({
-        // Trigger load when changing page manually
         setModalPage: async ({ page }) => {
             actions.setModalFilters({ page }, true)
             actions.loadInsights()

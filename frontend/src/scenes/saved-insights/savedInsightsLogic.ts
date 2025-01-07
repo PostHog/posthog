@@ -9,7 +9,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -89,11 +88,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         addInsight: (insight: QueryBasedInsightModel) => ({ insight }),
         openAlertModal: (alertId: AlertType['id']) => ({ alertId }),
         closeAlertModal: true,
-        addInsightToDashboard: (insight: QueryBasedInsightModel, dashboardId: number) => ({ insight, dashboardId }),
-        removeInsightFromDashboard: (insight: QueryBasedInsightModel, dashboardId: number) => ({
-            insight,
-            dashboardId,
-        }),
         setDashboardUpdateLoading: (insightId: number, loading: boolean) => ({ insightId, loading }),
     }),
     loaders(({ values }) => ({
@@ -308,45 +302,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         },
         setDates: () => {
             actions.loadInsights()
-        },
-        addInsightToDashboard: async ({ insight, dashboardId }) => {
-            try {
-                actions.setDashboardUpdateLoading(insight.id, true)
-
-                const response = await insightsApi.update(insight.id, {
-                    dashboards: [...(insight.dashboards || []), dashboardId],
-                })
-                if (response) {
-                    actions.updateInsight(response)
-                    const logic = dashboardLogic({ id: dashboardId })
-                    logic.mount()
-                    logic.actions.loadDashboard({ action: 'update' })
-                    logic.unmount()
-                    lemonToast.success('Insight added to dashboard')
-                }
-            } finally {
-                actions.setDashboardUpdateLoading(insight.id, false)
-            }
-        },
-        removeInsightFromDashboard: async ({ insight, dashboardId }) => {
-            try {
-                actions.setDashboardUpdateLoading(insight.id, true)
-
-                const response = await insightsApi.update(insight.id, {
-                    dashboards: (insight.dashboards || []).filter((d) => d !== dashboardId),
-                    dashboard_tiles: (insight.dashboard_tiles || []).filter((dt) => dt.dashboard_id !== dashboardId),
-                })
-                if (response) {
-                    actions.updateInsight(response)
-                    const logic = dashboardLogic({ id: dashboardId })
-                    logic.mount()
-                    logic.actions.loadDashboard({ action: 'update' })
-                    logic.unmount()
-                    lemonToast.success('Insight removed from dashboard')
-                }
-            } finally {
-                actions.setDashboardUpdateLoading(insight.id, false)
-            }
         },
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.updateInsight(item)

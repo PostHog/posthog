@@ -293,9 +293,7 @@ export function DashboardHeader(): JSX.Element | null {
                             )}
                             {dashboard ? (
                                 <LemonButton
-                                    onClick={() => {
-                                        showAddInsightToDashboardModal()
-                                    }}
+                                    onClick={showAddInsightToDashboardModal}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
                                     disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}

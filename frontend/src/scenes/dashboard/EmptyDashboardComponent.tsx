@@ -86,9 +86,7 @@ export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean
                     <div className="mt-4 text-center">
                         <LemonButton
                             data-attr="dashboard-add-graph-header"
-                            onClick={() => {
-                                showAddInsightToDashboardModal()
-                            }}
+                            onClick={showAddInsightToDashboardModal}
                             type="primary"
                             icon={<IconPlus />}
                             center
