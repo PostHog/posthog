@@ -80,6 +80,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response_data["team"]["api_token"], "token123")
         self.assertNotIn("test_account_filters", response_data["team"])  # Ensure we're not returning the full `Team`
         self.assertNotIn("event_names", response_data["team"])
+        self.assertEqual(response_data["role_at_organization"], self.user.role_at_organization)
 
         self.assertEqual(response_data["organization"]["name"], self.organization.name)
         self.assertEqual(response_data["organization"]["membership_level"], 1)
@@ -191,6 +192,7 @@ class TestUserAPI(APIBaseTest):
                 "id": 1,  # should be ignored
                 "organization": str(another_org.id),  # should be ignored
                 "team": str(another_team.id),  # should be ignored
+                "role_at_organization": "engineering",
             },
         )
 
@@ -204,6 +206,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response_data["organization"]["id"], str(self.organization.id))
         self.assertEqual(response_data["team"]["id"], self.team.id)
         self.assertEqual(response_data["has_seen_product_intro_for"], {"feature_flags": True})
+        self.assertEqual(response_data["role_at_organization"], "engineering")
 
         user.refresh_from_db()
         self.assertNotEqual(user.pk, 1)
@@ -212,6 +215,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(user.anonymize_data, True)
         self.assertDictContainsSubset({"plugin_disabled": False}, user.notification_settings)
         self.assertEqual(user.has_seen_product_intro_for, {"feature_flags": True})
+        self.assertEqual(user.role_at_organization, "engineering")
 
         mock_capture.assert_called_once_with(
             user.distinct_id,
@@ -223,6 +227,7 @@ class TestUserAPI(APIBaseTest):
                     "first_name",
                     "has_seen_product_intro_for",
                     "partial_notification_settings",
+                    "role_at_organization",
                 ],
                 "$set": mock.ANY,
             },
