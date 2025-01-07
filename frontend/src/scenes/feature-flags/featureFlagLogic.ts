@@ -33,6 +33,7 @@ import {
     CohortType,
     DashboardBasicType,
     EarlyAccessFeatureType,
+    EventPropertyFilter,
     FeatureFlagGroupType,
     FeatureFlagRollbackConditions,
     FeatureFlagStatusResponse,
@@ -191,55 +192,32 @@ export const getRecordingFilterForFlagVariant = (
     variantKey: string | null,
     hasEnrichedAnalytics?: boolean
 ): Partial<RecordingUniversalFilters> => {
+    const flagFilter: EventPropertyFilter = {
+        type: PropertyFilterType.Event,
+        key: `$feature/${flagKey}`,
+        operator: PropertyOperator.Exact,
+        value: [variantKey ? variantKey : 'true'],
+    }
     return {
         filter_group: {
             type: FilterLogicalOperator.And,
             values: [
-                {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        hasEnrichedAnalytics
-                            ? {
-                                  id: '$feature_interaction',
-                                  type: 'events',
-                                  order: 0,
-                                  name: '$feature_interaction',
-                                  properties: [
-                                      {
-                                          key: 'feature_flag',
-                                          value: [flagKey],
-                                          operator: PropertyOperator.Exact,
-                                          type: PropertyFilterType.Event,
-                                      },
-                                  ],
-                              }
-                            : {
-                                  id: '$feature_flag_called',
-                                  name: '$feature_flag_called',
-                                  type: 'events',
-                                  properties: [
-                                      {
-                                          key: '$feature/' + flagKey,
-                                          type: PropertyFilterType.Event,
-                                          value: [variantKey ? variantKey : 'false'],
-                                          operator: variantKey ? PropertyOperator.Exact : PropertyOperator.IsNot,
-                                      },
-                                      {
-                                          key: '$feature/' + flagKey,
-                                          type: PropertyFilterType.Event,
-                                          value: 'is_set',
-                                          operator: PropertyOperator.IsSet,
-                                      },
-                                      {
-                                          key: '$feature_flag',
-                                          type: PropertyFilterType.Event,
-                                          value: flagKey,
-                                          operator: PropertyOperator.Exact,
-                                      },
-                                  ],
+                hasEnrichedAnalytics
+                    ? {
+                          id: '$feature_interaction',
+                          type: 'events',
+                          order: 0,
+                          name: '$feature_interaction',
+                          properties: [
+                              {
+                                  key: 'feature_flag',
+                                  value: [flagKey],
+                                  operator: PropertyOperator.Exact,
+                                  type: PropertyFilterType.Event,
                               },
-                    ],
-                },
+                          ],
+                      }
+                    : flagFilter,
             ],
         },
     }
