@@ -55,7 +55,7 @@ import {
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
-interface WebTileLayout {
+export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
     colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -96,13 +96,13 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.GOALS]: 10,
 }
 
-interface BaseTile {
+export interface BaseTile {
     tileId: TileId
     layout: WebTileLayout
     docs?: Docs
 }
 
-interface Docs {
+export interface Docs {
     url?: PostHogComDocsURL
     title: string
     description: string | JSX.Element
@@ -148,9 +148,9 @@ export interface ErrorTrackingTile extends BaseTile {
     query: QuerySchema
 }
 
-type WebDashboardTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
+export type WebDashboardTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
 
-interface WebDashboardModalQuery {
+export interface WebDashboardModalQuery {
     tileId: TileId
     tabId?: string
     title?: string
@@ -209,7 +209,7 @@ export enum ConversionGoalWarning {
     CustomEventWithNoSessionId = 'CustomEventWithNoSessionId',
 }
 
-interface WebAnalyticsStatusCheck {
+export interface WebAnalyticsStatusCheck {
     isSendingPageViews: boolean
     isSendingPageLeaves: boolean
     isSendingPageLeavesScroll: boolean
@@ -1917,8 +1917,8 @@ const checkCustomEventConversionGoalHasSessionIdsHelper = async (
 }
 
 const setFilters = (
-    actions: typeof webAnalyticsLogic.actions,
-    values: typeof webAnalyticsLogic.values,
+    actions: webAnalyticsLogicType['actions'],
+    values: webAnalyticsLogicType['values'],
     { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
     {
         filters,
