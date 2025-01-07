@@ -68,6 +68,12 @@ def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], 
 
 
 def remove_limited_team_tokens(resource: QuotaResource, tokens: list[str], cache_key: QuotaLimitingCaches) -> None:
+    # This check exists because the * unpacking operator
+    # doesn't return anything with an empty list,
+    # so zrem only receives one argument and it fails.
+    if not tokens:
+        return
+
     redis_client = get_client()
     redis_client.zrem(f"{cache_key.value}{resource.value}", *tokens)
 

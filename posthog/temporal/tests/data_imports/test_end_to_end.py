@@ -1,7 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
 import functools
+import os
 import uuid
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from unittest import mock
 
 import aioboto3
@@ -218,6 +219,17 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        # Mock os.environ for the deltalake subprocess
+        mock.patch.dict(
+            os.environ,
+            {
+                "BUCKET_URL": f"s3://{BUCKET_NAME}",
+                "AIRBYTE_BUCKET_KEY": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                "AIRBYTE_BUCKET_SECRET": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                "AIRBYTE_BUCKET_REGION": "us-east-1",
+                "AIRBYTE_BUCKET_DOMAIN": "objectstorage:19000",
+            },
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
@@ -1145,3 +1157,32 @@ async def test_decimal_down_scales(team, postgres_config, postgres_connection):
         await postgres_connection.commit()
 
         await _execute_run(str(uuid.uuid4()), inputs, [])
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_missing_source(team, stripe_balance_transaction):
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=uuid.uuid4(),
+        external_data_schema_id=uuid.uuid4(),
+    )
+
+    with (
+        pytest.raises(Exception) as e,
+        mock.patch(
+            "posthog.temporal.data_imports.workflow_activities.create_job_model.delete_external_data_schedule"
+        ) as mock_delete_external_data_schedule,
+    ):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    exc = cast(Any, e)
+
+    assert exc.value is not None
+    assert exc.value.cause is not None
+    assert exc.value.cause.cause is not None
+    assert exc.value.cause.cause.message is not None
+
+    assert exc.value.cause.cause.message == "Source or schema no longer exists - deleted temporal schedule"
+
+    mock_delete_external_data_schedule.assert_called()
