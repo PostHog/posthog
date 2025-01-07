@@ -253,9 +253,9 @@ export const userLogic = kea<userLogicType>([
 
         isUserNonTechnical: [
             (s) => [s.user],
-            (user) => {
+            (user): boolean => {
                 const technicalRoles = ['engineering', 'founder']
-                return user?.role_at_organization && !technicalRoles.includes(user.role_at_organization)
+                return user?.role_at_organization ? !technicalRoles.includes(user.role_at_organization) : false
             },
         ],
     }),
