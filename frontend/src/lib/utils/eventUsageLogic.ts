@@ -399,6 +399,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             newLength: number
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
+        reportDashboardWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -790,6 +791,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardShareToggled: async ({ isShared }) => {
             posthog.capture(`dashboard share toggled`, { is_shared: isShared })
+        },
+        reportDashboardWhitelabelToggled: async ({ isWhiteLabelled }) => {
+            posthog.capture(`dashboard whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
         },
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)
