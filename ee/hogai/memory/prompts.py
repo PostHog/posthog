@@ -57,9 +57,21 @@ Answer a single sentence "No data available." if:
 The provided bundle ID{{#bundle_ids.length > 1}}s are{{/bundle_ids.length > 1}}{{^bundle_ids.length > 1}} is{{/bundle_ids.length > 1}} {{#bundle_ids}}"{{.}}"{{^last}}, {{/last}}{{/bundle_ids}}.
 """.strip()
 
+SCRAPING_INITIAL_MESSAGE = "Hey, my name is Max. Before we start, let's find and verify information about your product."
+
 FAILED_SCRAPING_MESSAGE = """
 Unfortunately, I couldn't find any information about your product. You could edit my initial memory in Settings. Let me help with your request.
 """.strip()
+
+SCRAPING_VERIFICATION_MESSAGE = "Does it look like a good summary of what your product does?"
+
+SCRAPING_CONFIRMATION_MESSAGE = "Yes, save this."
+
+SCRAPING_REJECTION_MESSAGE = "No, this doesn't look right."
+
+SCRAPING_TERMINATION_MESSAGE = "All right, let's skip this step. You could edit my initial memory in Settings."
+
+SCRAPING_MEMORY_SAVED_MESSAGE = "Thanks! I've updated my initial memory. Let me help with your request."
 
 COMPRESSION_PROMPT = """
 Your goal is to shorten paragraphs in the given text to have only a single sentence for each paragraph, preserving the original meaning and maintaining the cohesiveness of the text. Remove all found headers. You must keep the original structure. Remove linking words. Do not use markdown or any other text formatting.

@@ -27,6 +27,12 @@ from ee.hogai.memory.prompts import (
     INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT,
     MEMORY_COLLECTOR_PROMPT,
+    SCRAPING_CONFIRMATION_MESSAGE,
+    SCRAPING_INITIAL_MESSAGE,
+    SCRAPING_MEMORY_SAVED_MESSAGE,
+    SCRAPING_REJECTION_MESSAGE,
+    SCRAPING_TERMINATION_MESSAGE,
+    SCRAPING_VERIFICATION_MESSAGE,
     TOOL_CALL_ERROR_PROMPT,
 )
 from ee.hogai.utils.helpers import filter_messages, find_last_message_of_type
@@ -52,7 +58,7 @@ class MemoryInitializerContextMixin:
     _team: Team
 
     def _retrieve_context(self):
-        # Retrieve the origin URL.
+        # Retrieve the origin domain.
         runner = EventTaxonomyQueryRunner(
             team=self._team, query=EventTaxonomyQuery(event="$pageview", properties=["$host"])
         )
@@ -81,7 +87,7 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, AssistantNode):
 
         retrieved_properties = self._retrieve_context()
 
-        # No host or app bundle ID found, continue.
+        # No host or app bundle ID found, terminate the onboarding.
         if not retrieved_properties or retrieved_properties[0].sample_count == 0:
             core_memory.change_status_to_skipped()
             return None
@@ -90,13 +96,16 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, AssistantNode):
         return PartialAssistantState(
             messages=[
                 AssistantMessage(
-                    content="Hey, my name is Max. Before we start, let's find and verify information about your product.",
+                    content=SCRAPING_INITIAL_MESSAGE,
                     id=str(uuid4()),
                 )
             ]
         )
 
     def should_run(self, _: AssistantState) -> bool:
+        """
+        If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
+        """
         core_memory = self.core_memory
         return not core_memory or (not core_memory.is_scraping_pending and not core_memory.is_scraping_finished)
 
@@ -108,6 +117,10 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, AssistantNode):
 
 
 class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
+    """
+    Scrapes the product description from the given origin or app bundle IDs with Perplexity.
+    """
+
     _team: Team
 
     def __init__(self, team: Team):
@@ -146,6 +159,8 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         if "no data available." in answer.lower():
             core_memory.change_status_to_skipped()
             return PartialAssistantState(messages=[AssistantMessage(content=FAILED_SCRAPING_MESSAGE, id=str(uuid4()))])
+
+        # Otherwise, proceed to confirmation that the memory is correct.
         return PartialAssistantState(messages=[AssistantMessage(content=self.format_message(answer), id=str(uuid4()))])
 
     def router(self, state: AssistantState) -> Literal["interrupt", "continue"]:
@@ -169,19 +184,21 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
 
 
 class MemoryInitializerInterruptNode(AssistantNode):
-    OPTIONS = ("Yes, save this.", "No, this doesn't look right.")
+    """
+    Prompts the user to confirm or reject the scraped memory. Since Perplexity doesn't guarantee the quality of the scraped data, we need to verify it with the user.
+    """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
         if not state.resumed:
             raise NodeInterrupt(
                 AssistantMessage(
-                    content="Does it look like a good summary of what your product does?",
+                    content=SCRAPING_VERIFICATION_MESSAGE,
                     meta=AssistantMessageMetadata(
                         form=AssistantForm(
                             options=[
-                                AssistantFormOption(value=self.OPTIONS[0], variant="primary"),
-                                AssistantFormOption(value=self.OPTIONS[1]),
+                                AssistantFormOption(value=SCRAPING_CONFIRMATION_MESSAGE, variant="primary"),
+                                AssistantFormOption(value=SCRAPING_REJECTION_MESSAGE),
                             ]
                         )
                     ),
@@ -195,12 +212,13 @@ class MemoryInitializerInterruptNode(AssistantNode):
         if not core_memory:
             raise ValueError("No core memory found.")
 
-        if last_message.content != self.OPTIONS[0]:
+        # If the user rejects the scraped memory, terminate the onboarding.
+        if last_message.content != SCRAPING_CONFIRMATION_MESSAGE:
             core_memory.change_status_to_skipped()
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
-                        content="All right, let's skip this step. You could edit my initial memory in Settings.",
+                        content=SCRAPING_TERMINATION_MESSAGE,
                         id=str(uuid4()),
                     )
                 ]
@@ -211,7 +229,7 @@ class MemoryInitializerInterruptNode(AssistantNode):
         if not assistant_message:
             raise ValueError("No memory message found.")
 
-        # Compress the memory before saving it. It removes unneeded redundancy.
+        # Compress the memory before saving it. The Perplexity's text is very verbose. It just complicates things for the memory collector.
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", COMPRESSION_PROMPT),
@@ -225,7 +243,7 @@ class MemoryInitializerInterruptNode(AssistantNode):
         return PartialAssistantState(
             messages=[
                 AssistantMessage(
-                    content="Thanks! I've updated my initial memory. Let me help with your request.",
+                    content=SCRAPING_MEMORY_SAVED_MESSAGE,
                     id=str(uuid4()),
                 )
             ]
@@ -265,6 +283,10 @@ memory_collector_tools = [core_memory_append, core_memory_replace]
 
 
 class MemoryCollectorNode(AssistantNode):
+    """
+    The Memory Collector manages the core memory of the agent. Core memory is a text containing facts about a user's company and product. It helps the agent save and remember facts that could be useful for insight generation or other agentic functions requiring deeper context about the product.
+    """
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         node_messages = state.memory_collection_messages or []
 
