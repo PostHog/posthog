@@ -75,6 +75,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -195,6 +196,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -271,6 +273,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -472,6 +475,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -553,7 +557,8 @@
          "posthog_experiment"."type",
          "posthog_experiment"."variants",
          "posthog_experiment"."metrics",
-         "posthog_experiment"."metrics_secondary"
+         "posthog_experiment"."metrics_secondary",
+         "posthog_experiment"."stats_config"
   FROM "posthog_experiment"
   WHERE "posthog_experiment"."feature_flag_id" = 99999
   '''
@@ -611,6 +616,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -760,6 +766,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -836,6 +843,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1000,6 +1008,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1108,6 +1117,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1177,7 +1187,8 @@
          "posthog_experiment"."type",
          "posthog_experiment"."variants",
          "posthog_experiment"."metrics",
-         "posthog_experiment"."metrics_secondary"
+         "posthog_experiment"."metrics_secondary",
+         "posthog_experiment"."stats_config"
   FROM "posthog_experiment"
   WHERE "posthog_experiment"."feature_flag_id" = 99999
   '''
@@ -1235,6 +1246,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1588,6 +1600,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",

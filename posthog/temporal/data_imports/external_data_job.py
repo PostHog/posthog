@@ -66,6 +66,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "timeout expired connection to server at",
         "password authentication failed for user",
         "No primary key defined for table",
+        "failed: timeout expired",
     ],
     ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
     ExternalDataSource.Type.MYSQL: ["Can't connect to MySQL server on", "No primary key defined for table"],
