@@ -135,6 +135,7 @@ export const notebookLogic = kea<notebookLogicType>([
         selectComment: (itemContextId: string) => ({ itemContextId }),
         openShareModal: true,
         closeShareModal: true,
+        setAccessDeniedToNotebook: true,
     }),
     reducers(({ props }) => ({
         isShareModalOpen: [
@@ -144,6 +145,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 closeShareModal: () => false,
             },
         ],
+        accessDeniedToNotebook: [false, { setAccessDeniedToNotebook: () => true }],
         localContent: [
             null as JSONContent | null,
             { persist: props.mode !== 'canvas', prefix: NOTEBOOKS_VERSION },
@@ -255,11 +257,12 @@ export const notebookLogic = kea<notebookLogicType>([
                                 'If-None-Match': values.notebook?.version,
                             })
                         } catch (e: any) {
-                            if (e.status === 304) {
+                            if (e.status === 403) {
+                                actions.setAccessDeniedToNotebook()
+                            } else if (e.status === 304) {
                                 // Indicates nothing has changed
                                 return values.notebook
-                            }
-                            if (e.status === 404) {
+                            } else if (e.status === 404) {
                                 return null
                             }
                             throw e
