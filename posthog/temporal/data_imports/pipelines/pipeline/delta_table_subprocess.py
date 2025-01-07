@@ -1,9 +1,27 @@
 import argparse
 import os
+import sys
 from deltalake import DeltaTable
 
 
 def _get_credentials():
+    is_test = (
+        "test" in sys.argv
+        or sys.argv[0].endswith("pytest")
+        or os.getenv("TEST", "false").lower() in ("y", "yes", "t", "true", "on", "1")
+    )
+
+    if is_test:
+        return {
+            "endpoint_url": os.getenv("OBJECT_STORAGE_ENDPOINT", "http://localhost:19000"),
+            "aws_access_key_id": os.getenv("AIRBYTE_BUCKET_KEY", None),
+            "aws_secret_access_key": os.getenv("AIRBYTE_BUCKET_SECRET", None),
+            "region_name": os.getenv("AIRBYTE_BUCKET_REGION", None),
+            "AWS_DEFAULT_REGION": os.getenv("AIRBYTE_BUCKET_REGION", None),
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
     return {
         "aws_access_key_id": os.getenv("AIRBYTE_BUCKET_KEY", None),
         "aws_secret_access_key": os.getenv("AIRBYTE_BUCKET_SECRET", None),

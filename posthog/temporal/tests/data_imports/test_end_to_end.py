@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 import functools
+import os
 import uuid
 from typing import Any, Optional
 from unittest import mock
@@ -218,6 +219,17 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        # Mock os.environ for the deltalake subprocess
+        mock.patch.dict(
+            os.environ,
+            {
+                "BUCKET_URL": f"s3://{BUCKET_NAME}",
+                "AIRBYTE_BUCKET_KEY": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                "AIRBYTE_BUCKET_SECRET": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                "AIRBYTE_BUCKET_REGION": "us-east-1",
+                "AIRBYTE_BUCKET_DOMAIN": "objectstorage:19000",
+            },
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
