@@ -683,12 +683,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             kind: NodeKind.HogQLQuery,
                             query: hogql`SELECT properties, uuid
                                          FROM events
-                                         WHERE timestamp > ${dayjs(earliestTimestamp - 1000)
-                                             .utc()
-                                             .toISOString()}
-                                           AND timestamp < ${dayjs(latestTimestamp + 1000)
-                                               .utc()
-                                               .toISOString()}
+                                          WHERE timestamp > ${(earliestTimestamp - 1000) / 1000}
+                                           AND timestamp < ${(latestTimestamp + 1000) / 1000}
                                            AND event in ${eventNames}
                                            AND uuid in ${eventIds}`,
                         }
