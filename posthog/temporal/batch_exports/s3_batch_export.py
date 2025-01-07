@@ -206,6 +206,13 @@ class InvalidS3EndpointError(Exception):
         super().__init__(message)
 
 
+class UploadAlreadyFinishedError(Exception):
+    """Exception raised when trying to resume an upload that already finished."""
+
+    def __init__(self):
+        super().__init__("Attempted to resume a multipart upload that has already completed or aborted.")
+
+
 Part = dict[str, str | int]
 
 
@@ -317,15 +324,32 @@ class S3MultiPartUpload:
 
         return upload_id
 
-    def continue_from_state(self, state: S3MultiPartUploadState):
+    async def continue_from_state(self, state: S3MultiPartUploadState):
         """Continue this S3MultiPartUpload from a previous state.
 
         This method is intended to be used with the state found in an Activity heartbeat.
         """
+        is_multipart_upload_active = await self.is_multipart_upload_active(state.upload_id)
+
+        if not is_multipart_upload_active:
+            raise UploadAlreadyFinishedError()
+
         self.upload_id = state.upload_id
         self.parts = state.parts
 
         return self.upload_id
+
+    async def is_multipart_upload_active(self, upload_id: str) -> bool:
+        """Check if provided `upload_id` corresponds to an active multipart upload.
+
+        If this method returns `False`, it indicates the `upload_id` corresponds to
+        a multipart upload that has already completed or aborted.
+        """
+        async with self.s3_client() as s3_client:
+            response = await s3_client.list_multipart_uploads(Bucket=self.bucket_name, Prefix=self.key)
+
+        active_uploads = {upload["UploadId"] for upload in response.get("Uploads", [])}
+        return upload_id in active_uploads
 
     async def complete(self) -> str:
         if self.is_upload_in_progress() is False:
@@ -614,7 +638,10 @@ async def initialize_and_resume_multipart_upload(
     s3_upload = initialize_upload(inputs, file_number)
 
     if details.upload_state:
-        s3_upload.continue_from_state(details.upload_state)
+        try:
+            await s3_upload.continue_from_state(details.upload_state)
+        except UploadAlreadyFinishedError:
+            pass
 
         if inputs.compression == "brotli":
             # Even if we receive details we cannot resume a brotli compressed upload as
