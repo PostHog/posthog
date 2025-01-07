@@ -1,4 +1,5 @@
 from django.core.files.uploadedfile import UploadedFile
+from django.db.models import QuerySet
 import structlog
 import hashlib
 
@@ -39,8 +40,15 @@ class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     queryset = ErrorTrackingIssue.objects.all()
     serializer_class = ErrorTrackingIssueSerializer
 
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team.id)
+    def safely_get_queryset(self, queryset) -> QuerySet:
+        queryset = queryset.filter(team_id=self.team.id)
+        order = self.request.GET.get("order", None)
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("-last_seen")
+
+        return queryset
 
     @action(methods=["POST"], detail=True)
     def merge(self, request, **kwargs):

@@ -1,5 +1,6 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
@@ -57,6 +58,31 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             },
         ],
     }),
+    loaders(({ values }) => ({
+        issues: {
+            __default: [] as ErrorTrackingIssue[],
+            loadIssues: async () => {
+                let orderByFilter = null
+                if (values.orderBy === 'last_seen') {
+                    orderByFilter = '-last_seen'
+                } else if (values.orderBy === 'first_seen') {
+                    orderByFilter = '-created_at'
+                } else if (values.orderBy === 'occurrences') {
+                    orderByFilter = '-occurrences'
+                }
+
+                if (orderByFilter === null) {
+                    return []
+                }
+
+                return await api.error_tracking.listIssues({
+                    orderBy: orderByFilter,
+                    search: values.searchQuery,
+                    ...values.dateRange,
+                })
+            },
+        },
+    })),
 
     selectors({
         query: [
