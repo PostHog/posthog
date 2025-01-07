@@ -3,8 +3,6 @@ import './InviteModal.scss'
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useRestrictedArea } from 'lib/components/RestrictedArea'
-import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -225,11 +223,6 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
     const { invitesToSend, canSubmit } = useValues(inviteLogic)
     const { resetInviteRows, inviteTeamMembers } = useActions(inviteLogic)
 
-    const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-        scope: RestrictionScope.Organization,
-    })
-
     const validInvitesCount = invitesToSend.filter((invite) => invite.isValid && invite.target_email).length
 
     return (
@@ -277,9 +270,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                 <LemonButton
                                     onClick={() => inviteTeamMembers()}
                                     type="primary"
-                                    disabledReason={
-                                        restrictionReason || (canSubmit ? undefined : 'Please fill out all fields')
-                                    }
+                                    disabledReason={canSubmit ? undefined : 'Please fill out all fields'}
                                     data-attr="invite-team-member-submit"
                                 >
                                     {validInvitesCount

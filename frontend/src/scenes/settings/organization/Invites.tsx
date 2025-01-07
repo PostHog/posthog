@@ -128,12 +128,7 @@ export function Invites(): JSX.Element {
                 data-attr="invites-table"
                 emptyState="There are no outstanding invitations. You can invite another team member above."
             />
-            <LemonButton
-                type="primary"
-                onClick={showInviteModal}
-                data-attr="invite-teammate-button"
-                disabledReason={restrictionReason}
-            >
+            <LemonButton type="primary" onClick={showInviteModal} data-attr="invite-teammate-button">
                 Invite team member
             </LemonButton>
         </div>
