@@ -312,7 +312,6 @@
          event_distinct_ids AS event_distinct_ids
   FROM
     (SELECT persons.properties___name AS name,
-            source.event_distinct_ids AS event_distinct_ids,
             source.event_distinct_ids AS event_distinct_ids
      FROM
        (SELECT actor_id AS actor_id,
@@ -384,7 +383,6 @@
          event_distinct_ids AS event_distinct_ids
   FROM
     (SELECT persons.properties___name AS name,
-            source.event_distinct_ids AS event_distinct_ids,
             source.event_distinct_ids AS event_distinct_ids
      FROM
        (SELECT actor_id AS actor_id,
