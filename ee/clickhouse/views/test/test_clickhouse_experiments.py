@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, UTC
 from django.core.cache import cache
 from flaky import flaky
-from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
@@ -2159,204 +2158,203 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
 
     @snapshot_clickhouse_insert_cohortpeople_queries
     def test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure(self):
-        with freeze_time("2024-12-23T12:00:00.000Z"):
-            cohort_extra = Cohort.objects.create(
-                team=self.team,
-                filters={
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "$pageview",
-                                "value": "http://example.com",
-                                "type": "person",
-                            },
-                        ],
-                    }
-                },
-                name="cohort_X",
-            )
-            cohort_extra.calculate_people_ch(pending_version=1)
+        cohort_extra = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "value": "http://example.com",
+                            "type": "person",
+                        },
+                    ],
+                }
+            },
+            name="cohort_X",
+        )
+        cohort_extra.calculate_people_ch(pending_version=1)
 
-            action1 = Action.objects.create(
-                team=self.team,
-                name="action1",
-                steps_json=[
+        action1 = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[
+                {
+                    "event": "insight viewed",
+                    "properties": [
+                        {
+                            "key": "insight",
+                            "type": "event",
+                            "value": ["RETENTION"],
+                            "operator": "exact",
+                        },
+                        {
+                            "key": "id",
+                            "value": cohort_extra.id,
+                            "type": "cohort",
+                        },
+                    ],
+                },
+                {
+                    "event": "insight viewed",
+                    "properties": [
+                        {
+                            "key": "filters_count",
+                            "type": "event",
+                            "value": "1",
+                            "operator": "gt",
+                        }
+                    ],
+                },
+                {
+                    "event": "$autocapture",
+                    "url": "/123",
+                    "url_matching": "regex",
+                },
+            ],
+        )
+        response = self._generate_experiment(
+            datetime.now() - timedelta(days=5),
+            {
+                "custom_exposure_filter": {
+                    "actions": [
+                        {
+                            "id": str(action1.id),  # should support string ids
+                            "order": 0,
+                            "entity_type": "actions",
+                            "properties": [
+                                {"key": "bonk", "value": "bonk"},
+                                {"key": "id", "value": cohort_extra.id, "type": "cohort"},
+                                {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
+                                {"key": "bonk-person", "value": "bonk", "type": "person"},
+                            ],
+                        }
+                    ],
+                    "filter_test_accounts": False,
+                }
+            },
+        )
+
+        created_experiment = response.json()["id"]
+
+        journeys_for(
+            {
+                "person1": [
                     {
                         "event": "insight viewed",
-                        "properties": [
-                            {
-                                "key": "insight",
-                                "type": "event",
-                                "value": ["RETENTION"],
-                                "operator": "exact",
-                            },
-                            {
-                                "key": "id",
-                                "value": cohort_extra.id,
-                                "type": "cohort",
-                            },
-                        ],
+                        "timestamp": datetime.now() - timedelta(days=2),
+                        "properties": {"$current_url": "x", "bonk": "bonk", "filters_count": 2},
                     },
+                ],
+                "person2": [
                     {
                         "event": "insight viewed",
-                        "properties": [
-                            {
-                                "key": "filters_count",
-                                "type": "event",
-                                "value": "1",
-                                "operator": "gt",
-                            }
-                        ],
+                        "timestamp": datetime.now() - timedelta(days=2),
+                        "properties": {
+                            "$current_url": "y",
+                            "bonk": "bonk",
+                            "insight": "RETENTION",
+                        },  # missing pageview person property
                     },
+                ],
+                "person2-no-bonk": [
+                    {
+                        "event": "insight viewed",
+                        "timestamp": datetime.now() - timedelta(days=2),
+                        "properties": {"$current_url": "y", "filters_count": 3},
+                    },
+                ],
+                "person2-not-in-prop": [
                     {
                         "event": "$autocapture",
-                        "url": "/123",
-                        "url_matching": "regex",
+                        "timestamp": datetime.now() - timedelta(days=2),
+                        "properties": {
+                            "$current_url": "https://posthog.com/feedback/1234"
+                        },  # can't match because clashing current_url filters
                     },
                 ],
-            )
-            response = self._generate_experiment(
-                datetime.now() - timedelta(days=5),
-                {
-                    "custom_exposure_filter": {
-                        "actions": [
-                            {
-                                "id": str(action1.id),  # should support string ids
-                                "order": 0,
-                                "entity_type": "actions",
-                                "properties": [
-                                    {"key": "bonk", "value": "bonk"},
-                                    {"key": "id", "value": cohort_extra.id, "type": "cohort"},
-                                    {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
-                                    {"key": "bonk-person", "value": "bonk", "type": "person"},
-                                ],
-                            }
-                        ],
-                        "filter_test_accounts": False,
-                    }
-                },
-            )
+            },
+            self.team,
+        )
+        _create_person(
+            distinct_ids=["1"],
+            team_id=self.team.pk,
+            properties={"$pageview": "http://example.com"},
+        )
+        _create_event(
+            event="insight viewed",
+            team=self.team,
+            distinct_id="1",
+            properties={"insight": "RETENTION", "$current_url": "x", "bonk": "bonk"},
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        _create_person(
+            distinct_ids=["2"],
+            team_id=self.team.pk,
+            properties={"$pageview": "http://example.com"},
+        )
+        _create_event(
+            event="insight viewed",
+            team=self.team,
+            distinct_id="2",
+            properties={"insight": "RETENTION", "$current_url": "x"},
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        flush_persons_and_events()
 
-            created_experiment = response.json()["id"]
+        # now call to make cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
+            {},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        cohort = response.json()["cohort"]
+        self.assertEqual(cohort["name"], 'Users exposed to experiment "Test Experiment"')
+        self.assertEqual(cohort["experiment_set"], [created_experiment])
 
-            journeys_for(
-                {
-                    "person1": [
-                        {
-                            "event": "insight viewed",
-                            "timestamp": datetime.now() - timedelta(days=2),
-                            "properties": {"$current_url": "x", "bonk": "bonk", "filters_count": 2},
-                        },
-                    ],
-                    "person2": [
-                        {
-                            "event": "insight viewed",
-                            "timestamp": datetime.now() - timedelta(days=2),
-                            "properties": {
-                                "$current_url": "y",
-                                "bonk": "bonk",
-                                "insight": "RETENTION",
-                            },  # missing pageview person property
-                        },
-                    ],
-                    "person2-no-bonk": [
-                        {
-                            "event": "insight viewed",
-                            "timestamp": datetime.now() - timedelta(days=2),
-                            "properties": {"$current_url": "y", "filters_count": 3},
-                        },
-                    ],
-                    "person2-not-in-prop": [
-                        {
-                            "event": "$autocapture",
-                            "timestamp": datetime.now() - timedelta(days=2),
-                            "properties": {
-                                "$current_url": "https://posthog.com/feedback/1234"
-                            },  # can't match because clashing current_url filters
-                        },
-                    ],
-                },
-                self.team,
-            )
-            _create_person(
-                distinct_ids=["1"],
-                team_id=self.team.pk,
-                properties={"$pageview": "http://example.com"},
-            )
-            _create_event(
-                event="insight viewed",
-                team=self.team,
-                distinct_id="1",
-                properties={"insight": "RETENTION", "$current_url": "x", "bonk": "bonk"},
-                timestamp=datetime.now() - timedelta(days=2),
-            )
-            _create_person(
-                distinct_ids=["2"],
-                team_id=self.team.pk,
-                properties={"$pageview": "http://example.com"},
-            )
-            _create_event(
-                event="insight viewed",
-                team=self.team,
-                distinct_id="2",
-                properties={"insight": "RETENTION", "$current_url": "x"},
-                timestamp=datetime.now() - timedelta(days=2),
-            )
-            flush_persons_and_events()
+        self.maxDiff = None
+        target_filter = cohort["filters"]["properties"]["values"][0]["values"][0]
+        self.assertEqual(
+            target_filter["event_filters"],
+            [
+                {"key": "bonk", "type": "event", "value": "bonk"},
+                {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
+            ],
+            cohort["filters"],
+        )
+        self.assertEqual(
+            target_filter["event_type"],
+            "actions",
+        )
+        self.assertEqual(
+            target_filter["key"],
+            action1.id,
+        )
+        self.assertEqual(
+            target_filter["type"],
+            "behavioral",
+        )
+        self.assertEqual(
+            target_filter["value"],
+            "performed_event",
+        )
+        explicit_datetime = parser.isoparse(target_filter["explicit_datetime"])
 
-            # now call to make cohort
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
-                {},
-            )
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-            cohort = response.json()["cohort"]
-            self.assertEqual(cohort["name"], 'Users exposed to experiment "Test Experiment"')
-            self.assertEqual(cohort["experiment_set"], [created_experiment])
+        self.assertTrue(
+            explicit_datetime <= datetime.now(UTC) - timedelta(days=5)
+            and explicit_datetime >= datetime.now(UTC) - timedelta(days=5, hours=1)
+        )
 
-            self.maxDiff = None
-            target_filter = cohort["filters"]["properties"]["values"][0]["values"][0]
-            self.assertEqual(
-                target_filter["event_filters"],
-                [
-                    {"key": "bonk", "type": "event", "value": "bonk"},
-                    {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
-                ],
-                cohort["filters"],
-            )
-            self.assertEqual(
-                target_filter["event_type"],
-                "actions",
-            )
-            self.assertEqual(
-                target_filter["key"],
-                action1.id,
-            )
-            self.assertEqual(
-                target_filter["type"],
-                "behavioral",
-            )
-            self.assertEqual(
-                target_filter["value"],
-                "performed_event",
-            )
-            explicit_datetime = parser.isoparse(target_filter["explicit_datetime"])
+        cohort_id = cohort["id"]
 
-            self.assertTrue(
-                explicit_datetime <= datetime.now(UTC) - timedelta(days=5)
-                and explicit_datetime >= datetime.now(UTC) - timedelta(days=5, hours=1)
-            )
+        while cohort["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+            cohort = response.json()
 
-            cohort_id = cohort["id"]
-
-            while cohort["is_calculating"]:
-                response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
-                cohort = response.json()
-
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
-            self.assertEqual(response.status_code, 200, response.content)
-            self.assertEqual(["1", "person1"], sorted([res["name"] for res in response.json()["results"]]))
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(["1", "person1"], sorted([res["name"] for res in response.json()["results"]]))
 
     def test_create_exposure_cohort_for_experiment_with_invalid_action_filters_exposure(self):
         response = self._generate_experiment(
