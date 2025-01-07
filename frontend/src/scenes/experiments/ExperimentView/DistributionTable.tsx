@@ -23,12 +23,11 @@ import { VariantScreenshot } from './VariantScreenshot'
 
 export function DistributionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
     const { experiment, experimentLoading, isDistributionModalOpen } = useValues(experimentLogic({ experimentId }))
-    const { closeDistributionModal, updateExperiment } = useActions(experimentLogic({ experimentId }))
+    const { closeDistributionModal, updateDistributionModal } = useActions(experimentLogic({ experimentId }))
 
     const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
     const { featureFlag, areVariantRolloutsValid, variantRolloutSum } = useValues(_featureFlagLogic)
-    const { setFeatureFlagFilters, distributeVariantsEqually, saveSidebarExperimentFeatureFlag } =
-        useActions(_featureFlagLogic)
+    const { setFeatureFlagFilters, distributeVariantsEqually } = useActions(_featureFlagLogic)
 
     const handleRolloutPercentageChange = (index: number, value: number | undefined): void => {
         if (!featureFlag?.filters?.multivariate || !value) {
@@ -61,13 +60,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
                     </LemonButton>
                     <LemonButton
                         onClick={() => {
-                            saveSidebarExperimentFeatureFlag(featureFlag)
-                            updateExperiment({
-                                holdout_id: experiment.holdout_id,
-                                parameters: {
-                                    feature_flag_variants: featureFlag?.filters?.multivariate?.variants ?? [],
-                                },
-                            })
+                            updateDistributionModal(featureFlag)
                             closeDistributionModal()
                         }}
                         type="primary"

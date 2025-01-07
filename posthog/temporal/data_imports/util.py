@@ -1,3 +1,4 @@
+import random
 from typing import Optional
 from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
@@ -44,3 +45,11 @@ def is_posthog_team(team_id: int) -> bool:
 
     region = get_from_env("CLOUD_DEPLOYMENT", optional=True)
     return (region == "EU" and team_id == 1) or (region == "US" and team_id == 2)
+
+
+def is_enabled_for_team(team_id: int) -> bool:
+    return str(team_id) in settings.V2_PIPELINE_ENABLED_TEAM_IDS
+
+
+def randomly_enabled() -> bool:
+    return random.random() < 0.2

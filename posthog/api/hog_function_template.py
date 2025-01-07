@@ -5,7 +5,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 
-from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
+from posthog.cdp.templates import HOG_FUNCTION_SUB_TEMPLATES, HOG_FUNCTION_TEMPLATES, ALL_HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.templates.hog_function_template import (
     HogFunctionMapping,
     HogFunctionMappingTemplate,
@@ -51,17 +51,33 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
 
     def list(self, request: Request, *args, **kwargs):
         types = ["destination"]
+
+        sub_template_id = request.GET.get("sub_template_id")
+
         if "type" in request.GET:
             types = [self.request.GET.get("type", "destination")]
         elif "types" in request.GET:
             types = self.request.GET.get("types", "destination").split(",")
-        templates = [item for item in HOG_FUNCTION_TEMPLATES if item.type in types]
-        page = self.paginate_queryset(templates)
+
+        templates_list = HOG_FUNCTION_SUB_TEMPLATES if sub_template_id else HOG_FUNCTION_TEMPLATES
+
+        matching_templates = []
+
+        for template in templates_list:
+            if template.type not in types:
+                continue
+
+            if sub_template_id and sub_template_id not in template.id:
+                continue
+
+            matching_templates.append(template)
+
+        page = self.paginate_queryset(matching_templates)
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)
 
     def retrieve(self, request: Request, *args, **kwargs):
-        item = next((item for item in HOG_FUNCTION_TEMPLATES if item.id == kwargs["pk"]), None)
+        item = ALL_HOG_FUNCTION_TEMPLATES_BY_ID.get(kwargs["pk"], None)
 
         if not item:
             raise NotFound(f"Template with id {kwargs['pk']} not found.")

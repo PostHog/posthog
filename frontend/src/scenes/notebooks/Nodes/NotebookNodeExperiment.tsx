@@ -81,8 +81,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                             <>
                                 <LemonDivider className="my-0" />
                                 <div className="p-2">
-                                    <SummaryTable />
-                                    <ResultsQuery targetResults={metricResults[0]} showTable={true} />
+                                    <SummaryTable metric={experiment.metrics[0]} />
+                                    <ResultsQuery result={metricResults[0]} showTable={true} />
                                 </div>
                             </>
                         )}

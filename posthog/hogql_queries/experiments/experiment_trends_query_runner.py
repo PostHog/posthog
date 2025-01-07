@@ -9,10 +9,15 @@ from posthog.hogql_queries.experiments.trends_statistics import (
     calculate_credible_intervals,
     calculate_probabilities,
 )
-from posthog.hogql_queries.experiments.trends_statistics_v2 import (
-    are_results_significant_v2,
-    calculate_credible_intervals_v2,
-    calculate_probabilities_v2,
+from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
+    are_results_significant_v2_count,
+    calculate_credible_intervals_v2_count,
+    calculate_probabilities_v2_count,
+)
+from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
+    are_results_significant_v2_continuous,
+    calculate_credible_intervals_v2_continuous,
+    calculate_probabilities_v2_continuous,
 )
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -33,7 +38,6 @@ from posthog.schema import (
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
     DateRange,
-    PropertyMathType,
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
@@ -41,6 +45,7 @@ from posthog.schema import (
 )
 from typing import Any, Optional
 import threading
+from datetime import datetime, timedelta, UTC
 
 
 class ExperimentTrendsQueryRunner(QueryRunner):
@@ -61,7 +66,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
         self.breakdown_key = f"$feature/{self.feature_flag.key}"
 
-        self.stats_version = self.query.stats_version or 1
+        self.stats_version = self.experiment.get_stats_config("version") or 1
 
         self.prepared_count_query = self._prepare_count_query()
         self.prepared_exposure_query = self._prepare_exposure_query()
@@ -122,15 +127,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
            to separate results for different experiment variants.
         """
         prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
-
-        uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(prepared_count_query)
-
-        # :TRICKY: for `avg` aggregation, use `sum` data as an approximation
-        if prepared_count_query.series[0].math == PropertyMathType.AVG:
-            prepared_count_query.series[0].math = PropertyMathType.SUM
-        # TODO: revisit this; using the count data for the remaining aggregation types is likely wrong
-        elif uses_math_aggregation:
-            prepared_count_query.series[0].math = None
 
         prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
         prepared_count_query.dateRange = self._get_date_range()
@@ -316,9 +312,18 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
         if self.stats_version == 2:
-            probabilities = calculate_probabilities_v2(control_variant, test_variants)
-            significance_code, p_value = are_results_significant_v2(control_variant, test_variants, probabilities)
-            credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
+            if self.query.count_query.series[0].math:
+                probabilities = calculate_probabilities_v2_continuous(control_variant, test_variants)
+                significance_code, p_value = are_results_significant_v2_continuous(
+                    control_variant, test_variants, probabilities
+                )
+                credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
+            else:
+                probabilities = calculate_probabilities_v2_count(control_variant, test_variants)
+                significance_code, p_value = are_results_significant_v2_count(
+                    control_variant, test_variants, probabilities
+                )
+                credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
         else:
             probabilities = calculate_probabilities(control_variant, test_variants)
             significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
@@ -426,3 +431,14 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.count_query.kind} to query")
+
+    # Cache results for 24 hours
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        if last_refresh is None:
+            return None
+        return last_refresh + timedelta(hours=24)
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        if not last_refresh:
+            return True
+        return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)

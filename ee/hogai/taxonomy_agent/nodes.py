@@ -131,7 +131,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
     @property
     def _model(self) -> ChatOpenAI:
-        return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True)
+        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True)
 
     def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
         return cast(
@@ -267,12 +267,18 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
             )
         if input.name == "ask_user_for_help":
             # The agent has requested help, so we interrupt the graph.
-            if not observation:
+            if not state.resumed:
                 raise NodeInterrupt(input.arguments)
 
             # Feedback was provided.
+            last_message = state.messages[-1]
+            response = ""
+            if isinstance(last_message, HumanMessage):
+                response = last_message.content
+
             return PartialAssistantState(
-                intermediate_steps=[*intermediate_steps[:-1], (action, observation)],
+                resumed=False,
+                intermediate_steps=[*intermediate_steps[:-1], (action, response)],
             )
 
         output = ""

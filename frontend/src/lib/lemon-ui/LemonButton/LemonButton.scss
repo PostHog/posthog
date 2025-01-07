@@ -220,6 +220,16 @@
         --lemon-button-icon-opacity: 1;
     }
 
+    &.LemonButton--primary.LemonButton--status-danger {
+        --lemon-button-bg-color: var(--red-100);
+        --lemon-button-color: var(--text-3000);
+
+        [theme='dark'] & {
+            --lemon-button-bg-color: #312101;
+            --lemon-button-color: var(--red-200);
+        }
+    }
+
     &.LemonButton--secondary.LemonButton--status-alt {
         --lemon-button-color: var(--muted);
 

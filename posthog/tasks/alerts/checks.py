@@ -32,6 +32,7 @@ from posthog.tasks.alerts.utils import (
     next_check_time,
     send_notifications_for_breaches,
     send_notifications_for_errors,
+    skip_because_of_weekend,
     WRAPPER_NODE_KINDS,
 )
 from posthog.tasks.alerts.trends import check_trends_alert
@@ -214,6 +215,17 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
             "Alert is already being computed so skipping checking it now",
             alert=alert,
         )
+        return
+
+    if skip_because_of_weekend(alert):
+        logger.info(
+            "Skipping alert check because weekend checking is disabled",
+            alert=alert,
+        )
+
+        # ignore alert check until due again
+        alert.next_check_at = next_check_time(alert)
+        alert.save()
         return
 
     if alert.snoozed_until:
