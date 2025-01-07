@@ -65,6 +65,11 @@ STREAMING_NODES: set[AssistantNodeName] = {
     AssistantNodeName.MEMORY_INITIALIZER,
     AssistantNodeName.SUMMARIZER,
 }
+"""Nodes that can stream messages to the client."""
+
+
+VERBOSE_NODES = STREAMING_NODES | {AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT}
+"""Nodes that can send messages to the client."""
 
 
 class Assistant:
@@ -236,7 +241,7 @@ class Assistant:
             elif node_val.intermediate_steps:
                 return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
 
-        for node_name in STREAMING_NODES:
+        for node_name in VERBOSE_NODES:
             if node_val := state_update.get(node_name):
                 if isinstance(node_val, PartialAssistantState) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")

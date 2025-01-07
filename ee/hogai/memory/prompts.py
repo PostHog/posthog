@@ -69,7 +69,7 @@ SCRAPING_CONFIRMATION_MESSAGE = "Yes, save this."
 
 SCRAPING_REJECTION_MESSAGE = "No, this doesn't look right."
 
-SCRAPING_TERMINATION_MESSAGE = "All right, let's skip this step. You could edit my initial memory in Settings."
+SCRAPING_TERMINATION_MESSAGE = "All right, let's skip this step. You could always ask me to update my memory."
 
 SCRAPING_MEMORY_SAVED_MESSAGE = "Thanks! I've updated my initial memory. Let me help with your request."
 

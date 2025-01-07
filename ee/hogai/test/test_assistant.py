@@ -11,6 +11,7 @@ from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
 from ee.hogai.funnels.nodes import FunnelsSchemaGeneratorOutput
+from ee.hogai.memory import prompts as memory_prompts
 from ee.hogai.router.nodes import RouterOutput
 from ee.hogai.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.models.assistant import Conversation, CoreMemory
@@ -568,25 +569,25 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             (
                 "message",
                 AssistantMessage(
-                    content="Hey, my name is Max. Before we start, let's find and verify information about your product."
+                    content=memory_prompts.SCRAPING_INITIAL_MESSAGE,
                 ),
             ),
             ("message", AssistantMessage(content="PostHog is a product analytics platform.")),
-            ("message", AssistantMessage(content="Does it look like a good summary of what your product does?")),
+            ("message", AssistantMessage(content=memory_prompts.SCRAPING_VERIFICATION_MESSAGE)),
         ]
         self.assertConversationEqual(output, expected_output)
 
         # Second run - accept the memory
         output = self._run_assistant_graph(
             graph,
-            message="Yes, save this.",
+            message=memory_prompts.SCRAPING_CONFIRMATION_MESSAGE,
             is_new_conversation=False,
         )
         expected_output = [
-            ("message", HumanMessage(content="Yes, save this.")),
+            ("message", HumanMessage(content=memory_prompts.SCRAPING_CONFIRMATION_MESSAGE)),
             (
                 "message",
-                AssistantMessage(content="Thanks! I've updated my initial memory. Let me help with your request."),
+                AssistantMessage(content=memory_prompts.SCRAPING_MEMORY_SAVED_MESSAGE),
             ),
             ("message", ReasoningMessage(content="Identifying type of analysis")),
         ]
@@ -615,26 +616,26 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             (
                 "message",
                 AssistantMessage(
-                    content="Hey, my name is Max. Before we start, let's find and verify information about your product."
+                    content=memory_prompts.SCRAPING_INITIAL_MESSAGE,
                 ),
             ),
             ("message", AssistantMessage(content="PostHog is a product analytics platform.")),
-            ("message", AssistantMessage(content="Does it look like a good summary of what your product does?")),
+            ("message", AssistantMessage(content=memory_prompts.SCRAPING_VERIFICATION_MESSAGE)),
         ]
         self.assertConversationEqual(output, expected_output)
 
         # Second run - reject the memory
         output = self._run_assistant_graph(
             graph,
-            message="No, this doesn't look right.",
+            message=memory_prompts.SCRAPING_REJECTION_MESSAGE,
             is_new_conversation=False,
         )
         expected_output = [
-            ("message", HumanMessage(content="No, this doesn't look right.")),
+            ("message", HumanMessage(content=memory_prompts.SCRAPING_REJECTION_MESSAGE)),
             (
                 "message",
                 AssistantMessage(
-                    content="All right, let's skip this step. You could edit my initial memory in Settings."
+                    content=memory_prompts.SCRAPING_TERMINATION_MESSAGE,
                 ),
             ),
             ("message", ReasoningMessage(content="Identifying type of analysis")),

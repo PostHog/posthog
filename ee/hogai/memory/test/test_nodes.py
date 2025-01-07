@@ -7,6 +7,7 @@ from langchain_core.messages import AIMessage as LangchainAIMessage, ToolMessage
 from langchain_core.runnables import RunnableLambda
 from langgraph.errors import NodeInterrupt
 
+from ee.hogai.memory import prompts
 from ee.hogai.memory.nodes import (
     FAILED_SCRAPING_MESSAGE,
     MemoryCollectorNode,
@@ -342,11 +343,11 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
 
         interrupt_message = e.exception.args[0][0].value
         self.assertIsInstance(interrupt_message, AssistantMessage)
-        self.assertEqual(interrupt_message.content, "Does it look like a good summary of what your product does?")
+        self.assertEqual(interrupt_message.content, prompts.SCRAPING_VERIFICATION_MESSAGE)
         self.assertIsNotNone(interrupt_message.meta)
         self.assertEqual(len(interrupt_message.meta.form.options), 2)
-        self.assertEqual(interrupt_message.meta.form.options[0].value, "Yes, save this.")
-        self.assertEqual(interrupt_message.meta.form.options[1].value, "No, this doesn't look right.")
+        self.assertEqual(interrupt_message.meta.form.options[0].value, prompts.SCRAPING_CONFIRMATION_MESSAGE)
+        self.assertEqual(interrupt_message.meta.form.options[1].value, prompts.SCRAPING_REJECTION_MESSAGE)
 
     def test_memory_accepted(self):
         with patch.object(MemoryInitializerInterruptNode, "_model") as model_mock:
@@ -355,7 +356,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
             state = AssistantState(
                 messages=[
                     AssistantMessage(content="Product description"),
-                    HumanMessage(content="Yes, save this."),
+                    HumanMessage(content=prompts.SCRAPING_CONFIRMATION_MESSAGE),
                 ],
                 resumed=True,
             )
@@ -366,7 +367,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
             self.assertIsInstance(new_state.messages[0], AssistantMessage)
             self.assertEqual(
                 new_state.messages[0].content,
-                "Thanks! I've updated my initial memory. Let me help with your request.",
+                prompts.SCRAPING_MEMORY_SAVED_MESSAGE,
             )
 
             core_memory = CoreMemory.objects.get(team=self.team)
@@ -377,7 +378,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
         state = AssistantState(
             messages=[
                 AssistantMessage(content="Product description"),
-                HumanMessage(content="No, this doesn't look right."),
+                HumanMessage(content=prompts.SCRAPING_REJECTION_MESSAGE),
             ],
             resumed=True,
         )
@@ -388,7 +389,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
         self.assertIsInstance(new_state.messages[0], AssistantMessage)
         self.assertEqual(
             new_state.messages[0].content,
-            "All right, let's skip this step. You could edit my initial memory in Settings.",
+            prompts.SCRAPING_TERMINATION_MESSAGE,
         )
 
         self.core_memory.refresh_from_db()
@@ -410,7 +411,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
         state = AssistantState(
             messages=[
                 AssistantMessage(content="Product description"),
-                HumanMessage(content="Yes, save this."),
+                HumanMessage(content=prompts.SCRAPING_CONFIRMATION_MESSAGE),
             ],
             resumed=True,
         )
@@ -421,7 +422,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
 
     def test_error_when_no_memory_message(self):
         state = AssistantState(
-            messages=[HumanMessage(content="Yes, save this.")],
+            messages=[HumanMessage(content=prompts.SCRAPING_CONFIRMATION_MESSAGE)],
             resumed=True,
         )
 
