@@ -1,6 +1,6 @@
 import './ErrorTracking.scss'
 
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect } from 'react'
@@ -10,10 +10,9 @@ import { ErrorTrackingIssue } from '~/queries/schema'
 
 import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
-import ErrorTrackingFilters from './ErrorTrackingFilters'
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
-import { OverviewTab } from './groups/OverviewTab'
-import { SymbolSetUploadModal } from './SymbolSetUploadModal'
+import { errorTrackingIssueSceneLogic, IssueTab } from './errorTrackingIssueSceneLogic'
+import { EventsTab } from './issue/tabs/EventsTab'
+import { OverviewTab } from './issue/tabs/OverviewTab'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -29,8 +28,8 @@ const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
-    const { updateIssue, loadIssue } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, tab } = useValues(errorTrackingIssueSceneLogic)
+    const { updateIssue, loadIssue, setTab } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
         // don't like doing this but scene logics do not unmount after being loaded
@@ -81,11 +80,27 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         )
                     }
                 />
-                <ErrorTrackingFilters.FilterGroup />
-                <LemonDivider className="mt-2" />
-                <ErrorTrackingFilters.Options isIssue />
-                <OverviewTab />
-                <SymbolSetUploadModal />
+                {issue ? (
+                    <LemonTabs
+                        activeKey={tab}
+                        tabs={[
+                            {
+                                key: IssueTab.Overview,
+                                label: 'Overview',
+                                content: <OverviewTab />,
+                            },
+
+                            {
+                                key: IssueTab.Events,
+                                label: 'Events',
+                                content: <EventsTab />,
+                            },
+                        ]}
+                        onChange={setTab}
+                    />
+                ) : (
+                    <Spinner />
+                )}
             </>
         </AlphaAccessScenePrompt>
     )
