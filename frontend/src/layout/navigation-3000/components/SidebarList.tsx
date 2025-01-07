@@ -297,10 +297,10 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
         content = <SidebarListItemAccordion category={item} />
     } else if (isItemClickable(item)) {
         content = (
-            // eslint-disable-next-line react/forbid-dom-props
             <li
                 className="SidebarListItem__button"
                 onClick={item.onClick}
+                // eslint-disable-next-line react/forbid-dom-props
                 style={{ '--depth': item.depth } as React.CSSProperties}
             >
                 {item.icon && <div className="SidebarListItem__icon">{item.icon}</div>}
