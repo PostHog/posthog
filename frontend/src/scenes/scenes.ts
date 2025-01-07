@@ -87,6 +87,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
     },
+    [Scene.WebAnalyticsCoreWebVitals]: {
+        projectBased: true,
+        name: 'Core Web Vitals',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/core-web-vitals', // TODO: Add docs
+    },
     [Scene.Cohort]: {
         projectBased: true,
         name: 'Cohort',
