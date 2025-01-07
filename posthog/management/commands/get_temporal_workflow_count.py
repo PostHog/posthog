@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -91,10 +92,14 @@ class Command(BaseCommand):
         )
 
         if track_gauge:
+            logging.debug(f"Tracking count in Gauge: {track_gauge}")
             gauge = Gauge(
                 track_gauge,
-                f"Number of Temporal Workflow executions in '{task_queue}' with status '{execution_status}'.",
+                f"Number of current Temporal Workflow executions.",
+                labelnames=["task_queue", "status"],
             )
-            gauge.set(result.count)
+            gauge.labels(task_queue=task_queue, status=execution_status.lower()).set(result.count)
+
+        logging.info(f"Count of '{execution_status.lower()}' workflows in '{task_queue}': {result.count}")
 
         return str(result.count)

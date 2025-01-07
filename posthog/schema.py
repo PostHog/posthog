@@ -548,6 +548,9 @@ class CustomChannelField(StrEnum):
     UTM_MEDIUM = "utm_medium"
     UTM_CAMPAIGN = "utm_campaign"
     REFERRING_DOMAIN = "referring_domain"
+    URL = "url"
+    PATHNAME = "pathname"
+    HOSTNAME = "hostname"
 
 
 class CustomChannelOperator(StrEnum):
@@ -1717,6 +1720,7 @@ class WebStatsBreakdown(StrEnum):
     INITIAL_PAGE = "InitialPage"
     EXIT_PAGE = "ExitPage"
     EXIT_CLICK = "ExitClick"
+    SCREEN_NAME = "ScreenName"
     INITIAL_CHANNEL_TYPE = "InitialChannelType"
     INITIAL_REFERRING_DOMAIN = "InitialReferringDomain"
     INITIAL_UTM_SOURCE = "InitialUTMSource"

@@ -291,6 +291,10 @@ class BatchExportWriter(abc.ABC):
             upon reaching or surpassing this threshold. Keep in mind we write on a RecordBatch
             per RecordBatch basis, which means the threshold will be surpassed by at most the
             size of a RecordBatch before a flush occurs.
+        max_file_size_bytes: Flush the temporary file with the provided `flush_callable`
+            upon reaching or surpassing this threshold. This results in a 'hard flush' of the
+            temporary file, which means the file will be closed and a new one will be created.
+            If set to 0, this will be ignored.
         flush_callable: A callback to flush the temporary file when `max_bytes` is reached.
             The temporary file will be reset after calling `flush_callable`. When calling
             `flush_callable` the following positional arguments will be passed: The temporary file
@@ -311,10 +315,12 @@ class BatchExportWriter(abc.ABC):
         self,
         flush_callable: FlushCallable,
         max_bytes: int,
+        max_file_size_bytes: int = 0,
         file_kwargs: collections.abc.Mapping[str, typing.Any] | None = None,
     ):
         self.flush_callable = flush_callable
         self.max_bytes = max_bytes
+        self.max_file_size_bytes = max_file_size_bytes
         self.file_kwargs: collections.abc.Mapping[str, typing.Any] = file_kwargs or {}
 
         self._batch_export_file: BatchExportTemporaryFile | None = None
@@ -447,6 +453,9 @@ class BatchExportWriter(abc.ABC):
     def should_flush(self) -> bool:
         return self.bytes_since_last_flush >= self.max_bytes
 
+    def should_hard_flush(self) -> bool:
+        return self.max_file_size_bytes > 0 and self.bytes_total >= self.max_file_size_bytes
+
     async def flush(self, is_last: bool = False) -> None:
         """Call the provided `flush_callable` and reset underlying file.
 
@@ -508,12 +517,15 @@ class WriterFormat(enum.StrEnum):
                 raise UnsupportedFileFormatError(format_str, destination)
 
 
-def get_batch_export_writer(writer_format: WriterFormat, flush_callable: FlushCallable, max_bytes: int, **kwargs):
+def get_batch_export_writer(
+    writer_format: WriterFormat, flush_callable: FlushCallable, max_bytes: int, max_file_size_bytes: int = 0, **kwargs
+):
     match writer_format:
         case WriterFormat.CSV:
             return CSVBatchExportWriter(
                 max_bytes=max_bytes,
                 flush_callable=flush_callable,
+                max_file_size_bytes=max_file_size_bytes,
                 **kwargs,
             )
 
@@ -521,6 +533,7 @@ def get_batch_export_writer(writer_format: WriterFormat, flush_callable: FlushCa
             return JSONLBatchExportWriter(
                 max_bytes=max_bytes,
                 flush_callable=flush_callable,
+                max_file_size_bytes=max_file_size_bytes,
                 **kwargs,
             )
 
@@ -528,6 +541,7 @@ def get_batch_export_writer(writer_format: WriterFormat, flush_callable: FlushCa
             return ParquetBatchExportWriter(
                 max_bytes=max_bytes,
                 flush_callable=flush_callable,
+                max_file_size_bytes=max_file_size_bytes,
                 **kwargs,
             )
 
@@ -554,11 +568,13 @@ class JSONLBatchExportWriter(BatchExportWriter):
         schema: pa.Schema | None = None,
         compression: None | str = None,
         default: typing.Callable = str,
+        max_file_size_bytes: int = 0,
     ):
         super().__init__(
             max_bytes=max_bytes,
             flush_callable=flush_callable,
             file_kwargs={"compression": compression},
+            max_file_size_bytes=max_file_size_bytes,
         )
 
         self.default = default
@@ -631,11 +647,13 @@ class CSVBatchExportWriter(BatchExportWriter):
         line_terminator: str = "\n",
         quoting=csv.QUOTE_NONE,
         compression: str | None = None,
+        max_file_size_bytes: int = 0,
     ):
         super().__init__(
             max_bytes=max_bytes,
             flush_callable=flush_callable,
             file_kwargs={"compression": compression},
+            max_file_size_bytes=max_file_size_bytes,
         )
         self.field_names = field_names
         self.extras_action: typing.Literal["raise", "ignore"] = extras_action
@@ -693,16 +711,17 @@ class ParquetBatchExportWriter(BatchExportWriter):
         schema: pa.Schema,
         compression: str | None = "snappy",
         compression_level: int | None = None,
+        max_file_size_bytes: int = 0,
     ):
         super().__init__(
             max_bytes=max_bytes,
             flush_callable=flush_callable,
             file_kwargs={"compression": None},  # ParquetWriter handles compression
+            max_file_size_bytes=max_file_size_bytes,
         )
         self.schema = schema
         self.compression = compression
         self.compression_level = compression_level
-
         self._parquet_writer: pq.ParquetWriter | None = None
 
     @property

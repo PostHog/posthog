@@ -1850,6 +1850,7 @@ export enum WebStatsBreakdown {
     InitialPage = 'InitialPage',
     ExitPage = 'ExitPage', // not supported in the legacy version
     ExitClick = 'ExitClick',
+    ScreenName = 'ScreenName',
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',
@@ -2558,6 +2559,9 @@ export enum CustomChannelField {
     UTMMedium = 'utm_medium',
     UTMCampaign = 'utm_campaign',
     ReferringDomain = 'referring_domain',
+    URL = 'url',
+    Pathname = 'pathname',
+    Hostname = 'hostname',
 }
 
 export enum CustomChannelOperator {
