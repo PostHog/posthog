@@ -20,6 +20,7 @@ import {
 } from '~/types'
 
 import { BillingSectionId } from './billing/types'
+
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
 export const preloadedScenes: Record<string, LoadedScene> = {
@@ -539,6 +540,7 @@ export const routes: Record<string, Scene> = {
     [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.webAnalytics()]: Scene.WebAnalytics,
+    [urls.webAnalyticsCoreWebVitals()]: Scene.WebAnalytics,
     [urls.actions()]: Scene.DataManagement,
     [urls.eventDefinitions()]: Scene.DataManagement,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,

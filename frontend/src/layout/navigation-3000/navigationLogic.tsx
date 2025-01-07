@@ -377,30 +377,33 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               icon: <IconDashboard />,
                               logic: isUsingSidebar ? dashboardsSidebarLogic : undefined,
                               to: isUsingSidebar ? undefined : urls.dashboards(),
-                              sideAction: {
-                                  identifier: 'pinned-dashboards-dropdown',
-                                  dropdown: {
-                                      overlay: (
-                                          <LemonMenuOverlay
-                                              items={[
-                                                  {
-                                                      title: 'Pinned dashboards',
-                                                      items: pinnedDashboards.map((dashboard) => ({
-                                                          label: dashboard.name,
-                                                          to: urls.dashboard(dashboard.id),
-                                                      })),
-                                                      footer: dashboardsLoading && (
-                                                          <div className="px-2 py-1 text-text-secondary-3000">
-                                                              <Spinner /> Loading…
-                                                          </div>
-                                                      ),
-                                                  },
-                                              ]}
-                                          />
-                                      ),
-                                      placement: 'bottom-end',
-                                  },
-                              },
+                              sideAction:
+                                  pinnedDashboards.length > 0
+                                      ? {
+                                            identifier: 'pinned-dashboards-dropdown',
+                                            dropdown: {
+                                                overlay: (
+                                                    <LemonMenuOverlay
+                                                        items={[
+                                                            {
+                                                                title: 'Pinned dashboards',
+                                                                items: pinnedDashboards.map((dashboard) => ({
+                                                                    label: dashboard.name,
+                                                                    to: urls.dashboard(dashboard.id),
+                                                                })),
+                                                                footer: dashboardsLoading && (
+                                                                    <div className="px-2 py-1 text-text-secondary-3000">
+                                                                        <Spinner /> Loading…
+                                                                    </div>
+                                                                ),
+                                                            },
+                                                        ]}
+                                                    />
+                                                ),
+                                                placement: 'bottom-end',
+                                            },
+                                        }
+                                      : undefined,
                           },
                           {
                               identifier: Scene.Notebooks,
@@ -479,6 +482,28 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Web analytics',
                             icon: <IconPieChart />,
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
+                            sideAction: featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS]
+                                ? {
+                                      identifier: 'web-analytics-dropdown',
+                                      dropdown: {
+                                          overlay: (
+                                              <LemonMenuOverlay
+                                                  items={[
+                                                      {
+                                                          items: [
+                                                              {
+                                                                  label: 'Core Web Vitals',
+                                                                  to: urls.webAnalyticsCoreWebVitals(),
+                                                              },
+                                                          ],
+                                                      },
+                                                  ]}
+                                              />
+                                          ),
+                                          placement: 'bottom-end',
+                                      },
+                                  }
+                                : undefined,
                         },
                         {
                             identifier: Scene.Replay,
@@ -563,7 +588,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tag: 'alpha' as const,
                               }
                             : null,
-                    ].filter(isNotNil),
+                    ].filter(isNotNil) as NavbarItem[],
                 ]
             },
         ],

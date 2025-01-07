@@ -55,7 +55,7 @@ import {
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
-export interface WebTileLayout {
+interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
     colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -78,6 +78,11 @@ export enum TileId {
     GOALS = 'GOALS',
 }
 
+export enum ProductTab {
+    ANALYTICS = 'analytics',
+    CORE_WEB_VITALS = 'core-web-vitals',
+}
+
 const loadPriorityMap: Record<TileId, number> = {
     [TileId.OVERVIEW]: 1,
     [TileId.GRAPHS]: 2,
@@ -97,11 +102,12 @@ interface BaseTile {
     docs?: Docs
 }
 
-export interface Docs {
+interface Docs {
     url?: PostHogComDocsURL
     title: string
     description: string | JSX.Element
 }
+
 export interface QueryTile extends BaseTile {
     kind: 'query'
     title?: string
@@ -142,9 +148,9 @@ export interface ErrorTrackingTile extends BaseTile {
     query: QuerySchema
 }
 
-export type WebDashboardTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
+type WebDashboardTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
 
-export interface WebDashboardModalQuery {
+interface WebDashboardModalQuery {
     tileId: TileId
     tabId?: string
     title?: string
@@ -199,28 +205,28 @@ export enum GeographyTab {
     LANGUAGES = 'LANGUAGES',
 }
 
-export interface WebAnalyticsStatusCheck {
+export enum ConversionGoalWarning {
+    CustomEventWithNoSessionId = 'CustomEventWithNoSessionId',
+}
+
+interface WebAnalyticsStatusCheck {
     isSendingPageViews: boolean
     isSendingPageLeaves: boolean
     isSendingPageLeavesScroll: boolean
     libSendingPageViewsWithoutSessionIds: string | undefined
 }
 
-export enum ConversionGoalWarning {
-    CustomEventWithNoSessionId = 'CustomEventWithNoSessionId',
-}
-
-export const GEOIP_PLUGIN_URLS = [
+const GEOIP_PLUGIN_URLS = [
     'https://github.com/PostHog/posthog-plugin-geoip',
     'https://www.npmjs.com/package/@posthog/geoip-plugin',
 ]
 
 export const WEB_ANALYTICS_DATA_COLLECTION_NODE_ID = 'web-analytics'
 
-export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
-const initialDateFrom = '-7d' as string | null
-const initialDateTo = null as string | null
-const initialInterval = getDefaultInterval(initialDateFrom, initialDateTo)
+const INITIAL_WEB_ANALYTICS_FILTER = [] as WebAnalyticsPropertyFilters
+const INITIAL_DATE_FROM = '-7d' as string | null
+const INITIAL_DATE_TO = null as string | null
+const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 
 const getDashboardItemId = (section: TileId, tab: string | undefined, isModal?: boolean): `new-${string}` => {
     // pretend to be a new-AdHoc to get the correct behaviour elsewhere
@@ -247,24 +253,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 pathTab?: string
                 geographyTab?: string
             }
-        ) => ({
-            type,
-            key,
-            value,
-            tabChange,
-        }),
-        setGraphsTab: (tab: string) => ({
-            tab,
-        }),
-        setSourceTab: (tab: string) => ({
-            tab,
-        }),
-        setDeviceTab: (tab: string) => ({
-            tab,
-        }),
-        setPathTab: (tab: string) => ({
-            tab,
-        }),
+        ) => ({ type, key, value, tabChange }),
+        setGraphsTab: (tab: string) => ({ tab }),
+        setSourceTab: (tab: string) => ({ tab }),
+        setDeviceTab: (tab: string) => ({ tab }),
+        setPathTab: (tab: string) => ({ tab }),
         setGeographyTab: (tab: string) => ({ tab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType) => ({ interval }),
@@ -274,26 +267,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             interval,
         }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
-        setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({
-            shouldFilterTestAccounts,
-        }),
-        setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({
-            shouldStripQueryParams,
-        }),
+        setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
+        setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
-        openModal: (tileId: TileId, tabId?: string) => {
-            return { tileId, tabId }
-        },
+        openModal: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
         closeModal: () => true,
-        openAsNewInsight: (tileId: TileId, tabId?: string) => {
-            return { tileId, tabId }
-        },
+        openAsNewInsight: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
+        setProductTab: (tab: ProductTab) => ({ tab }),
     }),
     reducers({
         webAnalyticsFilters: [
-            initialWebAnalyticsFilter,
+            INITIAL_WEB_ANALYTICS_FILTER,
             persistConfig,
             {
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
@@ -423,9 +409,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         dateFilter: [
             {
-                dateFrom: initialDateFrom,
-                dateTo: initialDateTo,
-                interval: initialInterval,
+                dateFrom: INITIAL_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
+                interval: INITIAL_INTERVAL,
             },
             persistConfig,
             {
@@ -444,8 +430,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
                     if (!dateFrom && !dateTo) {
-                        dateFrom = initialDateFrom
-                        dateTo = initialDateTo
+                        dateFrom = INITIAL_DATE_FROM
+                        dateTo = INITIAL_DATE_TO
                     }
                     return {
                         dateTo,
@@ -487,6 +473,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             persistConfig,
             {
                 setCompareFilter: (_, { compareFilter }) => compareFilter,
+            },
+        ],
+        productTab: [
+            ProductTab.ANALYTICS as ProductTab,
+            {
+                setProductTab: (_, { tab }) => tab,
             },
         ],
     }),
@@ -533,8 +525,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }),
         ],
         tiles: [
-            (s) => [s.tabs, s.controls, s.filters, () => values.featureFlags, () => values.isGreaterThanMd],
+            (s) => [
+                s.productTab,
+                s.tabs,
+                s.controls,
+                s.filters,
+                () => values.featureFlags,
+                () => values.isGreaterThanMd,
+            ],
             (
+                productTab,
                 { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile },
                 { isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams },
                 {
@@ -547,23 +547,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 featureFlags,
                 isGreaterThanMd
             ): WebDashboardTile[] => {
-                const dateRange = {
-                    date_from: dateFrom,
-                    date_to: dateTo,
-                }
-
-                const sampling = {
-                    enabled: false,
-                    forceSamplingRate: { numerator: 1, denominator: 10 },
-                }
-
-                const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
-                    return {
-                        dashboardItemId: getDashboardItemId(tile, tab, false),
-                        loadPriority: loadPriorityMap[tile],
-                        dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                    }
-                }
+                const dateRange = { date_from: dateFrom, date_to: dateTo }
+                const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
                 const uniqueUserSeries: EventsNode = {
                     event: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? '$screen' : '$pageview',
@@ -572,16 +557,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     name: 'Pageview',
                     custom_name: 'Unique visitors',
                 }
+
                 const pageViewsSeries = {
                     ...uniqueUserSeries,
                     math: BaseMathType.TotalCount,
                     custom_name: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? 'Screen Views' : 'Page views',
                 }
+
                 const sessionsSeries = {
                     ...uniqueUserSeries,
                     math: BaseMathType.UniqueSessions,
                     custom_name: 'Sessions',
                 }
+
                 const uniqueConversionsSeries: ActionsNode | EventsNode | undefined = !conversionGoal
                     ? undefined
                     : 'actionId' in conversionGoal
@@ -607,6 +595,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                           custom_name: 'Total conversions',
                       }
                     : undefined
+
+                const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
+                    return {
+                        dashboardItemId: getDashboardItemId(tile, tab, false),
+                        loadPriority: loadPriorityMap[tile],
+                        dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                    }
+                }
 
                 const createGraphsTrendsTab = (
                     id: GraphsTab,
@@ -688,8 +684,31 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
-                const pathCleaningSettingsUrl = urls.settings('project-product-analytics', 'path-cleaning')
-                const customChannelTypesUrl = urls.settings('environment-web-analytics', 'channel-type')
+                // TODO: Use actual web vitals tab, this is just a placeholder
+                if (featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && productTab === ProductTab.CORE_WEB_VITALS) {
+                    return [
+                        {
+                            kind: 'query',
+                            tileId: TileId.OVERVIEW,
+                            layout: {
+                                colSpanClassName: 'md:col-span-full',
+                                orderWhenLargeClassName: 'xxl:order-0',
+                            },
+                            query: {
+                                kind: NodeKind.WebOverviewQuery,
+                                properties: webAnalyticsFilters,
+                                dateRange,
+                                sampling,
+                                compareFilter,
+                                filterTestAccounts,
+                                conversionGoal,
+                                includeLCPScore: true,
+                            },
+                            insightProps: createInsightProps(TileId.OVERVIEW),
+                            canOpenModal: false,
+                        },
+                    ]
+                }
 
                 const pathCleaningControl = (
                     <LemonSwitch
@@ -716,7 +735,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     size="small"
                                     noPadding={true}
                                     tooltip="Edit path cleaning settings"
-                                    to={pathCleaningSettingsUrl}
+                                    to={urls.settings('project-product-analytics', 'path-cleaning')}
                                 />
                             </div>
                         }
@@ -997,7 +1016,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                 size="small"
                                                 noPadding={true}
                                                 tooltip="Customize channel types"
-                                                to={customChannelTypesUrl}
+                                                to={urls.settings('environment-web-analytics', 'channel-type')}
                                             />
                                         </div>
                                     ),
@@ -1458,7 +1477,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return null
                 }
                 const { tileId, tabId } = modalTileAndTab
-                const tile = tiles.find((tile) => tile.tileId === tileId)
+                const tile: WebDashboardTile | undefined = tiles.find((tile) => tile.tileId === tileId)
                 if (!tile) {
                     return null
                 }
@@ -1608,10 +1627,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         return query
                     }
 
-                    const tile = tiles.find((tile) => tile.tileId === tileId)
+                    const tile: WebDashboardTile | undefined = tiles.find((tile) => tile.tileId === tileId)
                     if (!tile) {
                         return undefined
                     }
+
                     if (tile.kind === 'tabs') {
                         const tab = tile.tabs.find((tab) => tab.id === tabId)
                         if (!tab) {
@@ -1746,6 +1766,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 isPathCleaningEnabled,
                 shouldFilterTestAccounts,
                 compareFilter,
+                productTab,
             } = values
 
             const urlParams = new URLSearchParams()
@@ -1759,7 +1780,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     urlParams.set('conversionGoal.customEventName', conversionGoal.customEventName)
                 }
             }
-            if (dateFrom !== initialDateFrom || dateTo !== initialDateTo || interval !== initialInterval) {
+            if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
                 urlParams.set('date_from', dateFrom ?? '')
                 urlParams.set('date_to', dateTo ?? '')
                 urlParams.set('interval', interval ?? '')
@@ -1788,7 +1809,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (compareFilter) {
                 urlParams.set('compare_filter', JSON.stringify(compareFilter))
             }
-            return `/web?${urlParams.toString()}`
+            if (productTab !== ProductTab.ANALYTICS) {
+                urlParams.set('product_tab', productTab)
+            }
+
+            const basePath = productTab === ProductTab.CORE_WEB_VITALS ? '/web/core-web-vitals' : '/web'
+            return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
 
         return {
@@ -1803,78 +1829,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setPathTab: stateToUrl,
             setGeographyTab: stateToUrl,
             setCompareFilter: stateToUrl,
+            setProductTab: stateToUrl,
         }
     }),
 
     urlToAction(({ actions, values }) => ({
-        '/web': (
-            _,
-            {
-                filters,
-                'conversionGoal.actionId': conversionGoalActionId,
-                'conversionGoal.customEventName': conversionGoalCustomEventName,
-                date_from,
-                date_to,
-                interval,
-                device_tab,
-                source_tab,
-                graphs_tab,
-                path_tab,
-                geography_tab,
-                path_cleaning,
-                filter_test_accounts,
-                compare_filter,
-            }
-        ) => {
-            const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
-
-            if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {
-                actions.setWebAnalyticsFilters(parsedFilters)
-            }
-            if (
-                conversionGoalActionId &&
-                conversionGoalActionId !== (values.conversionGoal as ActionConversionGoal)?.actionId
-            ) {
-                actions.setConversionGoal({ actionId: parseInt(conversionGoalActionId, 10) })
-            } else if (
-                conversionGoalCustomEventName &&
-                conversionGoalCustomEventName !== (values.conversionGoal as CustomEventConversionGoal)?.customEventName
-            ) {
-                actions.setConversionGoal({ customEventName: conversionGoalCustomEventName })
-            }
-            if (
-                (date_from && date_from !== values.dateFilter.dateFrom) ||
-                (date_to && date_to !== values.dateFilter.dateTo) ||
-                (interval && interval !== values.dateFilter.interval)
-            ) {
-                actions.setDatesAndInterval(date_from, date_to, interval)
-            }
-            if (device_tab && device_tab !== values._deviceTab) {
-                actions.setDeviceTab(device_tab)
-            }
-            if (source_tab && source_tab !== values._sourceTab) {
-                actions.setSourceTab(source_tab)
-            }
-            if (graphs_tab && graphs_tab !== values._graphsTab) {
-                actions.setGraphsTab(graphs_tab)
-            }
-            if (path_tab && path_tab !== values._pathTab) {
-                actions.setPathTab(path_tab)
-            }
-            if (geography_tab && geography_tab !== values._geographyTab) {
-                actions.setGeographyTab(geography_tab)
-            }
-            if (path_cleaning && path_cleaning !== values.isPathCleaningEnabled) {
-                actions.setIsPathCleaningEnabled([true, 'true', 1, '1'].includes(path_cleaning))
-            }
-            if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
-                actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
-            }
-            if (compare_filter && !objectsEqual(compare_filter, values.compareFilter)) {
-                actions.setCompareFilter(compare_filter)
-            }
-        },
+        '/web': (pathParams, queryParams) => setFilters(actions, values, pathParams, queryParams),
+        '/web/:productTab': (pathParams, queryParams) => setFilters(actions, values, pathParams, queryParams),
     })),
+
     listeners(({ values, actions }) => {
         const checkGraphsTabIsCompatibleWithConversionGoal = (
             tab: string,
@@ -1950,5 +1913,78 @@ const checkCustomEventConversionGoalHasSessionIdsHelper = async (
         setConversionGoalWarning(ConversionGoalWarning.CustomEventWithNoSessionId)
     } else {
         setConversionGoalWarning(null)
+    }
+}
+
+const setFilters = (
+    actions: typeof webAnalyticsLogic.actions,
+    values: typeof webAnalyticsLogic.values,
+    { productTab }: { productTab?: ProductTab },
+    {
+        filters,
+        'conversionGoal.actionId': conversionGoalActionId,
+        'conversionGoal.customEventName': conversionGoalCustomEventName,
+        date_from,
+        date_to,
+        interval,
+        device_tab,
+        source_tab,
+        graphs_tab,
+        path_tab,
+        geography_tab,
+        path_cleaning,
+        filter_test_accounts,
+        compare_filter,
+    }: Record<string, any>
+): void => {
+    const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
+
+    if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {
+        actions.setWebAnalyticsFilters(parsedFilters)
+    }
+    if (
+        conversionGoalActionId &&
+        conversionGoalActionId !== (values.conversionGoal as ActionConversionGoal)?.actionId
+    ) {
+        actions.setConversionGoal({ actionId: parseInt(conversionGoalActionId, 10) })
+    } else if (
+        conversionGoalCustomEventName &&
+        conversionGoalCustomEventName !== (values.conversionGoal as CustomEventConversionGoal)?.customEventName
+    ) {
+        actions.setConversionGoal({ customEventName: conversionGoalCustomEventName })
+    }
+    if (
+        (date_from && date_from !== values.dateFilter.dateFrom) ||
+        (date_to && date_to !== values.dateFilter.dateTo) ||
+        (interval && interval !== values.dateFilter.interval)
+    ) {
+        actions.setDatesAndInterval(date_from, date_to, interval)
+    }
+    if (device_tab && device_tab !== values._deviceTab) {
+        actions.setDeviceTab(device_tab)
+    }
+    if (source_tab && source_tab !== values._sourceTab) {
+        actions.setSourceTab(source_tab)
+    }
+    if (graphs_tab && graphs_tab !== values._graphsTab) {
+        actions.setGraphsTab(graphs_tab)
+    }
+    if (path_tab && path_tab !== values._pathTab) {
+        actions.setPathTab(path_tab)
+    }
+    if (geography_tab && geography_tab !== values._geographyTab) {
+        actions.setGeographyTab(geography_tab)
+    }
+    if (path_cleaning && path_cleaning !== values.isPathCleaningEnabled) {
+        actions.setIsPathCleaningEnabled([true, 'true', 1, '1'].includes(path_cleaning))
+    }
+    if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
+        actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
+    }
+    if (compare_filter && !objectsEqual(compare_filter, values.compareFilter)) {
+        actions.setCompareFilter(compare_filter)
+    }
+    if (productTab && productTab !== values.productTab) {
+        actions.setProductTab(productTab)
     }
 }
