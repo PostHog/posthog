@@ -701,26 +701,32 @@ def update_feature_flag_dashboard(feature_flag, old_key: str) -> None:
     # We need to update the *system* created insights with the new key, so we search for them by name
     dashboard = feature_flag.usage_dashboard
     total_volume_insight = dashboard.insights.get(name="Feature Flag Called Total Volume")
-    if total_volume_insight:
+    total_volume_insight_description = _get_feature_flag_total_volume_insight_description(feature_flag.key)
+    if total_volume_insight and total_volume_insight_description == _get_feature_flag_total_volume_insight_description(
+        old_key
+    ):
         _update_tile_with_new_key(
             total_volume_insight,
             feature_flag.key,
             old_key,
-            "Shows the number of total calls made on feature flag with key:",
+            total_volume_insight_description,
         )
 
     unique_users_insight = dashboard.insights.get(name="Feature Flag calls made by unique users per variant")
-    if unique_users_insight:
+    unique_users_insight_description = _get_feature_flag_unique_users_insight_description(feature_flag.key)
+    if unique_users_insight and unique_users_insight_description == _get_feature_flag_unique_users_insight_description(
+        old_key
+    ):
         _update_tile_with_new_key(
             unique_users_insight,
             feature_flag.key,
             old_key,
-            "Shows the number of unique user calls made on feature flag per variant with key:",
+            unique_users_insight_description,
         )
 
 
-def _update_tile_with_new_key(insight, new_key: str, old_key: str, description_prefix: str) -> None:
-    insight.description = f"{description_prefix} {new_key}"
+def _update_tile_with_new_key(insight, new_key: str, old_key: str, description: str) -> None:
+    insight.description = description
     if insight.query:
         if insight.query.get("source", {}).get("properties", {}).get("values"):
             for property_group in insight.query["source"]["properties"]["values"]:
