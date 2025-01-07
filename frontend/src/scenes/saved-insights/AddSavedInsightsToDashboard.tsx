@@ -19,18 +19,14 @@ import { urls } from 'scenes/urls'
 
 import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
-import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
+import { addSavedInsightsModalLogic, INSIGHTS_PER_PAGE } from './addSavedInsightsModalLogic'
 import { InsightIcon } from './SavedInsights'
-import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 
 export function AddSavedInsightsToDashboard(): JSX.Element {
-    const { modalPage } = useValues(addSavedInsightsModalLogic)
-    const { setModalPage } = useActions(addSavedInsightsModalLogic)
-
-    const { insights, count, insightsLoading, filters, sorting, dashboardUpdatesInProgress } =
-        useValues(savedInsightsLogic)
-    const { setSavedInsightsFilters, addInsightToDashboard, removeInsightFromDashboard } =
-        useActions(savedInsightsLogic)
+    const { modalPage, insights, count, insightsLoading, filters, sorting, dashboardUpdatesInProgress } =
+        useValues(addSavedInsightsModalLogic)
+    const { setModalPage, addInsightToDashboard, removeInsightFromDashboard, setModalFilters } =
+        useActions(addSavedInsightsModalLogic)
 
     const { hasTagging } = useValues(organizationLogic)
     const { dashboard } = useValues(dashboardLogic)
@@ -133,7 +129,7 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
 
     return (
         <div className="saved-insights">
-            <SavedInsightsFilters />
+            <SavedInsightsFilters filters={filters} setFilters={setModalFilters} />
             <LemonDivider className="my-4" />
             <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                 <span className="text-muted-alt">
@@ -162,7 +158,7 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
                         }}
                         sorting={sorting}
                         onSort={(newSorting) =>
-                            setSavedInsightsFilters({
+                            setModalFilters({
                                 order: newSorting
                                     ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
                                     : undefined,

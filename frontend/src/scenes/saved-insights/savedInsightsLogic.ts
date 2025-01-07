@@ -51,7 +51,7 @@ export interface SavedInsightFilters {
     dashboardId: number | undefined | null
 }
 
-function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
+export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
     return {
         layoutView: values.layoutView || LayoutView.List,
         order: values.order || '-last_modified_at', // Sync with `sorting` selector
@@ -406,7 +406,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             { alert_id, ...searchParams }, // search params,
             hashParams
         ) => {
-            // Add scene check
             if (sceneLogic.findMounted()?.values.activeScene !== Scene.SavedInsights) {
                 return
             }
