@@ -74,6 +74,7 @@ SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
     "rdt_cid",
 }
 
+# synced with frontend/src/lib/taxonomy.tsx
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         "All Events": {
