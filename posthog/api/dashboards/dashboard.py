@@ -3,7 +3,6 @@ from typing import Any, Optional, cast
 
 import structlog
 from django.db.models import Prefetch
-from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -523,9 +522,7 @@ class DashboardsViewSet(
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        pk = kwargs["pk"]
-        queryset = self.get_queryset()
-        dashboard = get_object_or_404(queryset, pk=pk)
+        dashboard = self.get_object()
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
