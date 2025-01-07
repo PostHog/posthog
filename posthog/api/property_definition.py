@@ -1,6 +1,6 @@
 import dataclasses
 import json
-from typing import Any, Optional, cast
+from typing import Any, Optional, cast, Self
 
 from django.db import connection
 from loginas.utils import is_impersonated_session
@@ -126,7 +126,7 @@ class QueryContext:
 
     params: dict = dataclasses.field(default_factory=dict)
 
-    def with_properties_to_filter(self, properties_to_filter: Optional[str]) -> "QueryContext":
+    def with_properties_to_filter(self, properties_to_filter: Optional[str]) -> Self:
         if properties_to_filter:
             return dataclasses.replace(
                 self,
@@ -136,7 +136,7 @@ class QueryContext:
         else:
             return self
 
-    def with_is_numerical_flag(self, is_numerical: Optional[str]) -> "QueryContext":
+    def with_is_numerical_flag(self, is_numerical: Optional[str]) -> Self:
         if is_numerical:
             return dataclasses.replace(
                 self,
@@ -145,7 +145,7 @@ class QueryContext:
         else:
             return self
 
-    def with_feature_flags(self, is_feature_flag: Optional[bool]) -> "QueryContext":
+    def with_feature_flags(self, is_feature_flag: Optional[bool]) -> Self:
         if is_feature_flag is None:
             return self
         elif is_feature_flag:
@@ -202,9 +202,7 @@ class QueryContext:
                 },
             )
 
-    def with_event_property_filter(
-        self, event_names: Optional[str], filter_by_event_names: Optional[bool]
-    ) -> "QueryContext":
+    def with_event_property_filter(self, event_names: Optional[str], filter_by_event_names: Optional[bool]) -> Self:
         event_property_filter = ""
         event_name_filter = ""
         event_property_field = "NULL"
@@ -228,14 +226,14 @@ class QueryContext:
             params={**self.params, "event_names": list(map(str, event_names or []))},
         )
 
-    def with_search(self, search_query: str, search_kwargs: dict) -> "QueryContext":
+    def with_search(self, search_query: str, search_kwargs: dict) -> Self:
         return dataclasses.replace(
             self,
             search_query=search_query,
             params={**self.params, "team_id": self.team_id, **search_kwargs},
         )
 
-    def with_excluded_properties(self, excluded_properties: Optional[str], type: str) -> "QueryContext":
+    def with_excluded_properties(self, excluded_properties: Optional[str], type: str) -> Self:
         if excluded_properties:
             excluded_properties = json.loads(excluded_properties)
 
@@ -305,37 +303,61 @@ class QueryContext:
         )
 
 
-# See frontend/src/lib/taxonomy.tsx for where this came from and see
-# frontend/scripts/print_property_name_aliases.ts for how to regenerate
+# See frontend/src/lib/taxonomy.tsx for where this came from
 PROPERTY_NAME_ALIASES = {
     "$autocapture_disabled_server_side": "Autocapture Disabled Server-Side",
     "$client_session_initial_referring_host": "Referrer Host",
     "$client_session_initial_utm_content": "Initial UTM Source",
     "$client_session_initial_utm_term": "Initial UTM Source",
     "$console_log_recording_enabled_server_side": "Console Log Recording Enabled Server-Side",
+    "$cymbal_errors": "Exception processing errors",
+    "$dead_click_absolute_delay_ms": "Dead click absolute delay in milliseconds",
+    "$dead_click_mutation_delay_ms": "Dead click mutation delay in milliseconds",
+    "$dead_click_scroll_delay_ms": "Dead click scroll delay in milliseconds",
+    "$dead_click_selection_changed_delay_ms": "Dead click selection changed delay in milliseconds",
     "$el_text": "Element Text",
     "$exception_colno": "Exception source column number",
     "$exception_handled": "Exception was handled",
     "$exception_lineno": "Exception source line number",
+    "$feature_flag_payload": "Feature Flag Response Payload",
+    "$geoip_accuracy_radius": "GeoIP detection accuracy radius",
+    "$geoip_city_confidence": "GeoIP detection city confidence",
+    "$geoip_country_confidence": "GeoIP detection country confidence",
     "$geoip_disable": "GeoIP Disabled",
+    "$geoip_subdivision_1_confidence": "GeoIP detection subdivision 1 confidence",
     "$geoip_time_zone": "Timezone",
-    "$group_0": "Group 1",
-    "$group_1": "Group 2",
-    "$group_2": "Group 3",
-    "$group_3": "Group 4",
-    "$group_4": "Group 5",
     "$ip": "IP Address",
     "$lib": "Library",
     "$lib_custom_api_host": "Library Custom API Host",
+    "$lib_rate_limit_remaining_tokens": "Clientside rate limit remaining tokens",
     "$lib_version": "Library Version",
     "$lib_version__major": "Library Version (Major)",
     "$lib_version__minor": "Library Version (Minor)",
     "$lib_version__patch": "Library Version (Patch)",
     "$performance_raw": "Browser Performance",
+    "$prev_pageview_duration": "Previous pageview duration",
+    "$prev_pageview_last_content": "Previous pageview last content",
+    "$prev_pageview_last_content_percentage": "Previous pageview last content percentage",
+    "$prev_pageview_last_scroll": "Previous pageview last scroll",
+    "$prev_pageview_last_scroll_percentage": "Previous pageview last scroll percentage",
+    "$prev_pageview_max_content": "Previous pageview max content",
+    "$prev_pageview_max_content_percentage": "Previous pageview max content percentage",
+    "$prev_pageview_max_scroll": "Previous pageview max scroll",
+    "$prev_pageview_max_scroll_percentage": "Previous pageview max scroll percentage",
+    "$prev_pageview_pathname": "Previous pageview pathname",
+    "$process_person_profile": "Person Profile processing flag",
+    "$recording_status": "Session recording status",
     "$referrer": "Referrer URL",
+    "$replay_minimum_duration": "Replay config - minimum duration",
+    "$replay_sample_rate": "Replay config - sample rate",
     "$selected_content": "Copied content",
     "$session_recording_recorder_version_server_side": "Session Recording Recorder Version Server-Side",
+    "$survey_iteration": "Survey Iteration Number",
     "$user_agent": "Raw User Agent",
+    "$web_vitals_CLS_event": "Web vitals CLS measure event details",
+    "$web_vitals_FCP_event": "Web vitals FCP measure event details",
+    "$web_vitals_INP_event": "Web vitals INP measure event details",
+    "$web_vitals_LCP_event": "Web vitals LCP measure event details",
     "build": "App Build",
     "previous_build": "App Previous Build",
     "previous_version": "App Previous Version",
