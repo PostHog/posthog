@@ -60,18 +60,18 @@ describe('Groups Manager', () => {
             await groupsManager.enrichGroups([globals])
 
             expect(globals.groups).toMatchInlineSnapshot(`
-                Object {
-                  "GroupA": Object {
+                {
+                  "GroupA": {
                     "id": "id-1",
                     "index": 0,
-                    "properties": Object {},
+                    "properties": {},
                     "type": "GroupA",
                     "url": "http://localhost:8000/projects/1/groups/0/id-1",
                   },
-                  "GroupB": Object {
+                  "GroupB": {
                     "id": "id-2",
                     "index": 1,
-                    "properties": Object {},
+                    "properties": {},
                     "type": "GroupB",
                     "url": "http://localhost:8000/projects/1/groups/1/id-2",
                   },
@@ -95,20 +95,20 @@ describe('Groups Manager', () => {
             await groupsManager.enrichGroups([globals])
 
             expect(globals.groups).toMatchInlineSnapshot(`
-                Object {
-                  "GroupA": Object {
+                {
+                  "GroupA": {
                     "id": "id-1",
                     "index": 0,
-                    "properties": Object {
+                    "properties": {
                       "prop": "value-1",
                     },
                     "type": "GroupA",
                     "url": "http://localhost:8000/projects/1/groups/0/id-1",
                   },
-                  "GroupB": Object {
+                  "GroupB": {
                     "id": "id-2",
                     "index": 1,
-                    "properties": Object {
+                    "properties": {
                       "prop": "value-2",
                     },
                     "type": "GroupB",
@@ -145,31 +145,31 @@ describe('Groups Manager', () => {
             await groupsManager.enrichGroups(items)
 
             expect(items[0].groups).toMatchInlineSnapshot(`
-                Object {
-                  "GroupA": Object {
+                {
+                  "GroupA": {
                     "id": "id-1",
                     "index": 0,
-                    "properties": Object {
+                    "properties": {
                       "prop": "value-team-1",
                     },
                     "type": "GroupA",
                     "url": "http://localhost:8000/projects/1/groups/0/id-1",
                   },
-                  "GroupB": Object {
+                  "GroupB": {
                     "id": "id-2",
                     "index": 1,
-                    "properties": Object {},
+                    "properties": {},
                     "type": "GroupB",
                     "url": "http://localhost:8000/projects/1/groups/1/id-2",
                   },
                 }
             `)
             expect(items[1].groups).toMatchInlineSnapshot(`
-                Object {
-                  "GroupA": Object {
+                {
+                  "GroupA": {
                     "id": "id-1",
                     "index": 0,
-                    "properties": Object {
+                    "properties": {
                       "prop": "value-team-1",
                     },
                     "type": "GroupA",
@@ -178,11 +178,11 @@ describe('Groups Manager', () => {
                 }
             `)
             expect(items[2].groups).toMatchInlineSnapshot(`
-                Object {
-                  "GroupA": Object {
+                {
+                  "GroupA": {
                     "id": "id-1",
                     "index": 1,
-                    "properties": Object {
+                    "properties": {
                       "prop": "value-team-2",
                     },
                     "type": "GroupA",
