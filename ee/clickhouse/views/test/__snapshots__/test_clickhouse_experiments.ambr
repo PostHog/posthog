@@ -1465,23 +1465,23 @@
          99999 as team_id,
          -1 AS sign,
          0 AS version
-  FROM
-    (SELECT persons.id AS id
-     FROM
-       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$pageview'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$pageview`,
-               person.id AS id
-        FROM person
-        WHERE and(equals(person.team_id, 99999), in(id,
-                                                      (SELECT where_optimization.id AS id
-                                                       FROM person AS where_optimization
-                                                       WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$pageview'), ''), 'null'), '^"|"$', ''), 'http://example.com'), 0)))))
-        GROUP BY person.id
-        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-     WHERE ifNull(equals(persons.`properties___$pageview`, 'http://example.com'), 0)
-     ORDER BY persons.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') as person SETTINGS optimize_aggregation_in_order = 1,
-                                                                  join_algorithm = 'auto'
+  FROM (
+          (SELECT persons.id AS id
+           FROM
+             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$pageview'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$pageview`,
+                     person.id AS id
+              FROM person
+              WHERE and(equals(person.team_id, 99999), in(id,
+                                                            (SELECT where_optimization.id AS id
+                                                             FROM person AS where_optimization
+                                                             WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$pageview'), ''), 'null'), '^"|"$', ''), 'http://example.com'), 0)))))
+              GROUP BY person.id
+              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+           WHERE ifNull(equals(persons.`properties___$pageview`, 'http://example.com'), 0)
+           ORDER BY persons.id ASC
+           LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                              join_algorithm='auto')) as person SETTINGS optimize_aggregation_in_order = 1,
+                                                                         join_algorithm = 'auto'
   '''
 # ---
 # name: TestExperimentAuxiliaryEndpoints.test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure.2
@@ -1566,33 +1566,35 @@
          99999 as team_id,
          -1 AS sign,
          0 AS version
-  FROM
-    (SELECT source.id AS id
-     FROM
-       (SELECT actor_id AS actor_id,
-               count() AS event_count,
-               actor_id AS id
-        FROM
-          (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                  toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                  e.uuid AS uuid
-           FROM events AS e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'bonk'), ''), 'null'), '^"|"$', ''), 'bonk'), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), tuple('x', 'y')), 0)), greaterOrEquals(timestamp, toDateTime64('2024-12-18 12:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2024-12-23 23:59:59.999999', 6, 'UTC')), or(and(equals(e.event, 'insight viewed'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'insight'), ''), 'null'), '^"|"$', ''), 'RETENTION'), 0), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 1)))), 0))), and(equals(e.event, 'insight viewed'), ifNull(greater(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'filters_count'), ''), 'null'), '^"|"$', ''), '1'), 0)), and(equals(e.event, '$autocapture'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), '/123'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull('/123'))))))
-        GROUP BY actor_id) AS source
-     ORDER BY source.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') as person SETTINGS optimize_aggregation_in_order = 1,
-                                                                  join_algorithm = 'auto'
+  FROM (
+          (SELECT source.id AS id
+           FROM
+             (SELECT actor_id AS actor_id,
+                     count() AS event_count,
+                     groupUniqArray(distinct_id) AS event_distinct_ids,
+                     actor_id AS id
+              FROM
+                (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
+                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.uuid AS uuid,
+                        e.distinct_id AS distinct_id
+                 FROM events AS e
+                 LEFT OUTER JOIN
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                           person_distinct_id_overrides.distinct_id AS distinct_id
+                    FROM person_distinct_id_overrides
+                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                    GROUP BY person_distinct_id_overrides.distinct_id
+                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 WHERE and(equals(e.team_id, 99999), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'bonk'), ''), 'null'), '^"|"$', ''), 'bonk'), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), tuple('x', 'y')), 0)), greaterOrEquals(timestamp, toDateTime64('2025-01-02 09:44:52.418525', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2025-01-07 23:59:59.999999', 6, 'UTC')), or(and(equals(e.event, 'insight viewed'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'insight'), ''), 'null'), '^"|"$', ''), 'RETENTION'), 0), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 1)))), 0))), and(equals(e.event, 'insight viewed'), ifNull(greater(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'filters_count'), ''), 'null'), '^"|"$', ''), '1'), 0)), and(equals(e.event, '$autocapture'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), '/123'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull('/123'))))))
+              GROUP BY actor_id) AS source
+           ORDER BY source.id ASC
+           LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                              join_algorithm='auto')) as person SETTINGS optimize_aggregation_in_order = 1,
+                                                                         join_algorithm = 'auto'
   '''
 # ---
