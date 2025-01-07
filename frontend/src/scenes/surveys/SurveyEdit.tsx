@@ -742,7 +742,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                     groups: [
                                                                         {
                                                                             properties: [],
-                                                                            rollout_percentage: 50,
+                                                                            rollout_percentage: 100,
                                                                             variant: null,
                                                                         },
                                                                     ],
