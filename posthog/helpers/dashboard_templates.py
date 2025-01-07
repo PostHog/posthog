@@ -572,7 +572,7 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
     _create_tile_for_insight(
         dashboard,
         name="Feature Flag Called Total Volume",
-        description="Shows the number of total calls made on feature flag with key: " + feature_flag.key,
+        description=_get_feature_flag_total_volume_insight_description(feature_flag.key),
         query={
             "kind": "InsightVizNode",
             "source": {
@@ -628,8 +628,7 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
     _create_tile_for_insight(
         dashboard,
         name="Feature Flag calls made by unique users per variant",
-        description="Shows the number of unique user calls made on feature flag per variant with key: "
-        + feature_flag.key,
+        description=_get_feature_flag_unique_users_insight_description(feature_flag.key),
         query={
             "kind": "InsightVizNode",
             "source": {
@@ -688,6 +687,48 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
         },
         color="green",
     )
+
+
+def _get_feature_flag_total_volume_insight_description(feature_flag_key: str) -> str:
+    return f"Shows the number of total calls made on feature flag with key: {feature_flag_key}"
+
+
+def _get_feature_flag_unique_users_insight_description(feature_flag_key: str) -> str:
+    return f"Shows the number of unique user calls made on feature flag per variant with key: {feature_flag_key}"
+
+
+def update_feature_flag_dashboard(feature_flag, old_key: str) -> None:
+    # We need to update the *system* created insights with the new key, so we search for them by name
+    dashboard = feature_flag.usage_dashboard
+    total_volume_insight = dashboard.insights.get(name="Feature Flag Called Total Volume")
+    if total_volume_insight:
+        _update_tile_with_new_key(
+            total_volume_insight,
+            feature_flag.key,
+            old_key,
+            "Shows the number of total calls made on feature flag with key:",
+        )
+
+    unique_users_insight = dashboard.insights.get(name="Feature Flag calls made by unique users per variant")
+    if unique_users_insight:
+        _update_tile_with_new_key(
+            unique_users_insight,
+            feature_flag.key,
+            old_key,
+            "Shows the number of unique user calls made on feature flag per variant with key:",
+        )
+
+
+def _update_tile_with_new_key(insight, new_key: str, old_key: str, description_prefix: str) -> None:
+    insight.description = f"{description_prefix} {new_key}"
+    if insight.query:
+        if insight.query.get("source", {}).get("properties", {}).get("values"):
+            for property_group in insight.query["source"]["properties"]["values"]:
+                for property_value in property_group.get("values", []):
+                    if property_value.get("key") == "$feature_flag" and property_value.get("value") == old_key:
+                        property_value["value"] = new_key
+        insight.query = insight.query  # Trigger field update
+    insight.save()
 
 
 def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
