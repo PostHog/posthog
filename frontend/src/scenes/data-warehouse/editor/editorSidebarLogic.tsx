@@ -227,10 +227,10 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                             }
                             acc[table.source.source_type].push(table)
                         } else {
-                            if (!acc['S3']) {
-                                acc['S3'] = []
+                            if (!acc['Self-managed']) {
+                                acc['Self-managed'] = []
                             }
-                            acc['S3'].push(table)
+                            acc['Self-managed'].push(table)
                         }
                         return acc
                     },
