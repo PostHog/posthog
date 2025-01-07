@@ -83,12 +83,12 @@ def _strip_person_and_event_and_cohort_properties(
         return None
 
     properties_to_keep = [
-        g
-        for g in properties
-        if not is_event_property(g)
-        and not is_person_property(g)
-        and not is_group_property(g)
-        and not is_cohort_property(g)
+        p
+        for p in properties
+        if not is_event_property(p)
+        and not is_person_property(p)
+        and not is_group_property(p)
+        and not is_cohort_property(p)
     ]
 
     return properties_to_keep

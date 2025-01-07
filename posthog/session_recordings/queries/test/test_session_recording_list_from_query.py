@@ -4243,3 +4243,105 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "ongoing": 1,
             }
         ]
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_can_filter_for_flags(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "1",
+                "$window_id": "1",
+                "$feature/target-flag": True,
+            },
+        )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="2",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "2",
+                "$window_id": "1",
+                "$feature/target-flag": False,
+            },
+        )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="3",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "3",
+                "$window_id": "1",
+                "$feature/flag-that-is-different": False,
+            },
+        )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="4",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "4",
+                "$window_id": "1",
+            },
+        )
+
+        # session 1 - target flag is True
+        target_flag_is_true = {
+            "properties": [
+                {"type": "event", "key": "$feature/target-flag", "operator": "exact", "value": ["true"]},
+            ],
+        }
+        # session 2 - target flag is False
+        target_flag_is_false = {
+            "properties": [{"type": "event", "key": "$feature/target-flag", "operator": "exact", "value": ["false"]}],
+        }
+        # 1 and 2 flag is present
+        target_flag_is_set = {
+            "properties": [{"type": "event", "key": "$feature/target-flag", "operator": "is_set", "value": "is_set"}],
+        }
+        # session 3 - target flag is not present
+        # and session 4 - no flag is present
+        target_flag_is_not_set = {
+            "properties": [
+                {"type": "event", "key": "$feature/target-flag", "operator": "is_not_set", "value": "is_not_set"}
+            ],
+        }
+
+        (session_recordings, _, _) = self._filter_recordings_by(target_flag_is_true)
+        assert [sr["session_id"] for sr in session_recordings] == ["1"]
+
+        (session_recordings, _, _) = self._filter_recordings_by(target_flag_is_false)
+        assert [sr["session_id"] for sr in session_recordings] == ["2"]
+
+        (session_recordings, _, _) = self._filter_recordings_by(target_flag_is_set)
+        assert sorted([sr["session_id"] for sr in session_recordings]) == ["1", "2"]
+
+        (session_recordings, _, _) = self._filter_recordings_by(target_flag_is_not_set)
+        assert sorted([sr["session_id"] for sr in session_recordings]) == ["3", "4"]
