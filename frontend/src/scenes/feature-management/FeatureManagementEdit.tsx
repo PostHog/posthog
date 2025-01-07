@@ -8,6 +8,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { featureManagementEditLogic } from './featureManagementEditLogic'
+import { FeatureManagementMetricsForm } from './FeatureManagementMetricsForm'
 
 export const scene: SceneExport = {
     component: FeatureManagementEdit,
@@ -25,7 +26,7 @@ function FeatureManagementEdit(): JSX.Element {
             id="feature-creation"
             logic={featureManagementEditLogic}
             props={props}
-            formKey="feature"
+            formKey="featureForm"
             enableFormOnSubmit
             className="space-y-4"
         >
@@ -86,6 +87,10 @@ function FeatureManagementEdit(): JSX.Element {
                     </LemonField>
                 </div>
             </div>
+            <LemonDivider />
+
+            <FeatureManagementMetricsForm />
+
             <LemonDivider />
 
             <div className="flex items-center gap-2 justify-end">

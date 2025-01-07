@@ -7,42 +7,13 @@ import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { TrendsQuery } from '~/queries/schema'
 import { Breadcrumb, FeatureType } from '~/types'
 
-import type { featureManagementEditLogicType } from './featureManagementEditLogicType'
 import { featureManagementLogic } from './featureManagementLogic'
+import type { featureManagementMetricsFormLogicType } from './featureManagementMetricsFormLogicType'
 
-export interface FeatureLogicProps {
-    /** Either a UUID or "new". */
-    id: string
-}
-
-export type FeatureMetric = {
-    name: string
-    query: TrendsQuery
-}
-
-export type FeatureForm = {
-    name: string
-    key: string
-    description: string
-    success_metrics: FeatureMetric[]
-    failure_metrics: FeatureMetric[]
-    exposure_metrics: FeatureMetric[]
-}
-
-const NEW_FEATURE: FeatureForm = {
-    key: '',
-    name: '',
-    description: '',
-    success_metrics: [],
-    failure_metrics: [],
-    exposure_metrics: [],
-}
-
-export const featureManagementEditLogic = kea<featureManagementEditLogicType>([
-    props({} as FeatureLogicProps),
+export const featureManagementMetricsFormLogic = kea<featureManagementMetricsFormLogicType>([
+    props({}),
     path(['scenes', 'features', 'featureManagementNewLogic']),
     connect({
         actions: [featureManagementLogic, ['loadFeatures']],

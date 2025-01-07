@@ -5,7 +5,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { NewFeatureForm } from 'scenes/feature-management/featureManagementEditLogic'
+import { FeatureForm } from 'scenes/feature-management/featureManagementEditLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
@@ -1060,7 +1060,7 @@ const api = {
             return await new ApiRequest().feature(id, teamId).get()
         },
         async create(
-            feature: NewFeatureForm,
+            feature: FeatureForm,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<FeatureType> {
             return await new ApiRequest().features(teamId).create({ data: feature })
@@ -1068,7 +1068,7 @@ const api = {
         async update(
             feature: FeatureType,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
-        ): Promise<FeatureType> {
+        ): Promise<FeatureForm> {
             return await new ApiRequest().feature(feature.id, teamId).update({ data: feature })
         },
     },
