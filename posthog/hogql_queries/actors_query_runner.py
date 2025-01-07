@@ -40,6 +40,7 @@ class ActorsQueryRunner(QueryRunner):
             self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
 
         self.strategy = self.determine_strategy()
+        self.calculating = False
 
     @property
     def group_type_index(self) -> int | None:
@@ -102,7 +103,7 @@ class ActorsQueryRunner(QueryRunner):
         matching_events_list = itertools.chain.from_iterable(row[column_index_events] for row in self.paginator.results)
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
-    def calculate(self) -> ActorsQueryResponse:
+    def _calculate(self) -> ActorsQueryResponse:
         # Funnel queries require the experimental analyzer to run correctly
         # Can remove once clickhouse moves to version 24.3 or above
         settings = None
@@ -159,14 +160,21 @@ class ActorsQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
-    def input_columns(self, calculate: bool = False) -> list[str]:
+    def calculate(self) -> ActorsQueryResponse:
+        try:
+            self.calculating = True
+            return self._calculate()
+        finally:
+            self.calculating = False
+
+    def input_columns(self) -> list[str]:
         if self.query.select:
             # If we're calculating, which involves hydrating for the actors modal, we include event_distinct_ids
             # See https://github.com/PostHog/posthog/pull/27131
             if (
-                calculate
-                and isinstance(self.source, InsightActorsQuery)
-                and isinstance(self.source.source, TrendsQuery)
+                self.calculating
+                and isinstance(self.query.source, InsightActorsQuery)
+                and isinstance(self.query.source.source, TrendsQuery)
             ):
                 return list(dict.fromkeys([*self.query.select, "event_distinct_ids"]))
             return self.query.select
