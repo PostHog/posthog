@@ -636,7 +636,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin, 
                     (
                         dashboard_filters_override
                         if dashboard_filters_override is not None
-                        else dashboard.filters if dashboard else {}
+                        else dashboard.filters
+                        if dashboard
+                        else {}
                     ),
                     instance.team,
                 )
