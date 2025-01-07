@@ -13,6 +13,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { hogqlQuery } from '~/queries/query'
@@ -36,6 +37,7 @@ import {
 import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
     BaseMathType,
+    Breadcrumb,
     ChartDisplayType,
     EventDefinition,
     EventDefinitionType,
@@ -483,6 +485,28 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
     }),
     selectors(({ actions, values }) => ({
+        breadcrumbs: [
+            (s) => [s.productTab],
+            (productTab: ProductTab): Breadcrumb[] => {
+                const breadcrumbs: Breadcrumb[] = [
+                    {
+                        key: Scene.WebAnalytics,
+                        name: `Web Analytics`,
+                        path: urls.webAnalytics(),
+                    },
+                ]
+
+                if (productTab === ProductTab.CORE_WEB_VITALS) {
+                    breadcrumbs.push({
+                        key: Scene.WebAnalyticsCoreWebVitals,
+                        name: `Core Web Vitals`,
+                        path: urls.webAnalyticsCoreWebVitals(),
+                    })
+                }
+
+                return breadcrumbs
+            },
+        ],
         graphsTab: [(s) => [s._graphsTab], (graphsTab: string | null) => graphsTab || GraphsTab.UNIQUE_USERS],
         sourceTab: [(s) => [s._sourceTab], (sourceTab: string | null) => sourceTab || SourceTab.CHANNEL],
         deviceTab: [(s) => [s._deviceTab], (deviceTab: string | null) => deviceTab || DeviceTab.DEVICE_TYPE],
