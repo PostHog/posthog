@@ -29,7 +29,7 @@ from ee.hogai.memory.prompts import (
     MEMORY_COLLECTOR_PROMPT,
     TOOL_CALL_ERROR_PROMPT,
 )
-from ee.hogai.utils.helpers import filter_messages, find_last_message_of_type, slice_messages_to_conversation_start
+from ee.hogai.utils.helpers import filter_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -261,7 +261,7 @@ class MemoryCollectorNode(AssistantNode):
         node_messages = state.memory_collection_messages or []
 
         prompt = ChatPromptTemplate.from_messages(
-            ("system", MEMORY_COLLECTOR_PROMPT), template_format="mustache"
+            [("system", MEMORY_COLLECTOR_PROMPT)], template_format="mustache"
         ) + self._construct_messages(state)
         chain = prompt | self._model | raise_memory_updated
 
@@ -287,13 +287,9 @@ class MemoryCollectorNode(AssistantNode):
         return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True).bind_tools(memory_collector_tools)
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
-        start_id = state.start_id
         node_messages = state.memory_collection_messages or []
 
-        filtered_messages = filter_messages(
-            slice_messages_to_conversation_start(state.messages, start_id),
-            entity_filter=(HumanMessage, AssistantMessage),
-        )
+        filtered_messages = filter_messages(state.messages, entity_filter=(HumanMessage, AssistantMessage))
         conversation: list[BaseMessage] = []
 
         for message in filtered_messages:
