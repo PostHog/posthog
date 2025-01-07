@@ -112,9 +112,9 @@ export default function SurveyEdit(): JSX.Element {
         },
     ]
 
-    const adaptiveLimitFFENabled = featureFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_LIMITS]
+    const adaptiveLimitFFEnabled = featureFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_LIMITS]
 
-    if (adaptiveLimitFFENabled) {
+    if (adaptiveLimitFFEnabled) {
         surveyLimitOptions.push({
             value: 'until_adaptive_limit',
             label: 'Collect a certain number of surveys per day, week or month',
@@ -126,12 +126,12 @@ export default function SurveyEdit(): JSX.Element {
     useMemo(() => {
         if (surveyUsesLimit) {
             setDataCollectionType('until_limit')
-        } else if (surveyUsesAdaptiveLimit && adaptiveLimitFFENabled) {
+        } else if (surveyUsesAdaptiveLimit && adaptiveLimitFFEnabled) {
             setDataCollectionType('until_adaptive_limit')
         } else {
             setDataCollectionType('until_stopped')
         }
-    }, [surveyUsesLimit, surveyUsesAdaptiveLimit, adaptiveLimitFFENabled, setDataCollectionType])
+    }, [surveyUsesLimit, surveyUsesAdaptiveLimit, adaptiveLimitFFEnabled, setDataCollectionType])
 
     if (survey.iteration_count && survey.iteration_count > 0) {
         setSchedule('recurring')
