@@ -168,7 +168,14 @@ class ActorsQueryRunner(QueryRunner):
             self.calculating = False
 
     def input_columns(self) -> list[str]:
+        strategy_input_cols = self.strategy.input_columns()
         if self.query.select:
+            if (
+                self.calculating
+                and "event_distinct_ids" in strategy_input_cols
+                and "event_distinct_ids" not in self.query.select
+            ):
+                return [*self.query.select, "event_distinct_ids"]
             return self.query.select
 
         return self.strategy.input_columns()
