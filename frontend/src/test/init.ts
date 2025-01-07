@@ -25,10 +25,6 @@ export function initKeaTests(
         ...window.POSTHOG_APP_CONTEXT,
         current_team: teamForWindowContext,
         current_project: projectForWindowContext,
-        event_property_definitions: {
-            $a: { label: 'A', description: '' },
-            $b: { label: 'B', description: '' },
-        },
     } as unknown as AppContext
     posthog.init('no token', {
         autocapture: false,
