@@ -548,6 +548,9 @@ class CustomChannelField(StrEnum):
     UTM_MEDIUM = "utm_medium"
     UTM_CAMPAIGN = "utm_campaign"
     REFERRING_DOMAIN = "referring_domain"
+    URL = "url"
+    PATHNAME = "pathname"
+    HOSTNAME = "hostname"
 
 
 class CustomChannelOperator(StrEnum):
@@ -743,6 +746,7 @@ class ErrorTrackingIssue(BaseModel):
     )
     assignee: Optional[float] = None
     description: Optional[str] = None
+    earliest: str
     first_seen: AwareDatetime
     id: str
     last_seen: AwareDatetime

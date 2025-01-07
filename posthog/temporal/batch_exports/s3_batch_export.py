@@ -327,7 +327,7 @@ class S3MultiPartUpload:
 
         return self.upload_id
 
-    async def complete(self) -> str:
+    async def complete(self) -> str | None:
         if self.is_upload_in_progress() is False:
             raise NoUploadInProgressError()
 
@@ -343,7 +343,7 @@ class S3MultiPartUpload:
         self.upload_id = None
         self.parts = []
 
-        return response["Location"]
+        return response.get("Key")
 
     async def abort(self):
         """Abort this S3 multi-part upload."""
@@ -753,6 +753,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
+            max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
         )
         records_completed = 0
 

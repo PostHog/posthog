@@ -1974,6 +1974,7 @@ export interface ErrorTrackingIssue {
     first_seen: string
     /**  @format date-time */
     last_seen: string
+    earliest: string
     // Sparkline data handled by the DataTable
     volume?: any
     assignee: number | null
@@ -2559,6 +2560,9 @@ export enum CustomChannelField {
     UTMMedium = 'utm_medium',
     UTMCampaign = 'utm_campaign',
     ReferringDomain = 'referring_domain',
+    URL = 'url',
+    Pathname = 'pathname',
+    Hostname = 'hostname',
 }
 
 export enum CustomChannelOperator {
