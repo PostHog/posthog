@@ -668,7 +668,13 @@ export function DeltaChart({
                             {metricType === InsightType.TRENDS ? (
                                 <>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">Count:</span>
+                                        <span className="text-muted font-semibold">
+                                            {metricType === InsightType.TRENDS &&
+                                            result.exposure_query?.series?.[0]?.math
+                                                ? 'Total'
+                                                : 'Count'}
+                                            :
+                                        </span>
                                         <span className="font-semibold">
                                             {(() => {
                                                 const count = countDataForVariant(result, tooltipData.variant)
