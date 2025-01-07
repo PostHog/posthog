@@ -963,6 +963,93 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "a-new-feature-flag-key",
         )
 
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_key_does_not_update_changed_insights(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            # Assert that the insights were created properly.
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            insights = feature_flag.usage_dashboard.insights.all()
+            total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+            self.assertEqual(
+                total_volume_insight.description,
+                "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+            self.assertEqual(
+                unique_users_insight.description,
+                "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            total_volume_insight.name = "This is a changed description"
+            total_volume_insight.save()
+
+            # Update the feature flag key
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "key": "a-new-feature-flag-key",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 65,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "@posthog.com",
+                                        "operator": "icontains",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Total volume insight should not be updated because we changed its description
+        # unique users insight should still be updated
+        feature_flag = FeatureFlag.objects.get(id=flag_id)
+        insights = feature_flag.usage_dashboard.insights.all()
+        self.assertIsNone(insights.filter(name="Feature Flag Called Total Volume").first())
+        total_volume_insight = insights.get(name="This is a changed description")
+        self.assertEqual(
+            total_volume_insight.description,
+            "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+        )
+        self.assertEqual(
+            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-feature-flag-that-is-updated",
+        )
+        unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+        self.assertEqual(
+            unique_users_insight.description,
+            "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
+        )
+        self.assertEqual(
+            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-new-feature-flag-key",
+        )
+
     def test_hard_deleting_feature_flag_is_forbidden(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 

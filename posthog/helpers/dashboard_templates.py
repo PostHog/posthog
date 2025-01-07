@@ -556,6 +556,7 @@ def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> N
 
     create_from_template(dashboard, template)
 
+
 FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME = "Feature Flag Called Total Volume"
 FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME = "Feature Flag calls made by unique users per variant"
 
@@ -691,6 +692,7 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
         color="green",
     )
 
+
 def _get_feature_flag_total_volume_insight_description(feature_flag_key: str) -> str:
     return f"Shows the number of total calls made on feature flag with key: {feature_flag_key}"
 
@@ -706,7 +708,7 @@ def update_feature_flag_dashboard(feature_flag, old_key: str) -> None:
     if not dashboard:
         return
 
-    total_volume_insight = dashboard.insights.get(name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME)
+    total_volume_insight = dashboard.insights.filter(name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME).first()
     if total_volume_insight:
         _update_tile_with_new_key(
             total_volume_insight,
@@ -715,7 +717,7 @@ def update_feature_flag_dashboard(feature_flag, old_key: str) -> None:
             _get_feature_flag_total_volume_insight_description,
         )
 
-    unique_users_insight = dashboard.insights.get(name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME)
+    unique_users_insight = dashboard.insights.filter(name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME).first()
     if unique_users_insight:
         _update_tile_with_new_key(
             unique_users_insight,
@@ -728,10 +730,10 @@ def update_feature_flag_dashboard(feature_flag, old_key: str) -> None:
 def _update_tile_with_new_key(insight, new_key: str, old_key: str, descriptionFunction: Callable[[str], str]) -> None:
     old_description = descriptionFunction(old_key)
     new_description = descriptionFunction(new_key)
-    
-    if insight.description != old_description: # We don't touch insights that have been manually edited
+
+    if insight.description != old_description:  # We don't touch insights that have been manually edited
         return
-    
+
     insight.description = new_description
     if insight.query:
         if insight.query.get("source", {}).get("properties", {}).get("values"):
