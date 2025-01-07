@@ -101,8 +101,8 @@ function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupInde
                             <TextAnswer
                                 key={key}
                                 message={message}
-                                retriable={messageIndex === messages.length - 1 && isGroupFinal}
                                 interactable={messageIndex === messages.length - 1}
+                                finalGroup={isGroupFinal}
                                 messageGroupIndex={messageGroupIndex}
                             />
                         )
@@ -174,15 +174,17 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
 
 interface TextAnswerProps {
     message: (AssistantMessage | FailureMessage) & ThreadMessage
-    retriable: boolean
     messageGroupIndex: number
     interactable?: boolean
+    finalGroup?: boolean
 }
 
 const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function TextAnswer(
-    { message, retriable, messageGroupIndex, interactable },
+    { message, messageGroupIndex, interactable, finalGroup },
     ref
 ) {
+    const retriable = !!(interactable && finalGroup)
+
     const action = (() => {
         if (message.status !== 'completed') {
             return null
@@ -199,7 +201,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
         if (isAssistantMessage(message) && interactable) {
             // Message has been interrupted with a form
-            if (message.meta?.form?.options) {
+            if (message.meta?.form?.options && finalGroup) {
                 return <AssistantMessageForm form={message.meta.form} />
             }
 
