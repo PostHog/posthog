@@ -1552,7 +1552,8 @@
   SELECT persons.id AS id,
          persons.created_at AS created_at,
          source.event_count AS event_count,
-         source.matching_events AS matching_events
+         source.matching_events AS matching_events,
+         source.event_distinct_ids AS event_distinct_ids
   FROM
     (SELECT actor_id AS actor_id,
             count() AS event_count,
