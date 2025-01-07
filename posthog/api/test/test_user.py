@@ -207,6 +207,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response_data["team"]["id"], self.team.id)
         self.assertEqual(response_data["has_seen_product_intro_for"], {"feature_flags": True})
         self.assertEqual(response_data["role_at_organization"], "engineering")
+
         user.refresh_from_db()
         self.assertNotEqual(user.pk, 1)
         self.assertNotEqual(user.uuid, 1)
