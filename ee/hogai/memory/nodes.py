@@ -1,5 +1,5 @@
 import re
-from typing import Literal, Union, cast
+from typing import Literal, Optional, Union, cast
 from uuid import uuid4
 
 from django.utils import timezone
@@ -71,14 +71,14 @@ class MemoryInitializerContextMixin:
 
 
 class MemoryOnboardingNode(MemoryInitializerContextMixin, AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         retrieved_properties = self._retrieve_context()
 
         # No host or app bundle ID found, continue.
         if not retrieved_properties or retrieved_properties[0].sample_count == 0:
             core_memory.change_status_to_skipped()
-            return PartialAssistantState()
+            return None
 
         core_memory.change_status_to_pending()
         return PartialAssistantState(
