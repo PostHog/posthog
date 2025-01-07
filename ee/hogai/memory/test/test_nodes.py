@@ -371,6 +371,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
 
             core_memory = CoreMemory.objects.get(team=self.team)
             self.assertEqual(core_memory.text, "Compressed memory")
+            self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.COMPLETED)
 
     def test_memory_rejected(self):
         state = AssistantState(
@@ -389,6 +390,9 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
             new_state.messages[0].content,
             "All right, let's skip this step. You could edit my initial memory in Settings.",
         )
+
+        self.core_memory.refresh_from_db()
+        self.assertEqual(self.core_memory.scraping_status, CoreMemory.ScrapingStatus.SKIPPED)
 
     def test_error_when_last_message_not_human(self):
         state = AssistantState(

@@ -190,7 +190,13 @@ class MemoryInitializerInterruptNode(AssistantNode):
             )
         if not isinstance(last_message, HumanMessage):
             raise ValueError("Last message is not a human message.")
+
+        core_memory = self.core_memory
+        if not core_memory:
+            raise ValueError("No core memory found.")
+
         if last_message.content != self.OPTIONS[0]:
+            core_memory.change_status_to_skipped()
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
@@ -199,10 +205,6 @@ class MemoryInitializerInterruptNode(AssistantNode):
                     )
                 ]
             )
-
-        core_memory = self.core_memory
-        if not core_memory:
-            raise ValueError("No core memory found.")
 
         assistant_message = find_last_message_of_type(state.messages, AssistantMessage)
 
