@@ -314,8 +314,8 @@ importers:
         specifier: ^9.3.0
         version: 9.3.0(postcss@8.4.31)
       posthog-js:
-        specifier: 1.202.5
-        version: 1.202.5
+        specifier: 1.204.0
+        version: 1.204.0
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -857,7 +857,7 @@ importers:
         version: 2.12.0(@parcel/core@2.13.3)(typescript@5.7.2)
       '@swc-node/register':
         specifier: ^1.9.1
-        version: 1.10.9(@swc/core@1.10.1)(@swc/types@0.1.5)(typescript@5.7.2)
+        version: 1.10.9(@swc/core@1.10.1)(@swc/types@0.1.17)(typescript@5.7.2)
       '@swc/core':
         specifier: ^1.5.7
         version: 1.10.1
@@ -1047,6 +1047,9 @@ importers:
       vm2:
         specifier: 3.9.18
         version: 3.9.18
+      zod:
+        specifier: ^3.24.1
+        version: 3.24.1
     devDependencies:
       0x:
         specifier: ^5.5.0
@@ -1062,7 +1065,7 @@ importers:
         version: 7.112.1
       '@swc-node/register':
         specifier: ^1.5.1
-        version: 1.10.9(@swc/core@1.10.1)(@swc/types@0.1.5)(typescript@4.9.5)
+        version: 1.10.9(@swc/core@1.10.1)(@swc/types@0.1.17)(typescript@4.9.5)
       '@swc/core':
         specifier: ^1.2.186
         version: 1.10.1
@@ -6995,6 +6998,8 @@ packages:
       '@parcel/logger': 2.12.0
       '@parcel/utils': 2.12.0
       lmdb: 2.8.5
+    transitivePeerDependencies:
+      - '@swc/helpers'
     dev: true
 
   /@parcel/cache@2.13.3(@parcel/core@2.13.3):
@@ -8005,8 +8010,6 @@ packages:
       '@parcel/types': 2.12.0(@parcel/core@2.13.3)
       '@parcel/utils': 2.12.0
       nullthrows: 1.1.1
-    transitivePeerDependencies:
-      - '@swc/helpers'
     dev: true
 
   /@parcel/workers@2.13.3(@parcel/core@2.13.3):
@@ -10724,7 +10727,7 @@ packages:
       sucrase: 3.29.0
     dev: true
 
-  /@swc-node/core@1.13.3(@swc/core@1.10.1)(@swc/types@0.1.5):
+  /@swc-node/core@1.13.3(@swc/core@1.10.1)(@swc/types@0.1.17):
     resolution: {integrity: sha512-OGsvXIid2Go21kiNqeTIn79jcaX4l0G93X2rAnas4LFoDyA9wAwVK7xZdm+QsKoMn5Mus2yFLCc4OtX2dD/PWA==}
     engines: {node: '>= 10'}
     peerDependencies:
@@ -10732,16 +10735,16 @@ packages:
       '@swc/types': '>= 0.1'
     dependencies:
       '@swc/core': 1.10.1
-      '@swc/types': 0.1.5
+      '@swc/types': 0.1.17
     dev: true
 
-  /@swc-node/register@1.10.9(@swc/core@1.10.1)(@swc/types@0.1.5)(typescript@4.9.5):
+  /@swc-node/register@1.10.9(@swc/core@1.10.1)(@swc/types@0.1.17)(typescript@4.9.5):
     resolution: {integrity: sha512-iXy2sjP0phPEpK2yivjRC3PAgoLaT4sjSk0LDWCTdcTBJmR4waEog0E6eJbvoOkLkOtWw37SB8vCkl/bbh4+8A==}
     peerDependencies:
       '@swc/core': '>= 1.4.13'
       typescript: '>= 4.3'
     dependencies:
-      '@swc-node/core': 1.13.3(@swc/core@1.10.1)(@swc/types@0.1.5)
+      '@swc-node/core': 1.13.3(@swc/core@1.10.1)(@swc/types@0.1.17)
       '@swc-node/sourcemap-support': 0.5.1
       '@swc/core': 1.10.1
       colorette: 2.0.20
@@ -10755,13 +10758,13 @@ packages:
       - supports-color
     dev: true
 
-  /@swc-node/register@1.10.9(@swc/core@1.10.1)(@swc/types@0.1.5)(typescript@5.7.2):
+  /@swc-node/register@1.10.9(@swc/core@1.10.1)(@swc/types@0.1.17)(typescript@5.7.2):
     resolution: {integrity: sha512-iXy2sjP0phPEpK2yivjRC3PAgoLaT4sjSk0LDWCTdcTBJmR4waEog0E6eJbvoOkLkOtWw37SB8vCkl/bbh4+8A==}
     peerDependencies:
       '@swc/core': '>= 1.4.13'
       typescript: '>= 4.3'
     dependencies:
-      '@swc-node/core': 1.13.3(@swc/core@1.10.1)(@swc/types@0.1.5)
+      '@swc-node/core': 1.13.3(@swc/core@1.10.1)(@swc/types@0.1.17)
       '@swc-node/sourcemap-support': 0.5.1
       '@swc/core': 1.10.1
       colorette: 2.0.20
@@ -14250,8 +14253,6 @@ packages:
     dependencies:
       call-bind-apply-helpers: 1.0.1
       get-intrinsic: 1.2.7
-    dev: true
-      get-intrinsic: 1.2.6
 
   /callsites@3.1.0:
     resolution: {integrity: sha512-P8BjAsXvZS+VIDUI11hHCQEv74YT67YUi5JJFNWIqL235sBmjX4+qx9Muvls5ivyNENctx46xQLQ3aTuE7ssaQ==}
@@ -18401,7 +18402,6 @@ packages:
     dependencies:
       dunder-proto: 1.0.1
       es-object-atoms: 1.0.0
-    dev: true
 
   /get-stdin@5.0.1:
     resolution: {integrity: sha512-jZV7n6jGE3Gt7fgSTJoz91Ak5MuTLwMwkoYdjxuJ/AmjIsE1UC03y/IWkZCQGEvVNS9qoRNwy5BCqxImv0FVeA==}
@@ -19460,7 +19460,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.25.4
+      preact: 10.25.3
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -24939,7 +24939,7 @@ packages:
     dependencies:
       core-js: 3.39.0
       fflate: 0.4.8
-      preact: 10.25.4
+      preact: 10.25.3
       web-vitals: 4.2.4
     dev: false
 
@@ -29974,6 +29974,10 @@ packages:
     resolution: {integrity: sha512-9bnSc/HEW2uRy67wc+T8UwauLuPJVn28jb+GtJY16iiKWyvmYJRXVT4UamsAEGQfPohgr2q4Tq0sQbQlxTfi1g==}
     engines: {node: '>=12.20'}
     dev: true
+
+  /zod@3.24.1:
+    resolution: {integrity: sha512-muH7gBL9sI1nciMZV67X5fTKKBLtwpZ5VBp1vsOQzj1MhrBZ4wlVCm3gedKZWLp0Oyel8sIGfeiz54Su+OVT+A==}
+    dev: false
 
   /zxcvbn@4.4.2:
     resolution: {integrity: sha512-Bq0B+ixT/DMyG8kgX2xWcI5jUvCwqrMxSFam7m0lAf78nf04hv6lNCsyLYdyYTrCVMqNDY/206K7eExYCeSyUQ==}
