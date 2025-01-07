@@ -270,7 +270,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                 <LemonButton
                                     onClick={() => inviteTeamMembers()}
                                     type="primary"
-                                    disabledReason={!canSubmit ?? 'Please fill out all fields'}
+                                    disabledReason={!canSubmit ? 'Please fill out all fields' : undefined}
                                     data-attr="invite-team-member-submit"
                                 >
                                     {validInvitesCount
