@@ -168,15 +168,14 @@ class ActorsQueryRunner(QueryRunner):
             self.calculating = False
 
     def input_columns(self) -> list[str]:
+        strategy_input_cols = self.strategy.input_columns()
         if self.query.select:
-            # If we're calculating, which involves hydrating for the actors modal, we include event_distinct_ids
-            # See https://github.com/PostHog/posthog/pull/27131
             if (
                 self.calculating
-                and isinstance(self.query.source, InsightActorsQuery)
-                and isinstance(self.query.source.source, TrendsQuery)
+                and "event_distinct_ids" in strategy_input_cols
+                and "event_distinct_ids" not in self.query.select
             ):
-                return list(dict.fromkeys([*self.query.select, "event_distinct_ids"]))
+                return [*self.query.select, "event_distinct_ids"]
             return self.query.select
 
         return self.strategy.input_columns()
@@ -202,9 +201,6 @@ class ActorsQueryRunner(QueryRunner):
         raise ValueError("Source query must have an id column")
 
     def source_distinct_id_column(self, source_query: ast.SelectQuery | ast.SelectSetQuery) -> str | None:
-        if "event_distinct_ids" not in self.input_columns():
-            return None
-
         if isinstance(source_query, ast.SelectQuery):
             select = source_query.select
         else:
@@ -239,7 +235,7 @@ class ActorsQueryRunner(QueryRunner):
             ),
         )
 
-    def to_query(self, calculate: bool = False) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery:
         with self.timings.measure("columns"):
             columns = []
             group_by = []
@@ -330,7 +326,14 @@ class ActorsQueryRunner(QueryRunner):
                     table=source_query,
                     alias=source_alias,
                 )
-                if source_distinct_id_column is not None:
+                # If we're calculating, which involves hydrating for the actors modal, we include event_distinct_ids
+                # See https://github.com/PostHog/posthog/pull/27131
+                if (
+                    self.calculating
+                    and isinstance(self.query.source, InsightActorsQuery)
+                    and isinstance(self.query.source.source, TrendsQuery)
+                    and source_distinct_id_column is not None
+                ):
                     select_query.select.append(ast.Field(chain=[source_distinct_id_column]))
 
                 try:
