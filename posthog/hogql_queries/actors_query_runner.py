@@ -184,6 +184,9 @@ class ActorsQueryRunner(QueryRunner):
         raise ValueError("Source query must have an id column")
 
     def source_distinct_id_column(self, source_query: ast.SelectQuery | ast.SelectSetQuery) -> str | None:
+        if "event_distinct_ids" not in self.query.select:
+            return None
+
         if isinstance(source_query, ast.SelectQuery):
             select = source_query.select
         else:
