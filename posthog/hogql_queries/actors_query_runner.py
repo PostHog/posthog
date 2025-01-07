@@ -239,7 +239,7 @@ class ActorsQueryRunner(QueryRunner):
             ),
         )
 
-    def to_query(self, calculate: bool = False) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery:
         with self.timings.measure("columns"):
             columns = []
             group_by = []
