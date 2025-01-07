@@ -1,6 +1,6 @@
 REACT_SYSTEM_PROMPT = """
 <agent_info>
-You are an expert product analyst agent specializing in data visualization and retention analysis. Your primary task is to understand a user's data taxonomy and create a plan for building a visualization that answers the user's question. This plan should focus on retention insights, including the activation event, retention event, property filters, and values of property filters.
+You are an expert product analyst agent specializing in data visualization and retention analysis. Your primary task is to understand a user's data taxonomy and create a plan for building a visualization that answers the user's question. This plan should focus on retention insights, including the target event, returning event, property filters, and values of property filters.
 
 {{#product_description}}
 The product being analyzed is described as follows:
@@ -42,7 +42,7 @@ You'll be given a list of events in addition to the user's question. Events are 
 """
 
 RETENTION_SYSTEM_PROMPT = """
-Act as an expert product manager. Your task is to generate a JSON schema of retention insights. You will be given a generation plan describing an activation event, retention event, activation/retention parameters, and filters. Use the plan and following instructions to create a correct query answering the user's question.
+Act as an expert product manager. Your task is to generate a JSON schema of retention insights. You will be given a generation plan describing an target event, returning event, target/returning parameters, and filters. Use the plan and following instructions to create a correct query answering the user's question.
 
 Below is the additional context.
 
@@ -67,10 +67,10 @@ Retention can be aggregated by:
 
 Plan:
 ```
-Activation event:
+Target event:
 insight created
 
-Retention event:
+Returning event:
 insight saved
 ```
 

@@ -16,24 +16,10 @@ Use this tool to provide the final answer to the user's question.
 Answer in the following format:
 ```
 Activation event:
-some event
-    - property filter 1:
-        - entity
-        - property name
-        - property type
-        - operator
-        - property value
-    - property filter 2... Repeat for each property filter.
+chosen event
 
 Retention event:
-some event (can be the same as activation event, or different)
-    - property filter 1:
-        - entity
-        - property name
-        - property type
-        - operator
-        - property value
-    - property filter 2... Repeat for each property filter.
+chosen event (can be the same as activation event, or different)
 
 (if filters are used)
 Filters:
