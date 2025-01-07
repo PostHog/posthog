@@ -67,9 +67,9 @@ export function SDKs({
         }
     }, 2000)
 
-    const HelpCard = (): JSX.Element => (
+    const InviteHelpCard = (): JSX.Element => (
         <LemonCard className={`${isUserInNonTechnicalTest ? 'mb-2' : 'mt-6'}`} hoverEffect={false}>
-            <h3 className="font-bold">Need help with this step?</h3>
+            <h3 className="font-bold">Need help?</h3>
             <p>Invite a team member to help you get set up.</p>
             <InviteMembersButton type="secondary" />
         </LemonCard>
@@ -83,7 +83,7 @@ export function SDKs({
                         !showSideBySide && panel !== 'options' ? 'hidden' : 'flex'
                     }`}
                 >
-                    {isUserInNonTechnicalTest && <HelpCard />}
+                    {isUserInNonTechnicalTest && <InviteHelpCard />}
                     {showSourceOptionsSelect && (
                         <LemonSelect
                             allowClear
@@ -116,7 +116,7 @@ export function SDKs({
                             </LemonButton>
                         </React.Fragment>
                     ))}
-                    {!isUserInNonTechnicalTest && <HelpCard />}
+                    {!isUserInNonTechnicalTest && <InviteHelpCard />}
                 </div>
                 {selectedSDK && productKey && !!sdkInstructionMap[selectedSDK.key] && (
                     <div
