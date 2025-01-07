@@ -22,7 +22,7 @@ from .utils import UUIDClassicModel, generate_random_token, sane_repr
 
 class Notifications(TypedDict, total=False):
     plugin_disabled: bool
-    project_weekly_digest_disabled: dict[int, Any]  # Maps project ID to disabled status
+    project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
 
 

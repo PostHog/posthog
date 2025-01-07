@@ -81,7 +81,7 @@ def get_teams_with_new_playlists(end: datetime, begin: datetime) -> QuerySet:
         )
         .exclude(
             name="",
-            derived_name="",
+            derived_name=None,
         )
         .values("team_id", "name", "short_id", "derived_name")
     )

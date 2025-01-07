@@ -89,7 +89,8 @@ def should_send_notification(
         # Then check project-specific setting if team_id provided
         if team_id is not None:
             project_settings = settings.get("project_weekly_digest_disabled", {})
-            return not project_settings.get(team_id, False)
+            team_disabled = project_settings.get(str(team_id), False)
+            return not team_disabled
 
         return True
 

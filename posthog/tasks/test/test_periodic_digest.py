@@ -382,21 +382,24 @@ class TestPeriodicDigestReport(APIBaseTest):
 
     @freeze_time("2024-01-20T00:01:00Z")
     @patch("posthog.tasks.periodic_digest.capture_event")
-    def test_periodic_digest_excludes_playlists_without_names(self, mock_capture: MagicMock) -> None:
+    def test_periodic_digest_excludes_playlists_without_names_and_derived_names(self, mock_capture: MagicMock) -> None:
         # Create test data from "last week"
         with freeze_time("2024-01-15T00:01:00Z"):
             # Create playlists with various name states
             valid_playlist = SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name="Valid Playlist",
+                derived_name="Derived Playlist",
             )
             SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name=None,  # Null name should be excluded
+                derived_name=None,
             )
             SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name="",  # Empty string name should be excluded
+                derived_name=None,
             )
 
         # Run the periodic digest report task
