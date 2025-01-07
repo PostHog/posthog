@@ -250,6 +250,14 @@ export const userLogic = kea<userLogicType>([
                 return user?.theme_mode || 'light'
             },
         ],
+
+        isUserNonTechnical: [
+            (s) => [s.user],
+            (user) => {
+                const technicalRoles = ['engineering', 'founder']
+                return user?.role_at_organization && !technicalRoles.includes(user.role_at_organization)
+            },
+        ],
     }),
     afterMount(({ actions }) => {
         const preloadedUser = getAppContext()?.current_user
