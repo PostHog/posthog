@@ -12,7 +12,6 @@ version = 1
 # Python
 python3 = { pkg-path = "python3", version = "3.11", pkg-group = "python" }
 uv = { pkg-path = "uv", pkg-group = "python" }
-xmlsec = { pkg-path = "xmlsec", pkg-group = "python", version = "1.2.41" }
 libtool = { pkg-path = "libtool", pkg-group = "python" }
 # Node
 nodejs = { pkg-path = "nodejs_18", pkg-group = "nodejs" }
@@ -37,6 +36,8 @@ libiconv.pkg-group = "rust-toolchain"
 go = { pkg-path = "go", version = "1.22", pkg-group = "go" }
 # General CLI tools
 mprocs.pkg-path = "mprocs"
+xmlsec.pkg-path = "xmlsec"
+xmlsec.version = "1.3.6"
 
 # Set environment variables in the `[vars]` section. These variables may not
 # reference one another, and are added to the environment without first

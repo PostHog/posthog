@@ -66,8 +66,7 @@
       },
       "xmlsec": {
         "pkg-path": "xmlsec",
-        "pkg-group": "python",
-        "version": "1.2.34"
+        "version": "1.3.6"
       }
     },
     "vars": {
@@ -949,130 +948,6 @@
       "priority": 5
     },
     {
-      "attr_path": "xmlsec",
-      "broken": false,
-      "derivation": "/nix/store/p85izfrfdj8n22pm9iv1b8a511pm2i5n-xmlsec-1.2.34.drv",
-      "description": "XML Security Library in C based on libxml2",
-      "install_id": "xmlsec",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "name": "xmlsec-1.2.34",
-      "pname": "xmlsec",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.2.34",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/mnrmn6vndrfgxyxmbqvmrwi7qjwr3d0m-xmlsec-1.2.34-dev",
-        "out": "/nix/store/ff6sr1v2q8gqmnyvpl6xfxw3r2lb56i3-xmlsec-1.2.34"
-      },
-      "system": "aarch64-darwin",
-      "group": "python",
-      "priority": 5
-    },
-    {
-      "attr_path": "xmlsec",
-      "broken": false,
-      "derivation": "/nix/store/7zscs792mb7v53i43jf4qq0gypgrql8g-xmlsec-1.2.34.drv",
-      "description": "XML Security Library in C based on libxml2",
-      "install_id": "xmlsec",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "name": "xmlsec-1.2.34",
-      "pname": "xmlsec",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.2.34",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/k8n1j04qrbhlzxklrxhk32aphh58jqcf-xmlsec-1.2.34-dev",
-        "out": "/nix/store/qdscjbwglk2953azhhhsibf0xlsjig1h-xmlsec-1.2.34"
-      },
-      "system": "aarch64-linux",
-      "group": "python",
-      "priority": 5
-    },
-    {
-      "attr_path": "xmlsec",
-      "broken": false,
-      "derivation": "/nix/store/cbl3q86h6vzzzi50ph82syrkha9g9mah-xmlsec-1.2.34.drv",
-      "description": "XML Security Library in C based on libxml2",
-      "install_id": "xmlsec",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "name": "xmlsec-1.2.34",
-      "pname": "xmlsec",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.2.34",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/jc3nxrj9kv447gb5ywxqal45b7ick5c7-xmlsec-1.2.34-dev",
-        "out": "/nix/store/fzhimicsixlzc8k6l0f5vh5lzbxsl39c-xmlsec-1.2.34"
-      },
-      "system": "x86_64-darwin",
-      "group": "python",
-      "priority": 5
-    },
-    {
-      "attr_path": "xmlsec",
-      "broken": false,
-      "derivation": "/nix/store/5z6p8lb90900s6k8lml62mlwjjx6whm2-xmlsec-1.2.34.drv",
-      "description": "XML Security Library in C based on libxml2",
-      "install_id": "xmlsec",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "name": "xmlsec-1.2.34",
-      "pname": "xmlsec",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.2.34",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/z0k51x5cg15f2r058ypjzhf9bakzq16g-xmlsec-1.2.34-dev",
-        "out": "/nix/store/rrnig5ybklsrf8kiwn15lvci0rfq6379-xmlsec-1.2.34"
-      },
-      "system": "x86_64-linux",
-      "group": "python",
-      "priority": 5
-    },
-    {
       "attr_path": "cargo",
       "broken": false,
       "derivation": "/nix/store/a6j07nsrmnqhv0mm2bbnvnjcfkv3bxpz-cargo-1.80.1.drv",
@@ -1712,17 +1587,17 @@
     {
       "attr_path": "mprocs",
       "broken": false,
-      "derivation": "/nix/store/5hckam5lgqqmlkjd1r6a0bzkkvhfm349-mprocs-0.7.1.drv",
+      "derivation": "/nix/store/26d7rl3vql93s040slf69jw5a4wxflhj-mprocs-0.7.1.drv",
       "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
       "install_id": "mprocs",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=8f3e1f807051e32d8c95cd12b9b421623850a34d",
       "name": "mprocs-0.7.1",
       "pname": "mprocs",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
+      "rev": "8f3e1f807051e32d8c95cd12b9b421623850a34d",
+      "rev_count": 733374,
+      "rev_date": "2025-01-04T17:41:09Z",
+      "scrape_date": "2025-01-06T21:17:53Z",
       "stabilities": [
         "staging",
         "unstable"
@@ -1733,7 +1608,7 @@
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/pk1mb41ryrw2izq15pymxjwqvw8mr29p-mprocs-0.7.1"
+        "out": "/nix/store/6qd6isn3scvlp7vk34xgb1mn9hh93p8v-mprocs-0.7.1"
       },
       "system": "aarch64-darwin",
       "group": "toplevel",
@@ -1742,17 +1617,17 @@
     {
       "attr_path": "mprocs",
       "broken": false,
-      "derivation": "/nix/store/lg4yvv4az18g59l7rgfvn2pqxidx5qgb-mprocs-0.7.1.drv",
+      "derivation": "/nix/store/bi3z98bxszfz04qdpyxkmrcjkq75iasa-mprocs-0.7.1.drv",
       "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
       "install_id": "mprocs",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=8f3e1f807051e32d8c95cd12b9b421623850a34d",
       "name": "mprocs-0.7.1",
       "pname": "mprocs",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
+      "rev": "8f3e1f807051e32d8c95cd12b9b421623850a34d",
+      "rev_count": 733374,
+      "rev_date": "2025-01-04T17:41:09Z",
+      "scrape_date": "2025-01-06T21:17:53Z",
       "stabilities": [
         "staging",
         "unstable"
@@ -1763,7 +1638,7 @@
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/dynm867fg992nb5wlysvrg1p14cwgsca-mprocs-0.7.1"
+        "out": "/nix/store/4sdqi7adqhxqvyii5n8a1gpg740hbshm-mprocs-0.7.1"
       },
       "system": "aarch64-linux",
       "group": "toplevel",
@@ -1772,17 +1647,17 @@
     {
       "attr_path": "mprocs",
       "broken": false,
-      "derivation": "/nix/store/xbicacfnn0gnz08rri7jwc40byxrm404-mprocs-0.7.1.drv",
+      "derivation": "/nix/store/6qmqgqkjbdsn5z308hp3w84wav6p1phb-mprocs-0.7.1.drv",
       "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
       "install_id": "mprocs",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=8f3e1f807051e32d8c95cd12b9b421623850a34d",
       "name": "mprocs-0.7.1",
       "pname": "mprocs",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
+      "rev": "8f3e1f807051e32d8c95cd12b9b421623850a34d",
+      "rev_count": 733374,
+      "rev_date": "2025-01-04T17:41:09Z",
+      "scrape_date": "2025-01-06T21:17:53Z",
       "stabilities": [
         "staging",
         "unstable"
@@ -1793,7 +1668,7 @@
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/kx138kp8rxjwph6wqp3lk8v6fybij2bz-mprocs-0.7.1"
+        "out": "/nix/store/cfsrk2za8x6d6n5wdwjwpm9hf6ws28qi-mprocs-0.7.1"
       },
       "system": "x86_64-darwin",
       "group": "toplevel",
@@ -1802,17 +1677,17 @@
     {
       "attr_path": "mprocs",
       "broken": false,
-      "derivation": "/nix/store/ydrq0m8lp0m3pjpd9ndg1x30z3bg81qx-mprocs-0.7.1.drv",
+      "derivation": "/nix/store/hlmqv197aqi8imigjj061mdmhbij7v94-mprocs-0.7.1.drv",
       "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
       "install_id": "mprocs",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=8f3e1f807051e32d8c95cd12b9b421623850a34d",
       "name": "mprocs-0.7.1",
       "pname": "mprocs",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
+      "rev": "8f3e1f807051e32d8c95cd12b9b421623850a34d",
+      "rev_count": 733374,
+      "rev_date": "2025-01-04T17:41:09Z",
+      "scrape_date": "2025-01-06T21:17:53Z",
       "stabilities": [
         "staging",
         "unstable"
@@ -1823,7 +1698,131 @@
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/ky3hbhjvsr4l5nh1xjipkbswll37j0dq-mprocs-0.7.1"
+        "out": "/nix/store/bhc6rvwb1n4bh8rsxwnw7s9krlphqkh4-mprocs-0.7.1"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "xmlsec",
+      "broken": false,
+      "derivation": "/nix/store/npf1l5rkpmp5swm4jrfypx975wrmjzc8-xmlsec-1.3.6.drv",
+      "description": "XML Security Library in C based on libxml2",
+      "install_id": "xmlsec",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=8f3e1f807051e32d8c95cd12b9b421623850a34d",
+      "name": "xmlsec-1.3.6",
+      "pname": "xmlsec",
+      "rev": "8f3e1f807051e32d8c95cd12b9b421623850a34d",
+      "rev_count": 733374,
+      "rev_date": "2025-01-04T17:41:09Z",
+      "scrape_date": "2025-01-06T21:17:53Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.3.6",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/vj56i5ldpvxfhh7fzh30fsj925rv08a6-xmlsec-1.3.6-dev",
+        "out": "/nix/store/66can923s5d00xgzzmlbxz2ydgmgglcb-xmlsec-1.3.6"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "xmlsec",
+      "broken": false,
+      "derivation": "/nix/store/l54yryhpx0wfm8sv88ys92z9i0hsip3k-xmlsec-1.3.6.drv",
+      "description": "XML Security Library in C based on libxml2",
+      "install_id": "xmlsec",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=8f3e1f807051e32d8c95cd12b9b421623850a34d",
+      "name": "xmlsec-1.3.6",
+      "pname": "xmlsec",
+      "rev": "8f3e1f807051e32d8c95cd12b9b421623850a34d",
+      "rev_count": 733374,
+      "rev_date": "2025-01-04T17:41:09Z",
+      "scrape_date": "2025-01-06T21:17:53Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.3.6",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/fscw35frjnm34ra3l3jyycfivn20r9va-xmlsec-1.3.6-dev",
+        "out": "/nix/store/18l3z48p7w2h3anq8zmgrhqp5j25s5g9-xmlsec-1.3.6"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "xmlsec",
+      "broken": false,
+      "derivation": "/nix/store/jcjvbiyzq7648zs65v318qzb6hcvp038-xmlsec-1.3.6.drv",
+      "description": "XML Security Library in C based on libxml2",
+      "install_id": "xmlsec",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=8f3e1f807051e32d8c95cd12b9b421623850a34d",
+      "name": "xmlsec-1.3.6",
+      "pname": "xmlsec",
+      "rev": "8f3e1f807051e32d8c95cd12b9b421623850a34d",
+      "rev_count": 733374,
+      "rev_date": "2025-01-04T17:41:09Z",
+      "scrape_date": "2025-01-06T21:17:53Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.3.6",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/brmp8jjpi2x6nzxfwq7czr46fjhif8c2-xmlsec-1.3.6-dev",
+        "out": "/nix/store/6q35gr9jggmql201i2iz9gjkbfj30lf7-xmlsec-1.3.6"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "xmlsec",
+      "broken": false,
+      "derivation": "/nix/store/7c8zh84rs39q6p5bm10dvwmbzcf96i4c-xmlsec-1.3.6.drv",
+      "description": "XML Security Library in C based on libxml2",
+      "install_id": "xmlsec",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=8f3e1f807051e32d8c95cd12b9b421623850a34d",
+      "name": "xmlsec-1.3.6",
+      "pname": "xmlsec",
+      "rev": "8f3e1f807051e32d8c95cd12b9b421623850a34d",
+      "rev_count": 733374,
+      "rev_date": "2025-01-04T17:41:09Z",
+      "scrape_date": "2025-01-06T21:17:53Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.3.6",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/xixr2nq7pjbbl8mn43c12m2m8gvl4fhq-xmlsec-1.3.6-dev",
+        "out": "/nix/store/3308q19l44wkil15x2zy821dlz4ig44f-xmlsec-1.3.6"
       },
       "system": "x86_64-linux",
       "group": "toplevel",
