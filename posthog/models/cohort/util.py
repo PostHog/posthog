@@ -316,6 +316,7 @@ def recalculate_cohortpeople(
             cohort, pending_version, team, initiating_user_id=initiating_user_id
         )
         count_by_team_id[team.id] = count_for_team or 0
+
     return count_by_team_id[cohort.team_id]
 
 
