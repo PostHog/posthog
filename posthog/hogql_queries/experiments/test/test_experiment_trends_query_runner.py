@@ -1287,6 +1287,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_query_runner_with_avg_math_v2_stats(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
@@ -1302,7 +1304,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             kind="ExperimentTrendsQuery",
             count_query=count_query,
             exposure_query=exposure_query,
-            stats_version=2,
         )
 
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
@@ -1522,6 +1523,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_query_runner_standard_flow_v2_stats(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
@@ -1532,7 +1535,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             kind="ExperimentTrendsQuery",
             count_query=count_query,
             exposure_query=exposure_query,
-            stats_version=2,
         )
 
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]

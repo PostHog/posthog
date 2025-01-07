@@ -1,6 +1,7 @@
 import json
 from collections.abc import Sequence
 from typing import Any
+import uuid
 import pyarrow as pa
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.sources import DltResource
@@ -48,6 +49,23 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
                         [_get_default_value_from_pyarrow_type(field.type)] * table.num_rows, type=field.type
                     )
                 table = table.append_column(field, new_column_data)
+
+            # If the delta table schema has a larger scale/precision, then update the
+            # pyarrow schema to use the larger values so that we're not trying to downscale
+            if isinstance(field.type, pa.Decimal128Type):
+                py_arrow_table_column = table.column(field.name)
+                if (
+                    field.type.precision > py_arrow_table_column.type.precision
+                    or field.type.scale > py_arrow_table_column.type.scale
+                ):
+                    field_index = table.schema.get_field_index(field.name)
+                    new_schema = table.schema.set(
+                        field_index,
+                        table.schema.field(field_index).with_type(
+                            pa.decimal128(field.type.precision, field.type.scale)
+                        ),
+                    )
+                    table = table.cast(new_schema)
 
     # Change types based on what deltalake tables support
     return table.cast(ensure_delta_compatible_arrow_schema(table.schema))
@@ -108,12 +126,25 @@ def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger)
     ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
 
 
+def _convert_uuid_to_string(table_data: list[Any]) -> list[dict]:
+    return [
+        {key: (str(value) if isinstance(value, uuid.UUID) else value) for key, value in record.items()}
+        for record in table_data
+    ]
+
+
 def table_from_py_list(table_data: list[Any]) -> pa.Table:
     try:
+        if len(table_data) == 0:
+            return pa.Table.from_pylist(table_data)
+
+        uuid_exists = any(isinstance(value, uuid.UUID) for value in table_data[0].values())
+        if uuid_exists:
+            return pa.Table.from_pylist(_convert_uuid_to_string(table_data))
+
         return pa.Table.from_pylist(table_data)
     except:
         # There exists mismatched types in the data
-
         column_types: dict[str, set[type]] = {key: set() for key in table_data[0].keys()}
 
         for row in table_data:
