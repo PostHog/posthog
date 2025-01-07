@@ -252,7 +252,8 @@ class Cohort(models.Model):
 
         # Try the hogql version. Don't run this on initial cohort create
         if pending_version > 0:
-            try:
+
+            def fn():
                 start_time = time.monotonic()
                 recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id, hogql=True)
                 logger.warn(
@@ -261,6 +262,13 @@ class Cohort(models.Model):
                     version=pending_version,
                     duration=(time.monotonic() - start_time),
                 )
+
+            if settings.DEBUG or settings.TEST:
+                fn()
+                return
+
+            try:
+                fn()
             except Exception:
                 logger.exception(
                     "cohort_hogql_calculation_failed",
