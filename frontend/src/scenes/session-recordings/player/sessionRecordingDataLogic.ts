@@ -685,10 +685,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                          FROM events
                                          WHERE timestamp > ${dayjs(earliestTimestamp - 1000)
                                              .utc()
-                                             .toISOString()}
+                                             .format('YYYY-MM-DD HH:MM:ss.SSS')}
                                            AND timestamp < ${dayjs(latestTimestamp + 1000)
                                                .utc()
-                                               .toISOString()}
+                                               .format('YYYY-MM-DD HH:MM:ss.SSS')}
                                            AND event in ${eventNames}
                                            AND uuid in ${eventIds}`,
                         }
