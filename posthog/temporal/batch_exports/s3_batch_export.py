@@ -641,7 +641,9 @@ async def initialize_and_resume_multipart_upload(
         try:
             await s3_upload.continue_from_state(details.upload_state)
         except UploadAlreadyFinishedError:
-            pass
+            await logger.awarning(
+                f"Attempted resume already finished upload. Upload '{details.upload_state.upload_id}' will be ignored"
+            )
 
         if inputs.compression == "brotli":
             # Even if we receive details we cannot resume a brotli compressed upload as
