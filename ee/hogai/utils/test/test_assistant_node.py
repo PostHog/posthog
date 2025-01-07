@@ -6,7 +6,7 @@ from ee.models.assistant import CoreMemory
 from posthog.test.base import BaseTest
 
 
-class TestNodes(BaseTest):
+class TestAssistantNode(BaseTest):
     def setUp(self):
         super().setUp()
 
