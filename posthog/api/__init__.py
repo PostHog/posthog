@@ -60,7 +60,7 @@ from . import (
     uploaded_media,
     user,
 )
-from ..property_definitions import property_definition_api
+from ..taxonomy import property_definition_api
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet

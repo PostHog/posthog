@@ -19,7 +19,7 @@ from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
-from posthog.property_definitions.event_properties_taxonomy import PROPERTY_NAME_ALIASES
+from posthog.taxonomy.taxonomy import PROPERTY_NAME_ALIASES
 
 
 class SeenTogetherQuerySerializer(serializers.Serializer):
@@ -360,6 +360,8 @@ EVENTS_HIDDEN_PROPERTY_DEFINITIONS = set(
 
 
 class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    is_seen_on_filtered_events = serializers.SerializerMethodField()
+
     class Meta:
         model = PropertyDefinition
         fields = (
@@ -371,6 +373,9 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             # This is a calculated property, set when property has been seen with the provided `event_names` query param events. NULL if no `event_names` provided
             "is_seen_on_filtered_events",
         )
+
+    def get_is_seen_on_filtered_events(self, obj):
+        return getattr(obj, "is_seen_on_filtered_events", None)
 
     def update(self, property_definition: PropertyDefinition, validated_data):
         changed_fields = {
@@ -464,6 +469,7 @@ class PropertyDefinitionViewSet(
         order_by_verified = False
         if use_enterprise_taxonomy:
             try:
+                # noinspection PyUnresolvedReferences
                 from ee.models.property_definition import EnterprisePropertyDefinition
 
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
@@ -551,6 +557,7 @@ class PropertyDefinitionViewSet(
         id = self.kwargs["id"]
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:
+                # noinspection PyUnresolvedReferences
                 from ee.models.property_definition import EnterprisePropertyDefinition
             except ImportError:
                 pass

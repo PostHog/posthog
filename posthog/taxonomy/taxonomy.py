@@ -1156,3 +1156,9 @@ for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
                 else "Data from the first event in this session."
             ),
         }
+
+PROPERTY_NAME_ALIASES = {
+    key: value["label"]
+    for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
+    if "label" in value and "deprecated" not in value["label"]
+}

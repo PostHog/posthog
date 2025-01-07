@@ -1,3 +1,5 @@
+import { getAppContext } from 'lib/utils/getAppContext'
+
 import { CoreFilterDefinition, PropertyFilterValue } from '~/types'
 
 import { TaxonomicFilterGroupType } from './components/TaxonomicFilter/types'
@@ -72,7 +74,7 @@ export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
 
 // event property definitions are used in the API to search and so are defined in python and set on the app_context
 // so we need to patch JSX descriptions into them here
-const eventPropertiesFromAppContext = window.POSTHOG_APP_CONTEXT?.event_property_definitions || {}
+const eventPropertiesFromAppContext = getAppContext()?.event_property_definitions || {}
 try {
     eventPropertiesFromAppContext['$plugins_succeeded'].description = (
         <>
