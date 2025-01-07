@@ -1,6 +1,7 @@
 import { LemonLabel } from '@posthog/lemon-ui'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -22,13 +23,26 @@ import {
     FunnelAttributionSelect,
     FunnelConversionWindowFilter,
 } from './Selectors'
-
-export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.Element {
+export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { experiment, isExperimentRunning } = useValues(experimentLogic)
+    const { experiment, isExperimentRunning, editingPrimaryMetricIndex, editingSecondaryMetricIndex } =
+        useValues(experimentLogic)
     const { setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-    const currentMetric = experiment.metrics_secondary[metricIdx] as ExperimentFunnelsQuery
+
+    const metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
+    const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
+
+    if (!metricIdx && metricIdx !== 0) {
+        return <></>
+    }
+
+    const currentMetric = metrics[metricIdx] as ExperimentFunnelsQuery
+
+    const actionFilterProps = {
+        ...commonActionFilterProps,
+        actionsTaxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+    }
 
     return (
         <>
@@ -40,7 +54,7 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         setFunnelsMetric({
                             metricIdx,
                             name: newName,
-                            isSecondary: true,
+                            isSecondary,
                         })
                     }}
                 />
@@ -58,7 +72,7 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                     setFunnelsMetric({
                         metricIdx,
                         series,
-                        isSecondary: true,
+                        isSecondary,
                     })
                 }}
                 typeKey="experiment-metric"
@@ -68,7 +82,7 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                 seriesIndicatorType="numeric"
                 sortable={true}
                 showNestedArrow={true}
-                {...commonActionFilterProps}
+                {...actionFilterProps}
             />
             <div className="mt-4 space-y-4">
                 <FunnelAggregationSelect
@@ -80,7 +94,7 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         setFunnelsMetric({
                             metricIdx,
                             funnelAggregateByHogQL: value,
-                            isSecondary: true,
+                            isSecondary,
                         })
                     }}
                 />
@@ -91,14 +105,14 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         setFunnelsMetric({
                             metricIdx,
                             funnelWindowInterval: funnelWindowInterval,
-                            isSecondary: true,
+                            isSecondary,
                         })
                     }}
                     onFunnelWindowIntervalUnitChange={(funnelWindowIntervalUnit) => {
                         setFunnelsMetric({
                             metricIdx,
                             funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
-                            isSecondary: true,
+                            isSecondary,
                         })
                     }}
                 />
@@ -126,18 +140,21 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                             breakdownAttributionValue: breakdownAttributionValue
                                 ? parseInt(breakdownAttributionValue)
                                 : undefined,
-                            isSecondary: true,
+                            isSecondary,
                         })
                     }}
                     stepsLength={currentMetric.funnels_query?.series?.length}
                 />
                 <TestAccountFilterSwitch
-                    checked={hasFilters ? !!currentMetric.funnels_query?.filterTestAccounts : false}
+                    checked={(() => {
+                        const val = currentMetric.funnels_query?.filterTestAccounts
+                        return hasFilters ? !!val : false
+                    })()}
                     onChange={(checked: boolean) => {
                         setFunnelsMetric({
                             metricIdx,
                             filterTestAccounts: checked,
-                            isSecondary: true,
+                            isSecondary,
                         })
                     }}
                     fullWidth

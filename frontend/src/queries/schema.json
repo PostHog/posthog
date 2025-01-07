@@ -3865,7 +3865,7 @@
             "type": "object"
         },
         "CustomChannelField": {
-            "enum": ["utm_source", "utm_medium", "utm_campaign", "referring_domain"],
+            "enum": ["utm_source", "utm_medium", "utm_campaign", "referring_domain", "url", "pathname", "hostname"],
             "type": "string"
         },
         "CustomChannelOperator": {
@@ -3928,6 +3928,26 @@
                 }
             },
             "type": "object"
+        },
+        "DataColorToken": {
+            "enum": [
+                "preset-1",
+                "preset-2",
+                "preset-3",
+                "preset-4",
+                "preset-5",
+                "preset-6",
+                "preset-7",
+                "preset-8",
+                "preset-9",
+                "preset-10",
+                "preset-11",
+                "preset-12",
+                "preset-13",
+                "preset-14",
+                "preset-15"
+            ],
+            "type": "string"
         },
         "DataTableNode": {
             "additionalProperties": false,
@@ -5997,9 +6017,6 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
-                },
-                "stats_version": {
-                    "type": "integer"
                 }
             },
             "required": ["funnels_query", "kind"],
@@ -6101,9 +6118,6 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendsQueryResponse"
-                },
-                "stats_version": {
-                    "type": "integer"
                 }
             },
             "required": ["count_query", "kind"],
@@ -6782,6 +6796,13 @@
                     "$ref": "#/definitions/FunnelLayout",
                     "default": "vertical"
                 },
+                "resultCustomizations": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ResultCustomizationByValue"
+                    },
+                    "description": "Customizations for the appearance of result datasets.",
+                    "type": "object"
+                },
                 "useUdf": {
                     "type": "boolean"
                 }
@@ -6867,6 +6888,10 @@
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -7359,6 +7384,9 @@
             "additionalProperties": false,
             "description": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
             "properties": {
+                "bounceRateDurationSeconds": {
+                    "type": "number"
+                },
                 "bounceRatePageViewMode": {
                     "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
                     "type": "string"
@@ -7947,6 +7975,10 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -8003,6 +8035,10 @@
                         }
                     ],
                     "description": "Groups aggregation"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -8061,6 +8097,10 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -8118,6 +8158,10 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -8174,6 +8218,10 @@
                         }
                     ],
                     "description": "Groups aggregation"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -8284,6 +8332,10 @@
                         }
                     ],
                     "description": "Groups aggregation"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -8693,6 +8745,10 @@
                         }
                     ],
                     "description": "Groups aggregation"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -11359,6 +11415,58 @@
                 }
             ]
         },
+        "ResultCustomization": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ResultCustomizationByValue"
+                },
+                {
+                    "$ref": "#/definitions/ResultCustomizationByPosition"
+                }
+            ]
+        },
+        "ResultCustomizationBase": {
+            "additionalProperties": false,
+            "properties": {
+                "color": {
+                    "$ref": "#/definitions/DataColorToken"
+                }
+            },
+            "required": ["color"],
+            "type": "object"
+        },
+        "ResultCustomizationBy": {
+            "enum": ["value", "position"],
+            "type": "string"
+        },
+        "ResultCustomizationByPosition": {
+            "additionalProperties": false,
+            "properties": {
+                "assignmentBy": {
+                    "const": "position",
+                    "type": "string"
+                },
+                "color": {
+                    "$ref": "#/definitions/DataColorToken"
+                }
+            },
+            "required": ["assignmentBy", "color"],
+            "type": "object"
+        },
+        "ResultCustomizationByValue": {
+            "additionalProperties": false,
+            "properties": {
+                "assignmentBy": {
+                    "const": "value",
+                    "type": "string"
+                },
+                "color": {
+                    "$ref": "#/definitions/DataColorToken"
+                }
+            },
+            "required": ["assignmentBy", "color"],
+            "type": "object"
+        },
         "RetentionEntity": {
             "additionalProperties": false,
             "properties": {
@@ -11472,6 +11580,10 @@
                         }
                     ],
                     "description": "Groups aggregation"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -12143,6 +12255,10 @@
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -12519,6 +12635,9 @@
         "TrendsAlertConfig": {
             "additionalProperties": false,
             "properties": {
+                "check_ongoing_interval": {
+                    "type": "boolean"
+                },
                 "series_index": {
                     "type": "integer"
                 },
@@ -12561,6 +12680,31 @@
                         "type": "integer"
                     },
                     "type": "array"
+                },
+                "resultCustomizationBy": {
+                    "$ref": "#/definitions/ResultCustomizationBy",
+                    "default": "value",
+                    "description": "Wether result datasets are associated by their values or by their order."
+                },
+                "resultCustomizations": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByValue"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByPosition"
+                            },
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    ],
+                    "description": "Customizations for the appearance of result datasets."
                 },
                 "showAlertThresholdLines": {
                     "default": false,
@@ -12693,6 +12837,10 @@
                         }
                     ],
                     "description": "Whether we should be comparing against a specific conversion goal"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -13254,6 +13402,7 @@
                 "InitialPage",
                 "ExitPage",
                 "ExitClick",
+                "ScreenName",
                 "InitialChannelType",
                 "InitialReferringDomain",
                 "InitialUTMSource",
@@ -13264,6 +13413,7 @@
                 "InitialUTMSourceMediumCampaign",
                 "Browser",
                 "OS",
+                "Viewport",
                 "DeviceType",
                 "Country",
                 "Region",
@@ -13411,6 +13561,9 @@
                 }
             },
             "type": "object"
+        },
+        "numerical_key": {
+            "type": "string"
         }
     }
 }
