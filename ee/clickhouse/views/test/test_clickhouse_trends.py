@@ -82,6 +82,7 @@ def test_includes_only_intervals_within_range(client: Client):
                 ]
             },
             team=team,
+            create_people=False,
         )
 
         trends = get_trends_ok(
