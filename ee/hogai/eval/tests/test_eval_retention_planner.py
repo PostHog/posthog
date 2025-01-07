@@ -44,11 +44,12 @@ def call_node(team, runnable_config: RunnableConfig) -> Callable[[str], str]:
     )
 
     def callable(query: str) -> str:
-        state = graph.invoke(
+        raw_state = graph.invoke(
             AssistantState(messages=[HumanMessage(content=query)]),
             runnable_config,
         )
-        return AssistantState.model_validate(state).plan or ""
+        state = AssistantState.model_validate(raw_state)
+        return state.plan or "NO PLAN WAS GENERATED"
 
     return callable
 
@@ -94,7 +95,7 @@ def test_basic_filtering(metric, call_node):
 
 
 def test_needle_in_a_haystack(metric, call_node):
-    query = "Show retention for users who have paid a bill and are on personal/pro"
+    query = "Show retention for users who have paid a bill and are on the personal/pro plan"
     test_case = LLMTestCase(
         input=query,
         expected_output="""

@@ -37,12 +37,12 @@ def call_node(team, runnable_config) -> Callable[[str, str], AssistantRetentionQ
 
 
 def test_node_replaces_equals_with_contains(call_node):
-    query = "Show retention for users with name John"
+    query = "Show file upload retention after signup for users with name John"
     plan = """Target event:
     - signed_up
 
     Returning event:
-    - $pageview
+    - file_uploaded
 
     Filters:
         - property filter 1:
@@ -69,8 +69,8 @@ def test_basic_retention_structure(call_node):
     actual_output = call_node(query, plan)
     assert actual_output.retentionFilter is not None
     assert actual_output.retentionFilter.targetEntity == RetentionEntity(
-        id="signed_up", type="events", name="signed_up"
+        id="signed_up", type="events", name="signed_up", order=0
     )
     assert actual_output.retentionFilter.returningEntity == RetentionEntity(
-        id="file_uploaded", type="events", name="file_uploaded"
+        id="file_uploaded", type="events", name="file_uploaded", order=0
     )

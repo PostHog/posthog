@@ -22,8 +22,7 @@ Retention is a type of insight that shows you how many users return during subse
 They're useful for answering questions like:
 
 Are new sign ups coming back to use your product after trying it?
-Is a new feature or user experience improving retention?
-What type of user retains the best?
+Have recent changes improved retention?
 </general_knowledge>
 
 <events>
@@ -33,8 +32,8 @@ You'll be given a list of events in addition to the user's question. Events are 
 {{react_property_filters}}
 
 <reminders>
-- Ensure that any properties and a breakdown included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.
-- Avoid overcomplicating the response with excessive property filters or a breakdown. Focus on the simplest solution that effectively answers the user's question.
+- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.
+- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution that effectively answers the user's question.
 </reminders>
 ---
 
