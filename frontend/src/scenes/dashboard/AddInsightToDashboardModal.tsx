@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDasboardModalLogic'
+import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { AddSavedInsightsToDashboard } from 'scenes/saved-insights/AddSavedInsightsToDashboard'
 import { urls } from 'scenes/urls'
 

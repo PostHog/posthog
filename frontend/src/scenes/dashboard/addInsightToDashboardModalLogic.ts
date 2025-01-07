@@ -1,6 +1,6 @@
 import { actions, kea, path, reducers } from 'kea'
 
-import type { addInsightToDashboardLogicType } from './addInsightToDasboardModalLogicType'
+import type { addInsightToDashboardLogicType } from './addInsightToDashboardModalLogicType'
 
 export const addInsightToDashboardLogic = kea<addInsightToDashboardLogicType>([
     path(['scenes', 'dashboard', 'addInsightToDashboardLogic']),

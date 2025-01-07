@@ -6,7 +6,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import React from 'react'
 
-import { addInsightToDashboardLogic } from './addInsightToDasboardModalLogic'
+import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {

@@ -2,8 +2,6 @@ import './SavedInsights.scss'
 
 import { IconMinusSmall, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -11,80 +9,25 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { isNonEmptyObject } from 'lib/utils'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
-import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { isNodeWithSource } from '~/queries/utils'
-import { ActivityScope, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
-import { QUERY_TYPES_METADATA } from './SavedInsights'
-import { savedInsightsLogic } from './savedInsightsLogic'
-
-interface NewInsightButtonProps {
-    dataAttr: string
-}
-
-const INSIGHTS_PER_PAGE = 15
-
-export const scene: SceneExport = {
-    component: AddSavedInsightsToDashboard,
-    logic: savedInsightsLogic,
-}
-
-export function InsightIcon({
-    insight,
-    className,
-}: {
-    insight: QueryBasedInsightModel
-    className?: string
-}): JSX.Element | null {
-    let Icon: (props?: any) => JSX.Element | null = () => null
-
-    if ('query' in insight && isNonEmptyObject(insight.query)) {
-        const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
-        const insightMetadata = QUERY_TYPES_METADATA[insightType]
-        Icon = insightMetadata && insightMetadata.icon
-    }
-
-    return Icon ? <Icon className={className} /> : null
-}
-
-export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
-    return (
-        <LemonButton
-            type="primary"
-            to={urls.insightNew()}
-            sideAction={{
-                dropdown: {
-                    placement: 'bottom-end',
-                    className: 'new-insight-overlay',
-                    actionable: true,
-                    overlay: overlayForNewInsightMenu(dataAttr),
-                },
-                'data-attr': 'saved-insights-new-insight-dropdown',
-            }}
-            data-attr="saved-insights-new-insight-button"
-            size="small"
-            icon={<IconPlusSmall />}
-        >
-            New insight
-        </LemonButton>
-    )
-}
+import { InsightIcon } from './SavedInsights'
+import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 
 export function AddSavedInsightsToDashboard(): JSX.Element {
     const { modalPage } = useValues(addSavedInsightsModalLogic)
     const { setModalPage } = useActions(addSavedInsightsModalLogic)
 
-    const { insights, count, insightsLoading, filters, sorting, alertModalId, dashboardUpdatesInProgress } =
+    const { insights, count, insightsLoading, filters, sorting, dashboardUpdatesInProgress } =
         useValues(savedInsightsLogic)
     const { setSavedInsightsFilters, addInsightToDashboard, removeInsightFromDashboard } =
         useActions(savedInsightsLogic)
@@ -162,9 +105,9 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         status={isInDashboard ? 'danger' : 'default'}
-                        loading={dashboardUpdatesInProgress[insight.id]}
                         size="small"
                         fullWidth
+                        disabled={dashboardUpdatesInProgress[insight.id]}
                         onClick={(e) => {
                             e.preventDefault()
                             if (dashboardUpdatesInProgress[insight.id]) {
@@ -175,7 +118,13 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
                                 : addInsightToDashboard(insight, dashboard?.id || 0)
                         }}
                     >
-                        {isInDashboard ? <IconMinusSmall /> : <IconPlusSmall />}
+                        {dashboardUpdatesInProgress[insight.id] ? (
+                            <Spinner textColored />
+                        ) : isInDashboard ? (
+                            <IconMinusSmall />
+                        ) : (
+                            <IconPlusSmall />
+                        )}
                     </LemonButton>
                 )
             },
@@ -184,53 +133,45 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
 
     return (
         <div className="saved-insights">
-            {tab === SavedInsightsTabs.History ? (
-                <ActivityLog scope={ActivityScope.INSIGHT} />
-            ) : tab === SavedInsightsTabs.Alerts ? (
-                <Alerts alertId={alertModalId} />
+            <SavedInsightsFilters />
+            <LemonDivider className="my-4" />
+            <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
+                <span className="text-muted-alt">
+                    {count
+                        ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
+                              count === 1 ? '' : 's'
+                          }`
+                        : null}
+                </span>
+            </div>
+            {!insightsLoading && insights.count < 1 ? (
+                <SavedInsightsEmptyState />
             ) : (
                 <>
-                    <SavedInsightsFilters />
-                    <LemonDivider className="my-4" />
-                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
-                        <span className="text-muted-alt">
-                            {count
-                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
-                                      count === 1 ? '' : 's'
-                                  }`
-                                : null}
-                        </span>
-                    </div>
-                    {!insightsLoading && insights.count < 1 ? (
-                        <SavedInsightsEmptyState />
-                    ) : (
-                        <>
-                            <LemonTable
-                                loading={insightsLoading}
-                                columns={columns}
-                                dataSource={insights.results}
-                                pagination={{
-                                    controlled: true,
-                                    currentPage: modalPage,
-                                    pageSize: INSIGHTS_PER_PAGE,
-                                    entryCount: count,
-                                    onForward: () => setModalPage(modalPage + 1),
-                                    onBackward: () => setModalPage(modalPage - 1),
-                                }}
-                                sorting={sorting}
-                                onSort={(newSorting) =>
-                                    setSavedInsightsFilters({
-                                        order: newSorting
-                                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                            : undefined,
-                                    })
-                                }
-                                rowKey="id"
-                                loadingSkeletonRows={INSIGHTS_PER_PAGE}
-                                nouns={['insight', 'insights']}
-                            />
-                        </>
-                    )}
+                    <LemonTable
+                        loading={insightsLoading}
+                        columns={columns}
+                        dataSource={insights.results}
+                        pagination={{
+                            controlled: true,
+                            currentPage: modalPage,
+                            pageSize: INSIGHTS_PER_PAGE,
+                            entryCount: count,
+                            onForward: () => setModalPage(modalPage + 1),
+                            onBackward: () => setModalPage(modalPage - 1),
+                        }}
+                        sorting={sorting}
+                        onSort={(newSorting) =>
+                            setSavedInsightsFilters({
+                                order: newSorting
+                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                    : undefined,
+                            })
+                        }
+                        rowKey="id"
+                        loadingSkeletonRows={INSIGHTS_PER_PAGE}
+                        nouns={['insight', 'insights']}
+                    />
                 </>
             )}
         </div>
