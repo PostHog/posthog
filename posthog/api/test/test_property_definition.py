@@ -4,7 +4,7 @@ from unittest.mock import ANY, patch
 
 from rest_framework import status
 
-from posthog.api.property_definition import PropertyDefinitionQuerySerializer
+from posthog.property_definitions.property_definition import PropertyDefinitionQuerySerializer
 from posthog.models import (
     EventDefinition,
     EventProperty,

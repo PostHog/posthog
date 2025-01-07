@@ -50,6 +50,7 @@ from posthog.exceptions import (
 )
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
+from posthog.property_definitions.event_properties_taxonomy import EVENT_PROPERTY_DEFINITIONS
 from posthog.redis import get_client
 
 if TYPE_CHECKING:
@@ -356,6 +357,7 @@ def render_template(
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
         "year_in_hog_url": year_in_hog_url,
+        "event_property_definitions": EVENT_PROPERTY_DEFINITIONS,
     }
 
     posthog_bootstrap: dict[str, Any] = {}
