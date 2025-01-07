@@ -224,7 +224,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = self.select(
                 """
                 select * from (
-                    <ActorsQuery select={['properties.name']}>
+                    <ActorsQuery select={['properties.name', 'event_distinct_ids']}>
                         <InsightActorsQuery day='2020-01-09'>
                             <TrendsQuery
                                 dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
@@ -252,7 +252,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = self.select(
                 """
                 select * from (
-                    <ActorsQuery select={['properties.name']}>
+                    <ActorsQuery select={['properties.name', 'event_distinct_ids']}>
                         <InsightActorsQuery day='2020-01-09'>
                             <TrendsQuery
                                 dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
