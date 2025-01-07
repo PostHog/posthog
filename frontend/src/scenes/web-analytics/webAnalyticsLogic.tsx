@@ -1919,7 +1919,7 @@ const checkCustomEventConversionGoalHasSessionIdsHelper = async (
 const setFilters = (
     actions: typeof webAnalyticsLogic.actions,
     values: typeof webAnalyticsLogic.values,
-    { productTab }: { productTab?: ProductTab },
+    { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
     {
         filters,
         'conversionGoal.actionId': conversionGoalActionId,
