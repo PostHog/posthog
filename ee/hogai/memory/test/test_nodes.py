@@ -164,6 +164,16 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
         node = MemoryOnboardingNode(team=self.team)
         self.assertIsNone(node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {}))
 
+    def test_node_uses_project_description(self):
+        self.team.project.product_description = "This is a product analytics platform"
+        self.team.project.save()
+
+        node = MemoryOnboardingNode(team=self.team)
+        self.assertIsNone(node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {}))
+
+        core_memory = CoreMemory.objects.get(team=self.team)
+        self.assertEqual(core_memory.text, "This is a product analytics platform")
+
     def test_node_starts_onboarding_for_pageview_events(self):
         self._set_up_pageview_events()
         node = MemoryOnboardingNode(team=self.team)

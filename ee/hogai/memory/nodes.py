@@ -73,6 +73,12 @@ class MemoryInitializerContextMixin:
 class MemoryOnboardingNode(MemoryInitializerContextMixin, AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
+
+        # The team has a product description, initialize the memory with it.
+        if self._team.project.product_description:
+            core_memory.set_core_memory(self._team.project.product_description)
+            return None
+
         retrieved_properties = self._retrieve_context()
 
         # No host or app bundle ID found, continue.
