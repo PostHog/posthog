@@ -19,6 +19,8 @@ from posthog.schema import (
     ActorsQueryResponse,
     CachedActorsQueryResponse,
     DashboardFilter,
+    InsightActorsQuery,
+    TrendsQuery,
 )
 
 
@@ -128,8 +130,8 @@ class ActorsQueryRunner(QueryRunner):
             actors_lookup = self.strategy.get_actors(actor_ids)
             person_uuid_to_event_distinct_ids = None
 
-            if "event_distinct_ids" in self.strategy.input_columns():
-                event_distinct_ids_index = self.strategy.input_columns().index("event_distinct_ids")
+            if "event_distinct_ids" in input_columns:
+                event_distinct_ids_index = input_columns.index("event_distinct_ids")
                 person_uuid_to_event_distinct_ids = {
                     str(row[actor_column_index]): row[event_distinct_ids_index] for row in self.paginator.results
                 }
@@ -157,8 +159,16 @@ class ActorsQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
-    def input_columns(self) -> list[str]:
+    def input_columns(self, calculate: bool = False) -> list[str]:
         if self.query.select:
+            # If we're calculating, which involves hydrating for the actors modal, we include event_distinct_ids
+            # See https://github.com/PostHog/posthog/pull/27131
+            if (
+                calculate
+                and isinstance(self.source, InsightActorsQuery)
+                and isinstance(self.source.source, TrendsQuery)
+            ):
+                return list(dict.fromkeys([*self.query.select, "event_distinct_ids"]))
             return self.query.select
 
         return self.strategy.input_columns()
@@ -184,7 +194,7 @@ class ActorsQueryRunner(QueryRunner):
         raise ValueError("Source query must have an id column")
 
     def source_distinct_id_column(self, source_query: ast.SelectQuery | ast.SelectSetQuery) -> str | None:
-        if self.query.select and "event_distinct_ids" not in self.query.select:
+        if "event_distinct_ids" not in self.input_columns():
             return None
 
         if isinstance(source_query, ast.SelectQuery):
@@ -221,7 +231,7 @@ class ActorsQueryRunner(QueryRunner):
             ),
         )
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self, calculate: bool = False) -> ast.SelectQuery:
         with self.timings.measure("columns"):
             columns = []
             group_by = []
