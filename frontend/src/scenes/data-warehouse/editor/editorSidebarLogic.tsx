@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import { BasicListItem, ExtendedListItem, ListItemAccordion, SidebarCategory } from '~/layout/navigation-3000/types'
-import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaTableCommon } from '~/queries/schema'
 import { DataWarehouseSavedQuery, PipelineTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
@@ -21,14 +21,7 @@ import { editorSceneLogic } from './editorSceneLogic'
 import type { editorSidebarLogicType } from './editorSidebarLogicType'
 import { multitabEditorLogic } from './multitabEditorLogic'
 
-const dataWarehouseTablesfuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], {
-    keys: [{ name: 'name', weight: 2 }],
-    threshold: 0.3,
-    ignoreLocation: true,
-    includeMatches: true,
-})
-
-const posthogTablesfuse = new Fuse<DatabaseSchemaTable>([], {
+const sourcesTableFuse = new Fuse<DatabaseSchemaTableCommon>([], {
     keys: [{ name: 'name', weight: 2 }],
     threshold: 0.3,
     ignoreLocation: true,
@@ -67,81 +60,17 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             (s) => [
                 s.relevantSavedQueries,
                 s.initialDataWarehouseSavedQueryLoading,
-                s.relevantPosthogTables,
-                s.relevantDataWarehouseTables,
+                s.relevantSources,
                 s.dataWarehouseTablesBySourceType,
                 s.databaseLoading,
             ],
             (
                 relevantSavedQueries,
                 initialDataWarehouseSavedQueryLoading,
-                relevantPosthogTables,
-                relevantDataWarehouseTables,
+                relevantSources,
                 dataWarehouseTablesBySourceType,
                 databaseLoading
             ) => [
-                {
-                    key: 'data-warehouse-sources',
-                    noun: ['source', 'external source'],
-                    loading: databaseLoading,
-                    items:
-                        relevantDataWarehouseTables.length > 0
-                            ? relevantDataWarehouseTables.map(([table, matches]) => ({
-                                  key: table.id,
-                                  name: table.name,
-                                  url: '',
-                                  searchMatch: matches
-                                      ? {
-                                            matchingFields: matches.map((match) => match.key),
-                                            nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                                        }
-                                      : null,
-                                  onClick: () => {
-                                      actions.selectSchema(table)
-                                  },
-                                  menuItems: [
-                                      {
-                                          label: 'Add join',
-                                          onClick: () => {
-                                              actions.selectSourceTable(table.name)
-                                              actions.toggleJoinTableModal()
-                                          },
-                                      },
-                                  ],
-                              }))
-                            : dataWarehouseTablesBySourceType,
-                    onAdd: () => {
-                        router.actions.push(urls.pipeline(PipelineTab.Sources))
-                    },
-                } as SidebarCategory,
-                {
-                    key: 'data-warehouse-tables',
-                    noun: ['table', 'tables'],
-                    loading: databaseLoading,
-                    items: relevantPosthogTables.map(([table, matches]) => ({
-                        key: table.id,
-                        name: table.name,
-                        url: '',
-                        searchMatch: matches
-                            ? {
-                                  matchingFields: matches.map((match) => match.key),
-                                  nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                              }
-                            : null,
-                        onClick: () => {
-                            actions.selectSchema(table)
-                        },
-                        menuItems: [
-                            {
-                                label: 'Add join',
-                                onClick: () => {
-                                    actions.selectSourceTable(table.name)
-                                    actions.toggleJoinTableModal()
-                                },
-                            },
-                        ],
-                    })),
-                } as SidebarCategory,
                 {
                     key: 'data-warehouse-views',
                     noun: ['view', 'views'],
@@ -194,6 +123,40 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         ],
                     })),
                 } as SidebarCategory,
+                {
+                    key: 'sources',
+                    noun: ['source', 'sources'],
+                    loading: databaseLoading,
+                    items:
+                        relevantSources.length > 0
+                            ? relevantSources.map(([table, matches]) => ({
+                                  key: table.id,
+                                  name: table.name,
+                                  url: '',
+                                  searchMatch: matches
+                                      ? {
+                                            matchingFields: matches.map((match) => match.key),
+                                            nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                                        }
+                                      : null,
+                                  onClick: () => {
+                                      actions.selectSchema(table)
+                                  },
+                                  menuItems: [
+                                      {
+                                          label: 'Add join',
+                                          onClick: () => {
+                                              actions.selectSourceTable(table.name)
+                                              actions.toggleJoinTableModal()
+                                          },
+                                      },
+                                  ],
+                              }))
+                            : dataWarehouseTablesBySourceType,
+                    onAdd: () => {
+                        router.actions.push(urls.pipeline(PipelineTab.Sources))
+                    },
+                } as SidebarCategory,
             ],
         ],
         nonMaterializedViews: [
@@ -217,10 +180,10 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             },
         ],
         dataWarehouseTablesBySourceType: [
-            (s) => [s.dataWarehouseTables],
-            (dataWarehouseTables): BasicListItem[] | ExtendedListItem[] | ListItemAccordion[] => {
+            (s) => [s.dataWarehouseTables, s.posthogTables],
+            (dataWarehouseTables, posthogTables): BasicListItem[] | ExtendedListItem[] | ListItemAccordion[] => {
                 const tablesBySourceType = dataWarehouseTables.reduce(
-                    (acc: Record<string, DatabaseSchemaDataWarehouseTable[]>, table) => {
+                    (acc: Record<string, DatabaseSchemaTableCommon[]>, table) => {
                         if (table.source) {
                             if (!acc[table.source.source_type]) {
                                 acc[table.source.source_type] = []
@@ -236,6 +199,8 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                     },
                     {}
                 )
+
+                tablesBySourceType['Posthog'] = posthogTables
 
                 return Object.entries(tablesBySourceType).map(([sourceType, tables]) => ({
                     key: sourceType,
@@ -261,28 +226,6 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                 })) as ListItemAccordion[]
             },
         ],
-        relevantDataWarehouseTables: [
-            () => [navigation3000Logic.selectors.searchTerm],
-            (searchTerm): [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
-                    return dataWarehouseTablesfuse
-                        .search(searchTerm)
-                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
-                }
-                return []
-            },
-        ],
-        relevantPosthogTables: [
-            (s) => [s.posthogTables, navigation3000Logic.selectors.searchTerm],
-            (posthogTables, searchTerm): [DatabaseSchemaTable, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
-                    return posthogTablesfuse
-                        .search(searchTerm)
-                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
-                }
-                return posthogTables.map((table) => [table, null])
-            },
-        ],
         relevantSavedQueries: [
             (s) => [s.dataWarehouseSavedQueries, navigation3000Logic.selectors.searchTerm],
             (dataWarehouseSavedQueries, searchTerm): [DataWarehouseSavedQuery, FuseSearchMatch[] | null][] => {
@@ -294,16 +237,27 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                 return dataWarehouseSavedQueries.map((savedQuery) => [savedQuery, null])
             },
         ],
+        relevantSources: [
+            () => [navigation3000Logic.selectors.searchTerm],
+            (searchTerm): [DatabaseSchemaTableCommon, FuseSearchMatch[] | null][] => {
+                if (searchTerm) {
+                    return sourcesTableFuse
+                        .search(searchTerm)
+                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
+                }
+                return []
+            },
+        ],
     })),
-    subscriptions({
+    subscriptions(({ values }) => ({
         dataWarehouseTables: (dataWarehouseTables) => {
-            dataWarehouseTablesfuse.setCollection(dataWarehouseTables)
+            sourcesTableFuse.setCollection([...dataWarehouseTables, ...values.posthogTables])
         },
         posthogTables: (posthogTables) => {
-            posthogTablesfuse.setCollection(posthogTables)
+            sourcesTableFuse.setCollection([...values.dataWarehouseTables, ...posthogTables])
         },
         dataWarehouseSavedQueries: (dataWarehouseSavedQueries) => {
             savedQueriesfuse.setCollection(dataWarehouseSavedQueries)
         },
-    }),
+    })),
 ])

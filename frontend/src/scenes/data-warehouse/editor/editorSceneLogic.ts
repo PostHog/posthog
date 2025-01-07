@@ -1,7 +1,7 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 
-import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaTableCommon } from '~/queries/schema'
 import { DataWarehouseSavedQuery } from '~/types'
 
 import type { editorSceneLogicType } from './editorSceneLogicType'
@@ -10,7 +10,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'editorSceneLogic']),
     actions({
         setSidebarOverlayOpen: (isOpen: boolean) => ({ isOpen }),
-        selectSchema: (schema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery) => ({
+        selectSchema: (schema: DatabaseSchemaTableCommon | DataWarehouseSavedQuery) => ({
             schema,
         }),
     }),
@@ -23,7 +23,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
         selectedSchema: [
-            null as DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null,
+            null as DatabaseSchemaTableCommon | DataWarehouseSavedQuery | null,
             {
                 selectSchema: (_, { schema }) => schema,
             },
