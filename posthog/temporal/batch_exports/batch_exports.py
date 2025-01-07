@@ -902,6 +902,14 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         for key, value in dataclasses.asdict(inputs).items()
         if key not in not_model_params and value is not None
     }
+
+    latest_error = update_params.get("latest_error", None)
+    if latest_error is not None and isinstance(latest_error, str):
+        # NUL (\x00) bytes are not allowed in PostgreSQL, so we replace them in
+        # the free text field `latest_error`.
+        latest_error = latest_error.replace("\x00", "")
+        update_params["latest_error"] = latest_error
+
     batch_export_run = await database_sync_to_async(update_batch_export_run)(
         run_id=uuid.UUID(inputs.id),
         finished_at=dt.datetime.now(dt.UTC),
@@ -1169,7 +1177,7 @@ async def execute_batch_export_insert_activity(
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
         # TODO: Consider removing this 20 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
-        start_to_close_timeout = max(dt.timedelta(minutes=20), dt.timedelta(**kwargs))
+        start_to_close_timeout = max(dt.timedelta(hours=12), dt.timedelta(**kwargs))
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 

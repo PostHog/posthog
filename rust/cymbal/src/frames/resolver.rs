@@ -6,6 +6,7 @@ use sqlx::PgPool;
 use crate::{
     config::Config,
     error::UnhandledError,
+    metric_consts::{FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS},
     symbol_store::{saving::SymbolSetRecord, Catalog},
 };
 
@@ -35,13 +36,16 @@ impl Resolver {
         catalog: &Catalog,
     ) -> Result<Frame, UnhandledError> {
         if let Some(result) = self.cache.get(&frame.frame_id()) {
+            metrics::counter!(FRAME_CACHE_HITS).increment(1);
             return Ok(result.contents);
         }
+        metrics::counter!(FRAME_CACHE_MISSES).increment(1);
 
         if let Some(result) =
             ErrorTrackingStackFrame::load(pool, team_id, &frame.frame_id(), self.result_ttl).await?
         {
             self.cache.insert(frame.frame_id(), result.clone());
+            metrics::counter!(FRAME_DB_HITS).increment(1);
             return Ok(result.contents);
         }
 

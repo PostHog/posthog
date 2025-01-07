@@ -192,6 +192,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "type",
             "metrics",
             "metrics_secondary",
+            "stats_config",
         ]
         read_only_fields = [
             "id",
@@ -243,8 +244,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         variants = value.get("feature_flag_variants", [])
 
-        if len(variants) >= 11:
-            raise ValidationError("Feature flag variants must be less than 11")
+        if len(variants) >= 21:
+            raise ValidationError("Feature flag variants must be less than 21")
         elif len(variants) > 0:
             if "control" not in [variant["key"] for variant in variants]:
                 raise ValidationError("Feature flag variants must contain a control variant")
@@ -299,6 +300,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         feature_flag_serializer.is_valid(raise_exception=True)
         feature_flag = feature_flag_serializer.save()
+
+        if not validated_data.get("stats_config"):
+            validated_data["stats_config"] = {"version": 2}
 
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
@@ -376,6 +380,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "holdout",
             "metrics",
             "metrics_secondary",
+            "stats_config",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys

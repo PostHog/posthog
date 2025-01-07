@@ -86,8 +86,8 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
     )
 }
 
-export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element => {
-    const { dateRange, assignee, hasGroupActions } = useValues(errorTrackingLogic)
+export const Options = ({ isIssue = false }: { isIssue?: boolean }): JSX.Element => {
+    const { dateRange, assignee } = useValues(errorTrackingLogic)
     const { setDateRange, setAssignee } = useActions(errorTrackingLogic)
     const { orderBy } = useValues(errorTrackingSceneLogic)
     const { setOrderBy } = useActions(errorTrackingSceneLogic)
@@ -106,7 +106,7 @@ export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element
                         size="small"
                     />
                 </div>
-                {!isGroup && (
+                {!isIssue && (
                     <div className="flex items-center gap-1">
                         <span>Sort by:</span>
                         <LemonSelect
@@ -141,7 +141,7 @@ export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element
                 )}
             </div>
             <div className="flex items-center gap-1">
-                {hasGroupActions && !isGroup && (
+                {!isIssue && (
                     <>
                         <span>Assigned to:</span>
                         <MemberSelect

@@ -49,7 +49,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             sceneLogic,
             ['activeScene', 'sceneParams'],
             dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
+            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'initialDataWarehouseSavedQueryLoading'],
             databaseTableListLogic,
             ['posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
         ],
@@ -66,14 +66,14 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
         contents: [
             (s) => [
                 s.relevantSavedQueries,
-                s.dataWarehouseSavedQueriesLoading,
+                s.initialDataWarehouseSavedQueryLoading,
                 s.relevantPosthogTables,
                 s.relevantDataWarehouseTables,
                 s.databaseLoading,
             ],
             (
                 relevantSavedQueries,
-                dataWarehouseSavedQueriesLoading,
+                initialDataWarehouseSavedQueryLoading,
                 relevantPosthogTables,
                 relevantDataWarehouseTables,
                 databaseLoading
@@ -140,7 +140,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                 {
                     key: 'data-warehouse-views',
                     noun: ['view', 'views'],
-                    loading: dataWarehouseSavedQueriesLoading,
+                    loading: initialDataWarehouseSavedQueryLoading,
                     items: relevantSavedQueries.map(([savedQuery, matches]) => ({
                         key: savedQuery.id,
                         name: savedQuery.name,
@@ -194,13 +194,13 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
         nonMaterializedViews: [
             (s) => [s.dataWarehouseSavedQueries],
             (views): DataWarehouseSavedQuery[] => {
-                return views.filter((view) => !view.status && !view.last_run_at)
+                return views.filter((view) => !view.status)
             },
         ],
         materializedViews: [
             (s) => [s.dataWarehouseSavedQueries],
             (views): DataWarehouseSavedQuery[] => {
-                return views.filter((view) => view.status || view.last_run_at)
+                return views.filter((view) => view.status)
             },
         ],
         activeListItemKey: [

@@ -214,6 +214,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "capture_dead_clicks",
             "user_access_level",
+            "default_data_theme",
         )
         read_only_fields = (
             "id",
