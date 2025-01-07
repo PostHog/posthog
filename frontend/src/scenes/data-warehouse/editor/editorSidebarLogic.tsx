@@ -194,13 +194,13 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
         nonMaterializedViews: [
             (s) => [s.dataWarehouseSavedQueries],
             (views): DataWarehouseSavedQuery[] => {
-                return views.filter((view) => !view.status && !view.last_run_at)
+                return views.filter((view) => !view.status)
             },
         ],
         materializedViews: [
             (s) => [s.dataWarehouseSavedQueries],
             (views): DataWarehouseSavedQuery[] => {
-                return views.filter((view) => view.status || view.last_run_at)
+                return views.filter((view) => view.status)
             },
         ],
         activeListItemKey: [

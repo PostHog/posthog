@@ -3942,7 +3942,7 @@
             "type": "object"
         },
         "CustomChannelField": {
-            "enum": ["utm_source", "utm_medium", "utm_campaign", "referring_domain"],
+            "enum": ["utm_source", "utm_medium", "utm_campaign", "referring_domain", "url", "pathname", "hostname"],
             "type": "string"
         },
         "CustomChannelOperator": {
@@ -6094,9 +6094,6 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
-                },
-                "stats_version": {
-                    "type": "integer"
                 }
             },
             "required": ["funnels_query", "kind"],
@@ -6198,9 +6195,6 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendsQueryResponse"
-                },
-                "stats_version": {
-                    "type": "integer"
                 }
             },
             "required": ["count_query", "kind"],
@@ -13490,6 +13484,7 @@
                 "InitialPage",
                 "ExitPage",
                 "ExitClick",
+                "ScreenName",
                 "InitialChannelType",
                 "InitialReferringDomain",
                 "InitialUTMSource",

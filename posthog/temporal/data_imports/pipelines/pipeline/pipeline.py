@@ -1,7 +1,9 @@
 import gc
 import time
 from typing import Any
+import os
 import pyarrow as pa
+import subprocess
 from dlt.sources import DltSource, DltResource
 import deltalake as deltalake
 from posthog.temporal.common.logger import FilteringBoundLogger
@@ -137,9 +139,21 @@ class PipelineNonDLT:
             self._logger.debug("No deltalake table, not continuing with post-run ops")
             return
 
-        self._logger.info("Compacting delta table")
-        delta_table.optimize.compact()
-        delta_table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        self._logger.debug("Spawning new process for deltatable compact and vacuuming")
+        process = subprocess.Popen(
+            [
+                "python",
+                f"{os.getcwd()}/posthog/temporal/data_imports/pipelines/pipeline/delta_table_subprocess.py",
+                "--table_uri",
+                self._delta_table_helper._get_delta_table_uri(),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        stdout, stderr = process.communicate()
+
+        if process.returncode != 0:
+            raise Exception(f"Delta subprocess failed: {stderr.decode()}")
 
         file_uris = delta_table.file_uris()
         self._logger.info(f"Preparing S3 files - total parquet files: {len(file_uris)}")

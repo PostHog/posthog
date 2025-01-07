@@ -1177,7 +1177,7 @@ async def execute_batch_export_insert_activity(
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
         # TODO: Consider removing this 20 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
-        start_to_close_timeout = max(dt.timedelta(minutes=20), dt.timedelta(**kwargs))
+        start_to_close_timeout = max(dt.timedelta(hours=12), dt.timedelta(**kwargs))
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 
