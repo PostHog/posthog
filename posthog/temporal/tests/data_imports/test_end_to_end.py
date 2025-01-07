@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import functools
 import uuid
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from unittest import mock
 
 import aioboto3
@@ -1145,3 +1145,32 @@ async def test_decimal_down_scales(team, postgres_config, postgres_connection):
         await postgres_connection.commit()
 
         await _execute_run(str(uuid.uuid4()), inputs, [])
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_missing_source(team, stripe_balance_transaction):
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=uuid.uuid4(),
+        external_data_schema_id=uuid.uuid4(),
+    )
+
+    with (
+        pytest.raises(Exception) as e,
+        mock.patch(
+            "posthog.temporal.data_imports.workflow_activities.create_job_model.delete_external_data_schedule"
+        ) as mock_delete_external_data_schedule,
+    ):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    exc = cast(Any, e)
+
+    assert exc.value is not None
+    assert exc.value.cause is not None
+    assert exc.value.cause.cause is not None
+    assert exc.value.cause.cause.message is not None
+
+    assert exc.value.cause.cause.message == "Source or schema no longer exists - deleted temporal schedule"
+
+    mock_delete_external_data_schedule.assert_called()
