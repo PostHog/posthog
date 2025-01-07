@@ -10,6 +10,7 @@ from langgraph.errors import NodeInterrupt
 from ee.hogai.memory.nodes import (
     FAILED_SCRAPING_MESSAGE,
     MemoryCollectorNode,
+    MemoryCollectorToolsNode,
     MemoryInitializerContextMixin,
     MemoryInitializerInterruptNode,
     MemoryInitializerNode,
@@ -584,3 +585,237 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(history[6].content, "Memory appended.")
         self.assertEqual(history[7].content, "Analyzing target audience: enterprise customers.")
         self.assertEqual(history[8].content, "Memory appended.")
+
+
+class TestMemoryCollectorToolsNode(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.core_memory = CoreMemory.objects.create(team=self.team)
+        self.core_memory.set_core_memory("Initial memory content")
+        self.node = MemoryCollectorToolsNode(team=self.team)
+
+    def test_handles_correct_tools(self):
+        # Test handling a single append tool
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Adding new memory",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_append",
+                            "args": {"memory_content": "New memory fragment."},
+                            "id": "1",
+                        },
+                        {
+                            "name": "core_memory_replace",
+                            "args": {
+                                "original_fragment": "Initial memory content",
+                                "new_fragment": "New memory fragment 2.",
+                            },
+                            "id": "2",
+                        },
+                    ],
+                )
+            ],
+        )
+
+        new_state = self.node.run(state, {})
+        self.assertEqual(len(new_state.memory_collection_messages), 3)
+        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory appended.")
+        self.assertEqual(new_state.memory_collection_messages[2].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[2].content, "Memory replaced.")
+
+    def test_handles_validation_error(self):
+        # Test handling validation error with incorrect tool arguments
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Invalid tool call",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_append",
+                            "args": {"invalid_arg": "This will fail"},
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        new_state = self.node.run(state, {})
+        self.assertEqual(len(new_state.memory_collection_messages), 2)
+        self.assertNotIn("{{validation_error_message}}", new_state.memory_collection_messages[1].content)
+
+    def test_handles_multiple_tools(self):
+        # Test handling multiple tool calls in a single message
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Multiple operations",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_append",
+                            "args": {"memory_content": "First memory"},
+                            "id": "1",
+                        },
+                        {
+                            "name": "core_memory_append",
+                            "args": {"memory_content": "Second memory"},
+                            "id": "2",
+                        },
+                        {
+                            "name": "core_memory_replace",
+                            "args": {
+                                "original_fragment": "Initial memory content",
+                                "new_fragment": "Third memory",
+                            },
+                            "id": "3",
+                        },
+                    ],
+                )
+            ],
+        )
+
+        new_state = self.node.run(state, {})
+        self.assertEqual(len(new_state.memory_collection_messages), 4)
+        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory appended.")
+        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")
+        self.assertEqual(new_state.memory_collection_messages[2].content, "Memory appended.")
+        self.assertEqual(new_state.memory_collection_messages[2].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[2].tool_call_id, "2")
+        self.assertEqual(new_state.memory_collection_messages[3].content, "Memory replaced.")
+        self.assertEqual(new_state.memory_collection_messages[3].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[3].tool_call_id, "3")
+
+        self.core_memory.refresh_from_db()
+        self.assertEqual(self.core_memory.text, "Third memory\nFirst memory\nSecond memory")
+
+    def test_handles_replacing_memory(self):
+        # Test replacing a memory fragment
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Replacing memory",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_replace",
+                            "args": {
+                                "original_fragment": "Initial memory",
+                                "new_fragment": "Updated memory",
+                            },
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        new_state = self.node.run(state, {})
+        self.assertEqual(len(new_state.memory_collection_messages), 2)
+        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory replaced.")
+        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")
+        self.core_memory.refresh_from_db()
+        self.assertEqual(self.core_memory.text, "Updated memory content")
+
+    def test_handles_replace_memory_not_found(self):
+        # Test replacing a memory fragment that doesn't exist
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Replacing non-existent memory",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_replace",
+                            "args": {
+                                "original_fragment": "Non-existent memory",
+                                "new_fragment": "New memory",
+                            },
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        new_state = self.node.run(state, {})
+        self.assertEqual(len(new_state.memory_collection_messages), 2)
+        self.assertIn("not found", new_state.memory_collection_messages[1].content.lower())
+        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")
+        self.core_memory.refresh_from_db()
+        self.assertEqual(self.core_memory.text, "Initial memory content")
+
+    def test_handles_appending_new_memory(self):
+        # Test appending a new memory fragment
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Appending memory",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_append",
+                            "args": {"memory_content": "Additional memory"},
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        new_state = self.node.run(state, {})
+        self.assertEqual(len(new_state.memory_collection_messages), 2)
+        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory appended.")
+        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
+        self.core_memory.refresh_from_db()
+        self.assertEqual(self.core_memory.text, "Initial memory content\nAdditional memory")
+
+    def test_error_when_no_memory_collection_messages(self):
+        # Test error when no memory collection messages are present
+        state = AssistantState(messages=[], memory_collection_messages=[])
+
+        with self.assertRaises(ValueError) as e:
+            self.node.run(state, {})
+        self.assertEqual(str(e.exception), "No memory collection messages found.")
+
+    def test_error_when_last_message_not_ai(self):
+        # Test error when last message is not an AI message
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[LangchainToolMessage(content="Not an AI message", tool_call_id="1")],
+        )
+
+        with self.assertRaises(ValueError) as e:
+            self.node.run(state, {})
+        self.assertEqual(str(e.exception), "Last message must be an AI message.")
+
+    def test_error_when_no_core_memory(self):
+        # Test error when core memory is not found
+        self.core_memory.delete()
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Memory operation",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_append",
+                            "args": {"memory_content": "New memory"},
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        with self.assertRaises(ValueError) as e:
+            self.node.run(state, {})
+        self.assertEqual(str(e.exception), "No core memory found.")

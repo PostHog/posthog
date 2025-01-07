@@ -319,9 +319,9 @@ class MemoryCollectorToolsNode(AssistantNode):
                 last_message, config=config
             )
         except ValidationError as e:
-            failover_messages = ChatPromptTemplate.from_messages(("user", TOOL_CALL_ERROR_PROMPT)).format_messages(
-                validation_error_message=e.errors(include_url=False)
-            )
+            failover_messages = ChatPromptTemplate.from_messages(
+                [("user", TOOL_CALL_ERROR_PROMPT)], template_format="mustache"
+            ).format_messages(validation_error_message=e.errors(include_url=False))
             return PartialAssistantState(
                 memory_collection_messages=[*node_messages, *failover_messages],
             )
