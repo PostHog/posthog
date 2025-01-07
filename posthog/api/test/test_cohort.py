@@ -399,7 +399,7 @@ email@example.org,
 
         self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "whatever", "groups": [{"properties": {"prop": 5}}]},
+            data={"name": "whatever", "groups": [{"properties": {"prop": "5"}}]},
         )
 
         cohort = Cohort.objects.filter(team=self.team).last()
@@ -421,7 +421,7 @@ email@example.org,
 
         self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
-            data={"name": "woohoo", "groups": [{"properties": {"prop": 6}}]},
+            data={"name": "woohoo", "groups": [{"properties": {"prop": "6"}}]},
         )
         cohort.refresh_from_db()
         assert cohort.name == "woohoo"
@@ -455,12 +455,12 @@ email@example.org,
                                         "end_date": None,
                                         "event_id": None,
                                         "action_id": None,
-                                        "properties": [{"key": "prop", "type": "person", "value": 5}],
+                                        "properties": [{"key": "prop", "type": "person", "value": "5"}],
                                         "start_date": None,
                                         "count_operator": None,
                                     }
                                 ],
-                                "after": [{"properties": [{"key": "prop", "type": "person", "value": 6}]}],
+                                "after": [{"properties": [{"key": "prop", "type": "person", "value": "6"}]}],
                             },
                         ],
                         "trigger": None,
