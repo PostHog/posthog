@@ -734,15 +734,21 @@ def _update_tile_with_new_key(insight, new_key: str, old_key: str, descriptionFu
     if insight.description != old_description:  # We don't touch insights that have been manually edited
         return
 
-    insight.description = new_description
     if insight.query:
-        if insight.query.get("source", {}).get("properties", {}).get("values"):
-            for property_group in insight.query["source"]["properties"]["values"]:
-                for property_value in property_group.get("values", []):
-                    if property_value.get("key") == "$feature_flag" and property_value.get("value") == old_key:
-                        property_value["value"] = new_key
-        insight.query = insight.query  # Trigger field update
-    insight.save()
+        property_values = insight.query.get("source", {}).get("properties", {}).get("values", [])
+        if len(property_values) != 1:  # Exit if not exactly one property group
+            return
+
+        property_group = property_values[0]
+        values = property_group.get("values", [])
+        # Only proceed if there's exactly one value and it's a feature flag
+        if len(values) == 1 and values[0].get("key") == "$feature_flag" and values[0].get("value") == old_key:
+            values[0]["value"] = new_key
+            insight.query = insight.query  # Trigger field update
+            # Only update the insight if it matches what we expect for the system created insights
+            insight.description = new_description
+            insight.save()
+            return
 
 
 def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
