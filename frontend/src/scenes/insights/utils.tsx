@@ -332,12 +332,14 @@ export function formatBreakdownLabel(
         )
     }
 
-    const maybeNumericValue = Number.isSafeInteger(Number(breakdown_value))
-        ? Number(breakdown_value)
-        : BigInt(breakdown_value)
-    if (!Number.isNaN(maybeNumericValue)) {
+    // stringified numbers
+    if (!Number.isNaN(Number(breakdown_value))) {
+        const numericValue =
+            Number.isInteger(Number(breakdown_value)) && !Number.isSafeInteger(Number(breakdown_value))
+                ? BigInt(breakdown_value!)
+                : Number(breakdown_value)
         return formatNumericBreakdownLabel(
-            maybeNumericValue,
+            numericValue,
             breakdownFilter,
             formatPropertyValueForDisplay,
             multipleBreakdownIndex
