@@ -1,7 +1,11 @@
+from collections.abc import Sequence
 from html.parser import HTMLParser
 from inspect import getmembers, ismethod
 
 from markdown_it import MarkdownIt
+from markdown_it.renderer import RendererProtocol
+from markdown_it.token import Token
+from markdown_it.utils import EnvType, OptionsDict
 
 
 # Taken from https://github.com/elespike/mdit_plain/blob/main/src/mdit_plain/renderer.py
@@ -24,7 +28,7 @@ class HTMLTextRenderer(HTMLParser):
         return rendered_data
 
 
-class RendererPlain:
+class RendererPlain(RendererProtocol):
     __output__ = "plain"
 
     def __init__(self, parser=None):
@@ -36,9 +40,7 @@ class RendererPlain:
             if func_name.startswith("render_")
         }
 
-    def render(self, tokens, options, env):
-        if options is None and self.parser is not None:
-            options = self.parser.options
+    def render(self, tokens: Sequence[Token], options: OptionsDict, env: EnvType):
         result = ""
         for i, token in enumerate(tokens):
             rule = self.rules.get(token.type, self.render_default)
