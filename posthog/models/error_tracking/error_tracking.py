@@ -1,8 +1,7 @@
 from django.db import models, transaction
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.contenttypes.models import ContentType
-from django.contrib.contenttypes.fields import GenericForeignKey
 
+from django.db.models import Q
 from posthog.models.utils import UUIDModel
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -53,13 +52,20 @@ class ErrorTrackingIssue(UUIDModel):
 
 class ErrorTrackingIssueAssignment(UUIDModel):
     issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE)
-    # Desprecated: Use assignee instead
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    # Either a User or ErrorTrackingTeam
-    assignee = GenericForeignKey("content_type", "object_id")
-    content_type = models.ForeignKey(ContentType, null=True, on_delete=models.CASCADE)
-    object_id = models.PositiveIntegerField()
-    created_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, null=True, on_delete=models.CASCADE)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(check=Q(user__isnull=False) | Q(team__isnull=False), name="at_least_one_non_null"),
+            models.CheckConstraint(check=~(Q(user__isnull=False) & Q(team__isnull=False)), name="only_one_non_null"),
+            models.UniqueConstraint(
+                fields=["issue", "user"], condition=Q(user__isnull=False), name="unique_user_per_issue"
+            ),
+            models.UniqueConstraint(
+                fields=["issue", "team"], condition=Q(team__isnull=False), name="unique_team_per_issue"
+            ),
+        ]
 
 
 class ErrorTrackingTeam(UUIDModel):
@@ -71,17 +77,6 @@ class ErrorTrackingTeamMembership(UUIDModel):
     team = models.ForeignKey(ErrorTrackingTeam, on_delete=models.CASCADE)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-
-
-# from django.contrib.contenttypes.models import ContentType
-# from posthog.models.user import User
-# from posthog.models.team import Team
-# from posthog.models.error_tracking import ErrorTrackingIssue
-# user_ct = ContentType.objects.get_for_model(User)
-# from posthog.models.error_tracking import ErrorTrackingIssueAssignment
-# user = User.objects.first()
-# issue = ErrorTrackingIssue.objects.first()
-# assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, content_type=user_ct, object_id=user.id)
 
 
 class ErrorTrackingIssueFingerprintV2(UUIDModel):
