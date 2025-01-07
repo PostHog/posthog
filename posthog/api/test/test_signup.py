@@ -1107,7 +1107,6 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(user.first_name, "Alice")
         self.assertEqual(user.email, "test+99@posthog.com")
         self.assertEqual(user.role_at_organization, "Engineering")
-
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once()
         self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
