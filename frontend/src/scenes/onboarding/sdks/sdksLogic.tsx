@@ -258,7 +258,12 @@ export const sdksLogic = kea<sdksLogicType>([
     afterMount(({ actions }) => {
         actions.loadSnippetEvents()
     }),
-    urlToAction(() => ({
-        '/onboarding/:productKey': () => {},
+    urlToAction(({ actions }) => ({
+        '/onboarding/:productKey': (_productKey, { sdk }) => {
+            const matchedSDK = allSDKs.find((s) => s.key === sdk)
+            if (matchedSDK) {
+                actions.setSelectedSDK(matchedSDK)
+            }
+        },
     })),
 ])
