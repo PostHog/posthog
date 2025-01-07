@@ -172,7 +172,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             steps_json=[
                 {
                     "event": "$pageview",
-                    "properties": [{"key": "team_id", "type": "person", "value": 5}],
+                    "properties": [{"key": "team_id", "type": "person", "value": "5"}],
                 }
             ],
         )
