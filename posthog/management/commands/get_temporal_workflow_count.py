@@ -91,7 +91,7 @@ class Command(BaseCommand):
             client.count_workflows(query=f'`TaskQueue`="{task_queue}" AND `ExecutionStatus`="{execution_status}"')
         )
 
-        if track_gauge:
+        if track_gauge and settings.PROM_PUSHGATEWAY_ADDRESS is not None:
             logging.debug(f"Tracking count in Gauge: {track_gauge}")
             registry = CollectorRegistry()
             gauge = Gauge(
