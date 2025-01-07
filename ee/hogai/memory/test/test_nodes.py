@@ -3,10 +3,12 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 from langchain_core.runnables import RunnableLambda
+from langgraph.errors import NodeInterrupt
 
 from ee.hogai.memory.nodes import (
     FAILED_SCRAPING_MESSAGE,
     MemoryInitializerContextMixin,
+    MemoryInitializerInterruptNode,
     MemoryInitializerNode,
     MemoryOnboardingNode,
 )
@@ -305,3 +307,111 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             with self.assertRaises(ValueError) as e:
                 node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
             self.assertEqual(str(e.exception), "No host or app bundle ID found in the memory initializer.")
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.core_memory = CoreMemory.objects.create(
+            team=self.team,
+            scraping_status=CoreMemory.ScrapingStatus.PENDING,
+            scraping_started_at=timezone.now(),
+        )
+        self.node = MemoryInitializerInterruptNode(team=self.team)
+
+    def test_interrupt_when_not_resumed(self):
+        state = AssistantState(messages=[AssistantMessage(content="Product description")])
+
+        with self.assertRaises(NodeInterrupt) as e:
+            self.node.run(state, {})
+
+        interrupt_message = e.exception.args[0][0].value
+        self.assertIsInstance(interrupt_message, AssistantMessage)
+        self.assertEqual(interrupt_message.content, "Does it look like a good summary of what your product does?")
+        self.assertIsNotNone(interrupt_message.meta)
+        self.assertEqual(len(interrupt_message.meta.form.options), 2)
+        self.assertEqual(interrupt_message.meta.form.options[0].value, "Yes, save this.")
+        self.assertEqual(interrupt_message.meta.form.options[1].value, "No, this doesn't look right.")
+
+    def test_memory_accepted(self):
+        with patch.object(MemoryInitializerInterruptNode, "_model") as model_mock:
+            model_mock.return_value = RunnableLambda(lambda _: "Compressed memory")
+
+            state = AssistantState(
+                messages=[
+                    AssistantMessage(content="Product description"),
+                    HumanMessage(content="Yes, save this."),
+                ],
+                resumed=True,
+            )
+
+            new_state = self.node.run(state, {})
+
+            self.assertEqual(len(new_state.messages), 1)
+            self.assertIsInstance(new_state.messages[0], AssistantMessage)
+            self.assertEqual(
+                new_state.messages[0].content,
+                "Thanks! I've updated my initial memory. Let me help with your request.",
+            )
+
+            core_memory = CoreMemory.objects.get(team=self.team)
+            self.assertEqual(core_memory.text, "Compressed memory")
+
+    def test_memory_rejected(self):
+        state = AssistantState(
+            messages=[
+                AssistantMessage(content="Product description"),
+                HumanMessage(content="No, this doesn't look right."),
+            ],
+            resumed=True,
+        )
+
+        new_state = self.node.run(state, {})
+
+        self.assertEqual(len(new_state.messages), 1)
+        self.assertIsInstance(new_state.messages[0], AssistantMessage)
+        self.assertEqual(
+            new_state.messages[0].content,
+            "All right, let's skip this step. You could edit my initial memory in Settings.",
+        )
+
+    def test_error_when_last_message_not_human(self):
+        state = AssistantState(
+            messages=[AssistantMessage(content="Product description")],
+            resumed=True,
+        )
+
+        with self.assertRaises(ValueError) as e:
+            self.node.run(state, {})
+        self.assertEqual(str(e.exception), "Last message is not a human message.")
+
+    def test_error_when_no_core_memory(self):
+        self.core_memory.delete()
+
+        state = AssistantState(
+            messages=[
+                AssistantMessage(content="Product description"),
+                HumanMessage(content="Yes, save this."),
+            ],
+            resumed=True,
+        )
+
+        with self.assertRaises(ValueError) as e:
+            self.node.run(state, {})
+        self.assertEqual(str(e.exception), "No core memory found.")
+
+    def test_error_when_no_memory_message(self):
+        state = AssistantState(
+            messages=[HumanMessage(content="Yes, save this.")],
+            resumed=True,
+        )
+
+        with self.assertRaises(ValueError) as e:
+            self.node.run(state, {})
+        self.assertEqual(str(e.exception), "No memory message found.")
+
+    def test_format_memory(self):
+        markdown_text = "# Product Description\n\n- Feature 1\n- Feature 2\n\n**Bold text** and `code` [1]"
+        expected = "Product Description\n\nFeature 1\nFeature 2\n\nBold text and code [1]"
+        self.assertEqual(self.node._format_memory(markdown_text), expected)
