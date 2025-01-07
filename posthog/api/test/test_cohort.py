@@ -73,7 +73,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+            data={"name": "whatever", "groups": [{"properties": {"team_id": "5"}}]},
         )
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
@@ -90,7 +90,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                     "values": [
                         {
                             "type": "AND",
-                            "values": [{"key": "team_id", "value": 5, "type": "person"}],
+                            "values": [{"key": "team_id", "value": "5", "type": "person"}],
                         }
                     ],
                 },
@@ -108,7 +108,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 data={
                     "name": "whatever2",
                     "description": "A great cohort!",
-                    "groups": [{"properties": {"team_id": 6}}],
+                    "groups": [{"properties": {"team_id": "6"}}],
                     "created_by": "something something",
                     "last_calculation": "some random date",
                     "errors_calculating": 100,
@@ -131,7 +131,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                     "values": [
                         {
                             "type": "AND",
-                            "values": [{"key": "team_id", "value": 6, "type": "person"}],
+                            "values": [{"key": "team_id", "value": "6", "type": "person"}],
                         }
                     ],
                 },
