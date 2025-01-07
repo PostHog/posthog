@@ -215,7 +215,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
     }),
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, actions }) => ({
         batchExportConfig: [
             null as BatchExportConfiguration | null,
             {
@@ -226,13 +226,6 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     return null
                 },
                 updateBatchExportConfig: async (formdata) => {
-                    if (
-                        (!values.batchExportConfig || (values.batchExportConfig.paused && formdata.paused !== true)) &&
-                        !values.canEnableNewDestinations
-                    ) {
-                        lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
-                        return null
-                    }
                     const { name, destination, interval, paused, created_at, start_at, end_at, model, ...config } =
                         formdata
                     const destinationObj = {

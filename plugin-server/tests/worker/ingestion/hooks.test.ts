@@ -48,23 +48,23 @@ describe('hooks', () => {
 
             expect(fetch).toHaveBeenCalledTimes(1)
             expect(fetch.mock.calls[0]).toMatchInlineSnapshot(`
-                Array [
+                [
                   "https://example.com/",
-                  Object {
+                  {
                     "body": "{
-                    \\"hook\\": {
-                        \\"id\\": \\"id\\",
-                        \\"event\\": \\"foo\\",
-                        \\"target\\": \\"https://example.com/\\"
+                    "hook": {
+                        "id": "id",
+                        "event": "foo",
+                        "target": "https://example.com/"
                     },
-                    \\"data\\": {
-                        \\"event\\": \\"foo\\",
-                        \\"properties\\": {},
-                        \\"elementsList\\": [],
-                        \\"person\\": {}
+                    "data": {
+                        "event": "foo",
+                        "properties": {},
+                        "elementsList": [],
+                        "person": {}
                     }
                 }",
-                    "headers": Object {
+                    "headers": {
                       "Content-Type": "application/json",
                     },
                     "method": "POST",
@@ -95,33 +95,33 @@ describe('hooks', () => {
             )
             expect(fetch).toHaveBeenCalledTimes(1)
             expect(fetch.mock.calls[0]).toMatchInlineSnapshot(`
-                Array [
+                [
                   "https://example.com/",
-                  Object {
+                  {
                     "body": "{
-                    \\"hook\\": {
-                        \\"id\\": \\"id\\",
-                        \\"event\\": \\"foo\\",
-                        \\"target\\": \\"https://example.com/\\"
+                    "hook": {
+                        "id": "id",
+                        "event": "foo",
+                        "target": "https://example.com/"
                     },
-                    \\"data\\": {
-                        \\"eventUuid\\": \\"018f39d3-d94c-0000-eeef-df4a793f8844\\",
-                        \\"event\\": \\"foo\\",
-                        \\"teamId\\": 1,
-                        \\"distinctId\\": \\"WALL-E\\",
-                        \\"properties\\": {},
-                        \\"timestamp\\": \\"2024-01-01T00:00:00.000Z\\",
-                        \\"elementsList\\": [],
-                        \\"person\\": {
-                            \\"uuid\\": \\"018f39d3-d94c-0000-eeef-df4a793f8844\\",
-                            \\"properties\\": {
-                                \\"foo\\": \\"bar\\"
+                    "data": {
+                        "eventUuid": "018f39d3-d94c-0000-eeef-df4a793f8844",
+                        "event": "foo",
+                        "teamId": 1,
+                        "distinctId": "WALL-E",
+                        "properties": {},
+                        "timestamp": "2024-01-01T00:00:00.000Z",
+                        "elementsList": [],
+                        "person": {
+                            "uuid": "018f39d3-d94c-0000-eeef-df4a793f8844",
+                            "properties": {
+                                "foo": "bar"
                             },
-                            \\"created_at\\": \\"2024-01-01T00:00:00.000Z\\"
+                            "created_at": "2024-01-01T00:00:00.000Z"
                         }
                     }
                 }",
-                    "headers": Object {
+                    "headers": {
                       "Content-Type": "application/json",
                     },
                     "method": "POST",

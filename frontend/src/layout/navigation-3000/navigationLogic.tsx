@@ -101,6 +101,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         focusNextItem: true,
         focusPreviousItem: true,
         toggleAccordion: (key: string) => ({ key }),
+        toggleListItemAccordion: (key: string) => ({ key }),
     }),
     reducers({
         isSidebarShown: [
@@ -193,6 +194,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
             {
                 toggleAccordion: (state, { key }) => ({
+                    ...state,
+                    [key]: !state[key],
+                }),
+            },
+        ],
+        listItemAccordionCollapseMapping: [
+            {} as Record<string, boolean>,
+            {
+                persist: true,
+            },
+            {
+                toggleListItemAccordion: (state, { key }) => ({
                     ...state,
                     [key]: !state[key],
                 }),
@@ -515,29 +528,20 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.earlyAccessFeatures(),
                               }
                             : null,
-                        {
-                            identifier: Scene.DataWarehouse,
-                            label: 'Data warehouse',
-                            icon: <IconDatabase />,
-                            to: isUsingSidebar ? undefined : urls.dataWarehouse(),
-                        },
                         featureFlags[FEATURE_FLAGS.SQL_EDITOR]
                             ? {
                                   identifier: Scene.SQLEditor,
-                                  label: 'SQL Editor',
+                                  label: 'SQL editor',
                                   icon: <IconServer />,
                                   to: urls.sqlEditor(),
                                   logic: editorSidebarLogic,
                               }
-                            : null,
-                        featureFlags[FEATURE_FLAGS.DATA_MODELING] && hasOnboardedAnyProduct
-                            ? {
-                                  identifier: Scene.DataModel,
-                                  label: 'Data model',
-                                  icon: <IconServer />,
-                                  to: isUsingSidebar ? undefined : urls.dataModel(),
-                              }
-                            : null,
+                            : {
+                                  identifier: Scene.DataWarehouse,
+                                  label: 'Data warehouse',
+                                  icon: <IconDatabase />,
+                                  to: isUsingSidebar ? undefined : urls.dataWarehouse(),
+                              },
                         hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.Pipeline,
@@ -591,8 +595,17 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         ],
         sidebarContentsFlattened: [
             (s) => [(state) => s.activeNavbarItem(state)?.logic?.findMounted()?.selectors.contents(state) || null],
-            (sidebarContents): BasicListItem[] | ExtendedListItem[] =>
-                sidebarContents ? sidebarContents.flatMap((item) => ('items' in item ? item.items : item)) : [],
+            (sidebarContents): BasicListItem[] | ExtendedListItem[] => {
+                const flattenItems = (items: any[]): (BasicListItem | ExtendedListItem)[] => {
+                    return items.flatMap((item) => {
+                        if ('items' in item) {
+                            return flattenItems(item.items)
+                        }
+                        return item
+                    })
+                }
+                return sidebarContents ? flattenItems(sidebarContents) : []
+            },
         ],
         normalizedActiveListItemKey: [
             (s) => [
@@ -605,6 +618,23 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         ? activeListItemKey.join(ITEM_KEY_PART_SEPARATOR)
                         : activeListItemKey
                     : null,
+        ],
+        isListItemVisible: [
+            (s) => [s.listItemAccordionCollapseMapping],
+            (listItemAccordionCollapseMapping) => {
+                return (key: string): boolean => {
+                    // Split the key into parts to check each parent's visibility
+                    const parts = key.split(ITEM_KEY_PART_SEPARATOR)
+                    // Check if any parent is collapsed
+                    for (let i = 1; i < parts.length; i++) {
+                        const parentKey = parts.slice(0, i).join(ITEM_KEY_PART_SEPARATOR)
+                        if (listItemAccordionCollapseMapping[parentKey]) {
+                            return false
+                        }
+                    }
+                    return true
+                }
+            },
         ],
         activeNavbarItemId: [
             (s) => [s.activeNavbarItemIdRaw, featureFlagLogic.selectors.featureFlags],

@@ -3,14 +3,14 @@ import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
-import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useState } from 'react'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery, FunnelsQuery, NodeKind, TrendsQuery } from '~/queries/schema'
 import { ActionFilter, AnyPropertyFilter, ChartDisplayType, Experiment, FilterType, InsightType } from '~/types'
 
-import { experimentLogic, getDefaultFilters, getDefaultFunnelsMetric } from '../experimentLogic'
+import { experimentLogic, getDefaultFunnelsMetric } from '../experimentLogic'
 import { PrimaryTrendsExposureModal } from '../Metrics/PrimaryTrendsExposureModal'
 
 export function MetricDisplayTrends({ query }: { query: TrendsQuery | undefined }): JSX.Element {
@@ -113,19 +113,14 @@ export function MetricDisplayOld({ filters }: { filters?: FilterType }): JSX.Ele
 }
 
 export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, featureFlags } = useValues(experimentLogic({ experimentId }))
-    const { updateExperimentGoal, loadExperiment, setExperiment } = useActions(experimentLogic({ experimentId }))
+    const { experiment } = useValues(experimentLogic({ experimentId }))
+    const { updateExperimentGoal, loadExperiment, setExperiment, setEditingPrimaryMetricIndex } = useActions(
+        experimentLogic({ experimentId })
+    )
     const [isModalOpen, setIsModalOpen] = useState(false)
 
     const metricIdx = 0
-
-    // :FLAG: CLEAN UP AFTER MIGRATION
-    let hasCustomExposure = false
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-        hasCustomExposure = !!(experiment.metrics[metricIdx] as ExperimentTrendsQuery).exposure_query
-    } else {
-        hasCustomExposure = !!experiment.parameters?.custom_exposure_filter
-    }
+    const hasCustomExposure = !!(experiment.metrics[metricIdx] as ExperimentTrendsQuery).exposure_query
 
     return (
         <>
@@ -137,15 +132,8 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
                     <IconInfo className="ml-1 text-muted text-sm" />
                 </Tooltip>
             </div>
-            {/* :FLAG: CLEAN UP AFTER MIGRATION */}
-            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] ? (
-                hasCustomExposure ? (
-                    <MetricDisplayTrends query={(experiment.metrics[0] as ExperimentTrendsQuery).exposure_query} />
-                ) : (
-                    <span className="description">Default via $feature_flag_called events</span>
-                )
-            ) : hasCustomExposure ? (
-                <MetricDisplayOld filters={experiment.parameters.custom_exposure_filter} />
+            {hasCustomExposure ? (
+                <MetricDisplayTrends query={(experiment.metrics[0] as ExperimentTrendsQuery).exposure_query} />
             ) : (
                 <span className="description">Default via $feature_flag_called events</span>
             )}
@@ -155,52 +143,41 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
                         type="secondary"
                         size="xsmall"
                         onClick={() => {
-                            if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                                if (!hasCustomExposure) {
-                                    setExperiment({
-                                        ...experiment,
-                                        metrics: experiment.metrics.map((metric, idx) =>
-                                            idx === metricIdx
-                                                ? {
-                                                      ...metric,
-                                                      exposure_query: {
-                                                          kind: NodeKind.TrendsQuery,
-                                                          series: [
-                                                              {
-                                                                  kind: NodeKind.EventsNode,
-                                                                  name: '$pageview',
-                                                                  event: '$pageview',
-                                                              },
-                                                          ],
-                                                          interval: 'day',
-                                                          dateRange: {
-                                                              date_from: dayjs()
-                                                                  .subtract(EXPERIMENT_DEFAULT_DURATION, 'day')
-                                                                  .format('YYYY-MM-DDTHH:mm'),
-                                                              date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                                                              explicitDate: true,
+                            if (!hasCustomExposure) {
+                                setExperiment({
+                                    ...experiment,
+                                    metrics: experiment.metrics.map((metric, idx) =>
+                                        idx === metricIdx
+                                            ? {
+                                                  ...metric,
+                                                  exposure_query: {
+                                                      kind: NodeKind.TrendsQuery,
+                                                      series: [
+                                                          {
+                                                              kind: NodeKind.EventsNode,
+                                                              name: '$pageview',
+                                                              event: '$pageview',
                                                           },
-                                                          trendsFilter: {
-                                                              display: ChartDisplayType.ActionsLineGraph,
-                                                          },
-                                                          filterTestAccounts: true,
+                                                      ],
+                                                      interval: 'day',
+                                                      dateRange: {
+                                                          date_from: dayjs()
+                                                              .subtract(EXPERIMENT_DEFAULT_DURATION, 'day')
+                                                              .format('YYYY-MM-DDTHH:mm'),
+                                                          date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                                                          explicitDate: true,
                                                       },
-                                                  }
-                                                : metric
-                                        ),
-                                    })
-                                }
-                            } else {
-                                if (!hasCustomExposure) {
-                                    setExperiment({
-                                        ...experiment,
-                                        parameters: {
-                                            ...experiment.parameters,
-                                            custom_exposure_filter: getDefaultFilters(InsightType.TRENDS, undefined),
-                                        },
-                                    })
-                                }
+                                                      trendsFilter: {
+                                                          display: ChartDisplayType.ActionsLineGraph,
+                                                      },
+                                                      filterTestAccounts: true,
+                                                  },
+                                              }
+                                            : metric
+                                    ),
+                                })
                             }
+                            setEditingPrimaryMetricIndex(metricIdx)
                             setIsModalOpen(true)
                         }}
                         className="mr-2"
@@ -232,6 +209,7 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
                 isOpen={isModalOpen}
                 onClose={() => {
                     setIsModalOpen(false)
+                    setEditingPrimaryMetricIndex(null)
                     loadExperiment()
                 }}
             />
@@ -240,14 +218,12 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 }
 
 export function Goal(): JSX.Element {
-    const { experiment, experimentId, getMetricType, experimentMathAggregationForTrends, hasGoalSet, featureFlags } =
+    const { experiment, experimentId, _getMetricType, experimentMathAggregationForTrends, hasGoalSet } =
         useValues(experimentLogic)
     const { setExperiment, openPrimaryMetricModal } = useActions(experimentLogic)
-    const metricType = getMetricType(0)
+    const metricType = _getMetricType(experiment.metrics[0])
 
-    // :FLAG: CLEAN UP AFTER MIGRATION
     const isDataWarehouseMetric =
-        featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] &&
         metricType === InsightType.TRENDS &&
         (experiment.metrics[0] as ExperimentTrendsQuery).count_query?.series[0].kind === NodeKind.DataWarehouseNode
 
@@ -282,17 +258,10 @@ export function Goal(): JSX.Element {
                         size="small"
                         data-attr="add-experiment-goal"
                         onClick={() => {
-                            if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                                setExperiment({
-                                    ...experiment,
-                                    metrics: [getDefaultFunnelsMetric()],
-                                })
-                            } else {
-                                setExperiment({
-                                    ...experiment,
-                                    filters: getDefaultFilters(InsightType.FUNNELS, undefined),
-                                })
-                            }
+                            setExperiment({
+                                ...experiment,
+                                metrics: [getDefaultFunnelsMetric()],
+                            })
                             openPrimaryMetricModal(0)
                         }}
                     >
@@ -305,19 +274,12 @@ export function Goal(): JSX.Element {
                         <div className="card-secondary mb-2 mt-2">
                             {metricType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
                         </div>
-                        {/* :FLAG: CLEAN UP AFTER MIGRATION */}
-                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] ? (
-                            metricType === InsightType.FUNNELS ? (
-                                <MetricDisplayFunnels
-                                    query={(experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query}
-                                />
-                            ) : (
-                                <MetricDisplayTrends
-                                    query={(experiment.metrics[0] as ExperimentTrendsQuery).count_query}
-                                />
-                            )
+                        {metricType === InsightType.FUNNELS ? (
+                            <MetricDisplayFunnels
+                                query={(experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query}
+                            />
                         ) : (
-                            <MetricDisplayOld filters={experiment.filters} />
+                            <MetricDisplayTrends query={(experiment.metrics[0] as ExperimentTrendsQuery).count_query} />
                         )}
                         <LemonButton size="xsmall" type="secondary" onClick={() => openPrimaryMetricModal(0)}>
                             Change goal

@@ -107,7 +107,7 @@ export const INSTANTLY_AVAILABLE_PROPERTIES = [
     '$group_key',
     'distinct_id',
 ]
-export const MAX_EXPERIMENT_VARIANTS = 10
+export const MAX_EXPERIMENT_VARIANTS = 20
 export const EXPERIMENT_DEFAULT_DURATION = 14 // days
 
 // Event constants
@@ -138,7 +138,6 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS = {
     // Experiments / beta features
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
-    KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
@@ -193,7 +192,6 @@ export const FEATURE_FLAGS = {
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
     ALERTS: 'alerts', // owner: @anirudhpillai #team-product-analytics
     ERROR_TRACKING: 'error-tracking', // owner: #team-error-tracking
-    ERROR_TRACKING_GROUP_ACTIONS: 'error-tracking-group-actions', // owner: #team-error-tracking
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
     ONBOARDING_DASHBOARD_TEMPLATES: 'onboarding-dashboard-templates', // owner: @raquelmsmith
     MULTIPLE_BREAKDOWNS: 'multiple-breakdowns', // owner: @skoob13 #team-product-analytics
@@ -234,8 +232,13 @@ export const FEATURE_FLAGS = {
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     EXPERIMENT_STATS_V2: 'experiment-stats-v2', // owner: @danielbachhuber #team-experiments
     WEB_ANALYTICS_PERIOD_COMPARISON: 'web-analytics-period-comparison', // owner: @rafaeelaudibert #team-web-analytics
+    BILLING_USAGE_DASHBOARD: 'billing-usage-dashboard', // owner: @pato
     WEB_ANALYTICS_CONVERSION_GOAL_FILTERS: 'web-analytics-conversion-goal-filters', // owner: @rafaeelaudibert #team-web-analytics
+    CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-cdp
     COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: @robbie-c #team-web-analytics
+    INSIGHT_COLORS: 'insight-colors', // owner @thmsobrmlr #team-product-analytics
+    WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner @robbie-c #team-web-analytics
+    REPLAY_FLAGS_FILTERS: 'replay-flags-filters', // owner @pauldambra #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
