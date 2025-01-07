@@ -113,7 +113,7 @@ export function Invites(): JSX.Element {
             title: '',
             key: 'actions',
             width: 24,
-            render: restrictionReason ? undefined : makeActionsComponent(deleteInvite),
+            render: !restrictionReason ? makeActionsComponent(deleteInvite) : undefined,
         },
     ]
 
