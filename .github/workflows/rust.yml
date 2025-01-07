@@ -83,7 +83,7 @@ jobs:
                     - feature-flags
                     - others
         needs: changes
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 10
 
         defaults:
