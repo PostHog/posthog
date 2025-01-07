@@ -12,7 +12,7 @@ version = 1
 # Python
 python3 = { pkg-path = "python3", version = "3.11", pkg-group = "python" }
 uv = { pkg-path = "uv", pkg-group = "python" }
-xmlsec = { pkg-path = "xmlsec", pkg-group = "python", version = "1.3.14" }
+xmlsec = { pkg-path = "xmlsec", pkg-group = "python", version = "1.2.41" }
 libtool = { pkg-path = "libtool", pkg-group = "python" }
 # Node
 nodejs = { pkg-path = "nodejs_18", pkg-group = "nodejs" }
