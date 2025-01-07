@@ -1,3 +1,4 @@
+import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
@@ -16,6 +17,7 @@ import {
 } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
+import { DataColorThemes } from './environment/DataColorThemes'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
@@ -158,6 +160,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ProjectAccountFiltersSetting />,
             },
             {
+                id: 'data-theme',
+                title: 'Data colors',
+                component: <DataColorThemes />,
+                flag: 'INSIGHT_COLORS',
+            },
+            {
                 id: 'persons-on-events',
                 title: 'Person properties mode',
                 component: <PersonsOnEvents />,
@@ -195,12 +203,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'SETTINGS_PERSONS_JOIN_MODE',
             },
             {
-                id: 'bounce-rate-page-view-mode',
-                title: 'Bounce rate page view mode',
-                component: <BounceRatePageViewModeSetting />,
-                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
-            },
-            {
                 id: 'session-table-version',
                 title: 'Sessions Table Version',
                 component: <SessionsTableVersion />,
@@ -224,6 +226,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Cookieless server hash mode',
                 component: <CookielessServerHashModeSetting />,
                 flag: 'COOKIELESS_SERVER_HASH_MODE_SETTING',
+            },
+            {
+                id: 'bounce-rate-duration',
+                title: 'Bounce rate duration',
+                component: <BounceRateDurationSetting />,
+            },
+            {
+                id: 'bounce-rate-page-view-mode',
+                title: 'Bounce rate page view mode',
+                component: <BounceRatePageViewModeSetting />,
+                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
             },
         ],
     },

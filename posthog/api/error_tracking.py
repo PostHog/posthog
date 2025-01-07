@@ -35,7 +35,7 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
         fields = ["assignee", "status"]
 
 
-class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ErrorTrackingIssue.objects.all()
     serializer_class = ErrorTrackingIssueSerializer

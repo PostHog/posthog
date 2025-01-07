@@ -5,6 +5,7 @@ use common_types::ClickHouseEvent;
 use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
 use issue_resolution::{resolve_issue, track_issue_metadata};
+use metric_consts::FRAME_RESOLUTION;
 use tracing::warn;
 use types::{Exception, RawErrProps, Stacktrace};
 
@@ -119,6 +120,7 @@ async fn process_exception(
         // thrown at the wall), with some cross-group concurrency.
         handles.push(tokio::spawn(async move {
             context.worker_liveness.report_healthy().await;
+            metrics::counter!(FRAME_RESOLUTION).increment(1);
             let res = context
                 .resolver
                 .resolve(&frame, team_id, &context.pool, &context.catalog)

@@ -172,8 +172,15 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def event_type_expr(self) -> ast.Expr:
-        pageview_expr = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
+        pageview_expr = ast.Or(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$screen")
+                ),
+            ]
         )
 
         if self.conversion_goal_expr:
