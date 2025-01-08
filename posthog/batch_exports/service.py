@@ -648,11 +648,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 
     destination_config_fields = {field.name for field in fields(workflow_inputs)}
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
-    task_queue = (
-        BATCH_EXPORTS_TASK_QUEUE
-        if batch_export.destination.type in ("BigQuery", "Redshift")
-        else SYNC_BATCH_EXPORTS_TASK_QUEUE
-    )
+    task_queue = SYNC_BATCH_EXPORTS_TASK_QUEUE if batch_export.destination.type == "HTTP" else BATCH_EXPORTS_TASK_QUEUE
 
     temporal = sync_connect()
     schedule = Schedule(
