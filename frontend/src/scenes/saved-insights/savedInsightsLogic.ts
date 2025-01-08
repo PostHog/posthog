@@ -361,9 +361,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             { alert_id, ...searchParams }, // search params,
             hashParams
         ) => {
-            if (sceneLogic.findMounted()?.values.activeScene !== Scene.SavedInsights) {
-                return
-            }
             if (alert_id) {
                 actions.openAlertModal(alert_id)
             } else {
