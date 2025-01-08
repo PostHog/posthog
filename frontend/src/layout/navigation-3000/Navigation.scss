@@ -580,6 +580,19 @@
     &.SidebarListItem--marker-status-completion {
         --sidebar-list-item-status-color: var(--purple);
     }
+
+    &--is-dragging {
+        opacity: 0.4;
+    }
+
+    &--overlay {
+        padding: 0.5rem;
+        cursor: grabbing;
+        background: var(--bg-light);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-elevation);
+    }
 }
 
 .SidebarListItem__button,
@@ -625,6 +638,7 @@
     font-size: 1.125rem; // Make icons bigger
     color: inherit !important; // Disable link color
     cursor: pointer;
+    background: var(--bg-light);
 
     &:hover {
         background: var(--border-3000);

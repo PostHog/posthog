@@ -4,7 +4,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import React from 'react'
-import { DataWarehouseSavedQuery } from '~/types'
 
 export interface SidebarLogic extends Logic {
     actions: Record<never, never> // No actions required in the base version
@@ -98,6 +97,7 @@ export interface SidebarCategory extends SidebarCategoryBase {
         /** The "page" size. @default 100 */
         minimumBatchSize?: number
     }
+    menuItems?: LemonMenuItems
 }
 
 export interface SearchMatch {
@@ -183,4 +183,5 @@ export interface ViewFolder {
     id: string
     name: string
     items: string[]
+    parentId?: string | null
 }
