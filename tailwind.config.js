@@ -1,15 +1,15 @@
 /** @type {import('tailwindcss').Config} */
 
+const plugin = require('tailwindcss/plugin')
+
 // import preset from './frontend/src/lib/posthog-design-system/tailwind/preset.js'
-import preset from 'posthog-design-system/dist/tailwind/preset.js'
-import themeColors from 'posthog-design-system/dist/tailwind/themeColors.js'
-import cssVarsPlugin from 'posthog-design-system/dist/tailwind/cssVarsPlugin.js'
+// import preset from '@posthog/design-system/dist/tailwind/preset.js'
+
 const config = {
     content: ['./frontend/src/**/*.{ts,tsx}', './ee/frontend/**/*.{ts,tsx}', './frontend/src/index.html'],
     important: true, // Basically this: https://sebastiandedeyne.com/why-we-use-important-with-tailwind
     theme: {
         colors: {
-            ...themeColors,
             // TODO: Move all colors over to Tailwind
             // Currently color utility classes are still generated with SCSS in colors.scss due to relying on our color
             // CSS vars in lots of stylesheets
@@ -107,8 +107,29 @@ const config = {
             },
         },
     },
-    presets: [preset],
-    plugins: [cssVarsPlugin, require('@tailwindcss/container-queries')],
+    // presets: [preset],
+    plugins: [require('@tailwindcss/container-queries'),
+    plugin(function ({ addUtilities }) {
+        addUtilities({
+            '.text-uppercase': {
+                textTransform: 'uppercase',
+            },
+            '.text-capitalize': {
+                textTransform: 'capitalize',
+            },
+            '.text-ellipsis': {
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+            },
+            '.text-truncate': {
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+            },
+        })
+    }),
+    ],
 }
 
 module.exports = config

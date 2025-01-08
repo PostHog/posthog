@@ -6,10 +6,11 @@ import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { IconCalculate, IconLink } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { capitalizeFirstLetter, delay, range } from 'lib/utils'
+import { Button } from 'lib/ui/Button/Button'
+import { capitalizeFirstLetter, delay } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from './LemonButton'
+import { LemonButton, LemonButtonProps } from './LemonButton'
 import { More } from './More'
 
 const statuses: LemonButtonProps['status'][] = ['default', 'alt', 'danger']
@@ -81,10 +82,10 @@ export const TypesAndStatuses: Story = () => {
 
 TypesAndStatuses.args = { ...Default.args }
 
-type PopoverStory = StoryObj<typeof LemonButtonWithDropdown>
-const PopoverTemplate: StoryFn<typeof LemonButtonWithDropdown> = (props: LemonButtonWithDropdownProps) => {
-    return <LemonButtonWithDropdown {...props} />
-}
+// type PopoverStory = StoryObj<typeof LemonButtonWithDropdown>
+// const PopoverTemplate: StoryFn<typeof LemonButtonWithDropdown> = (props: LemonButtonWithDropdownProps) => {
+//     return <LemonButtonWithDropdown {...props} />
+// }
 
 export const NoPadding = (): JSX.Element => {
     return <StatusesTemplate noText noPadding />
@@ -96,14 +97,24 @@ export const TextOnly = (): JSX.Element => {
 
 export const Sizes = (): JSX.Element => {
     const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
+    const sizes2 = ['xs', 'sm', 'base', 'lg'] as const
 
     return (
-        <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
             {sizes.map((size) => (
-                <>
+                <div key={size}>
                     <h5>size={size}</h5>
                     <StatusesTemplate size={size} type="secondary" />
-                </>
+                </div>
+            ))}
+            {sizes2.map((size) => (
+                <div key={size}>
+                    <h5>size={size}</h5>
+                    {/* eslint-disable-next-line posthog/warn-elements */}
+                    <Button size={size} intent="outline">
+                        {size}
+                    </Button>
+                </div>
             ))}
         </div>
     )
@@ -357,56 +368,56 @@ export const AsLinks = (): JSX.Element => {
     )
 }
 
-export const WithDropdownToTheRight: PopoverStory = PopoverTemplate.bind({})
-WithDropdownToTheRight.args = {
-    ...Default.args,
-    dropdown: {
-        overlay: (
-            <>
-                <LemonButton fullWidth>Kakapo</LemonButton>
-                <LemonButton fullWidth>Kangaroo</LemonButton>
-                <LemonButton fullWidth>Kingfisher</LemonButton>
-                <LemonButton fullWidth>Koala</LemonButton>
-            </>
-        ),
-        placement: 'right-start',
-    },
-}
+// export const WithDropdownToTheRight: PopoverStory = PopoverTemplate.bind({})
+// WithDropdownToTheRight.args = {
+//     ...Default.args,
+//     dropdown: {
+//         overlay: (
+//             <>
+//                 <LemonButton fullWidth>Kakapo</LemonButton>
+//                 <LemonButton fullWidth>Kangaroo</LemonButton>
+//                 <LemonButton fullWidth>Kingfisher</LemonButton>
+//                 <LemonButton fullWidth>Koala</LemonButton>
+//             </>
+//         ),
+//         placement: 'right-start',
+//     },
+// }
 
-export const WithDropdownToTheBottom: PopoverStory = PopoverTemplate.bind({})
-WithDropdownToTheBottom.args = {
-    ...Default.args,
-    dropdown: {
-        overlay: (
-            <>
-                <LemonButton fullWidth>Kakapo</LemonButton>
-                <LemonButton fullWidth>Kangaroo</LemonButton>
-                <LemonButton fullWidth>Kingfisher</LemonButton>
-                <LemonButton fullWidth>Koala</LemonButton>
-            </>
-        ),
-        placement: 'bottom',
-        matchWidth: true,
-    },
-}
+// export const WithDropdownToTheBottom: PopoverStory = PopoverTemplate.bind({})
+// WithDropdownToTheBottom.args = {
+//     ...Default.args,
+//     dropdown: {
+//         overlay: (
+//             <>
+//                 <LemonButton fullWidth>Kakapo</LemonButton>
+//                 <LemonButton fullWidth>Kangaroo</LemonButton>
+//                 <LemonButton fullWidth>Kingfisher</LemonButton>
+//                 <LemonButton fullWidth>Koala</LemonButton>
+//             </>
+//         ),
+//         placement: 'bottom',
+//         matchWidth: true,
+//     },
+// }
 
-export const WithVeryLongPopoverToTheBottom: PopoverStory = PopoverTemplate.bind({})
-WithVeryLongPopoverToTheBottom.args = {
-    ...Default.args,
-    dropdown: {
-        overlay: (
-            <>
-                {range(200).map((n) => (
-                    <LemonButton key={n} fullWidth>
-                        {n.toString()}
-                    </LemonButton>
-                ))}
-            </>
-        ),
-        placement: 'bottom',
-        matchWidth: true,
-    },
-}
+// export const WithVeryLongPopoverToTheBottom: PopoverStory = PopoverTemplate.bind({})
+// WithVeryLongPopoverToTheBottom.args = {
+//     ...Default.args,
+//     dropdown: {
+//         overlay: (
+//             <>
+//                 {range(200).map((n) => (
+//                     <LemonButton key={n} fullWidth>
+//                         {n.toString()}
+//                     </LemonButton>
+//                 ))}
+//             </>
+//         ),
+//         placement: 'bottom',
+//         matchWidth: true,
+//     },
+// }
 
 export const WithTooltip: Story = BasicTemplate.bind({})
 WithTooltip.args = {

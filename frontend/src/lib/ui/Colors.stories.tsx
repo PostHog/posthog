@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Popover } from '../lemon-ui/Popover/Popover'
 
 const meta: Meta = {
-    title: 'PostHog Design System/Colors',
+    title: 'UI/Colors',
     parameters: {
         docs: {
             description: {

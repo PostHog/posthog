@@ -66,8 +66,8 @@ const threeThousand = [
     {
         name: 'danger-highlight',
         value: 'bg-danger-highlight',
-        newLight: 'bg-fill-danger-secondary',
-        newDark: 'bg-fill-danger-secondary',
+        newLight: 'bg-fill-danger-overlay',
+        newDark: 'bg-fill-danger-overlay',
     },
     {
         name: 'danger-lighter',
@@ -654,7 +654,7 @@ const threeThousand = [
     },
 ]
 
-export function ColorPalette(): JSX.Element {
+export function ColorPaletteComparison(): JSX.Element {
     const [hover, setHover] = useState<string>()
     return (
         <div className="flex gap-4 flex-wrap items-start">
