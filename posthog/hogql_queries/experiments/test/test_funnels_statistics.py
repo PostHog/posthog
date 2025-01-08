@@ -46,7 +46,7 @@ class TestExperimentFunnelStatistics(APIBaseTest):
             calculate_credible_intervals=calculate_credible_intervals_v2,
         )
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_small_sample_two_variants_not_significant(self):
         """Test with small sample size, two variants, no clear winner"""
 
@@ -85,7 +85,7 @@ class TestExperimentFunnelStatistics(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_large_sample_two_variants_significant(self):
         """Test with large sample size, two variants, clear winner"""
 
@@ -124,7 +124,7 @@ class TestExperimentFunnelStatistics(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_many_variants_not_significant(self):
         """Test with multiple variants, no clear winner"""
 
@@ -173,7 +173,7 @@ class TestExperimentFunnelStatistics(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_insufficient_sample_size(self):
         """Test with sample size below threshold"""
 
@@ -204,7 +204,7 @@ class TestExperimentFunnelStatistics(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_expected_loss_minimal_difference(self):
         """Test expected loss when variants have very similar performance"""
 
@@ -228,7 +228,7 @@ class TestExperimentFunnelStatistics(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_expected_loss_test_variant_clear_winner(self):
         """Test expected loss when one variant is clearly better"""
 

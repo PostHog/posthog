@@ -564,12 +564,6 @@ export function DataTable({
                                           },
                                           rowExpandable: ({ result }) => !!result,
                                           noIndent: true,
-                                          expandedRowClassName: ({ result }) => {
-                                              const record = Array.isArray(result) ? result[0] : result
-                                              return record && record['event'] === '$exception'
-                                                  ? 'border border-x-danger-dark bg-danger-highlight'
-                                                  : null
-                                          },
                                       }
                                     : undefined
                             }
@@ -578,7 +572,10 @@ export function DataTable({
                                     'DataTable__row--highlight_once': result && highlightedRows.has(result),
                                     'DataTable__row--category_row': !!label,
                                     'border border-x-danger-dark bg-danger-highlight':
-                                        result && result[0] && result[0]['event'] === '$exception',
+                                        sourceFeatures.has(QueryFeature.highlightExceptionEventRows) &&
+                                        result &&
+                                        result[0] &&
+                                        result[0]['event'] === '$exception',
                                 })
                             }
                             footer={

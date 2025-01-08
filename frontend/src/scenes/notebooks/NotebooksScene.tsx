@@ -1,7 +1,7 @@
 import './NotebookScene.scss'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, lemonToast, Tooltip } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { base64Encode } from 'lib/utils'
@@ -55,6 +55,11 @@ export function NotebooksScene(): JSX.Element {
                         >
                             <LemonButton icon={<IconEllipsis />} size="small" />
                         </LemonMenu>
+                        <Tooltip title="Like a Notebook but all your exploration is persisted to the URL for easy sharing.">
+                            <LemonButton data-attr="new-canvas" to={urls.canvas()} type="secondary">
+                                New canvas
+                            </LemonButton>
+                        </Tooltip>
                         <LemonButton data-attr="new-notebook" to={urls.notebook('new')} type="primary">
                             New notebook
                         </LemonButton>

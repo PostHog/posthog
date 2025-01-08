@@ -21,6 +21,7 @@ export const RecordingsUniversalFilters = ({
     setFilters,
     className,
     allowReplayHogQLFilters = false,
+    allowReplayFlagsFilters = false,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
@@ -44,6 +45,10 @@ export const RecordingsUniversalFilters = ({
 
     if (allowReplayHogQLFilters) {
         taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
+    }
+
+    if (allowReplayFlagsFilters) {
+        taxonomicGroupTypes.push(TaxonomicFilterGroupType.EventFeatureFlags)
     }
 
     return (

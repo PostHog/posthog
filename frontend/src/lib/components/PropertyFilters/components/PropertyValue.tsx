@@ -21,7 +21,7 @@ export interface PropertyValueProps {
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     onSet: CallableFunction
-    value?: string | number | Array<string | number> | null
+    value?: string | number | bigint | Array<string | number | bigint> | null
     operator: PropertyOperator
     autoFocus?: boolean
     eventNames?: string[]
