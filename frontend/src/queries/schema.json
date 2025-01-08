@@ -13401,9 +13401,6 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
-                "includeLCPScore": {
-                    "type": "boolean"
-                },
                 "kind": {
                     "const": "WebOverviewQuery",
                     "type": "string"
