@@ -252,7 +252,7 @@ export function TopBar(): JSX.Element | null {
                         </Button>
                     </DropdownMenuTrigger>
 
-                    <DropdownMenuContent side="bottom" align="end" className="min-w-56">
+                    <DropdownMenuContent side="bottom" align="end" className="min-w-56" loop>
                         <DropdownMenuLabel>Sign in as</DropdownMenuLabel>
 
                         <DropdownMenuGroup>
@@ -314,7 +314,7 @@ export function TopBar(): JSX.Element | null {
                                     <span className="font-normal text-xs">{themeMode} mode</span>
                                 </DropdownMenuSubTrigger>
                                 <DropdownMenuPortal>
-                                    <DropdownMenuSubContent side="left" loop>
+                                    <DropdownMenuSubContent loop>
                                         <DropdownMenuItem
                                             buttonProps={{
                                                 hasIcon: true,
