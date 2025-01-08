@@ -8,7 +8,7 @@ use crate::{
     config::Config,
     metrics_consts::{
         CACHE_WARMING_STATE, GROUP_TYPE_READS, GROUP_TYPE_RESOLVE_TIME, SINGLE_UPDATE_ISSUE_TIME,
-        UPDATES_ISSUED, UPDATES_SKIPPED, UPDATE_TRANSACTION_TIME,
+        UPDATES_SKIPPED, UPDATE_TRANSACTION_TIME,
     },
     types::{GroupType, Update},
 };
@@ -61,8 +61,6 @@ impl AppContext {
             metrics::gauge!(CACHE_WARMING_STATE, &[("state", "hot")]).set(1.0);
         }
 
-        let update_count = updates.len();
-
         let group_type_resolve_time = common_metrics::timing_guard(GROUP_TYPE_RESOLVE_TIME, &[]);
         self.resolve_group_types_indexes(updates).await?;
         group_type_resolve_time.fin();
@@ -96,7 +94,6 @@ impl AppContext {
         }
         transaction_time.fin();
 
-        metrics::counter!(UPDATES_ISSUED).increment(update_count as u64);
         Ok(())
     }
 
