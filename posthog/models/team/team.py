@@ -111,7 +111,7 @@ class TeamManager(models.Manager):
 
         from posthog.models.event_definition import EventDefinition
 
-        EventDefinition.objects.create(name="$pageview", team=team)
+        EventDefinition.objects.update_or_create(name="$pageview", team=team)
 
         team.save()
         return team
