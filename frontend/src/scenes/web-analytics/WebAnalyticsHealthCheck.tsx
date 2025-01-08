@@ -3,8 +3,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { ConversionGoalWarning, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-const KNOWN_SERVER_SIDE_SDKS = ['segment', 'posthog-node', 'posthog-ruby', 'posthog-go', 'posthog-php', 'posthog-java']
-
 export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
     const { statusCheck, conversionGoalWarning } = useValues(webAnalyticsLogic)
 
@@ -51,31 +49,6 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
                     Please see{' '}
                     <Link to="https://posthog.com/docs/libraries/js">documentation for how to set up posthog-js</Link>.
                 </p>
-            </LemonBanner>
-        )
-    } else if (statusCheck.libSendingPageViewsWithoutSessionIds) {
-        return (
-            <LemonBanner type="warning" className="mt-2">
-                <p>
-                    Some <code>$pageview</code> events have been sent without a <code>$session_id</code>. This page is
-                    optimized for session-based analytics, and some features may not work correctly.
-                </p>
-                {KNOWN_SERVER_SIDE_SDKS.includes(statusCheck.libSendingPageViewsWithoutSessionIds.toLowerCase()) ? (
-                    <p>
-                        Please see{' '}
-                        <Link to="https://posthog.com/docs/data/sessions#server-sdks-and-sessions">
-                            documentation for using Sessions with server-side SDKs
-                        </Link>
-                    </p>
-                ) : (
-                    <p>
-                        Please see{' '}
-                        <Link to="https://posthog.com/docs/libraries/js">
-                            documentation for how to set up posthog-js
-                        </Link>
-                        .
-                    </p>
-                )}
             </LemonBanner>
         )
     } else if (!statusCheck.isSendingPageLeaves) {
