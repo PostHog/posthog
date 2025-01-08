@@ -1,6 +1,6 @@
 import './UniversalFilterButton.scss'
 
-import { IconFilter, IconX } from '@posthog/icons'
+import { IconFilter, IconLogomark, IconX } from '@posthog/icons'
 import { LemonButton, PopoverReferenceContext } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
@@ -78,15 +78,19 @@ const PropertyLabel = ({ filter }: { filter: AnyPropertyFilter }): JSX.Element =
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const label = formatPropertyLabel(
+    let label = formatPropertyLabel(
         filter,
         cohortsById,
         (s) => formatPropertyValueForDisplay(filter.key, s)?.toString() || '?'
     )
+    const isEventFeature = label.startsWith('$feature/')
+    if (isEventFeature) {
+        label = label.replace('$feature/', 'Feature: ')
+    }
 
     return (
         <>
-            <PropertyFilterIcon type={filter.type} />
+            {isEventFeature ? <IconLogomark /> : <PropertyFilterIcon type={filter.type} />}
             <span className="UniversalFilterButton-content" title={label}>
                 {typeof label === 'string' ? midEllipsis(label, 32) : label}
             </span>

@@ -1850,6 +1850,7 @@ export enum WebStatsBreakdown {
     InitialPage = 'InitialPage',
     ExitPage = 'ExitPage', // not supported in the legacy version
     ExitClick = 'ExitClick',
+    ScreenName = 'ScreenName',
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',
@@ -1973,6 +1974,7 @@ export interface ErrorTrackingIssue {
     first_seen: string
     /**  @format date-time */
     last_seen: string
+    earliest: string
     // Sparkline data handled by the DataTable
     volume?: any
     assignee: number | null
@@ -2052,7 +2054,6 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
     name?: string
     experiment_id?: integer
     funnels_query: FunnelsQuery
-    stats_version?: integer
 }
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
@@ -2063,7 +2064,6 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     // Defaults to $feature_flag_called if not specified
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
-    stats_version?: integer
 }
 
 /**
@@ -2560,6 +2560,9 @@ export enum CustomChannelField {
     UTMMedium = 'utm_medium',
     UTMCampaign = 'utm_campaign',
     ReferringDomain = 'referring_domain',
+    URL = 'url',
+    Pathname = 'pathname',
+    Hostname = 'hostname',
 }
 
 export enum CustomChannelOperator {
