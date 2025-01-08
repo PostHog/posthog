@@ -329,10 +329,8 @@ class HogQLCohortQuery:
         # time_value
         # total periods
 
-        # this isn't correct - write a test for it, not honoring total periods
-
         date_interval = validate_interval(prop.time_interval)
-        date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+        time_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
         operator_value = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
         min_period_count = parse_and_validate_positive_integer(prop.min_periods, "min_periods")
         total_period_count = parse_and_validate_positive_integer(prop.total_periods, "total_periods")
@@ -345,17 +343,18 @@ class HogQLCohortQuery:
 
         series = self._get_series(prop)
 
-        date_from = f"-{date_value}{date_interval[:1]}"
+        date_from = f"-{time_value * total_period_count}{date_interval[:1]}"
 
         stickiness_query = StickinessQuery(
             series=series,
-            dateRange=DateRange(date_from=date_from),
+            dateRange=DateRange(date_from=date_from, date_to=f"-1{date_interval[:1]}"),
+            intervalCount=time_value or 1,
             stickinessFilter=StickinessFilter(
                 stickinessCriteria=StickinessCriteria(operator=prop.operator, value=operator_value)
             ),
         )
         return self._actors_query_from_source(
-            StickinessActorsQuery(source=stickiness_query, day=min_period_count - 1, operator=prop.operator)
+            StickinessActorsQuery(source=stickiness_query, day=min_period_count, operator="gte")
         )
 
     def get_person_condition(self, prop: Property) -> ast.SelectQuery:
