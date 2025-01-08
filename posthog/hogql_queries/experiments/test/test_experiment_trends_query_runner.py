@@ -1917,6 +1917,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         expected_errors = json.dumps(
             {
+                ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
                 ExperimentNoResultsErrorKeys.NO_EVENTS: True,
                 ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
                 ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
@@ -1955,6 +1956,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         expected_errors = json.dumps(
             {
+                ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
                 ExperimentNoResultsErrorKeys.NO_EVENTS: False,
                 ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
                 ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
@@ -1972,6 +1974,14 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         journeys_for(
             {
                 "user_control": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
                     {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
                 ],
             },
@@ -1993,6 +2003,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         expected_errors = json.dumps(
             {
+                ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
                 ExperimentNoResultsErrorKeys.NO_EVENTS: False,
                 ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
                 ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: False,
@@ -2009,9 +2020,25 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         journeys_for(
             {
                 "user_no_flag_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {
+                            "$feature_flag": feature_flag.key,
+                            "$feature_flag_response": "control",
+                        },
+                    },
                     {"event": "$pageview", "timestamp": "2020-01-02"},
                 ],
                 "user_no_flag_2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {
+                            "$feature_flag": feature_flag.key,
+                            "$feature_flag_response": "control",
+                        },
+                    },
                     {"event": "$pageview", "timestamp": "2020-01-03"},
                 ],
             },
@@ -2033,10 +2060,63 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         expected_errors = json.dumps(
             {
+                ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
                 ExperimentNoResultsErrorKeys.NO_EVENTS: True,
                 ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
                 ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+            }
+        )
+        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_validate_event_variants_no_exposure(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        journeys_for(
+            {
+                "user_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                ],
+                "user_test": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
+
+        count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=exposure_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
+        with self.assertRaises(ValidationError) as context:
+            query_runner.calculate()
+
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
+                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
+                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: False,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
             }
         )
         self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)

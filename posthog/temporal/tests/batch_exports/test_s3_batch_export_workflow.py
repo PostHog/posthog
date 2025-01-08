@@ -251,6 +251,7 @@ async def assert_clickhouse_records_in_s3(
                 "person_version",
                 "person_distinct_id_version",
                 "_inserted_at",
+                "created_at",
             ]
 
     expected_records = []
@@ -264,6 +265,7 @@ async def assert_clickhouse_records_in_s3(
         include_events=include_events,
         destination_default_fields=s3_default_fields(),
         is_backfill=is_backfill,
+        use_latest_schema=True,
     ):
         for record in record_batch.to_pylist():
             expected_record = {}

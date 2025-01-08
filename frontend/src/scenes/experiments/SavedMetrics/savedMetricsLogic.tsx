@@ -37,7 +37,7 @@ export const savedMetricsLogic = kea<savedMetricsLogicType>([
     }),
     listeners(() => ({
         setSavedMetricsTab: () => {
-            router.actions.push('/experiments/saved-metrics')
+            router.actions.push('/experiments/shared-metrics')
         },
     })),
     events(({ actions }) => ({
