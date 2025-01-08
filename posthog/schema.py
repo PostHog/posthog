@@ -733,6 +733,19 @@ class EntityType(StrEnum):
     NEW_ENTITY = "new_entity"
 
 
+class Type5(StrEnum):
+    TEAM = "team"
+    USER = "user"
+
+
+class Assignee(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: float
+    type: Type5
+
+
 class Status(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
@@ -744,7 +757,7 @@ class ErrorTrackingIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    assignee: Optional[float] = None
+    assignee: Optional[Assignee] = None
     description: Optional[str] = None
     earliest: str
     first_seen: AwareDatetime
@@ -756,6 +769,14 @@ class ErrorTrackingIssue(BaseModel):
     status: Status
     users: float
     volume: Optional[Any] = None
+
+
+class Assignee1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: float
+    type: Type5
 
 
 class OrderBy(StrEnum):
@@ -5957,7 +5978,7 @@ class ErrorTrackingQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    assignee: Optional[int] = None
+    assignee: Optional[Assignee1] = None
     dateRange: DateRange
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None

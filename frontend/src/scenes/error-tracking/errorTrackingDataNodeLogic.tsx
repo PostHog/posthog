@@ -23,7 +23,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
 
     actions({
         mergeIssues: (ids: string[]) => ({ ids }),
-        assignIssue: (id: string, assigneeId: number | null) => ({ id, assigneeId }),
+        assignIssue: (id: string, assignee: ErrorTrackingIssue['assignee']) => ({ id, assignee }),
     }),
 
     listeners(({ values, actions }) => ({
@@ -52,10 +52,10 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                 actions.loadData(true)
             }
         },
-        assignIssue: async ({ id, assigneeId }) => {
+        assignIssue: async ({ id, assignee }) => {
             const response = values.response
             if (response) {
-                const params = { assignee: assigneeId }
+                const params = { assignee }
                 const results = response.results as ErrorTrackingIssue[]
                 const recordIndex = results.findIndex((r) => r.id === id)
                 if (recordIndex > -1) {

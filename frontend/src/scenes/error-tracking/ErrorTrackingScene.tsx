@@ -167,7 +167,7 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
 
     return (
         <div className="flex justify-center">
-            <AssigneeSelect assignee={record.assignee} onChange={(assigneeId) => assignIssue(record.id, assigneeId)} />
+            <AssigneeSelect assignee={record.assignee} onChange={(assignee) => assignIssue(record.id, assignee)} />
         </div>
     )
 }

@@ -11,11 +11,11 @@ import { errorTrackingTeamsLogic } from '../errorTrackingTeamsLogic'
 
 export const Teams = (): JSX.Element => {
     const { teams, teamsLoading } = useValues(errorTrackingTeamsLogic)
-    const { loadTeams } = useActions(errorTrackingTeamsLogic)
+    const { ensureAllTeamsLoaded } = useActions(errorTrackingTeamsLogic)
 
     useEffect(() => {
-        loadTeams()
-    }, [])
+        ensureAllTeamsLoaded()
+    }, [ensureAllTeamsLoaded])
 
     return (
         <LemonTable

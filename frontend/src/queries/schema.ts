@@ -1955,7 +1955,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     select?: HogQLExpression[]
     orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
-    assignee?: integer | null
+    assignee?: ErrorTrackingIssue['assignee']
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
@@ -1977,7 +1977,7 @@ export interface ErrorTrackingIssue {
     earliest: string
     // Sparkline data handled by the DataTable
     volume?: any
-    assignee: null | { type: 'team' | 'user'; id: number }
+    assignee: { type: 'team' | 'user'; id: number } | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
 }
 

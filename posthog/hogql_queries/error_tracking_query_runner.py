@@ -208,11 +208,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
             if self.query.issueId
             else queryset.filter(status__in=[ErrorTrackingIssue.Status.ACTIVE])
         )
-        queryset = (
-            queryset.filter(errortrackingissueassignment__user_id=self.query.assignee)
-            if self.query.assignee
-            else queryset
-        )
+        if self.query.assignee:
+            queryset = (
+                queryset.filter(errortrackingissueassignment__user_id=self.query.assignee.id)
+                if self.query.assignee.type == "user"
+                else queryset.filter(errortrackingissueassignment__team_id=self.query.assignee.id)
+            )
         issues = queryset.values("id", "status", "name", "description")
         return {item["id"]: item for item in issues}
 

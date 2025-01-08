@@ -5399,7 +5399,25 @@
             "additionalProperties": false,
             "properties": {
                 "assignee": {
-                    "type": ["number", "null"]
+                    "anyOf": [
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "id": {
+                                    "type": "number"
+                                },
+                                "type": {
+                                    "enum": ["team", "user"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["type", "id"],
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "description": {
                     "type": ["string", "null"]
@@ -5457,7 +5475,18 @@
                 "assignee": {
                     "anyOf": [
                         {
-                            "type": "integer"
+                            "additionalProperties": false,
+                            "properties": {
+                                "id": {
+                                    "type": "number"
+                                },
+                                "type": {
+                                    "enum": ["team", "user"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["type", "id"],
+                            "type": "object"
                         },
                         {
                             "type": "null"
