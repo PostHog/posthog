@@ -5,6 +5,7 @@ import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 
+import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 export interface InfiniteSelectResultsProps {
@@ -12,6 +13,8 @@ export interface InfiniteSelectResultsProps {
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     popupAnchorElement: HTMLDivElement | null
 }
+
+const groupsWithOnboardingEmptyState = [TaxonomicFilterGroupType.DataWarehouse]
 
 function CategoryPill({
     isActive,
@@ -31,7 +34,7 @@ function CategoryPill({
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
     // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
-    const canInteract = totalListCount > 0
+    const canInteract = totalListCount > 0 || groupsWithOnboardingEmptyState.includes(groupType)
 
     return (
         <LemonTag
@@ -61,7 +64,12 @@ export function InfiniteSelectResults({
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
+    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: activeTab })
+
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
+
+    const { totalListCount } = useValues(logic)
+
     const RenderComponent = activeTaxonomicGroup?.render
 
     const openTab = activeTab || taxonomicGroups[0].type
@@ -83,6 +91,8 @@ export function InfiniteSelectResults({
             <InfiniteList popupAnchorElement={popupAnchorElement} />
         </>
     )
+
+    const showEmptyState = totalListCount === 0 && taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
 
     return (
         <>
@@ -107,6 +117,7 @@ export function InfiniteSelectResults({
                     </div>
                 </div>
             )}
+
             {taxonomicGroupTypes.map((groupType) => {
                 return (
                     <div key={groupType} className={clsx(groupType === openTab ? 'block' : 'hidden')}>
@@ -114,7 +125,8 @@ export function InfiniteSelectResults({
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
                         >
-                            {listComponent}
+                            {showEmptyState && <TaxonomicFilterEmptyState groupType={groupType} />}
+                            {!showEmptyState && listComponent}
                         </BindLogic>
                     </div>
                 )
