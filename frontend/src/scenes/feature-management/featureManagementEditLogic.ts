@@ -7,8 +7,7 @@ import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { TrendsQuery } from '~/queries/schema'
-import { Breadcrumb, FeatureType } from '~/types'
+import { Breadcrumb, FeatureType, InsightModel } from '~/types'
 
 import type { featureManagementEditLogicType } from './featureManagementEditLogicType'
 import { featureManagementLogic } from './featureManagementLogic'
@@ -18,18 +17,13 @@ export interface FeatureLogicProps {
     id: string
 }
 
-export type FeatureMetric = {
-    name: string
-    query: TrendsQuery
-}
-
 export type FeatureForm = {
     name: string
     key: string
     description: string
-    success_metrics: FeatureMetric[]
-    failure_metrics: FeatureMetric[]
-    exposure_metrics: FeatureMetric[]
+    success_metrics: InsightModel[]
+    failure_metrics: InsightModel[]
+    exposure_metrics: InsightModel[]
 }
 
 const NEW_FEATURE: FeatureForm = {

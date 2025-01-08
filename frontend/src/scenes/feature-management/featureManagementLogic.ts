@@ -72,6 +72,7 @@ export const featureManagementLogic = kea<featureManagementLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadFeaturesSuccess: ({ features }) => {
+            console.log('loadFeaturesSuccess', { features, active: values.activeFeatureId })
             if (values.activeFeatureId === null && features.results.length > 0) {
                 actions.setActiveFeatureId(features.results[0].id)
             }
@@ -84,7 +85,9 @@ export const featureManagementLogic = kea<featureManagementLogicType>([
     }),
     urlToAction(({ actions, values }) => ({
         '/features/:id': ({ id }) => {
-            if (id && String(values.activeFeatureId) !== id && id !== 'new') {
+            console.log('urlToAction', { id })
+
+            if (id && String(values.activeFeatureId) !== id) {
                 actions.setActiveFeatureId(id)
             }
         },

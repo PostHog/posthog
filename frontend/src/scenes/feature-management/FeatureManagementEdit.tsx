@@ -1,4 +1,5 @@
-import { LemonButton, LemonDivider, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { IconExternal, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput, LemonLabel, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -7,8 +8,12 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { InsightModel } from '~/types'
+
 import { featureManagementEditLogic } from './featureManagementEditLogic'
-import { FeatureManagementMetricsForm } from './FeatureManagementMetricsForm'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
+import { commonActionFilterProps } from 'scenes/experiments/Metrics/Selectors'
 
 export const scene: SceneExport = {
     component: FeatureManagementEdit,
@@ -19,7 +24,7 @@ export const scene: SceneExport = {
 }
 
 function FeatureManagementEdit(): JSX.Element {
-    const { props } = useValues(featureManagementEditLogic)
+    const { props, featureForm } = useValues(featureManagementEditLogic)
 
     return (
         <Form
@@ -89,7 +94,65 @@ function FeatureManagementEdit(): JSX.Element {
             </div>
             <LemonDivider />
 
-            <FeatureManagementMetricsForm />
+            <div className="flex flex-col space-y-4">
+                <div className="flex flex-col items-start space-y-2">
+                    <LemonLabel>Success metrics (optional)</LemonLabel>
+                    {featureForm.success_metrics.map((insight) => (
+                        <FeatureManagementMetric
+                            key={insight.short_id}
+                            insight={insight}
+                            onDelete={() => alert(`Delete metric ${insight.short_id}`)}
+                        />
+                    ))}
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => alert('Add metric')}
+                        icon={<IconPlusSmall />}
+                        size="xsmall"
+                        data-attr="add-test-variant"
+                    >
+                        Add metric
+                    </LemonButton>
+                </div>
+                <div className="flex flex-col items-start space-y-2">
+                    <LemonLabel>Failure metrics (optional)</LemonLabel>
+                    {featureForm.failure_metrics.map((insight) => (
+                        <FeatureManagementMetric
+                            key={insight.short_id}
+                            insight={insight}
+                            onDelete={() => alert(`Delete metric ${insight.short_id}`)}
+                        />
+                    ))}
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => alert('Add metric')}
+                        icon={<IconPlusSmall />}
+                        size="xsmall"
+                        data-attr="add-test-variant"
+                    >
+                        Add metric
+                    </LemonButton>
+                </div>
+                <div className="flex flex-col items-start space-y-2">
+                    <LemonLabel>Exposure metrics (optional)</LemonLabel>
+                    {featureForm.exposure_metrics.map((insight) => (
+                        <FeatureManagementMetric
+                            key={insight.short_id}
+                            insight={insight}
+                            onDelete={() => alert(`Delete metric ${insight.short_id}`)}
+                        />
+                    ))}
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => alert('Add metric')}
+                        icon={<IconPlusSmall />}
+                        size="xsmall"
+                        data-attr="add-test-variant"
+                    >
+                        Add metric
+                    </LemonButton>
+                </div>
+            </div>
 
             <LemonDivider />
 
@@ -106,5 +169,129 @@ function FeatureManagementEdit(): JSX.Element {
                 </LemonButton>
             </div>
         </Form>
+    )
+}
+
+function FeatureManagementMetric({ insight, onDelete }: { insight: InsightModel; onDelete: () => void }): JSX.Element {
+    return (
+        <div>
+            <div className="flex items-center gap-2">
+                <span>{insight.name}</span>
+
+                <Link to={urls.insightView(insight.short_id)}>
+                    <LemonButton type="primary" icon={<IconExternal />}>
+                        View metric
+                    </LemonButton>
+                </Link>
+
+                <LemonButton type="secondary" icon={<IconTrash />} onClick={onDelete} />
+            </div>
+        </div>
+    )
+}
+
+function FeatureMetricModal({
+    isOpen,
+    onChange,
+    onClose,
+}: {
+    isOpen: boolean
+    onChange: (metric: InsightModel) => void
+    onClose: () => void
+}): JSX.Element {
+    const { experiment, experimentLoading } = useValues(experimentLogic({ experimentId }))
+    const { updateExperiment } = useActions(experimentLogic({ experimentId }))
+
+    return (
+        <LemonModal
+            isOpen={isOpen}
+            onClose={onClose}
+            width={1000}
+            title="Change feature metric"
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton form="edit-experiment-exposure-form" type="secondary" onClick={onClose}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        form="edit-experiment-exposure-form"
+                        onClick={() => {
+                            updateExperiment({
+                                metrics: experiment.metrics,
+                            })
+                        }}
+                        type="primary"
+                        loading={experimentLoading}
+                        data-attr="create-annotation-submit"
+                    >
+                        Save
+                    </LemonButton>
+                </div>
+            }
+        >
+            <PrimaryGoalTrendsExposure />
+        </LemonModal>
+    )
+}
+
+function FeatureMetricPicker({ onChange }: { onChange: (something: any) => void }): JSX.Element {
+    const hasFilters = (currentTeam?.test_account_filters || []).length > 0
+
+    if (!editingPrimaryMetricIndex && editingPrimaryMetricIndex !== 0) {
+        return <></>
+    }
+
+    const metricIdx = editingPrimaryMetricIndex
+    const currentMetric = experiment.metrics[metricIdx] as ExperimentTrendsQuery
+
+    return (
+        <>
+            <ActionFilter
+                bordered
+                filters={queryNodeToFilter(currentMetric.exposure_query as InsightQueryNode)}
+                setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
+                    const series = actionsAndEventsToSeries(
+                        { actions, events, data_warehouse } as any,
+                        true,
+                        MathAvailability.All
+                    )
+
+                    setTrendsExposureMetric({
+                        metricIdx,
+                        series,
+                    })
+                }}
+                typeKey="experiment-metric"
+                buttonCopy="Add graph series"
+                showSeriesIndicator={true}
+                entitiesLimit={1}
+                showNumericalPropsOnly={true}
+                {...commonActionFilterProps}
+            />
+            <div className="mt-4 space-y-4">
+                <TestAccountFilterSwitch
+                    checked={hasFilters ? !!currentMetric.exposure_query?.filterTestAccounts : false}
+                    onChange={(checked: boolean) => {
+                        setTrendsExposureMetric({
+                            metricIdx,
+                            filterTestAccounts: checked,
+                        })
+                    }}
+                    fullWidth
+                />
+            </div>
+            <div className="mt-4">
+                <Query
+                    query={{
+                        kind: NodeKind.InsightVizNode,
+                        source: currentMetric.exposure_query,
+                        showTable: false,
+                        showLastComputation: true,
+                        showLastComputationRefresh: false,
+                    }}
+                    readOnly
+                />
+            </div>
+        </>
     )
 }
