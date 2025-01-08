@@ -131,6 +131,14 @@ impl Update {
             Update::EventProperty(ep) => ep.issue(executor).await,
         }
     }
+
+    pub fn team_id(&self) -> i32 {
+        match self {
+            Update::Event(e) => e.team_id,
+            Update::Property(p) => p.team_id,
+            Update::EventProperty(ep) => ep.team_id,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

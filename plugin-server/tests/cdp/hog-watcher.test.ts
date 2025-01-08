@@ -78,13 +78,13 @@ describe('HogWatcher', () => {
         it('should retrieve empty state', async () => {
             const res = await watcher.getStates(['id1', 'id2'])
             expect(res).toMatchInlineSnapshot(`
-                Object {
-                  "id1": Object {
+                {
+                  "id1": {
                     "rating": 1,
                     "state": 1,
                     "tokens": 10000,
                   },
-                  "id2": Object {
+                  "id2": {
                     "rating": 1,
                     "state": 1,
                     "tokens": 10000,
@@ -143,7 +143,7 @@ describe('HogWatcher', () => {
             await watcher.observeResults(lotsOfResults)
 
             expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
-                Object {
+                {
                   "rating": -0.0001,
                   "state": 3,
                   "tokens": -1,
@@ -155,7 +155,7 @@ describe('HogWatcher', () => {
             await watcher.observeResults(lotsOfResults)
 
             expect(await watcher.getState('id2')).toMatchInlineSnapshot(`
-                Object {
+                {
                   "rating": 1,
                   "state": 1,
                   "tokens": 10000,
@@ -190,7 +190,7 @@ describe('HogWatcher', () => {
             ])
 
             expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
-                Object {
+                {
                   "rating": 0,
                   "state": 3,
                   "tokens": 0,
@@ -201,7 +201,7 @@ describe('HogWatcher', () => {
 
             // Should still be disabled even though tokens have been refilled
             expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
-                Object {
+                {
                   "rating": 0.01,
                   "state": 3,
                   "tokens": 100,
@@ -213,7 +213,7 @@ describe('HogWatcher', () => {
             it('should force healthy', async () => {
                 await watcher.forceStateChange('id1', HogWatcherState.healthy)
                 expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
-                    Object {
+                    {
                       "rating": 1,
                       "state": 1,
                       "tokens": 10000,
@@ -224,7 +224,7 @@ describe('HogWatcher', () => {
             it('should force degraded', async () => {
                 await watcher.forceStateChange('id1', HogWatcherState.degraded)
                 expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
-                    Object {
+                    {
                       "rating": 0.8,
                       "state": 1,
                       "tokens": 8000,
@@ -235,7 +235,7 @@ describe('HogWatcher', () => {
             it('should force disabledForPeriod', async () => {
                 await watcher.forceStateChange('id1', HogWatcherState.disabledForPeriod)
                 expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
-                    Object {
+                    {
                       "rating": 0,
                       "state": 3,
                       "tokens": 0,
@@ -249,7 +249,7 @@ describe('HogWatcher', () => {
             it('should force disabledIndefinitely', async () => {
                 await watcher.forceStateChange('id1', HogWatcherState.disabledIndefinitely)
                 expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
-                    Object {
+                    {
                       "rating": 0,
                       "state": 4,
                       "tokens": 0,

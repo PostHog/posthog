@@ -86,6 +86,11 @@ export const sharingLogic = kea<sharingLogicType>([
                 dashboardsModel.actions.loadDashboards()
             }
         },
+        setEmbedConfigValue: ({ name, value }) => {
+            if (name === 'whitelabel' && props.dashboardId) {
+                eventUsageLogic.actions.reportDashboardWhitelabelToggled(value)
+            }
+        },
     })),
 
     forms({
