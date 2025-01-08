@@ -709,7 +709,7 @@ export enum ExperimentsTabs {
     Yours = 'yours',
     Archived = 'archived',
     Holdouts = 'holdouts',
-    SavedMetrics = 'saved-metrics',
+    SharedMetrics = 'shared-metrics',
 }
 
 export enum ActivityTab {

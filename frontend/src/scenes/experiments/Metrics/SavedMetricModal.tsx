@@ -96,7 +96,7 @@ export function SavedMetricModal({
                             label: metric.name,
                             value: metric.id,
                         }))}
-                        placeholder="Select a saved metric"
+                        placeholder="Select a shared metric"
                         loading={false}
                         value={selectedMetricId}
                         onSelect={(value) => {

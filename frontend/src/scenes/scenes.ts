@@ -206,13 +206,13 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.ExperimentsSavedMetric]: {
         projectBased: true,
-        name: 'Saved metric',
+        name: 'Shared metric',
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
     [Scene.ExperimentsSavedMetrics]: {
         projectBased: true,
-        name: 'Saved metrics',
+        name: 'Shared metrics',
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
