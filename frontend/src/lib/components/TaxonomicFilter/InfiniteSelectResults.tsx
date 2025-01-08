@@ -14,8 +14,6 @@ export interface InfiniteSelectResultsProps {
     popupAnchorElement: HTMLDivElement | null
 }
 
-const groupsWithOnboardingEmptyState = [TaxonomicFilterGroupType.DataWarehouse]
-
 function CategoryPill({
     isActive,
     groupType,
@@ -34,7 +32,7 @@ function CategoryPill({
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
     // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
-    const canInteract = totalListCount > 0 || groupsWithOnboardingEmptyState.includes(groupType)
+    const canInteract = totalListCount > 0 || taxonomicFilterGroupTypesWithEmptyStates.includes(groupType)
 
     return (
         <LemonTag

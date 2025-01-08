@@ -79,6 +79,8 @@ const DefaultEmptyState = (): JSX.Element | null => {
 
 const EMPTY_STATES: Partial<Record<TaxonomicFilterGroupType, () => JSX.Element>> = {
     [TaxonomicFilterGroupType.DataWarehouse]: DataWarehouseEmptyState,
+    [TaxonomicFilterGroupType.DataWarehouseProperties]: DataWarehouseEmptyState,
+    [TaxonomicFilterGroupType.DataWarehousePersonProperties]: DataWarehouseEmptyState,
 } as const
 
 export const taxonomicFilterGroupTypesWithEmptyStates = Object.keys(EMPTY_STATES) as TaxonomicFilterGroupType[]
