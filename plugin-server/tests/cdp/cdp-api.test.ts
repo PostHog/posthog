@@ -303,36 +303,6 @@ describe('CDP API', () => {
                     level: 'debug',
                     message: expect.stringContaining('Function completed in '),
                 },
-
-                // {
-                //     level: 'debug',
-                //     message: 'Executing function',
-                // },
-                // {
-                //     level: 'debug',
-                //     message:
-                //         "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
-                // },
-                // {
-                //     level: 'info',
-                //     message: "Async function 'fetch' was mocked with arguments:",
-                // },
-                // {
-                //     level: 'info',
-                //     message: expect.stringContaining('fetch({'),
-                // },
-                // {
-                //     level: 'debug',
-                //     message: 'Resuming function',
-                // },
-                // {
-                //     level: 'info',
-                //     message: 'Fetch response:, {"status":200,"body":{}}',
-                // },
-                // {
-                //     level: 'debug',
-                //     message: expect.stringContaining('Function completed in '),
-                // },
             ])
         })
     })
