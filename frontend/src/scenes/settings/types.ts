@@ -29,6 +29,7 @@ export type SettingSectionId =
     | 'environment-access-control'
     | 'environment-role-based-access-control'
     | 'environment-danger-zone'
+    | 'environment-max'
     | 'project-details'
     | 'project-autocapture' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-product-analytics' // TODO: This section is for backward compat – remove when Environments are rolled out
@@ -95,7 +96,6 @@ export type SettingId =
     | 'organization-roles'
     | 'organization-delete'
     | 'organization-proxy'
-    | 'product-description'
     | 'details'
     | 'change-password'
     | '2fa'
@@ -116,6 +116,7 @@ export type SettingId =
     | 'cookieless-server-hash-mode'
     | 'user-groups'
     | 'web-revenue-events'
+    | 'core-memory'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
