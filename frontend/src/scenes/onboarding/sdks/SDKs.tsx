@@ -30,7 +30,6 @@ export function SDKs({
     stepKey = OnboardingStepKey.INSTALL,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
-    inviteHelpCard = <InviteHelpCard />,
 }: {
     usersAction?: string
     sdkInstructionMap: SDKInstructionsMap
@@ -38,7 +37,6 @@ export function SDKs({
     stepKey?: OnboardingStepKey
     listeningForName?: string
     teamPropertyToVerify?: string
-    inviteHelpCard: JSX.Element
 }): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -89,7 +87,7 @@ export function SDKs({
                         !showSideBySide && panel !== 'options' ? 'hidden' : 'flex'
                     }`}
                 >
-                    {isUserInNonTechnicalTest && inviteHelpCard}
+                    {isUserInNonTechnicalTest && <InviteHelpCard />}
                     {showSourceOptionsSelect && (
                         <LemonSelect
                             allowClear
@@ -122,7 +120,7 @@ export function SDKs({
                             </LemonButton>
                         </React.Fragment>
                     ))}
-                    {!isUserInNonTechnicalTest && inviteHelpCard}
+                    {!isUserInNonTechnicalTest && <InviteHelpCard />}
                 </div>
                 {selectedSDK && productKey && !!sdkInstructionMap[selectedSDK.key] && (
                     <div
