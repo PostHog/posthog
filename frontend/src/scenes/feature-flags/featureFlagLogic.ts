@@ -302,7 +302,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         featureFlag: {
             defaults: { ...NEW_FLAG },
             errors: ({ key, filters, is_remote_configuration }) => {
-                const errors = {
+                return {
                     key: validateFeatureFlagKey(key),
                     filters: {
                         multivariate: {
@@ -323,7 +323,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         // is excessively deep and possibly infinite" error
                     },
                 }
-                return errors
             },
             submit: (featureFlag) => {
                 actions.saveFeatureFlag(featureFlag)
