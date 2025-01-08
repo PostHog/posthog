@@ -7,7 +7,7 @@ use sqlx::{Executor, Postgres};
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_SKIPPED};
+use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_ISSUED, UPDATES_SKIPPED};
 
 // We skip updates for events we generate
 pub const EVENTS_WITHOUT_PROPERTIES: [&str; 1] = ["$$plugin_metrics"];
@@ -129,14 +129,6 @@ impl Update {
             Update::Event(e) => e.issue(executor).await,
             Update::Property(p) => p.issue(executor).await,
             Update::EventProperty(ep) => ep.issue(executor).await,
-        }
-    }
-
-    pub fn team_id(&self) -> i32 {
-        match self {
-            Update::Event(e) => e.team_id,
-            Update::Property(p) => p.team_id,
-            Update::EventProperty(ep) => ep.team_id,
         }
     }
 }
@@ -432,7 +424,7 @@ impl EventDefinition {
     where
         E: Executor<'c, Database = Postgres>,
     {
-        sqlx::query!(
+        let res = sqlx::query!(
             r#"
             INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
             VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW()) ON CONFLICT
@@ -444,7 +436,11 @@ impl EventDefinition {
             self.team_id,
             self.project_id,
             Utc::now() // We floor the update datetime to the nearest day for cache purposes, but can insert the exact time we see the event
-        ).execute(executor).await.map(|_| ())
+        ).execute(executor).await.map(|_| ());
+
+        metrics::counter!(UPDATES_ISSUED, &[("type", "event_definition")]).increment(1);
+
+        res
     }
 }
 
@@ -476,7 +472,7 @@ impl PropertyDefinition {
             return Ok(());
         }
 
-        sqlx::query!(
+        let res = sqlx::query!(
             r#"
             INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, project_id, property_type)
             VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, $8)
@@ -491,7 +487,11 @@ impl PropertyDefinition {
             self.team_id,
             self.project_id,
             self.property_type.as_ref().map(|t| t.to_string())
-        ).execute(executor).await.map(|_| ())
+        ).execute(executor).await.map(|_| ());
+
+        metrics::counter!(UPDATES_ISSUED, &[("type", "property_definition")]).increment(1);
+
+        res
     }
 }
 
@@ -500,7 +500,7 @@ impl EventProperty {
     where
         E: Executor<'c, Database = Postgres>,
     {
-        sqlx::query!(
+        let res = sqlx::query!(
             r#"INSERT INTO posthog_eventproperty (event, property, team_id, project_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"#,
             self.event,
             self.property,
@@ -509,7 +509,11 @@ impl EventProperty {
         )
         .execute(executor)
         .await
-        .map(|_| ())
+        .map(|_| ());
+
+        metrics::counter!(UPDATES_ISSUED, &[("type", "event_property")]).increment(1);
+
+        res
     }
 }
 

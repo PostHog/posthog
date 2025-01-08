@@ -8,7 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { useState } from 'react'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery, FunnelsQuery, NodeKind, TrendsQuery } from '~/queries/schema'
-import { ActionFilter, AnyPropertyFilter, ChartDisplayType, Experiment, FilterType, InsightType } from '~/types'
+import { ActionFilter, AnyPropertyFilter, ChartDisplayType, Experiment, InsightType } from '~/types'
 
 import { experimentLogic, getDefaultFunnelsMetric } from '../experimentLogic'
 import { PrimaryTrendsExposureModal } from '../Metrics/PrimaryTrendsExposureModal'
@@ -62,52 +62,6 @@ export function MetricDisplayFunnels({ query }: { query: FunnelsQuery }): JSX.El
                     </div>
                 </div>
             ))}
-        </>
-    )
-}
-
-// :FLAG: CLEAN UP AFTER MIGRATION
-export function MetricDisplayOld({ filters }: { filters?: FilterType }): JSX.Element {
-    const metricType = filters?.insight || InsightType.TRENDS
-
-    return (
-        <>
-            {(
-                [
-                    ...(filters?.events || []),
-                    ...(filters?.actions || []),
-                    ...(filters?.data_warehouse || []),
-                ] as ActionFilter[]
-            )
-                .sort((a, b) => (a.order || 0) - (b.order || 0))
-                .map((event: ActionFilter, idx: number) => (
-                    <div key={idx} className="mb-2">
-                        <div className="flex mb-1">
-                            {metricType === InsightType.FUNNELS && (
-                                <div
-                                    className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ backgroundColor: 'var(--bg-table)' }}
-                                >
-                                    {(event.order || 0) + 1}
-                                </div>
-                            )}
-                            <b>
-                                <InsightLabel
-                                    action={event}
-                                    showCountedByTag={metricType === InsightType.TRENDS}
-                                    hideIcon
-                                    showEventName
-                                />
-                            </b>
-                        </div>
-                        <div className="space-y-1">
-                            {event.properties?.map((prop: AnyPropertyFilter) => (
-                                <PropertyFilterButton key={prop.key} item={prop} />
-                            ))}
-                        </div>
-                    </div>
-                ))}
         </>
     )
 }
