@@ -544,7 +544,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
                 dateRange=DateRange(),
-                assignee=self.user.pk,
+                assignee={"type": "user", "id": self.user.pk},
             ),
         )
 

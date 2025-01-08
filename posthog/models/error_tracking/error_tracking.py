@@ -68,9 +68,7 @@ class ErrorTrackingTeamMembership(UUIDModel):
 
 
 class ErrorTrackingIssueAssignment(UUIDModel):
-    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE)
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
-
+    issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
     error_tracking_team = models.ForeignKey(ErrorTrackingTeam, null=True, on_delete=models.CASCADE)
 
@@ -82,12 +80,7 @@ class ErrorTrackingIssueAssignment(UUIDModel):
             models.CheckConstraint(
                 check=~(Q(user__isnull=False) & Q(error_tracking_team__isnull=False)), name="only_one_non_null"
             ),
-            models.UniqueConstraint(
-                fields=["issue", "user"], condition=Q(user__isnull=False), name="unique_user_per_issue"
-            ),
-            models.UniqueConstraint(
-                fields=["issue", "team"], condition=Q(team__isnull=False), name="unique_team_per_issue"
-            ),
+            models.UniqueConstraint(fields=["issue"], name="unique_per_issue"),
         ]
 
 

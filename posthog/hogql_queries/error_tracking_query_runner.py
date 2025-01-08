@@ -174,7 +174,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         for result_dict in mapped_results:
             issue = issues.get(result_dict["id"])
             if issue:
-                results.append(issue | result_dict | {"assignee": self.query.assignee, "id": str(result_dict["id"])})
+                results.append(issue | result_dict | {"id": str(result_dict["id"])})
             else:
                 logger.error(
                     "error tracking issue not found",
@@ -202,7 +202,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else None
 
     def error_tracking_issues(self, ids):
-        queryset = ErrorTrackingIssue.objects.filter(team=self.team, id__in=ids)
+        queryset = ErrorTrackingIssue.objects.select_related("assignment").filter(team=self.team, id__in=ids)
         queryset = (
             queryset.filter(id=self.query.issueId)
             if self.query.issueId
@@ -210,12 +210,32 @@ class ErrorTrackingQueryRunner(QueryRunner):
         )
         if self.query.assignee:
             queryset = (
-                queryset.filter(errortrackingissueassignment__user_id=self.query.assignee.id)
+                queryset.filter(assignment__user_id=self.query.assignee.id)
                 if self.query.assignee.type == "user"
-                else queryset.filter(errortrackingissueassignment__team_id=self.query.assignee.id)
+                else queryset.filter(assignment__error_tracking_team_id=self.query.assignee.id)
             )
-        issues = queryset.values("id", "status", "name", "description")
-        return {item["id"]: item for item in issues}
+
+        issues = queryset.values(
+            "id", "status", "name", "description", "assignment__user_id", "assignment__error_tracking_team_id"
+        )
+
+        results = {}
+        for issue in issues:
+            assignment_user_id = issue.pop("assignment__user_id")
+            assignment_error_tracking_team_id = issue.pop("assignment__error_tracking_team_id")
+
+            results[issue["id"]] = issue | {
+                "assignee": (
+                    {
+                        "id": assignment_user_id or assignment_error_tracking_team_id,
+                        "type": "user" if assignment_user_id else "team",
+                    }
+                    if assignment_user_id or assignment_error_tracking_team_id
+                    else None
+                )
+            }
+
+        return results
 
 
 def search_tokenizer(query: str) -> list[str]:
