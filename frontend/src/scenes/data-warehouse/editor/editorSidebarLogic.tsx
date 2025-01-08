@@ -1,6 +1,7 @@
 import { Tooltip } from '@posthog/lemon-ui'
+import { IconTrash } from '@posthog/icons'
 import Fuse from 'fuse.js'
-import { connect, kea, path, selectors } from 'kea'
+import { connect, kea, path, selectors, actions, reducers } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { IconCalculate, IconClipboardEdit } from 'lib/lemon-ui/icons'
@@ -11,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
-import { BasicListItem, ExtendedListItem, ListItemAccordion, SidebarCategory } from '~/layout/navigation-3000/types'
+import { BasicListItem, ExtendedListItem, ListItemAccordion, SidebarCategory, ViewFolder } from '~/layout/navigation-3000/types'
 import { DatabaseSchemaTableCommon } from '~/queries/schema'
 import { DataWarehouseSavedQuery, PipelineTab } from '~/types'
 
@@ -47,12 +48,57 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             ['posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
         ],
         actions: [
-            editorSceneLogic,
-            ['selectSchema'],
-            dataWarehouseViewsLogic,
-            ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery'],
-            viewLinkLogic,
-            ['selectSourceTable', 'toggleJoinTableModal'],
+            editorSceneLogic, ['selectSchema'],
+            dataWarehouseViewsLogic, ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery'],
+            viewLinkLogic, ['selectSourceTable', 'toggleJoinTableModal'],
+        ],
+    }),
+    actions({
+        addFolder: (name: string) => ({ name }),
+        deleteFolder: (id: string) => ({ id }),
+        moveViewToFolder: (viewId: string, folderId: string) => ({ viewId, folderId }),
+        removeViewFromFolder: (viewId: string, folderId: string) => ({ viewId, folderId }),
+    }),
+    reducers({
+        folders: [
+            [] as ViewFolder[],
+            {
+                addFolder: (state, { name }) => {
+                    const newState = [
+                        ...state,
+                        { id: Math.random().toString(36).substr(2, 9), name, items: [] },
+                    ]
+                    return newState
+                },
+                deleteFolder: (state, { id }) => {
+                    const newState = state.filter((folder: ViewFolder) => folder.id !== id)
+                    return newState
+                },
+                moveViewToFolder: (state, { viewId, folderId }) => {
+                    const newState = state.map((folder: ViewFolder) => {
+                        if (folder.id === folderId) {
+                            return {
+                                ...folder,
+                                items: [...folder.items, viewId],
+                            }
+                        }
+                        return folder
+                    })
+                    return newState
+                },
+                removeViewFromFolder: (state, { viewId, folderId }) => {
+                    const newState = state.map((folder: ViewFolder) => {
+                        if (folder.id === folderId) {
+                            return {
+                                ...folder,
+                                items: folder.items.filter((id: string) => id !== viewId),
+                            }
+                        }
+                        return folder
+                    })
+                    return newState
+                },
+            },
         ],
     }),
     selectors(({ actions }) => ({
@@ -63,65 +109,126 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                 s.relevantSources,
                 s.dataWarehouseTablesBySourceType,
                 s.databaseLoading,
+                s.folders,
             ],
             (
                 relevantSavedQueries,
                 initialDataWarehouseSavedQueryLoading,
                 relevantSources,
                 dataWarehouseTablesBySourceType,
-                databaseLoading
+                databaseLoading,
+                folders
             ) => [
                 {
                     key: 'data-warehouse-views',
                     noun: ['view', 'views'],
                     loading: initialDataWarehouseSavedQueryLoading,
-                    items: relevantSavedQueries.map(([savedQuery, matches]) => ({
-                        key: savedQuery.id,
-                        name: savedQuery.name,
-                        url: '',
-                        icon: savedQuery.status ? (
-                            <Tooltip title="Materialized view">
-                                <IconCalculate />
-                            </Tooltip>
-                        ) : (
-                            <Tooltip title="View">
-                                <IconClipboardEdit />
-                            </Tooltip>
-                        ),
-                        searchMatch: matches
-                            ? {
-                                  matchingFields: matches.map((match) => match.key),
-                                  nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                              }
-                            : null,
-                        onClick: () => {
-                            actions.selectSchema(savedQuery)
-                        },
-                        menuItems: [
-                            {
-                                label: 'Edit view definition',
-                                onClick: () => {
-                                    multitabEditorLogic({
-                                        key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                    }).actions.editView(savedQuery.query.query, savedQuery)
-                                },
+                    onAdd: () => {
+                        actions.addFolder('New Folder')
+                    },
+                    items: [
+                        ...folders.map((folder) => ({
+                            key: folder.id,
+                            name: folder.name,
+                            noun: ['folder', 'folders'],
+                            sideAction: {
+                                icon: <IconTrash />,
+                                tooltip: 'Delete folder',
+                                onClick: () => actions.deleteFolder(folder.id),
                             },
-                            {
-                                label: 'Add join',
+                            items: folder.items.map((itemId) => {
+                                const [savedQuery, matches] = relevantSavedQueries.find(([q]) => q.id === itemId) || [null, null]
+                                if (!savedQuery) return null
+                                return {
+                                    key: savedQuery.id,
+                                    name: savedQuery.name,
+                                    url: '',
+                                    icon: savedQuery.status ? (
+                                        <Tooltip title="Materialized view">
+                                            <IconCalculate />
+                                        </Tooltip>
+                                    ) : (
+                                        <Tooltip title="View">
+                                            <IconClipboardEdit />
+                                        </Tooltip>
+                                    ),
+                                    searchMatch: matches
+                                        ? {
+                                              matchingFields: matches.map((match) => match.key),
+                                              nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                                          }
+                                        : null,
+                                    onClick: () => {
+                                        editorSceneLogic.actions.selectSchema(savedQuery)
+                                    },
+                                    menuItems: [
+                                        {
+                                            label: 'Edit view definition',
+                                            onClick: () => {
+                                                multitabEditorLogic({
+                                                    key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                                }).actions.editView(savedQuery.query.query, savedQuery)
+                                            },
+                                        },
+                                        {
+                                            label: 'Add join',
+                                            onClick: () => {
+                                                viewLinkLogic.actions.selectSourceTable(savedQuery.name)
+                                                viewLinkLogic.actions.toggleJoinTableModal()
+                                            },
+                                        },
+                                        {
+                                            label: 'Remove from folder',
+                                            onClick: () => {
+                                                actions.removeViewFromFolder(savedQuery.id, folder.id)
+                                            },
+                                        },
+                                        {
+                                            label: 'Delete',
+                                            status: 'danger',
+                                            onClick: () => {
+                                                dataWarehouseViewsLogic.actions.deleteDataWarehouseSavedQuery(savedQuery.id)
+                                            },
+                                        },
+                                    ],
+                                }
+                            }).filter(Boolean),
+                        })) as ListItemAccordion[],
+                        ...relevantSavedQueries
+                            .filter(([savedQuery]) => !folders.some((folder) => folder.items.includes(savedQuery.id)))
+                            .map(([savedQuery, matches]) => ({
+                                key: savedQuery.id,
+                                name: savedQuery.name,
+                                url: '',
+                                icon: savedQuery.status ? (
+                                    <Tooltip title="Materialized view">
+                                        <IconCalculate />
+                                    </Tooltip>
+                                ) : (
+                                    <Tooltip title="View">
+                                        <IconClipboardEdit />
+                                    </Tooltip>
+                                ),
+                                searchMatch: matches
+                                    ? {
+                                          matchingFields: matches.map((match) => match.key),
+                                          nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                                      }
+                                    : null,
                                 onClick: () => {
-                                    actions.selectSourceTable(savedQuery.name)
-                                    actions.toggleJoinTableModal()
+                                    editorSceneLogic.actions.selectSchema(savedQuery)
                                 },
-                            },
-                            {
-                                label: 'Delete',
-                                status: 'danger',
-                                onClick: () => {
-                                    actions.deleteDataWarehouseSavedQuery(savedQuery.id)
-                                },
-                            },
-                        ],
-                    })),
+                                menuItems: [
+                                    {
+                                        label: 'Add join',
+                                        onClick: () => {
+                                            viewLinkLogic.actions.selectSourceTable(savedQuery.name)
+                                            viewLinkLogic.actions.toggleJoinTableModal()
+                                        },
+                                    },
+                                ],
+                            })) as BasicListItem[],
+                    ],
                 } as SidebarCategory,
                 {
                     key: 'sources',
@@ -140,14 +247,14 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                         }
                                       : null,
                                   onClick: () => {
-                                      actions.selectSchema(table)
+                                      editorSceneLogic.actions.selectSchema(table)
                                   },
                                   menuItems: [
                                       {
                                           label: 'Add join',
                                           onClick: () => {
-                                              actions.selectSourceTable(table.name)
-                                              actions.toggleJoinTableModal()
+                                              viewLinkLogic.actions.selectSourceTable(table.name)
+                                              viewLinkLogic.actions.toggleJoinTableModal()
                                           },
                                       },
                                   ],
@@ -211,14 +318,14 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         url: '',
                         searchMatch: null,
                         onClick: () => {
-                            actions.selectSchema(table)
+                            editorSceneLogic.actions.selectSchema(table)
                         },
                         menuItems: [
                             {
                                 label: 'Add join',
                                 onClick: () => {
-                                    actions.selectSourceTable(table.name)
-                                    actions.toggleJoinTableModal()
+                                    viewLinkLogic.actions.selectSourceTable(table.name)
+                                    viewLinkLogic.actions.toggleJoinTableModal()
                                 },
                             },
                         ],

@@ -1,6 +1,6 @@
 import { Link, TZLabel } from '@posthog/apps-common'
 import { IconCheckCircle, IconEllipsis, IconX } from '@posthog/icons'
-import { LemonButton, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag, lemonToast } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
@@ -547,12 +547,60 @@ function SidebarListItemSkeleton({ style }: { style: React.CSSProperties }): JSX
 function SidebarListItemAccordion({ category }: { category: ListItemAccordion }): JSX.Element {
     const { listItemAccordionCollapseMapping } = useValues(navigation3000Logic)
     const { toggleListItemAccordion } = useActions(navigation3000Logic)
+    const [isRenaming, setIsRenaming] = useState(false)
+    const [newName, setNewName] = useState(category.name || capitalizeFirstLetter(pluralizeCategory(category.noun)))
+    const [isSaving, setIsSaving] = useState(false)
 
-    const { key, items } = category
+    const ref = useRef<HTMLDivElement>(null)
+
+    const { key, items, sideAction, menuItems } = category
 
     const isEmpty = items.length === 0
     const keyString = Array.isArray(key) ? key.join(ITEM_KEY_PART_SEPARATOR) : key.toString()
     const isExpanded = !(keyString in listItemAccordionCollapseMapping) || !listItemAccordionCollapseMapping[keyString]
+
+    const startRenaming = () => {
+        if (category.onRename) {
+            setIsRenaming(true)
+        }
+    }
+
+    const cancelRenaming = () => {
+        setIsRenaming(false)
+        setNewName(category.name || capitalizeFirstLetter(pluralizeCategory(category.noun)))
+    }
+
+    const saveNewName = async () => {
+        if (category.onRename && newName !== category.name) {
+            setIsSaving(true)
+            try {
+                await category.onRename(newName)
+            } catch (error) {
+                captureException(error)
+                lemonToast.error('Could not rename item')
+            } finally {
+                setIsSaving(false)
+                setIsRenaming(false)
+            }
+        } else {
+            cancelRenaming()
+        }
+    }
+
+    useEffect(() => {
+        if (category.onRename && !isRenaming) {
+            const onDoubleClick = (): void => {
+                startRenaming()
+            }
+            const element = ref.current
+            if (element) {
+                element.addEventListener('dblclick', onDoubleClick)
+                return () => {
+                    element.removeEventListener('dblclick', onDoubleClick)
+                }
+            }
+        }
+    }, [isRenaming, category.onRename])
 
     return (
         <li className="SidebarListItemAccordion" role="region" aria-expanded={isExpanded}>
@@ -563,18 +611,78 @@ function SidebarListItemAccordion({ category }: { category: ListItemAccordion })
                 aria-expanded={isExpanded}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ '--depth': category.depth } as React.CSSProperties}
-                onClick={isExpanded || items.length > 0 ? () => toggleListItemAccordion(keyString) : undefined}
+                onClick={!isRenaming && (isExpanded || items.length > 0) ? () => toggleListItemAccordion(keyString) : undefined}
+                ref={ref}
             >
                 <IconChevronRight />
-                <h4>
-                    {capitalizeFirstLetter(pluralizeCategory(category.noun))}
-                    {isEmpty && (
-                        <>
-                            {' '}
-                            <i>(empty)</i>
-                        </>
-                    )}
-                </h4>
+                {isRenaming ? (
+                    <div className="SidebarListItem__rename">
+                        <input
+                            value={newName}
+                            onChange={(e) => setNewName(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    void saveNewName()
+                                    e.preventDefault()
+                                } else if (e.key === 'Escape') {
+                                    cancelRenaming()
+                                    e.preventDefault()
+                                }
+                            }}
+                            onBlur={(e) => {
+                                if (e.relatedTarget?.ariaLabel === 'Save name') {
+                                    void saveNewName()
+                                } else {
+                                    cancelRenaming()
+                                }
+                            }}
+                            placeholder="Renaming..."
+                            disabled={isSaving}
+                            autoFocus
+                        />
+                    </div>
+                ) : (
+                    <h4>
+                        {category.name || capitalizeFirstLetter(pluralizeCategory(category.noun))}
+                        {isEmpty && (
+                            <>
+                                {' '}
+                                <i>(empty)</i>
+                            </>
+                        )}
+                    </h4>
+                )}
+                <div className="flex-1" />
+                {isRenaming ? (
+                    <div className="SidebarListItem__actions">
+                        
+                    </div>
+                ) : (
+                    <>
+                        {sideAction && (
+                            <LemonButton
+                                size="small"
+                                icon={sideAction.icon}
+                                tooltip={sideAction.tooltip}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    sideAction.onClick()
+                                }}
+                            />
+                        )}
+                        {menuItems && (
+                            <LemonMenu items={menuItems}>
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconEllipsis />}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                    }}
+                                />
+                            </LemonMenu>
+                        )}
+                    </>
+                )}
             </div>
         </li>
     )
