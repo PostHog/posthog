@@ -10,7 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
-import { ProductKey, SDK, SDKInstructionsMap } from '~/types'
+import { ProductKey, SDK, SDKInstructionsMap, SDKKey } from '~/types'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { allSDKs } from './allSDKs'
@@ -44,9 +44,9 @@ export const multiInstallProducts = [ProductKey.PRODUCT_ANALYTICS, ProductKey.FE
 
 const getProductAnalyticsOrderedSDKs = (sdks: SDK[]): SDK[] => {
     return [
-        ...sdks.filter((sdk) => sdk.key === 'html'),
-        ...sdks.filter((sdk) => sdk.key === 'javascript-web'),
-        ...sdks.filter((sdk) => !['html', 'javascript-web'].includes(sdk.key)),
+        ...sdks.filter((sdk) => sdk.key === SDKKey.HTML_SNIPPET),
+        ...sdks.filter((sdk) => sdk.key === SDKKey.JS_WEB),
+        ...sdks.filter((sdk) => ![SDKKey.HTML_SNIPPET, SDKKey.JS_WEB].includes(sdk.key as SDKKey)),
     ]
 }
 

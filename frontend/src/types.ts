@@ -4872,3 +4872,14 @@ export enum CookielessServerHashMode {
 export interface Conversation {
     id: string
 }
+
+export enum UserRole {
+    Engineering = 'engineering',
+    Data = 'data',
+    Product = 'product',
+    Founder = 'founder',
+    Leadership = 'leadership',
+    Marketing = 'marketing',
+    Sales = 'sales',
+    Other = 'other',
+}
