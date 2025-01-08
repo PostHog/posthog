@@ -5481,7 +5481,7 @@
                                     "type": "number"
                                 },
                                 "type": {
-                                    "enum": ["team", "user"],
+                                    "enum": ["user", "team"],
                                     "type": "string"
                                 }
                             },
@@ -5536,7 +5536,7 @@
                     "type": "array"
                 }
             },
-            "required": ["dateRange", "kind"],
+            "required": ["assignee", "dateRange", "kind"],
             "type": "object"
         },
         "ErrorTrackingQueryResponse": {

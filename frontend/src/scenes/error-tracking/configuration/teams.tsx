@@ -25,16 +25,16 @@ export const Teams = (): JSX.Element => {
         },
         {
             key: 'actions',
-            render: (_, item: ErrorTrackingTeam) => <TeamRow team={item} />,
+            render: (_, item: ErrorTrackingTeam) => <Actions team={item} />,
         },
     ]
 
     return (
         <div className="space-y-2">
             <LemonTable
+                size="small"
                 dataSource={teams}
                 loading={teamsLoading}
-                size="small"
                 columns={columns}
                 expandable={{
                     noIndent: true,
@@ -49,12 +49,20 @@ export const Teams = (): JSX.Element => {
     )
 }
 
-const TeamRow = ({ team }: { team: ErrorTrackingTeam }): JSX.Element => {
+const Actions = ({ team }: { team: ErrorTrackingTeam }): JSX.Element => {
     const { addTeamMember, deleteTeam } = useActions(errorTrackingTeamsLogic)
 
     return (
         <div className="flex flex-row justify-end space-x-2">
-            <LemonMenu items={[{ label: 'Delete', status: 'danger', onClick: () => deleteTeam(team.id) }]}>
+            <LemonMenu
+                items={[
+                    {
+                        label: 'Delete',
+                        status: 'danger',
+                        onClick: () => deleteTeam(team.id),
+                    },
+                ]}
+            >
                 <LemonButton icon={<IconEllipsis />} size="xsmall" />
             </LemonMenu>
             <MemberSelect

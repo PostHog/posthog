@@ -1,7 +1,6 @@
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { MemberSelect } from 'lib/components/MemberSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -9,6 +8,7 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
+import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
@@ -134,12 +134,7 @@ export const Options = (): JSX.Element => {
             <div className="flex items-center gap-1">
                 <>
                     <span>Assigned to:</span>
-                    <MemberSelect
-                        value={assignee}
-                        onChange={(user) => {
-                            setAssignee(user?.id || null)
-                        }}
-                    />
+                    <AssigneeSelect showName assignee={assignee} onChange={(assignee) => setAssignee(assignee)} />
                 </>
             </div>
         </div>

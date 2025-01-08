@@ -771,12 +771,17 @@ class ErrorTrackingIssue(BaseModel):
     volume: Optional[Any] = None
 
 
+class Type6(StrEnum):
+    USER = "user"
+    TEAM = "team"
+
+
 class Assignee1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     id: float
-    type: Type5
+    type: Type6
 
 
 class OrderBy(StrEnum):

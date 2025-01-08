@@ -732,7 +732,7 @@ class ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('merge')
     }
 
-    public errorTrackingIssueAssign(into: ErrorTrackingIssue['id']): ApiRequest {
+    public errorTrackingAssignIssue(into: ErrorTrackingIssue['id']): ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('assign')
     }
 
@@ -1931,7 +1931,7 @@ const api = {
             id: ErrorTrackingIssue['id'],
             assignee: ErrorTrackingIssue['assignee']
         ): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingIssueAssign(id).update({ data: { assignee } })
+            return await new ApiRequest().errorTrackingAssignIssue(id).update({ data: { assignee } })
         },
 
         async mergeInto(

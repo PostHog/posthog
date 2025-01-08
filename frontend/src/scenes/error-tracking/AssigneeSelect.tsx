@@ -26,7 +26,7 @@ export const AssigneeSelect = ({
     ...buttonProps
 }: {
     assignee: ErrorTrackingIssue['assignee']
-    onChange: (userId: ErrorTrackingIssue['assignee']) => void
+    onChange: (assignee: ErrorTrackingIssue['assignee']) => void
     showName?: boolean
 } & Partial<Pick<LemonButtonProps, 'type'>>): JSX.Element => {
     const { meFirstMembers, filteredMembers, search, membersLoading } = useValues(membersLogic)

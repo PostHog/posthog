@@ -52,7 +52,7 @@ class ErrorTrackingIssue(UUIDModel):
 
 class ErrorTrackingTeam(UUIDModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    name = models.TextField(null=True, blank=True)
+    name = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     members = models.ManyToManyField(
@@ -61,21 +61,11 @@ class ErrorTrackingTeam(UUIDModel):
     )
 
 
-class ErrorTrackingTeamMembership(UUIDModel):
-    team = models.ForeignKey(ErrorTrackingTeam, on_delete=models.CASCADE)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["team", "user"], name="unique_per_user_per_team"),
-        ]
-
-
 class ErrorTrackingIssueAssignment(UUIDModel):
     issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
     error_tracking_team = models.ForeignKey(ErrorTrackingTeam, null=True, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
@@ -86,6 +76,17 @@ class ErrorTrackingIssueAssignment(UUIDModel):
                 check=~(Q(user__isnull=False) & Q(error_tracking_team__isnull=False)), name="only_one_non_null"
             ),
             models.UniqueConstraint(fields=["issue"], name="unique_per_issue"),
+        ]
+
+
+class ErrorTrackingTeamMembership(UUIDModel):
+    team = models.ForeignKey(ErrorTrackingTeam, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user"], name="unique_per_user_per_team"),
         ]
 
 

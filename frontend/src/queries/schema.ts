@@ -1951,7 +1951,7 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    issueId?: string
+    issueId?: ErrorTrackingIssue['id']
     select?: HogQLExpression[]
     orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
