@@ -11,11 +11,10 @@ import { OrganizationMemberType } from '~/types'
 import { ErrorTrackingIssue } from '../../queries/schema'
 import { errorTrackingTeamsLogic } from './errorTrackingTeamsLogic'
 
-type AssigneeDisplayType = { id: number; icon: JSX.Element; displayName: string }
+type AssigneeDisplayType = { id: string | number; icon: JSX.Element; displayName?: string }
 
 const unassignedUser = {
     id: 'unassigned',
-    displayName: 'Unassigned',
     icon: <IconPerson className="rounded-full border border-dashed border-muted text-muted p-0.5" />,
 }
 
@@ -23,12 +22,16 @@ export const AssigneeSelect = ({
     assignee,
     onChange,
     showName = false,
+    showIcon = true,
+    unassignedLabel = 'Unassigned',
     ...buttonProps
 }: {
     assignee: ErrorTrackingIssue['assignee']
     onChange: (assignee: ErrorTrackingIssue['assignee']) => void
     showName?: boolean
-} & Partial<Pick<LemonButtonProps, 'type'>>): JSX.Element => {
+    showIcon?: boolean
+    unassignedLabel?: string
+} & Partial<Pick<LemonButtonProps, 'type' | 'size'>>): JSX.Element => {
     const { meFirstMembers, filteredMembers, search, membersLoading } = useValues(membersLogic)
     const { teams, teamsLoading } = useValues(errorTrackingTeamsLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
@@ -47,7 +50,7 @@ export const AssigneeSelect = ({
         }
     }, [showPopover, ensureAllMembersLoaded, ensureAllTeamsLoaded])
 
-    const displayAssignee = useMemo(() => {
+    const displayAssignee: AssigneeDisplayType = useMemo(() => {
         if (assignee) {
             if (assignee.type === 'team') {
                 const assignedTeam = teams.find((team) => team.id === assignee.id)
@@ -79,18 +82,13 @@ export const AssigneeSelect = ({
                         fullWidth
                     />
                     <ul className="space-y-px">
-                        <li>
-                            <LemonButton fullWidth role="menuitem" size="small" onClick={() => _onChange(null)}>
-                                Unassign
-                            </LemonButton>
-                        </li>
-
                         <Section
                             loading={membersLoading}
                             search={!!search}
                             type="user"
                             items={filteredMembers.map(userDisplay)}
                             onSelect={_onChange}
+                            activeId={assignee?.id}
                         />
 
                         <Section
@@ -99,6 +97,7 @@ export const AssigneeSelect = ({
                             type="team"
                             items={teams.map(teamDisplay)}
                             onSelect={_onChange}
+                            activeId={assignee?.id}
                         />
                     </ul>
                 </div>
@@ -106,11 +105,10 @@ export const AssigneeSelect = ({
         >
             <LemonButton
                 tooltip={displayAssignee.displayName}
-                icon={displayAssignee.icon}
-                sideIcon={null}
+                icon={showIcon ? displayAssignee.icon : null}
                 {...buttonProps}
             >
-                {showName ? <span className="pl-1">{displayAssignee.displayName}</span> : null}
+                {showName ? <span className="pl-1">{displayAssignee.displayName ?? unassignedLabel}</span> : null}
             </LemonButton>
         </LemonDropdown>
     )
@@ -122,12 +120,14 @@ const Section = ({
     type,
     items,
     onSelect,
+    activeId,
 }: {
     loading: boolean
     search: boolean
     type: 'user' | 'team'
     items: AssigneeDisplayType[]
     onSelect: (value: ErrorTrackingIssue['assignee']) => void
+    activeId?: string | number
 }): JSX.Element => {
     return (
         <li>
@@ -140,7 +140,8 @@ const Section = ({
                             role="menuitem"
                             size="small"
                             icon={item.icon}
-                            onClick={() => onSelect({ type, id: item.id })}
+                            onClick={() => onSelect(activeId === item.id ? null : { type, id: item.id })}
+                            active={activeId === item.id}
                         >
                             <span className="flex items-center justify-between gap-2 flex-1">
                                 <span>{item.displayName}</span>

@@ -59,7 +59,6 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         ],
         assignee: [
             null as ErrorTrackingIssue['assignee'],
-            { persist: true },
             {
                 setAssignee: (_, { assignee }) => assignee,
             },

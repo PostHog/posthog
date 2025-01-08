@@ -134,7 +134,15 @@ export const Options = (): JSX.Element => {
             <div className="flex items-center gap-1">
                 <>
                     <span>Assigned to:</span>
-                    <AssigneeSelect showName assignee={assignee} onChange={(assignee) => setAssignee(assignee)} />
+                    <AssigneeSelect
+                        showName
+                        showIcon={false}
+                        assignee={assignee}
+                        onChange={(assignee) => setAssignee(assignee)}
+                        unassignedLabel="Any user"
+                        type="secondary"
+                        size="small"
+                    />
                 </>
             </div>
         </div>
