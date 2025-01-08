@@ -9,6 +9,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
+    [Scene.WebAnalyticsCoreWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
     [Scene.Activity]: () => import('./activity/ActivityScene'),

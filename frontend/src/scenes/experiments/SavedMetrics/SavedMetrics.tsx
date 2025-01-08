@@ -64,20 +64,20 @@ export function SavedMetrics(): JSX.Element {
                 Back to experiments
             </LemonButton>
             <LemonBanner type="info">
-                Saved metrics let you create reusable metrics that you can quickly add to any experiment. They are ideal
-                for tracking key metrics like conversion rates or revenue across different experiments without having to
-                set them up each time.
+                Shared metrics let you create reusable metrics that you can quickly add to any experiment. They are
+                ideal for tracking key metrics like conversion rates or revenue across different experiments without
+                having to set them up each time.
             </LemonBanner>
             <div className="flex justify-end">
                 <LemonButton size="small" type="primary" to={urls.experimentsSavedMetric('new')}>
-                    New saved metric
+                    New shared metric
                 </LemonButton>
             </div>
             <LemonTable
                 columns={columns}
                 dataSource={savedMetrics || []}
                 loading={savedMetricsLoading}
-                emptyState={<div>You haven't created any saved metrics yet.</div>}
+                emptyState={<div>You haven't created any shared metrics yet.</div>}
             />
         </div>
     )

@@ -606,14 +606,17 @@ export function DeltaChart({
                                             <span className="font-semibold">
                                                 {(() => {
                                                     try {
-                                                        const detail = JSON.parse(error.detail)
-                                                        return Object.values(detail).filter((v) => v === false).length
+                                                        return Object.values(error.detail).filter((v) => v === false)
+                                                            .length
                                                     } catch {
                                                         return '0'
                                                     }
                                                 })()}
                                             </span>
-                                            /<span className="font-semibold">4</span>
+                                            /
+                                            <span className="font-semibold">
+                                                {metricType === InsightType.TRENDS ? '5' : '4'}
+                                            </span>
                                         </LemonTag>
                                     ) : (
                                         <LemonTag size="small" type="danger" className="mr-1">
@@ -668,7 +671,13 @@ export function DeltaChart({
                             {metricType === InsightType.TRENDS ? (
                                 <>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">Count:</span>
+                                        <span className="text-muted font-semibold">
+                                            {metricType === InsightType.TRENDS &&
+                                            result.exposure_query?.series?.[0]?.math
+                                                ? 'Total'
+                                                : 'Count'}
+                                            :
+                                        </span>
                                         <span className="font-semibold">
                                             {(() => {
                                                 const count = countDataForVariant(result, tooltipData.variant)

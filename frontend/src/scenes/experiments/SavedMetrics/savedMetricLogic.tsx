@@ -62,9 +62,9 @@ export const savedMetricLogic = kea<savedMetricLogicType>([
         createSavedMetric: async () => {
             const response = await api.create(`api/projects/@current/experiment_saved_metrics/`, values.savedMetric)
             if (response.id) {
-                lemonToast.success('Saved metric created successfully')
+                lemonToast.success('Shared metric created successfully')
                 actions.loadSavedMetrics()
-                router.actions.push('/experiments/saved-metrics')
+                router.actions.push('/experiments/shared-metrics')
             }
         },
         updateSavedMetric: async () => {
@@ -73,19 +73,19 @@ export const savedMetricLogic = kea<savedMetricLogicType>([
                 values.savedMetric
             )
             if (response.id) {
-                lemonToast.success('Saved metric updated successfully')
+                lemonToast.success('Shared metric updated successfully')
                 actions.loadSavedMetrics()
-                router.actions.push('/experiments/saved-metrics')
+                router.actions.push('/experiments/shared-metrics')
             }
         },
         deleteSavedMetric: async () => {
             try {
                 await api.delete(`api/projects/@current/experiment_saved_metrics/${values.savedMetricId}`)
-                lemonToast.success('Saved metric deleted successfully')
+                lemonToast.success('Shared metric deleted successfully')
                 actions.loadSavedMetrics()
-                router.actions.push('/experiments/saved-metrics')
+                router.actions.push('/experiments/shared-metrics')
             } catch (error) {
-                lemonToast.error('Failed to delete saved metric')
+                lemonToast.error('Failed to delete shared metric')
                 console.error(error)
             }
         },
@@ -109,7 +109,7 @@ export const savedMetricLogic = kea<savedMetricLogicType>([
     }),
 
     urlToAction(({ actions, values }) => ({
-        '/experiments/saved-metrics/:id': ({ id }, _, __, currentLocation, previousLocation) => {
+        '/experiments/shared-metrics/:id': ({ id }, _, __, currentLocation, previousLocation) => {
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
             if (id && didPathChange) {
