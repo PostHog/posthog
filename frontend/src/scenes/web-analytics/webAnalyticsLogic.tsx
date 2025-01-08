@@ -23,7 +23,6 @@ import {
     CompareFilter,
     CustomEventConversionGoal,
     EventsNode,
-    HogQLQuery,
     NodeKind,
     QuerySchema,
     TrendsFilter,
@@ -203,7 +202,6 @@ export interface WebAnalyticsStatusCheck {
     isSendingPageViews: boolean
     isSendingPageLeaves: boolean
     isSendingPageLeavesScroll: boolean
-    libSendingPageViewsWithoutSessionIds: string | undefined
 }
 
 export enum ConversionGoalWarning {
@@ -1633,25 +1631,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         statusCheck: {
             __default: null as WebAnalyticsStatusCheck | null,
             loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
-                const [pageviewResult, pageleaveResult, pageleaveScroll, pageViewsWithoutSessionsResult] =
-                    await Promise.allSettled([
-                        api.eventDefinitions.list({
-                            event_type: EventDefinitionType.Event,
-                            search: '$pageview',
-                        }),
-                        api.eventDefinitions.list({
-                            event_type: EventDefinitionType.Event,
-                            search: '$pageleave',
-                        }),
-                        api.propertyDefinitions.list({
-                            event_names: ['$pageleave'],
-                            properties: ['$prev_pageview_max_content_percentage'],
-                        }),
-                        api.query<HogQLQuery>({
-                            kind: NodeKind.HogQLQuery,
-                            query: "SELECT events.properties.$lib as lib FROM events WHERE event='$pageview' AND or(events.$session_id IS NULL, events.$session_id = '') AND timestamp > today() LIMIT 1",
-                        }),
-                    ])
+                const [pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
+                    api.eventDefinitions.list({
+                        event_type: EventDefinitionType.Event,
+                        search: '$pageview',
+                    }),
+                    api.eventDefinitions.list({
+                        event_type: EventDefinitionType.Event,
+                        search: '$pageleave',
+                    }),
+                    api.propertyDefinitions.list({
+                        event_names: ['$pageleave'],
+                        properties: ['$prev_pageview_max_content_percentage'],
+                    }),
+                ])
 
                 // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
                 // going to add enough reserved event names that match this search term to cause problems
@@ -1670,10 +1663,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ? pageleaveScroll.value.results.find((r) => r.name === '$prev_pageview_max_content_percentage')
                         : undefined
 
-                const libSendingPageViewsWithoutSessionIds =
-                    pageViewsWithoutSessionsResult.status === 'fulfilled'
-                        ? pageViewsWithoutSessionsResult.value.results?.[0]?.[0]
-                        : undefined
                 const isSendingPageViews = !!pageviewEntry && !isDefinitionStale(pageviewEntry)
                 const isSendingPageLeaves = !!pageleaveEntry && !isDefinitionStale(pageleaveEntry)
                 const isSendingPageLeavesScroll = !!pageleaveScrollEntry && !isDefinitionStale(pageleaveScrollEntry)
@@ -1682,7 +1671,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     isSendingPageViews,
                     isSendingPageLeaves,
                     isSendingPageLeavesScroll,
-                    libSendingPageViewsWithoutSessionIds,
                 }
             },
         },
