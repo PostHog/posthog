@@ -8,7 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 
-import { AvailableFeature, OrganizationBasicType, ProductKey, UserTheme, UserType } from '~/types'
+import { AvailableFeature, OrganizationBasicType, ProductKey, UserRole, UserTheme, UserType } from '~/types'
 
 import { urls } from './urls'
 import type { userLogicType } from './userLogicType'
@@ -254,13 +254,16 @@ export const userLogic = kea<userLogicType>([
         isUserNonTechnical: [
             (s) => [s.user],
             (user): boolean => {
-                // These technical roles are chosen based on the ICP score where engineering and founder get the
-                // highest technical scores. Product also gets a high score only if they have a github associated to
-                // them but we don't have that information here. As a follow-up, we should revisit ICP definition
-                // and ensure we are categorizing these users correctly.
-                // Link to docs: https://posthog.com/handbook/growth/marketing/icp
-                const technicalRoles = ['engineering', 'founder']
-                return user?.role_at_organization ? !technicalRoles.includes(user.role_at_organization) : false
+                const nonTechnicalRoles = [
+                    UserRole.Founder,
+                    UserRole.Leadership,
+                    UserRole.Marketing,
+                    UserRole.Sales,
+                    UserRole.Other,
+                ]
+                return user?.role_at_organization
+                    ? nonTechnicalRoles.includes(user.role_at_organization as UserRole)
+                    : false
             },
         ],
     }),

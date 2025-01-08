@@ -15,11 +15,22 @@ import { OnboardingStep } from '../OnboardingStep'
 import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
 
+export function InviteHelpCard({ className = '' }: { className?: string }): JSX.Element {
+    return (
+        <LemonCard className={className} hoverEffect={false}>
+            <h3 className="font-bold">Need help?</h3>
+            <p>Invite a team member to help you get set up.</p>
+            <InviteMembersButton type="secondary" />
+        </LemonCard>
+    )
+}
+
 export function SDKs({
     sdkInstructionMap,
     stepKey = OnboardingStepKey.INSTALL,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
+    inviteHelpCard = <InviteHelpCard />,
 }: {
     usersAction?: string
     sdkInstructionMap: SDKInstructionsMap
@@ -27,6 +38,7 @@ export function SDKs({
     stepKey?: OnboardingStepKey
     listeningForName?: string
     teamPropertyToVerify?: string
+    inviteHelpCard: JSX.Element
 }): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -67,14 +79,6 @@ export function SDKs({
         }
     }, 2000)
 
-    const InviteHelpCard = (): JSX.Element => (
-        <LemonCard className={`${isUserInNonTechnicalTest ? 'mb-2' : 'mt-6'}`} hoverEffect={false}>
-            <h3 className="font-bold">Need help?</h3>
-            <p>Invite a team member to help you get set up.</p>
-            <InviteMembersButton type="secondary" />
-        </LemonCard>
-    )
-
     return (
         <OnboardingStep title="Install" stepKey={stepKey} continueOverride={<></>}>
             <div className="flex gap-x-8 mt-6">
@@ -83,7 +87,7 @@ export function SDKs({
                         !showSideBySide && panel !== 'options' ? 'hidden' : 'flex'
                     }`}
                 >
-                    {isUserInNonTechnicalTest && <InviteHelpCard />}
+                    {isUserInNonTechnicalTest && inviteHelpCard}
                     {showSourceOptionsSelect && (
                         <LemonSelect
                             allowClear
@@ -116,7 +120,7 @@ export function SDKs({
                             </LemonButton>
                         </React.Fragment>
                     ))}
-                    {!isUserInNonTechnicalTest && <InviteHelpCard />}
+                    {!isUserInNonTechnicalTest && inviteHelpCard}
                 </div>
                 {selectedSDK && productKey && !!sdkInstructionMap[selectedSDK.key] && (
                     <div
