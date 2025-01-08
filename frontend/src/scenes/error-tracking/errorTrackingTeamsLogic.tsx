@@ -60,24 +60,18 @@ export const errorTrackingTeamsLogic = kea<errorTrackingTeamsLogicType>([
         openTeamCreationForm: () => {
             LemonDialog.openForm({
                 title: 'Create team',
-                initialValues: {
-                    name: '',
-                },
+                initialValues: { name: '' },
                 content: (
                     <LemonField name="name">
                         <LemonInput placeholder="Name" autoFocus />
                     </LemonField>
                 ),
-                errors: {
-                    name: (name) => (!name ? 'You must enter a name' : undefined),
-                },
-                onSubmit: async ({ name }) => {
-                    actions.createTeam(name)
-                },
+                errors: { name: (name) => (!name ? 'You must enter a name' : undefined) },
+                onSubmit: ({ name }) => actions.createTeam(name),
             })
         },
 
-        ensureAllTeamsLoaded: async () => {
+        ensureAllTeamsLoaded: () => {
             if (values.teamsLoading) {
                 return
             }

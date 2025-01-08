@@ -13,6 +13,12 @@ import { errorTrackingTeamsLogic } from './errorTrackingTeamsLogic'
 
 type AssigneeDisplayType = { id: number; icon: JSX.Element; displayName: string }
 
+const unassignedUser = {
+    id: 'unassigned',
+    displayName: 'Unassigned',
+    icon: <IconPerson className="rounded-full border border-dashed border-muted text-muted p-0.5" />,
+}
+
 export const AssigneeSelect = ({
     assignee,
     onChange,
@@ -45,14 +51,14 @@ export const AssigneeSelect = ({
         if (assignee) {
             if (assignee.type === 'team') {
                 const assignedTeam = teams.find((team) => team.id === assignee.id)
-                return assignedTeam ? teamDisplay(assignedTeam, 0) : null
+                return assignedTeam ? teamDisplay(assignedTeam, 0) : unassignedUser
             }
 
             const assignedMember = meFirstMembers.find((member) => member.user.id === assignee.id)
-            return assignedMember ? userDisplay(assignedMember) : null
+            return assignedMember ? userDisplay(assignedMember) : unassignedUser
         }
 
-        return null
+        return unassignedUser
     }, [assignee, meFirstMembers, teams])
 
     return (
@@ -99,20 +105,12 @@ export const AssigneeSelect = ({
             }
         >
             <LemonButton
-                tooltip={displayAssignee ? displayAssignee.displayName : 'Unassigned'}
-                icon={
-                    displayAssignee ? (
-                        displayAssignee.icon
-                    ) : (
-                        <IconPerson className="rounded-full border border-dashed border-muted text-muted p-0.5" />
-                    )
-                }
+                tooltip={displayAssignee.displayName}
+                icon={displayAssignee.icon}
                 sideIcon={null}
                 {...buttonProps}
             >
-                {showName ? (
-                    <span className="pl-1">{displayAssignee ? displayAssignee.displayName : 'Unassigned'}</span>
-                ) : null}
+                {showName ? <span className="pl-1">{displayAssignee.displayName}</span> : null}
             </LemonButton>
         </LemonDropdown>
     )

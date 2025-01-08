@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
-import { Teams } from './configuration/teams'
+import { Teams } from './configuration/Teams'
 import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 import { SymbolSetUploadModal } from './SymbolSetUploadModal'
 
