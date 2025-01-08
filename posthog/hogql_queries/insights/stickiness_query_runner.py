@@ -95,16 +95,25 @@ class StickinessQueryRunner(QueryRunner):
         value = ast.Constant(value=self.query.stickinessFilter.stickinessCriteria.value)
         return parse_expr(f"""count() {get_count_operator(operator)} {{value}}""", {"value": value})
 
-    def date_to_start_of_interval_hogql(self, date: ast.Expr) -> ast.Call:
-        return ast.Call(
-            name="toStartOfInterval",
-            args=[
-                date,
-                ast.Call(
-                    name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
-                    args=[ast.Constant(value=self.query.intervalCount or 1)],
-                ),
-            ],
+    def date_to_start_of_interval_hogql(self, date: ast.Expr) -> ast.Expr:
+        if self.query.intervalCount is None or self.query.intervalCount == 1:
+            return self.query_date_range.date_to_start_of_interval_hogql(ast.Field(chain=["e", "timestamp"]))
+
+        # find the number of intervals back from the end date
+        age = parse_expr(
+            """age({interval_name}, {from_date}, {to_date})""",
+            placeholders={
+                "interval_name": ast.Constant(value=self.query_date_range.interval_name),
+                "from_date": date,
+                "to_date": self.query_date_range.date_to_as_hogql(),
+            },
+        )
+        if not self.query.intervalCount or self.query.intervalCount == 1:
+            return age
+
+        return parse_expr(
+            "floor({age} / {interval_count})",
+            placeholders={"age": age, "interval_count": ast.Constant(value=self.query.intervalCount or 1)},
         )
 
     def _events_query(self, series_with_extra: SeriesWithExtras) -> ast.SelectQuery:
