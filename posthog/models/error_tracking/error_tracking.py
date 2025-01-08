@@ -69,8 +69,14 @@ class ErrorTrackingIssueAssignment(UUIDModel):
 
 
 class ErrorTrackingTeam(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
     name = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    members = models.ManyToManyField(
+        "posthog.User",
+        through="posthog.ErrorTrackingTeamMembership",
+    )
 
 
 class ErrorTrackingTeamMembership(UUIDModel):

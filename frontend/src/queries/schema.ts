@@ -1977,7 +1977,7 @@ export interface ErrorTrackingIssue {
     earliest: string
     // Sparkline data handled by the DataTable
     volume?: any
-    assignee: number | null
+    assignee: null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
 }
 

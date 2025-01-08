@@ -1,3 +1,5 @@
+import { UserBasicType } from '~/types'
+
 export interface ErrorTrackingException {
     stacktrace?: ErrorTrackingRawStackTrace | ErrorTrackingResolvedStackTrace
     module: string
@@ -56,4 +58,10 @@ export interface ErrorTrackingSymbolSet {
     created_at: string
     storage_ptr: string | null
     failure_reason: string | null
+}
+
+export type ErrorTrackingTeam = {
+    id: number
+    name: string
+    members: UserBasicType[]
 }

@@ -528,6 +528,13 @@ projects_router.register(
 )
 
 projects_router.register(
+    r"error_tracking/teams",
+    error_tracking.ErrorTrackingTeamViewSet,
+    "project_error_tracking_teams",
+    ["team_id"],
+)
+
+projects_router.register(
     r"comments",
     comments.CommentViewSet,
     "project_comments",
