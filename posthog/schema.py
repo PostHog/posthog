@@ -48,11 +48,22 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class AssistantArrayPropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+
+
 class AssistantBaseMultipleBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     property: str = Field(..., description="Property name from the plan to break down by.")
+
+
+class AssistantDateTimePropertyFilterOperator(StrEnum):
+    IS_DATE_EXACT = "is_date_exact"
+    IS_DATE_BEFORE = "is_date_before"
+    IS_DATE_AFTER = "is_date_after"
 
 
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
@@ -93,7 +104,7 @@ class AssistantGenericPropertyFilter2(BaseModel):
         extra="forbid",
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: str = Field(
+    operator: AssistantArrayPropertyFilterOperator = Field(
         ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
     )
     type: str
@@ -111,7 +122,7 @@ class AssistantGenericPropertyFilter3(BaseModel):
         extra="forbid",
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: str
+    operator: AssistantDateTimePropertyFilterOperator
     type: str
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
@@ -132,6 +143,20 @@ class AssistantMessageType(StrEnum):
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
     AI_ROUTER = "ai/router"
+
+
+class AssistantSetPropertyFilterOperator(StrEnum):
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
+class AssistantSingleValuePropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    ICONTAINS = "icontains"
+    NOT_ICONTAINS = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -218,6 +243,11 @@ class AssistantTrendsFilter(BaseModel):
     yAxisScaleType: Optional[YAxisScaleType] = Field(
         default=YAxisScaleType.LINEAR, description="Whether to scale the y-axis."
     )
+
+
+class AssistantTrendsMath(StrEnum):
+    FIRST_TIME_FOR_USER = "first_time_for_user"
+    FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
 
 class AutocompleteCompletionItemKind(StrEnum):
@@ -897,8 +927,13 @@ class InsightFilterProperty(StrEnum):
     LIFECYCLE_FILTER = "lifecycleFilter"
 
 
-class InsightNodeKind(RootModel[str]):
-    root: str
+class InsightNodeKind(StrEnum):
+    TRENDS_QUERY = "TrendsQuery"
+    FUNNELS_QUERY = "FunnelsQuery"
+    RETENTION_QUERY = "RetentionQuery"
+    PATHS_QUERY = "PathsQuery"
+    STICKINESS_QUERY = "StickinessQuery"
+    LIFECYCLE_QUERY = "LifecycleQuery"
 
 
 class InsightThresholdType(StrEnum):
@@ -1174,6 +1209,11 @@ class ResultCustomizationByValue(BaseModel):
     color: DataColorToken
 
 
+class RetentionEntityKind(StrEnum):
+    ACTIONS_NODE = "ActionsNode"
+    EVENTS_NODE = "EventsNode"
+
+
 class RetentionReference(StrEnum):
     TOTAL = "total"
     PREVIOUS = "previous"
@@ -1256,6 +1296,12 @@ class StickinessFilterLegacy(BaseModel):
     hidden_legend_keys: Optional[dict[str, Union[bool, Any]]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
+
+
+class StickinessOperator(StrEnum):
+    GTE = "gte"
+    LTE = "lte"
+    EXACT = "exact"
 
 
 class SuggestedQuestionsQueryResponse(BaseModel):
@@ -1436,7 +1482,7 @@ class AssistantArrayPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    operator: str = Field(
+    operator: AssistantArrayPropertyFilterOperator = Field(
         ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
     )
     value: list[str] = Field(
@@ -1459,7 +1505,7 @@ class AssistantDateTimePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    operator: str
+    operator: AssistantDateTimePropertyFilterOperator
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
@@ -1578,7 +1624,7 @@ class AssistantGenericPropertyFilter1(BaseModel):
         extra="forbid",
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: str = Field(
+    operator: AssistantSingleValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -1601,7 +1647,7 @@ class AssistantGenericPropertyFilter4(BaseModel):
         extra="forbid",
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: str = Field(
+    operator: AssistantSetPropertyFilterOperator = Field(
         ...,
         description=(
             "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't"
@@ -1626,7 +1672,7 @@ class AssistantGroupPropertyFilter1(BaseModel):
     )
     group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: str = Field(
+    operator: AssistantSingleValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -1650,7 +1696,7 @@ class AssistantGroupPropertyFilter2(BaseModel):
     )
     group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: str = Field(
+    operator: AssistantArrayPropertyFilterOperator = Field(
         ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
     )
     type: Literal["group"] = "group"
@@ -1669,7 +1715,7 @@ class AssistantGroupPropertyFilter3(BaseModel):
     )
     group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: str
+    operator: AssistantDateTimePropertyFilterOperator
     type: Literal["group"] = "group"
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
@@ -1680,7 +1726,7 @@ class AssistantGroupPropertyFilter4(BaseModel):
     )
     group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: str = Field(
+    operator: AssistantSetPropertyFilterOperator = Field(
         ...,
         description=(
             "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't"
@@ -1694,7 +1740,7 @@ class AssistantSetPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    operator: str = Field(
+    operator: AssistantSetPropertyFilterOperator = Field(
         ...,
         description=(
             "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't"
@@ -1707,7 +1753,7 @@ class AssistantSingleValuePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    operator: str = Field(
+    operator: AssistantSingleValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -2265,7 +2311,7 @@ class RetentionEntity(BaseModel):
     )
     custom_name: Optional[str] = None
     id: Optional[Union[str, float]] = None
-    kind: Optional[str] = None
+    kind: Optional[RetentionEntityKind] = None
     name: Optional[str] = None
     order: Optional[int] = None
     type: Optional[EntityType] = None
@@ -2461,7 +2507,7 @@ class StickinessCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    operator: str
+    operator: StickinessOperator
     value: int
 
 
@@ -2824,7 +2870,7 @@ class AssistantFunnelsEventsNode(BaseModel):
     )
     event: str = Field(..., description="Name of the event.")
     kind: Literal["EventsNode"] = "EventsNode"
-    math: Optional[str] = Field(
+    math: Optional[AssistantTrendsMath] = Field(
         default=None,
         description=(
             "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."

@@ -508,16 +508,8 @@
             "type": "object"
         },
         "AssistantArrayPropertyFilterOperator": {
-            "anyOf": [
-                {
-                    "const": "exact",
-                    "type": "string"
-                },
-                {
-                    "const": "is_not",
-                    "type": "string"
-                }
-            ]
+            "enum": ["exact", "is_not"],
+            "type": "string"
         },
         "AssistantBaseMultipleBreakdownFilter": {
             "additionalProperties": false,
@@ -569,20 +561,8 @@
             "type": "object"
         },
         "AssistantDateTimePropertyFilterOperator": {
-            "anyOf": [
-                {
-                    "const": "is_date_exact",
-                    "type": "string"
-                },
-                {
-                    "const": "is_date_before",
-                    "type": "string"
-                },
-                {
-                    "const": "is_date_after",
-                    "type": "string"
-                }
-            ]
+            "enum": ["is_date_exact", "is_date_before", "is_date_after"],
+            "type": "string"
         },
         "AssistantEventMultipleBreakdownFilterType": {
             "enum": ["person", "event", "session", "hogql"],
@@ -1203,16 +1183,8 @@
             "type": "object"
         },
         "AssistantSetPropertyFilterOperator": {
-            "anyOf": [
-                {
-                    "const": "is_set",
-                    "type": "string"
-                },
-                {
-                    "const": "is_not_set",
-                    "type": "string"
-                }
-            ]
+            "enum": ["is_set", "is_not_set"],
+            "type": "string"
         },
         "AssistantSingleValuePropertyFilter": {
             "additionalProperties": false,
@@ -1230,32 +1202,8 @@
             "type": "object"
         },
         "AssistantSingleValuePropertyFilterOperator": {
-            "anyOf": [
-                {
-                    "const": "exact",
-                    "type": "string"
-                },
-                {
-                    "const": "is_not",
-                    "type": "string"
-                },
-                {
-                    "const": "icontains",
-                    "type": "string"
-                },
-                {
-                    "const": "not_icontains",
-                    "type": "string"
-                },
-                {
-                    "const": "regex",
-                    "type": "string"
-                },
-                {
-                    "const": "not_regex",
-                    "type": "string"
-                }
-            ]
+            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+            "type": "string"
         },
         "AssistantStringNumberOrBooleanPropertyFilter": {
             "anyOf": [
@@ -1445,16 +1393,8 @@
             "type": "object"
         },
         "AssistantTrendsMath": {
-            "anyOf": [
-                {
-                    "const": "first_time_for_user",
-                    "type": "string"
-                },
-                {
-                    "const": "first_time_for_user_with_filters",
-                    "type": "string"
-                }
-            ]
+            "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
+            "type": "string"
         },
         "AssistantTrendsQuery": {
             "additionalProperties": false,
@@ -7994,32 +7934,15 @@
             "type": "string"
         },
         "InsightNodeKind": {
-            "anyOf": [
-                {
-                    "const": "TrendsQuery",
-                    "type": "string"
-                },
-                {
-                    "const": "FunnelsQuery",
-                    "type": "string"
-                },
-                {
-                    "const": "RetentionQuery",
-                    "type": "string"
-                },
-                {
-                    "const": "PathsQuery",
-                    "type": "string"
-                },
-                {
-                    "const": "StickinessQuery",
-                    "type": "string"
-                },
-                {
-                    "const": "LifecycleQuery",
-                    "type": "string"
-                }
-            ]
+            "enum": [
+                "TrendsQuery",
+                "FunnelsQuery",
+                "RetentionQuery",
+                "PathsQuery",
+                "StickinessQuery",
+                "LifecycleQuery"
+            ],
+            "type": "string"
         },
         "InsightQueryNode": {
             "discriminator": {
@@ -11658,16 +11581,8 @@
             "type": "object"
         },
         "RetentionEntityKind": {
-            "anyOf": [
-                {
-                    "const": "ActionsNode",
-                    "type": "string"
-                },
-                {
-                    "const": "EventsNode",
-                    "type": "string"
-                }
-            ]
+            "enum": ["ActionsNode", "EventsNode"],
+            "type": "string"
         },
         "RetentionFilter": {
             "additionalProperties": false,
@@ -12416,20 +12331,8 @@
             "type": "object"
         },
         "StickinessOperator": {
-            "anyOf": [
-                {
-                    "const": "gte",
-                    "type": "string"
-                },
-                {
-                    "const": "lte",
-                    "type": "string"
-                },
-                {
-                    "const": "exact",
-                    "type": "string"
-                }
-            ]
+            "enum": ["gte", "lte", "exact"],
+            "type": "string"
         },
         "StickinessQuery": {
             "additionalProperties": false,
