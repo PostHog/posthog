@@ -27,32 +27,48 @@ FROM node:18.19.1-bullseye-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY eslint-rules/ eslint-rules/
 COPY patches/ patches/
+COPY plugin-server/patches/ plugin-server/patches/
+COPY hogvm/typescript/ hogvm/typescript/
+COPY frontend/@posthog/ frontend/@posthog/
+COPY rust/cyclotron-node/package.json rust/cyclotron-node/pnpm-lock.yaml rust/cyclotron-node/
+COPY plugin-transpiler/package.json plugin-transpiler/pnpm-lock.yaml plugin-transpiler/
+
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod --filter . && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter ./hogvm/typescript && \
+    cd hogvm/typescript && \
+    pnpm compile && \
     rm -rf /tmp/pnpm-store
 
 COPY frontend/ frontend/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
-RUN pnpm build
+RUN cd frontend && pnpm build
 
 #
 # ---------------------------------------------------------
 #
 FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
-COPY ./rust ./rust
-COPY ./plugin-transpiler/ ./plugin-transpiler/
-WORKDIR /code/plugin-server
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY patches/ patches/
+COPY rust rust/
+COPY plugin-transpiler/ plugin-transpiler/
+COPY plugin-server/package.json plugin-server/tsconfig.json plugin-server/
+COPY plugin-server/patches/ plugin-server/patches/
+COPY hogvm/typescript/package.json hogvm/typescript/pnpm-lock.yaml hogvm/typescript/
+COPY frontend/@posthog/apps-common/package.json frontend/@posthog/apps-common/pnpm-lock.yaml frontend/@posthog/apps-common/
+COPY frontend/@posthog/lemon-ui/package.json frontend/@posthog/lemon-ui/pnpm-lock.yaml frontend/@posthog/lemon-ui/
+
+# WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
-COPY ./plugin-server/patches/ ./patches/
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
@@ -65,9 +81,10 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    cd plugin-server && \
+    pnpm install --no-frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
     cd ../plugin-transpiler && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
     pnpm build && \
     rm -rf /tmp/pnpm-store
 

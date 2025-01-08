@@ -2,6 +2,7 @@
 !.devcontainer
 !.kearc
 !.storybook
+!.npmrc
 !babel.config.js
 !bin
 !ee
@@ -42,6 +43,9 @@
 !tsconfig.json
 !unit.json.tpl
 !webpack.config.js
+frontend/@posthog/*/node_modules
+hogvm/typescript/node_modules
+plugin-server/node_modules
 rust/.env
 rust/.github
 rust/cyclotron-node/dist

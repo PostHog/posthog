@@ -3,3 +3,4 @@ packages:
     - 'hogvm/typescript' # The hogvm package
     - 'frontend/@posthog/*' # Frontend internal packages like lemon-ui, apps-common
     - 'rust/cyclotron-node'
+    - 'plugin-transpiler'

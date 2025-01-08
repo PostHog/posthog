@@ -4,7 +4,7 @@
     "description": "PostHog Plugin Server",
     "types": "dist/index.d.ts",
     "main": "dist/index.js",
-    "packageManager": "pnpm@8.6.0",
+    "packageManager": "pnpm@9.15.3",
     "scripts": {
         "test": "jest --runInBand --forceExit",
         "functional_tests": "jest --config ./jest.config.functional.js",
@@ -147,7 +147,8 @@
     "pnpm": {
         "patchedDependencies": {
             "node-rdkafka@2.17.0": "patches/node-rdkafka@2.17.0.patch"
-        }
+        },
+        "allowNonAppliedPatches": true
     },
     "cyclotron": {
         "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": true,
