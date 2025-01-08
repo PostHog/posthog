@@ -54,6 +54,8 @@ class FeatureFlag(models.Model):
     # whether a feature is sending us rich analytics, like views & interactions.
     has_enriched_analytics = models.BooleanField(default=False, null=True, blank=True)
 
+    is_remote_configuration = models.BooleanField(default=False, null=True, blank=True)
+
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 

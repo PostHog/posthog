@@ -102,6 +102,7 @@ const NEW_FLAG: FeatureFlagType = {
     can_edit: true,
     user_access_level: 'editor',
     tags: [],
+    is_remote_configuration: false,
 }
 const NEW_VARIANT = {
     key: '',
@@ -125,6 +126,14 @@ export function validateFeatureFlagKey(key: string): string | undefined {
         : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
         ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
         : undefined
+}
+
+function validatePayloadRequired(payload: JsonType, is_remote_configuration: boolean): string | undefined {
+    if (!is_remote_configuration) {
+        return undefined
+    }
+
+    return payload === undefined ? 'Payload is required for remote configuration flags.' : undefined
 }
 
 export interface FeatureFlagLogicProps {
@@ -267,6 +276,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         removeRollbackCondition: (index: number) => ({ index }),
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
+        setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
@@ -291,8 +301,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     forms(({ actions, values }) => ({
         featureFlag: {
             defaults: { ...NEW_FLAG },
-            errors: ({ key, filters }) => {
-                return {
+            errors: ({ key, filters, is_remote_configuration }) => {
+                const errors = {
                     key: validateFeatureFlagKey(key),
                     filters: {
                         multivariate: {
@@ -306,8 +316,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             FeatureFlagGroupType,
                             ValidationErrorType
                         >[],
+                        payloads: {
+                            true: validatePayloadRequired(filters?.payloads['true'], is_remote_configuration),
+                        } as unknown as DeepPartialMap<Record<string, JsonType>, ValidationErrorType> | undefined,
+                        // Forced cast necessary to prevent Kea's typechecking from raising "Type instantiation
+                        // is excessively deep and possibly infinite" error
                     },
                 }
+                return errors
             },
             submit: (featureFlag) => {
                 actions.saveFeatureFlag(featureFlag)
@@ -346,6 +362,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         return state
                     }
                     return { ...state, filters: { ...state.filters, multivariate: multivariateOptions } }
+                },
+                setRemoteConfigEnabled: (state, { enabled }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        is_remote_configuration: enabled,
+                    }
                 },
                 addVariant: (state) => {
                     if (!state) {
@@ -914,12 +940,38 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadScheduledChanges()
             }
         },
+        setRemoteConfigEnabled: ({ enabled }) => {
+            if (enabled) {
+                actions.setFeatureFlagFilters(
+                    {
+                        ...values.featureFlag.filters,
+                        groups: [
+                            {
+                                variant: null,
+                                properties: [],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                    },
+                    {}
+                )
+            }
+        },
     })),
     selectors({
         sentryErrorCount: [(s) => [s.sentryStats], (stats) => stats.total_count],
         sentryIntegrationEnabled: [(s) => [s.sentryStats], (stats) => !!stats.sentry_integration_enabled],
         props: [() => [(_, props) => props], (props) => props],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
+        flagType: [
+            (s) => [s.featureFlag],
+            (featureFlag) =>
+                featureFlag?.is_remote_configuration
+                    ? 'config'
+                    : featureFlag?.filters.multivariate
+                    ? 'multivariate'
+                    : 'boolean',
+        ],
         roleBasedAccessEnabled: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS),
