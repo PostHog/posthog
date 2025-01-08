@@ -55,13 +55,6 @@ def postgres_config(host: str) -> dict:
     }
 
 
-# Skip the check for non-nullable fields with default because we're on PG11+
-# and Postgres can easily add new non-nullable columns with a default value.
-SILENCED_SYSTEM_CHECKS = [
-    "migrations.W004"  # Silence the non-null field warning
-]
-
-
 if TEST or DEBUG:
     PG_HOST: str = os.getenv("PGHOST", "localhost")
     PG_USER: str = os.getenv("PGUSER", "posthog")
