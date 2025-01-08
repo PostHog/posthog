@@ -4,7 +4,7 @@ import random
 import time
 import uuid
 import json
-from typing import Literal, Union
+from typing import Any, Literal, Union
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -232,7 +232,7 @@ class Command(BaseCommand):
                 for _ in range(action.count):
                     if random.random() < action.probability:
                         # Prepare properties dictionary
-                        properties = {
+                        properties: dict[str, Any] = {
                             f"$feature/{experiment_id}": variant,
                         }
 
