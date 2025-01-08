@@ -1,6 +1,9 @@
+import gc
 import time
 from typing import Any
+import os
 import pyarrow as pa
+import subprocess
 from dlt.sources import DltSource, DltResource
 import deltalake as deltalake
 from posthog.temporal.common.logger import FilteringBoundLogger
@@ -10,6 +13,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _evolve_pyarrow_schema,
     _append_debug_column_to_pyarrows_table,
     _update_job_row_count,
+    table_from_py_list,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
@@ -45,55 +49,72 @@ class PipelineNonDLT:
         assert schema is not None
         self._schema = schema
 
-        self._delta_table_helper = DeltaTableHelper(resource_name, self._job)
+        self._delta_table_helper = DeltaTableHelper(resource_name, self._job, self._logger)
         self._internal_schema = HogQLSchema()
 
     def run(self):
-        buffer: list[Any] = []
-        chunk_size = 5000
-        row_count = 0
-        chunk_index = 0
-
-        for item in self._resource:
+        try:
+            buffer: list[Any] = []
             py_table = None
+            chunk_size = 5000
+            row_count = 0
+            chunk_index = 0
 
-            if isinstance(item, list):
-                if len(buffer) > 0:
-                    buffer.extend(item)
-                    if len(buffer) >= chunk_size:
-                        py_table = pa.Table.from_pylist(buffer)
-                        buffer = []
-                else:
-                    if len(item) >= chunk_size:
-                        py_table = pa.Table.from_pylist(item)
-                    else:
+            for item in self._resource:
+                py_table = None
+
+                if isinstance(item, list):
+                    if len(buffer) > 0:
                         buffer.extend(item)
+                        if len(buffer) >= chunk_size:
+                            py_table = table_from_py_list(buffer)
+                            buffer = []
+                    else:
+                        if len(item) >= chunk_size:
+                            py_table = table_from_py_list(item)
+                        else:
+                            buffer.extend(item)
+                            continue
+                elif isinstance(item, dict):
+                    buffer.append(item)
+                    if len(buffer) < chunk_size:
                         continue
-            elif isinstance(item, dict):
-                buffer.append(item)
-                if len(buffer) < chunk_size:
-                    continue
 
-                py_table = pa.Table.from_pylist(buffer)
-                buffer = []
-            elif isinstance(item, pa.Table):
-                py_table = item
-            else:
-                raise Exception(f"Unhandled item type: {item.__class__.__name__}")
+                    py_table = table_from_py_list(buffer)
+                    buffer = []
+                elif isinstance(item, pa.Table):
+                    py_table = item
+                else:
+                    raise Exception(f"Unhandled item type: {item.__class__.__name__}")
 
-            assert py_table is not None
+                assert py_table is not None
 
-            self._process_pa_table(pa_table=py_table, index=chunk_index)
+                self._process_pa_table(pa_table=py_table, index=chunk_index)
 
-            row_count += py_table.num_rows
-            chunk_index += 1
+                row_count += py_table.num_rows
+                chunk_index += 1
 
-        if len(buffer) > 0:
-            py_table = pa.Table.from_pylist(buffer)
-            self._process_pa_table(pa_table=py_table, index=chunk_index)
-            row_count += py_table.num_rows
+            if len(buffer) > 0:
+                py_table = table_from_py_list(buffer)
+                self._process_pa_table(pa_table=py_table, index=chunk_index)
+                row_count += py_table.num_rows
 
-        self._post_run_operations(row_count=row_count)
+            self._post_run_operations(row_count=row_count)
+        finally:
+            # Help reduce the memory footprint of each job
+            delta_table = self._delta_table_helper.get_delta_table()
+            self._delta_table_helper.get_delta_table.cache_clear()
+            if delta_table:
+                del delta_table
+
+            del self._resource
+            del self._delta_table_helper
+
+            if "buffer" in locals() and buffer is not None:
+                del buffer
+            if "py_table" in locals() and py_table is not None:
+                del py_table
+            gc.collect()
 
     def _process_pa_table(self, pa_table: pa.Table, index: int):
         delta_table = self._delta_table_helper.get_delta_table()
@@ -114,11 +135,25 @@ class PipelineNonDLT:
     def _post_run_operations(self, row_count: int):
         delta_table = self._delta_table_helper.get_delta_table()
 
-        assert delta_table is not None
+        if delta_table is None:
+            self._logger.debug("No deltalake table, not continuing with post-run ops")
+            return
 
-        self._logger.info("Compacting delta table")
-        delta_table.optimize.compact()
-        delta_table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        self._logger.debug("Spawning new process for deltatable compact and vacuuming")
+        process = subprocess.Popen(
+            [
+                "python",
+                f"{os.getcwd()}/posthog/temporal/data_imports/pipelines/pipeline/delta_table_subprocess.py",
+                "--table_uri",
+                self._delta_table_helper._get_delta_table_uri(),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        stdout, stderr = process.communicate()
+
+        if process.returncode != 0:
+            raise Exception(f"Delta subprocess failed: {stderr.decode()}")
 
         file_uris = delta_table.file_uris()
         self._logger.info(f"Preparing S3 files - total parquet files: {len(file_uris)}")

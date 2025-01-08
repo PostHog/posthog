@@ -1591,7 +1591,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                 "organization usage report",
                 {**full_report_as_dict, "scope": "user"},
                 groups={
-                    "instance": "http://localhost:8000",
+                    "instance": "http://localhost:8010",
                     "organization": str(self.organization.id),
                 },
                 timestamp=None,
@@ -1703,7 +1703,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             self.user.distinct_id,
             "test event",
             {**report, "scope": "user"},
-            groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
+            groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
             timestamp=None,
         )
 
@@ -1722,7 +1722,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             self.user.distinct_id,
             "test event",
             {**report, "scope": "user"},
-            groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
+            groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
             timestamp=None,
         )
 

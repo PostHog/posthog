@@ -1,4 +1,12 @@
-import { IconActivity, IconGraph, IconMinus, IconPencil, IconTrending } from '@posthog/icons'
+import {
+    IconActivity,
+    IconArrowRight,
+    IconFunnels,
+    IconGraph,
+    IconMinus,
+    IconPencil,
+    IconTrending,
+} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -34,6 +42,34 @@ function formatTickValue(value: number): string {
     }
 
     return `${(value * 100).toFixed(decimals)}%`
+}
+const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
+    if (metric.name) {
+        return <span className="truncate">{metric.name}</span>
+    }
+
+    if (metricType === InsightType.TRENDS && metric.count_query?.series?.[0]?.name) {
+        return <span className="truncate">{metric.count_query.series[0].name}</span>
+    }
+
+    if (metricType === InsightType.FUNNELS && metric.funnels_query?.series) {
+        const series = metric.funnels_query.series
+        if (series.length > 0) {
+            const firstStep = series[0]?.name
+            const lastStep = series[series.length - 1]?.name
+
+            return (
+                <span className="inline-flex items-center gap-1 min-w-0">
+                    <IconFunnels className="text-muted flex-shrink-0" fontSize="14" />
+                    <span className="truncate">{firstStep}</span>
+                    <IconArrowRight className="text-muted flex-shrink-0" fontSize="14" />
+                    <span className="truncate">{lastStep}</span>
+                </span>
+            )
+        }
+    }
+
+    return <span className="text-muted truncate">Untitled metric</span>
 }
 
 export function DeltaChart({
@@ -183,9 +219,9 @@ export function DeltaChart({
                     <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
                         <div className="space-y-1 pl-1">
                             <div className="flex items-center gap-2">
-                                <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow">
-                                    {metricIndex + 1}.{' '}
-                                    {metric.name || <span className="text-muted">Untitled metric</span>}
+                                <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
+                                    <span className="mr-1">{metricIndex + 1}.</span>
+                                    {getMetricTitle(metric, metricType)}
                                 </div>
                                 <LemonButton
                                     className="flex-shrink-0"
@@ -248,17 +284,19 @@ export function DeltaChart({
                         }}
                     >
                         <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
-                        <div className="flex justify-center">
-                            <LemonButton
-                                className="mt-1"
-                                type="secondary"
-                                size="xsmall"
-                                icon={<IconGraph />}
-                                onClick={() => setIsModalOpen(true)}
-                            >
-                                Detailed results
-                            </LemonButton>
-                        </div>
+                        {experiment.metrics.length > 1 && (
+                            <div className="flex justify-center">
+                                <LemonButton
+                                    className="mt-1"
+                                    type="secondary"
+                                    size="xsmall"
+                                    icon={<IconGraph />}
+                                    onClick={() => setIsModalOpen(true)}
+                                >
+                                    Detailed results
+                                </LemonButton>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -274,34 +312,40 @@ export function DeltaChart({
                 {isFirstMetric && <div className="w-full border-t border-border" />}
                 {/* eslint-disable-next-line react/forbid-dom-props */}
                 <div style={{ height: `${chartSvgHeight}px` }}>
-                    {variants.map((variant) => (
-                        <div
-                            key={variant.key}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                height: `${100 / variants.length}%`,
-                                display: 'flex',
-                                alignItems: 'center',
-                                paddingLeft: '10px',
-                                position: 'relative',
-                                minWidth: 0,
-                                overflow: 'hidden',
-                            }}
-                        >
+                    {result &&
+                        variants.map((variant) => (
                             <div
-                                className="absolute inset-0"
+                                key={variant.key}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
-                                    backgroundColor: 'var(--bg-light)',
-                                    opacity: 0.4,
-                                    pointerEvents: 'none',
+                                    height: `${100 / variants.length}%`,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    paddingLeft: '10px',
+                                    position: 'relative',
+                                    minWidth: 0,
+                                    overflow: 'hidden',
                                 }}
-                            />
-                            <div className="w-full overflow-hidden whitespace-nowrap">
-                                <VariantTag experimentId={experimentId} variantKey={variant.key} fontSize={11} muted />
+                            >
+                                <div
+                                    className="absolute inset-0"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        backgroundColor: 'var(--bg-light)',
+                                        opacity: 0.4,
+                                        pointerEvents: 'none',
+                                    }}
+                                />
+                                <div className="w-full overflow-hidden whitespace-nowrap">
+                                    <VariantTag
+                                        experimentId={experimentId}
+                                        variantKey={variant.key}
+                                        fontSize={11}
+                                        muted
+                                    />
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        ))}
                 </div>
             </div>
             {/* SVGs container */}
@@ -537,7 +581,7 @@ export function DeltaChart({
                             </foreignObject>
                         ) : (
                             <foreignObject
-                                x={VIEW_BOX_WIDTH / 2 - 100}
+                                x={VIEW_BOX_WIDTH / 2 - 100 - (result ? 0 : 200)}
                                 y={chartHeight / 2 - 10}
                                 width="250"
                                 height="20"
@@ -562,14 +606,17 @@ export function DeltaChart({
                                             <span className="font-semibold">
                                                 {(() => {
                                                     try {
-                                                        const detail = JSON.parse(error.detail)
-                                                        return Object.values(detail).filter((v) => v === false).length
+                                                        return Object.values(error.detail).filter((v) => v === false)
+                                                            .length
                                                     } catch {
                                                         return '0'
                                                     }
                                                 })()}
                                             </span>
-                                            /<span className="font-semibold">4</span>
+                                            /
+                                            <span className="font-semibold">
+                                                {metricType === InsightType.TRENDS ? '5' : '4'}
+                                            </span>
                                         </LemonTag>
                                     ) : (
                                         <LemonTag size="small" type="danger" className="mr-1">
@@ -624,7 +671,13 @@ export function DeltaChart({
                             {metricType === InsightType.TRENDS ? (
                                 <>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">Count:</span>
+                                        <span className="text-muted font-semibold">
+                                            {metricType === InsightType.TRENDS &&
+                                            result.exposure_query?.series?.[0]?.math
+                                                ? 'Total'
+                                                : 'Count'}
+                                            :
+                                        </span>
                                         <span className="font-semibold">
                                             {(() => {
                                                 const count = countDataForVariant(result, tooltipData.variant)
@@ -783,7 +836,7 @@ export function DeltaChart({
                 }
             >
                 <div className="flex justify-end">
-                    <ExploreButton metricIndex={metricIndex} isSecondary={isSecondary} />
+                    <ExploreButton result={result} />
                 </div>
                 <LemonBanner type="info" className="mb-4">
                     <div className="items-center inline-flex flex-wrap">
@@ -792,7 +845,7 @@ export function DeltaChart({
                     </div>
                 </LemonBanner>
                 <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
-                <ResultsQuery targetResults={result} showTable={true} />
+                <ResultsQuery result={result} showTable={true} />
             </LemonModal>
         </div>
     )
