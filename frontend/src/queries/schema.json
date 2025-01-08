@@ -12351,7 +12351,6 @@
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "intervalCount": {
-                    "default": 1,
                     "description": "How many intervals comprise a period. Only used for cohorts, otherwise default 1.",
                     "type": "integer"
                 },
