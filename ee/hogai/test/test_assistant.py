@@ -77,7 +77,7 @@ class TestAssistant(NonAtomicBaseTest):
 
     @patch(
         "ee.hogai.trends.nodes.TrendsPlannerNode.run",
-        return_value={"intermediate_steps": [(AgentAction(tool="final_answer", tool_input="", log=""), None)]},
+        return_value={"intermediate_steps": [(AgentAction(tool="final_answer", tool_input="Plan", log=""), None)]},
     )
     @patch(
         "ee.hogai.summarizer.nodes.SummarizerNode.run", return_value={"messages": [AssistantMessage(content="Foobar")]}
@@ -148,7 +148,7 @@ class TestAssistant(NonAtomicBaseTest):
                     None,
                 ),
                 (AgentAction(tool="handle_incorrect_response", tool_input="", log=""), None),
-                (AgentAction(tool="final_answer", tool_input="", log=""), None),
+                (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
             ]
         },
     )
