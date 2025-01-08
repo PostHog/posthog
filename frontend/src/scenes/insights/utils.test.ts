@@ -6,11 +6,13 @@ import {
     formatBreakdownType,
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
+    getTrendDatasetKey,
 } from 'scenes/insights/utils'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { ActionsNode, BreakdownFilter, EventsNode, NodeKind } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
-import { Entity, EntityFilter, FilterType, InsightType } from '~/types'
+import { CompareLabelType, Entity, EntityFilter, FilterType, InsightType } from '~/types'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
@@ -398,6 +400,28 @@ describe('formatBreakdownLabel()', () => {
         expect(formatBreakdownLabel('661', breakdownFilter2, undefined, formatter, 0)).toEqual('661s')
     })
 
+    it('handles large stringified numbers', () => {
+        const formatter = (_breakdown: any, v: any): any => `${v}s`
+
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: '$session_duration',
+            breakdown_type: 'session',
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter1, undefined, formatter)).toEqual('661s')
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdowns: [
+                {
+                    property: '$session_duration',
+                    type: 'session',
+                },
+            ],
+        }
+        expect(formatBreakdownLabel('987654321012345678', breakdownFilter2, undefined, formatter, 0)).toEqual(
+            '987654321012345678s'
+        )
+    })
+
     it('handles array first', () => {
         const formatter = (_: any, value: any, type: any): any => (type === 'session' ? `${value}s` : value)
 
@@ -469,5 +493,60 @@ describe('formatBreakdownType()', () => {
         }
 
         expect(formatBreakdownType(breakdownFilter)).toEqual('Cohort')
+    })
+})
+
+describe('getTrendDatasetKey()', () => {
+    it('handles a simple insight', () => {
+        const dataset: Partial<IndexedTrendResult> = {
+            label: '$pageview',
+            action: {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+        }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0}')
+    })
+
+    it('handles insights with breakdowns', () => {
+        const dataset: Partial<IndexedTrendResult> = {
+            label: 'Opera::US',
+            action: {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+            breakdown_value: ['Opera', 'US'],
+        }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual(
+            '{"series":0,"breakdown_value":["Opera","US"]}'
+        )
+    })
+
+    it('handles insights with compare against previous', () => {
+        const dataset: Partial<IndexedTrendResult> = {
+            label: '$pageview',
+            action: {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+            compare: true,
+            compare_label: CompareLabelType.Current,
+        }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0,"compare_label":"current"}')
+    })
+
+    it('handles insights with formulas', () => {
+        const dataset: Partial<IndexedTrendResult> = {
+            label: 'Formula (A+B)',
+            action: undefined,
+        }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":"formula"}')
     })
 })

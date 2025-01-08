@@ -125,13 +125,13 @@ describe('Hog Executor', () => {
             const result = executor.execute(invocation)
 
             expect(result.logs.map((x) => x.message)).toMatchInlineSnapshot(`
-                Array [
+                [
                   "Executing function",
                   "test",
-                  "{\\"nested\\":{\\"foo\\":\\"***REDACTED***\\",\\"null\\":null,\\"bool\\":false}}",
-                  "{\\"foo\\":\\"***REDACTED***\\",\\"null\\":null,\\"bool\\":false}",
+                  "{"nested":{"foo":"***REDACTED***","null":null,"bool":false}}",
+                  "{"foo":"***REDACTED***","null":null,"bool":false}",
                   "substring: ***REDACTED***",
-                  "{\\"input_1\\":\\"test\\",\\"secret_input_2\\":{\\"foo\\":\\"***REDACTED***\\",\\"null\\":null,\\"bool\\":false},\\"secret_input_3\\":\\"***REDACTED***\\"}",
+                  "{"input_1":"test","secret_input_2":{"foo":"***REDACTED***","null":null,"bool":false},"secret_input_3":"***REDACTED***"}",
                   "Function completed in 0ms. Sync: 0ms. Mem: 169 bytes. Ops: 28. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
@@ -190,11 +190,11 @@ describe('Hog Executor', () => {
             expect(secondResult.finished).toBe(true)
             expect(secondResult.error).toBeUndefined()
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
-                Array [
+                [
                   "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Resuming function",
-                  "Fetch response:, {\\"status\\":200,\\"body\\":\\"success\\"}",
+                  "Fetch response:, {"status":200,"body":"success"}",
                   "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
@@ -209,11 +209,11 @@ describe('Hog Executor', () => {
             logs.push(...secondResult.logs)
 
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
-                Array [
+                [
                   "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Resuming function",
-                  "Fetch response:, {\\"status\\":200,\\"body\\":{\\"foo\\":\\"bar\\"}}",
+                  "Fetch response:, {"status":200,"body":{"foo":"bar"}}",
                   "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
@@ -240,13 +240,13 @@ describe('Hog Executor', () => {
             logs.push(...secondResult.logs)
 
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
-                Array [
+                [
                   "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Fetch failed after 1 attempts",
                   "Fetch failure of kind failurestatus with status 404 and message 404 Not Found",
                   "Resuming function",
-                  "Fetch response:, {\\"status\\":404,\\"body\\":{\\"foo\\":\\"bar\\"}}",
+                  "Fetch response:, {"status":404,"body":{"foo":"bar"}}",
                   "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)

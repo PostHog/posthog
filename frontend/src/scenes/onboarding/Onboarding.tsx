@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/sdks/web-analytics/WebAnalyticsSDKInstructions'
+import { productsLogic } from 'scenes/products/productsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -107,7 +108,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { combinedSnippetAndLiveEventsHosts } = useValues(sdksLogic)
-
+    const { selectedProducts } = useValues(productsLogic)
     // mount the logic here so that it stays mounted for the entire onboarding flow
     // not sure if there is a better way to do this
     useValues(newDashboardLogic)
@@ -151,7 +152,10 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
             title: 'Enable session recordings',
             description: `Turn on session recordings and watch how users experience your app. We will also turn on console log and network performance recording. You can change these settings any time in the settings panel.`,
             teamProperty: 'session_recording_opt_in',
-            value: currentTeam?.session_recording_opt_in ?? true,
+            // TRICKY: if someone has shown secondary product intent for replay we want to include it as enabled
+            // particularly while we're not taking people through every product onboarding they showed interest in
+            value:
+                (currentTeam?.session_recording_opt_in || selectedProducts.includes(ProductKey.SESSION_REPLAY)) ?? true,
             type: 'toggle',
             visible: true,
         },

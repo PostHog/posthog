@@ -57,7 +57,9 @@ export function ErrorTrackingScene(): JSX.Element {
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
                 <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
-                <ErrorTrackingFilters.FilterGroup />
+                <ErrorTrackingFilters.FilterGroup>
+                    <ErrorTrackingFilters.UniversalSearch />
+                </ErrorTrackingFilters.FilterGroup>
                 <LemonDivider className="mt-2" />
                 {selectedIssueIds.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
                 <Query query={query} context={context} />
@@ -114,7 +116,6 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const { hasGroupActions } = useValues(errorTrackingLogic)
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
 
@@ -124,19 +125,17 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 
     return (
         <div className="flex items-start space-x-1.5 group">
-            {hasGroupActions && (
-                <LemonCheckbox
-                    className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
-                    checked={checked}
-                    onChange={(newValue) => {
-                        setSelectedIssueIds(
-                            newValue
-                                ? [...new Set([...selectedIssueIds, record.id])]
-                                : selectedIssueIds.filter((id) => id != record.id)
-                        )
-                    }}
-                />
-            )}
+            <LemonCheckbox
+                className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
+                checked={checked}
+                onChange={(newValue) => {
+                    setSelectedIssueIds(
+                        newValue
+                            ? [...new Set([...selectedIssueIds, record.id])]
+                            : selectedIssueIds.filter((id) => id != record.id)
+                    )
+                }}
+            />
             <LemonTableLink
                 title={record.name || 'Unknown Type'}
                 description={

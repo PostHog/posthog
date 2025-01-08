@@ -10,8 +10,21 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
+from ee.hogai.funnels.nodes import FunnelsSchemaGeneratorOutput
+from ee.hogai.router.nodes import RouterOutput
+from ee.hogai.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.models.assistant import Conversation
-from posthog.schema import AssistantMessage, FailureMessage, HumanMessage, ReasoningMessage
+from posthog.schema import (
+    AssistantFunnelsEventsNode,
+    AssistantFunnelsQuery,
+    AssistantMessage,
+    AssistantTrendsQuery,
+    FailureMessage,
+    HumanMessage,
+    ReasoningMessage,
+    RouterMessage,
+    VisualizationMessage,
+)
 from posthog.test.base import NonAtomicBaseTest
 
 from ..assistant import Assistant
@@ -64,7 +77,7 @@ class TestAssistant(NonAtomicBaseTest):
 
     @patch(
         "ee.hogai.trends.nodes.TrendsPlannerNode.run",
-        return_value={"intermediate_steps": [(AgentAction(tool="final_answer", tool_input="", log=""), None)]},
+        return_value={"intermediate_steps": [(AgentAction(tool="final_answer", tool_input="Plan", log=""), None)]},
     )
     @patch(
         "ee.hogai.summarizer.nodes.SummarizerNode.run", return_value={"messages": [AssistantMessage(content="Foobar")]}
@@ -135,7 +148,7 @@ class TestAssistant(NonAtomicBaseTest):
                     None,
                 ),
                 (AgentAction(tool="handle_incorrect_response", tool_input="", log=""), None),
-                (AgentAction(tool="final_answer", tool_input="", log=""), None),
+                (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
             ]
         },
     )
@@ -408,3 +421,108 @@ class TestAssistant(NonAtomicBaseTest):
             async for message in assistant._astream():
                 actual_output.append(self._parse_stringified_message(message))
         self.assertConversationEqual(actual_output, expected_output)
+
+    @patch("ee.hogai.summarizer.nodes.SummarizerNode._model")
+    @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.router.nodes.RouterNode._model")
+    def test_full_trends_flow(self, router_mock, planner_mock, generator_mock, summarizer_mock):
+        router_mock.return_value = RunnableLambda(lambda _: RouterOutput(visualization_type="trends"))
+        planner_mock.return_value = RunnableLambda(
+            lambda _: messages.AIMessage(
+                content="""
+                Thought: Done.
+                Action:
+                ```
+                {
+                    "action": "final_answer",
+                    "action_input": "Plan"
+                }
+                ```
+                """
+            )
+        )
+        query = AssistantTrendsQuery(series=[])
+        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
+        summarizer_mock.return_value = RunnableLambda(lambda _: AssistantMessage(content="Summary"))
+
+        # First run
+        actual_output = self._run_assistant_graph(is_new_conversation=True)
+        expected_output = [
+            ("conversation", {"id": str(self.conversation.id)}),
+            ("message", HumanMessage(content="Hello")),
+            ("message", ReasoningMessage(content="Identifying type of analysis")),
+            ("message", RouterMessage(content="trends")),
+            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
+            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
+            ("message", ReasoningMessage(content="Creating trends query")),
+            ("message", VisualizationMessage(answer=query, plan="Plan")),
+            ("message", AssistantMessage(content="Summary")),
+        ]
+        self.assertConversationEqual(actual_output, expected_output)
+        self.assertEqual(actual_output[1][1]["id"], actual_output[7][1]["initiator"])
+
+        # Second run
+        actual_output = self._run_assistant_graph(is_new_conversation=False)
+        self.assertConversationEqual(actual_output, expected_output[1:])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[6][1]["initiator"])
+
+        # Third run
+        actual_output = self._run_assistant_graph(is_new_conversation=False)
+        self.assertConversationEqual(actual_output, expected_output[1:])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[6][1]["initiator"])
+
+    @patch("ee.hogai.summarizer.nodes.SummarizerNode._model")
+    @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.router.nodes.RouterNode._model")
+    def test_full_funnel_flow(self, router_mock, planner_mock, generator_mock, summarizer_mock):
+        router_mock.return_value = RunnableLambda(lambda _: RouterOutput(visualization_type="funnel"))
+        planner_mock.return_value = RunnableLambda(
+            lambda _: messages.AIMessage(
+                content="""
+                Thought: Done.
+                Action:
+                ```
+                {
+                    "action": "final_answer",
+                    "action_input": "Plan"
+                }
+                ```
+                """
+            )
+        )
+        query = AssistantFunnelsQuery(
+            series=[
+                AssistantFunnelsEventsNode(event="$pageview"),
+                AssistantFunnelsEventsNode(event="$pageleave"),
+            ]
+        )
+        generator_mock.return_value = RunnableLambda(lambda _: FunnelsSchemaGeneratorOutput(query=query))
+        summarizer_mock.return_value = RunnableLambda(lambda _: AssistantMessage(content="Summary"))
+
+        # First run
+        actual_output = self._run_assistant_graph(is_new_conversation=True)
+        expected_output = [
+            ("conversation", {"id": str(self.conversation.id)}),
+            ("message", HumanMessage(content="Hello")),
+            ("message", ReasoningMessage(content="Identifying type of analysis")),
+            ("message", RouterMessage(content="funnel")),
+            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
+            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
+            ("message", ReasoningMessage(content="Creating funnel query")),
+            ("message", VisualizationMessage(answer=query, plan="Plan")),
+            ("message", AssistantMessage(content="Summary")),
+        ]
+        self.assertConversationEqual(actual_output, expected_output)
+        self.assertEqual(actual_output[1][1]["id"], actual_output[7][1]["initiator"])
+
+        # Second run
+        actual_output = self._run_assistant_graph(is_new_conversation=False)
+        self.assertConversationEqual(actual_output, expected_output[1:])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[6][1]["initiator"])
+
+        # Third run
+        actual_output = self._run_assistant_graph(is_new_conversation=False)
+        self.assertConversationEqual(actual_output, expected_output[1:])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[6][1]["initiator"])
