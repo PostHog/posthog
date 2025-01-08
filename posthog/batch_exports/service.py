@@ -494,10 +494,7 @@ async def start_backfill_batch_export_workflow(
         "backfill-batch-export",
         inputs,
         id=workflow_id,
-        # TODO: Backfills could also run in async queue.
-        # But tests expect them not to, so we keep them in sync
-        # queue after everything is migrated.
-        task_queue=SYNC_BATCH_EXPORTS_TASK_QUEUE,
+        task_queue=BATCH_EXPORTS_TASK_QUEUE,
     )
 
     return workflow_id

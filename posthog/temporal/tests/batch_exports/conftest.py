@@ -5,8 +5,10 @@ import uuid
 import psycopg
 import pytest
 import pytest_asyncio
+import temporalio.worker
 from psycopg import sql
 
+from posthog import constants
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -145,6 +147,24 @@ async def setup_postgres_test_db(postgres_config):
         await cursor.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(postgres_config["database"])))
 
     await connection.close()
+
+
+@pytest_asyncio.fixture
+async def temporal_worker(temporal_client, workflows, activities):
+    worker = temporalio.worker.Worker(
+        temporal_client,
+        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+        workflows=workflows,
+        activities=activities,
+        workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+    )
+
+    worker_run = asyncio.create_task(worker.run())
+
+    yield worker
+
+    worker_run.cancel()
+    await asyncio.wait([worker_run])
 
 
 @pytest_asyncio.fixture(scope="module", autouse=True)
