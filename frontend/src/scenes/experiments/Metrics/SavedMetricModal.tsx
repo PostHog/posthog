@@ -1,4 +1,4 @@
-import { LemonButton, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useEffect, useState } from 'react'
@@ -91,18 +91,32 @@ export function SavedMetricModal({
         >
             {mode === 'create' && (
                 <div className="flex gap-4 mb-4">
-                    <LemonSelect
-                        options={savedMetrics.map((metric: SavedMetric) => ({
-                            label: metric.name,
-                            value: metric.id,
-                        }))}
-                        placeholder="Select a shared metric"
-                        loading={false}
-                        value={selectedMetricId}
-                        onSelect={(value) => {
-                            setSelectedMetricId(value)
-                        }}
-                    />
+                    {savedMetrics.length > 0 ? (
+                        <LemonSelect
+                            options={savedMetrics.map((metric: SavedMetric) => ({
+                                label: metric.name,
+                                value: metric.id,
+                            }))}
+                            placeholder="Select a shared metric"
+                            loading={false}
+                            value={selectedMetricId}
+                            onSelect={(value) => {
+                                setSelectedMetricId(value)
+                            }}
+                        />
+                    ) : (
+                        <LemonBanner
+                            className="w-full"
+                            type="info"
+                            action={{
+                                children: 'New shared metric',
+                                to: urls.experimentsSavedMetric('new'),
+                            }}
+                        >
+                            You don't have any shared metrics yet. Shared metrics let you create reusable metrics that
+                            you can quickly add to any experiment.
+                        </LemonBanner>
+                    )}
                 </div>
             )}
 
