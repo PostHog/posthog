@@ -318,6 +318,10 @@ class HogQLCohortQuery:
         )
 
     def get_performed_event_regularly(self, prop: Property) -> ast.SelectQuery:
+        # "operator_value": 1, "time_value": 2, "time_interval": "day", "min_periods": 3, "total_periods": 4
+        # event [operator: exactly, at least, at most] [operator_value: int] times per [time_value: int] [time_interval: days, weeks, months, years] period
+        # for at least [min_periods: int] of the last [total_periods: int] periods
+
         # min_periods
         # operator (gte)
         # operator_value (int)

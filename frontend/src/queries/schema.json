@@ -12353,6 +12353,11 @@
                     "default": "day",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
+                "intervalCount": {
+                    "default": 1,
+                    "description": "How many intervals comprise a period. Only used for cohorts, otherwise default 1.",
+                    "type": "integer"
+                },
                 "kind": {
                     "const": "StickinessQuery",
                     "type": "string"
@@ -12395,7 +12400,7 @@
                     "description": "Properties specific to the stickiness insight"
                 }
             },
-            "required": ["kind", "series"],
+            "required": ["intervalCount", "kind", "series"],
             "type": "object"
         },
         "StickinessQueryResponse": {
