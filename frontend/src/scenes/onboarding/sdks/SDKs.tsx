@@ -39,7 +39,9 @@ export function SDKs({
     const [showListeningFor, setShowListeningFor] = React.useState(false)
     const [hasCheckedInstallation, setHasCheckedInstallation] = React.useState(false)
 
-    const { width } = useWindowSize()
+    const {
+        windowSize: { width },
+    } = useWindowSize()
 
     useEffect(() => {
         if (showListeningFor && !currentTeam?.[teamPropertyToVerify]) {
