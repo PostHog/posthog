@@ -254,6 +254,11 @@ export const userLogic = kea<userLogicType>([
         isUserNonTechnical: [
             (s) => [s.user],
             (user): boolean => {
+                // These technical roles are chosen based on the ICP score where engineering and founder get the
+                // highest technical scores. Product also gets a high score only if they have a github associated to
+                // them but we don't have that information here. As a follow-up, we should revisit ICP definition
+                // and ensure we are categorizing these users correctly.
+                // Link to docs: https://posthog.com/handbook/growth/marketing/icp
                 const technicalRoles = ['engineering', 'founder']
                 return user?.role_at_organization ? !technicalRoles.includes(user.role_at_organization) : false
             },
