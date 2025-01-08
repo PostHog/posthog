@@ -7,8 +7,8 @@ use tracing::warn;
 use crate::{
     config::Config,
     metrics_consts::{
-        CACHE_WARMING_STATE, GROUP_TYPE_READS, GROUP_TYPE_RESOLVE_TIME, UPDATES_ISSUED,
-        UPDATES_SKIPPED, UPDATE_TRANSACTION_TIME,
+        CACHE_WARMING_STATE, GROUP_TYPE_READS, GROUP_TYPE_RESOLVE_TIME, SINGLE_UPDATE_ISSUE_TIME,
+        UPDATES_ISSUED, UPDATES_SKIPPED, UPDATE_TRANSACTION_TIME,
     },
     types::{GroupType, Update},
 };
@@ -72,8 +72,9 @@ impl AppContext {
             let mut tx = self.pool.begin().await?;
 
             for update in updates {
+                let issue_time = common_metrics::timing_guard(SINGLE_UPDATE_ISSUE_TIME, &[]);
                 match update.issue(&mut *tx).await {
-                    Ok(_) => {}
+                    Ok(_) => issue_time.label("outcome", "success"),
                     Err(sqlx::Error::Database(e)) if e.constraint().is_some() => {
                         // If we hit a constraint violation, we just skip the update. We see
                         // this in production for group-type-indexes not being resolved, and it's
@@ -81,12 +82,15 @@ impl AppContext {
                         metrics::counter!(UPDATES_SKIPPED, &[("reason", "constraint_violation")])
                             .increment(1);
                         warn!("Failed to issue update: {:?}", e);
+                        issue_time.label("outcome", "skipped")
                     }
                     Err(e) => {
                         tx.rollback().await?;
+                        issue_time.label("outcome", "abort");
                         return Err(e);
                     }
                 }
+                .fin();
             }
             tx.commit().await?;
         }
