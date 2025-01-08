@@ -202,6 +202,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
         interval: Optional[IntervalType] = None,
+        intervalCount: Optional[int] = None,
         properties: Optional[StickinessProperties] = None,
         filters: Optional[StickinessFilter] = None,
         filter_test_accounts: Optional[bool] = False,
@@ -217,6 +218,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=query_series,
             dateRange=DateRange(date_from=query_date_from, date_to=query_date_to),
             interval=query_interval,
+            intervalCount=intervalCount,
             properties=properties,
             stickinessFilter=filters,
             compareFilter=compare_filters,
@@ -346,6 +348,90 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             1,
             0,
         ]
+
+    def test_interval_2_day(self):
+        self._create_test_events()
+
+        response = self._run_query(interval=IntervalType.DAY, intervalCount=2)
+
+        result = response.results[0]
+
+        assert result["label"] == "$pageview"
+        assert result["labels"] == [
+            "1 day",
+            "2 days",
+            "3 days",
+            "4 days",
+            "5 days",
+        ]
+        assert result["days"] == [1, 2, 3, 4, 5]
+        assert result["data"] == [
+            0,
+            0,
+            0,
+            0,
+            2,
+        ]
+
+    def test_interval_2_day_filtering(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                # Day 1
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                # Day 2
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-14T12:00:00Z",
+                                # Day 3
+                                "2020-01-15T12:00:00Z",
+                                "2020-01-16T12:00:00Z",
+                                # Day 4
+                                "2020-01-17T12:00:00Z",
+                                "2020-01-18T12:00:00Z",
+                                # Day 5
+                                "2020-01-19T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-15T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Firefox", "prop": 10, "bool_field": False, "$group_0": "org:1"},
+                ),
+            ]
+        )
+
+        response = self._run_query(interval=IntervalType.DAY, intervalCount=2)
+
+        result = response.results[0]
+
+        assert result["label"] == "$pageview"
+        assert result["labels"] == [
+            "1 day",
+            "2 days",
+            "3 days",
+            "4 days",
+            "5 days",
+        ]
+        assert result["days"] == [1, 2, 3, 4, 5]
+        assert result["data"] == [0, 0, 1, 0, 1]
 
     def test_interval_week(self):
         self._create_test_events()

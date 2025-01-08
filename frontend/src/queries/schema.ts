@@ -1561,6 +1561,11 @@ export interface StickinessQuery
      * @default day
      */
     interval?: IntervalType
+    /**
+     * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+     * @default 1
+     */
+    intervalCount: integer
     /** Events and actions to include */
     series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */

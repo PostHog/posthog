@@ -5818,6 +5818,9 @@ class StickinessQuery(BaseModel):
         default=IntervalType.DAY,
         description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
+    intervalCount: Optional[int] = Field(
+        default=1, description="How many intervals comprise a period. Only used for cohorts, otherwise default 1."
+    )
     kind: Literal["StickinessQuery"] = "StickinessQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
