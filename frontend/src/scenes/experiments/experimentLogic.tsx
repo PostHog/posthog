@@ -1357,7 +1357,11 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [],
             () =>
                 (
-                    metricResult: Partial<ExperimentResults['result']> | null,
+                    metricResult:
+                        | Partial<ExperimentResults['result']>
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | null,
                     variantKey: string,
                     metricType: InsightType
                 ): [number, number] | null => {
