@@ -360,7 +360,7 @@ class TestBillingAPI(APILicensedTest):
             "available_product_features": [],
             "custom_limits_usd": {},
             "has_active_subscription": True,
-            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
+            "stripe_portal_url": "http://localhost:8010/api/billing/portal",
             "current_total_amount_usd": "100.00",
             "deactivated": False,
             "products": [
@@ -563,7 +563,7 @@ class TestBillingAPI(APILicensedTest):
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
             "deactivated": False,
-            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
+            "stripe_portal_url": "http://localhost:8010/api/billing/portal",
         }
 
     @patch("ee.api.billing.requests.get")

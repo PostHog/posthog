@@ -12,19 +12,23 @@ from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 from social_core.exceptions import AuthFailed, AuthMissingParameter
+from social_django.models import UserSocialAuth
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
+from ee.api.authentication import CustomGoogleOAuth2
 
 SAML_MOCK_SETTINGS = {
     "SOCIAL_AUTH_SAML_SECURITY_CONFIG": {
         "wantAttributeStatement": False,  # already present in settings
         "allowSingleLabelDomains": True,  # to allow `http://testserver` in tests
-    }
+    },
+    "SITE_URL": "http://localhost:8000",  # http://localhost:8010 is now the default, but fixtures use 8000
 }
+SAML_MOCK_SETTINGS["SOCIAL_AUTH_SAML_SP_ENTITY_ID"] = SAML_MOCK_SETTINGS["SITE_URL"]
 
 GOOGLE_MOCK_SETTINGS = {
     "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY": "google_key",
@@ -707,3 +711,62 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         assert "1.3.13" == xmlsec.__version__
         assert "4.9.4" == lxml.__version__
+
+
+class TestCustomGoogleOAuth2(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.google_oauth = CustomGoogleOAuth2()
+        self.details = {"email": "test@posthog.com"}
+        self.sub = "google-oauth2|123456789"
+
+    def test_get_user_id_existing_user_with_sub(self):
+        """Test that a user with sub as uid continues using that sub."""
+        # Create user with sub as uid
+        UserSocialAuth.objects.create(provider="google-oauth2", uid=self.sub, user=self.user)
+
+        response = {"email": "test@posthog.com", "sub": self.sub}
+
+        uid = self.google_oauth.get_user_id(self.details, response)
+
+        self.assertEqual(uid, self.sub)
+        # Verify no migration occurred (count should be 1)
+        self.assertEqual(UserSocialAuth.objects.filter(provider="google-oauth2").count(), 1)
+        # Verify uid is still sub
+        self.assertEqual(UserSocialAuth.objects.get(provider="google-oauth2").uid, self.sub)
+
+    def test_get_user_id_migrates_email_to_sub(self):
+        """Test that a user with email as uid gets migrated to using sub."""
+        # Create user with email as uid (legacy format)
+        social_auth = UserSocialAuth.objects.create(provider="google-oauth2", uid="test@posthog.com", user=self.user)
+
+        response = {"email": "test@posthog.com", "sub": self.sub}
+
+        uid = self.google_oauth.get_user_id(self.details, response)
+
+        self.assertEqual(uid, self.sub)
+        # Verify the uid was updated
+        social_auth.refresh_from_db()
+        self.assertEqual(social_auth.uid, self.sub)
+
+    def test_get_user_id_new_user_uses_sub(self):
+        """Test that a new user gets sub as uid."""
+        response = {"email": "test@posthog.com", "sub": self.sub}
+
+        uid = self.google_oauth.get_user_id(self.details, response)
+
+        self.assertEqual(uid, self.sub)
+        # Verify no UserSocialAuth objects were created
+        self.assertEqual(UserSocialAuth.objects.filter(provider="google-oauth2").count(), 0)
+
+    def test_get_user_id_missing_sub_raises_error(self):
+        """Test that missing sub in response raises ValueError."""
+        response = {
+            "email": "test@posthog.com",
+            # no sub provided
+        }
+
+        with self.assertRaises(ValueError) as e:
+            self.google_oauth.get_user_id(self.details, response)
+
+        self.assertEqual(str(e.exception), "Google OAuth response missing 'sub' claim")

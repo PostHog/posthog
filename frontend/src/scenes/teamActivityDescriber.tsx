@@ -15,6 +15,8 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
 
+import { ThemeName } from './dataThemeLogic'
+
 const teamActionsMapping: Record<
     keyof TeamType,
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
@@ -365,6 +367,24 @@ const teamActionsMapping: Record<
     user_access_level: () => null,
     live_events_token: () => null,
     product_intents: () => null,
+    default_data_theme: (change) => {
+        return {
+            description: [
+                <>
+                    changed the default color theme{' '}
+                    {change?.before && (
+                        <>
+                            from <ThemeName id={change.before as number} />{' '}
+                        </>
+                    )}
+                    to{' '}
+                    <em>
+                        <ThemeName id={change?.after as number} />
+                    </em>
+                </>,
+            ],
+        }
+    },
     cookieless_server_hash_mode: () => null,
 }
 

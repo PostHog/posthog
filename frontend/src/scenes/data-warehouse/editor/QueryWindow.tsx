@@ -36,12 +36,21 @@ export function QueryWindow(): JSX.Element {
     })
 
     const { allTabs, activeModelUri, queryInput, editingView, sourceQuery } = useValues(logic)
-    const { selectTab, deleteTab, createTab, setQueryInput, runQuery, setError, setIsValidView, setMetadata } =
-        useActions(logic)
+    const {
+        selectTab,
+        deleteTab,
+        createTab,
+        setQueryInput,
+        runQuery,
+        setError,
+        setIsValidView,
+        setMetadata,
+        setMetadataLoading,
+    } = useActions(logic)
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto px-1">
                 <QueryTabs
                     models={allTabs}
                     onClick={selectTab}
@@ -82,6 +91,9 @@ export function QueryWindow(): JSX.Element {
                     },
                     onMetadata: (metadata) => {
                         setMetadata(metadata)
+                    },
+                    onMetadataLoading: (loading) => {
+                        setMetadataLoading(loading)
                     },
                 }}
             />
