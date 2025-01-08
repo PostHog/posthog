@@ -12,7 +12,7 @@ use metrics_consts::{
 };
 use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tracing::{debug, error, warn};
+use tracing::{error, warn};
 use types::{Event, Update};
 
 pub mod app_context;
@@ -150,13 +150,6 @@ pub async fn update_producer_loop(
             }
         };
 
-        let team_id = event.team_id;
-        let event_name = event.event.clone();
-
-        if team_id == 2 {
-            debug!("Received event: {:?}", event_name);
-        }
-
         // Panicking on offset store failure, same reasoning as the panic above - if kafka's down, we're down
         offset.store().expect("Failed to store offset");
 
@@ -165,15 +158,7 @@ pub async fn update_producer_loop(
             continue;
         }
 
-        if team_id == 2 {
-            debug!("Processing event: {:?}", event_name);
-        }
-
         let updates = event.into_updates(skip_threshold);
-
-        if team_id == 2 {
-            debug!("Event {} has {} updates", event_name, updates.len());
-        }
 
         metrics::counter!(EVENTS_RECEIVED).increment(1);
         metrics::counter!(UPDATES_SEEN).increment(updates.len() as u64);
@@ -181,20 +166,8 @@ pub async fn update_producer_loop(
 
         for update in updates {
             if batch.contains(&update) {
-                if team_id == 2 {
-                    debug!(
-                        "Dropping duplicate update: {:?} for event {}",
-                        update, event_name
-                    );
-                }
                 metrics::counter!(COMPACTED_UPDATES).increment(1);
                 continue;
-            }
-            if team_id == 2 {
-                debug!(
-                    "Adding update: {:?} for event {} to batch",
-                    update, event_name
-                );
             }
             batch.insert(update);
         }
@@ -209,19 +182,10 @@ pub async fn update_producer_loop(
             last_send = tokio::time::Instant::now();
             for update in batch.drain() {
                 if shared_cache.get(&update).is_some() {
-                    if team_id == 2 {
-                        debug!("Filtered update: {:?} for event {}", update, event_name);
-                    }
                     metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
                     continue;
                 }
                 shared_cache.insert(update.clone(), ());
-                if team_id == 2 {
-                    debug!(
-                        "Sending update: {:?} for event {} to insert worker",
-                        update, event_name
-                    );
-                }
                 match channel.try_send(update) {
                     Ok(_) => {}
                     Err(TrySendError::Full(update)) => {
