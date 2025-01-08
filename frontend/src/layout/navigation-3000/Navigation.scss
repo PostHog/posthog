@@ -62,14 +62,6 @@
         flex-direction: column;
         height: 100vh;
     }
-
-    &.Navigation3000__scene--canvas {
-        --scene-padding: 0px;
-
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
 }
 
 // Navbar

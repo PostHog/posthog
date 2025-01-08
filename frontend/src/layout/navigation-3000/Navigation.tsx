@@ -40,9 +40,6 @@ export function Navigation({
         )
     }
 
-    const requiresHorizontalMargin =
-        sceneConfig?.layout && ['app-raw', 'app-raw-no-header'].includes(sceneConfig.layout)
-
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div className={clsx('Navigation3000', mobileLayout && 'Navigation3000--mobile')} style={theme?.mainStyle}>
@@ -60,16 +57,8 @@ export function Navigation({
                         sceneConfig?.layout === 'app-raw-no-header' && 'Navigation3000__scene--raw-no-header'
                     )}
                 >
-                    {!sceneConfig?.hideBillingNotice && (
-                        <div className={clsx(requiresHorizontalMargin && 'mx-4')}>
-                            <BillingAlertsV2 />
-                        </div>
-                    )}
-                    {!sceneConfig?.hideProjectNotice && (
-                        <div className={clsx(requiresHorizontalMargin && 'mx-4')}>
-                            <ProjectNotice />
-                        </div>
-                    )}
+                    {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
+                    {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
                     {children}
                 </div>
             </main>
