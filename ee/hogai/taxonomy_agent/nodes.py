@@ -229,10 +229,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             elif isinstance(message, VisualizationMessage):
                 conversation.append(LangchainAssistantMessage(content=message.plan or ""))
             elif isinstance(message, AssistantMessage) and (
-                idx < 1
-                or not isinstance(
-                    filtered_messages[idx - 1], VisualizationMessage
-                )  # Filter out the summarizer messages.
+                # Filter out summarizer messages (which always follow viz), but leave clarification questions in
+                idx < 1 or not isinstance(filtered_messages[idx - 1], VisualizationMessage)
             ):
                 conversation.append(LangchainAssistantMessage(content=message.content))
 
