@@ -74,8 +74,10 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$num_uniq_urls": IntegerDatabaseField(name="$num_uniq_urls"),
     "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
     "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
+    "$entry_hostname": StringDatabaseField(name="$entry_host"),
     "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
     "$exit_pathname": StringDatabaseField(name="$exit_pathname"),
+    "$exit_hostname": StringDatabaseField(name="$exit_host"),
     "$entry_utm_source": StringDatabaseField(name="$entry_utm_source"),
     "$entry_utm_campaign": StringDatabaseField(name="$entry_utm_campaign"),
     "$entry_utm_medium": StringDatabaseField(name="$entry_utm_medium"),
@@ -189,8 +191,16 @@ def select_from_sessions_table_v1(
         name="path",
         args=[aggregate_fields["$entry_current_url"]],
     )
+    aggregate_fields["$entry_hostname"] = ast.Call(
+        name="domain",
+        args=[aggregate_fields["$entry_current_url"]],
+    )
     aggregate_fields["$exit_pathname"] = ast.Call(
         name="path",
+        args=[aggregate_fields["$exit_current_url"]],
+    )
+    aggregate_fields["$exit_hostname"] = ast.Call(
+        name="domain",
         args=[aggregate_fields["$exit_current_url"]],
     )
     aggregate_fields["$session_duration"] = ast.Call(
@@ -255,6 +265,9 @@ def select_from_sessions_table_v1(
             medium=aggregate_fields["$entry_utm_medium"],
             source=aggregate_fields["$entry_utm_source"],
             referring_domain=aggregate_fields["$entry_referring_domain"],
+            url=aggregate_fields["$entry_current_url"],
+            hostname=aggregate_fields["$entry_hostname"],
+            pathname=aggregate_fields["$entry_pathname"],
             gclid=aggregate_fields["$entry_gclid"],
             gad_source=aggregate_fields["$entry_gad_source"],
         ),

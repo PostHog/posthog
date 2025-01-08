@@ -214,29 +214,10 @@ export const getRecordingFilterForFlagVariant = (
                                   ],
                               }
                             : {
-                                  id: '$feature_flag_called',
-                                  name: '$feature_flag_called',
-                                  type: 'events',
-                                  properties: [
-                                      {
-                                          key: '$feature/' + flagKey,
-                                          type: PropertyFilterType.Event,
-                                          value: [variantKey ? variantKey : 'false'],
-                                          operator: variantKey ? PropertyOperator.Exact : PropertyOperator.IsNot,
-                                      },
-                                      {
-                                          key: '$feature/' + flagKey,
-                                          type: PropertyFilterType.Event,
-                                          value: 'is_set',
-                                          operator: PropertyOperator.IsSet,
-                                      },
-                                      {
-                                          key: '$feature_flag',
-                                          type: PropertyFilterType.Event,
-                                          value: flagKey,
-                                          operator: PropertyOperator.Exact,
-                                      },
-                                  ],
+                                  type: PropertyFilterType.Event,
+                                  key: `$feature/${flagKey}`,
+                                  operator: PropertyOperator.Exact,
+                                  value: [variantKey ? variantKey : 'true'],
                               },
                     ],
                 },

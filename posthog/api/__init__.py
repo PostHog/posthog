@@ -520,12 +520,12 @@ projects_router.register(
     ["team_id"],
 )
 
-# projects_router.register(
-#     r"error_tracking",
-#     error_tracking.ErrorTrackingGroupViewSet,
-#     "project_error_tracking",
-#     ["team_id"],
-# )
+projects_router.register(
+    r"error_tracking/issue",
+    error_tracking.ErrorTrackingIssueViewSet,
+    "project_error_tracking_issue",
+    ["team_id"],
+)
 
 projects_router.register(
     r"error_tracking/stack_frames",

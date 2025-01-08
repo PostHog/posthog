@@ -48,7 +48,6 @@ const SYNC_ONLY_QUERY_KINDS = [
     'HogQLMetadata',
     'HogQLAutocomplete',
     'DatabaseSchemaQuery',
-    'ErrorTrackingQuery',
 ] satisfies NodeKind[keyof NodeKind][]
 
 export async function pollForResults(
