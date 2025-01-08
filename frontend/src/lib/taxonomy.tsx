@@ -184,11 +184,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         'Application Updated': {
             label: 'Application Updated',
-            description: 'When a user upgrades mobile the app.',
+            description: 'When a user upgrades the mobile app.',
         },
         'Application Installed': {
             label: 'Application Installed',
-            description: 'When a user installs mobile the app.',
+            description: 'When a user installs the mobile app.',
         },
         'Application Became Active': {
             label: 'Application Became Active',

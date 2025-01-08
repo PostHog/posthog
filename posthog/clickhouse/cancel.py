@@ -1,5 +1,6 @@
 from statshog.defaults.django import statsd
 
+from posthog import settings
 from posthog.api.services.query import logger
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import default_client
@@ -32,7 +33,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
                 sync_client=client,
             )
         logger.info("Cancelled query %s for team %s, result: %s", client_query_id, team_id, result)
-    else:
+    elif settings.CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER:
         logger.debug("No initiator host found for query %s, cancelling query on cluster", client_query_id)
         result = sync_execute(
             f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s",

@@ -8,10 +8,10 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
-import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
+import { countryTitleFrom } from 'scenes/session-recordings/player/playerMetaLogic'
 import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -88,11 +88,8 @@ export function gatherIconProperties(
 
     return iconPropertyKeys
         .flatMap((property) => {
-            let value = iconProperties?.[property]
-            const label = value
-            if (property === '$device_type') {
-                value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
-            }
+            const value = property === '$device_type' ? deviceType : iconProperties[property]
+            const label = property === '$geoip_country_code' ? countryTitleFrom(iconProperties) : value
 
             return { property, value, label }
         })
@@ -114,10 +111,7 @@ export function PropertyIcons({ recordingProperties, loading, iconClassNames }: 
                 <LemonSkeleton className="w-16 h-3" />
             ) : (
                 recordingProperties.map(({ property, value, label }) => (
-                    <Tooltip
-                        key={property}
-                        title={label && property === '$geoip_country_code' ? countryCodeToName[label] : label}
-                    >
+                    <Tooltip key={property} title={label}>
                         <PropertyIcon className={iconClassNames} property={property} value={value} />
                     </Tooltip>
                 ))

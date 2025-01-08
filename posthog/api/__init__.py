@@ -2,7 +2,7 @@ from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
 
-from posthog.api import metalytics, project
+from posthog.api import data_color_theme, metalytics, project
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
@@ -513,12 +513,12 @@ projects_router.register(
     ["team_id"],
 )
 
-# projects_router.register(
-#     r"error_tracking",
-#     error_tracking.ErrorTrackingGroupViewSet,
-#     "project_error_tracking",
-#     ["team_id"],
-# )
+projects_router.register(
+    r"error_tracking/issue",
+    error_tracking.ErrorTrackingIssueViewSet,
+    "project_error_tracking_issue",
+    ["team_id"],
+)
 
 projects_router.register(
     r"error_tracking/stack_frames",
@@ -577,3 +577,7 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
+
+register_grandfathered_environment_nested_viewset(
+    r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
+)

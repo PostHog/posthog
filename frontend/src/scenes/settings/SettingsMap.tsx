@@ -17,6 +17,7 @@ import {
 } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
+import { DataColorThemes } from './environment/DataColorThemes'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
@@ -157,6 +158,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
+            },
+            {
+                id: 'data-theme',
+                title: 'Data colors',
+                component: <DataColorThemes />,
+                flag: 'INSIGHT_COLORS',
             },
             {
                 id: 'persons-on-events',
