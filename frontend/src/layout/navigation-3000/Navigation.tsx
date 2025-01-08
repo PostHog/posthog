@@ -15,6 +15,7 @@ import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
+import { TopBarNew } from './components/TopBarNew'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
@@ -48,7 +49,12 @@ export function Navigation({
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>
             <main>
-                {sceneConfig?.layout !== 'app-raw-no-header' && <TopBar />}
+                {sceneConfig?.layout !== 'app-raw-no-header' && (
+                    <>
+                        <TopBar />
+                        <TopBarNew />
+                    </>
+                )}
                 <div
                     className={clsx(
                         'Navigation3000__scene',
