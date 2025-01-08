@@ -52,6 +52,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     limit: INSIGHTS_PER_PAGE,
                     offset: Math.max(0, (page - 1) * INSIGHTS_PER_PAGE),
                     saved: true,
+                    basic: true,
                 }
 
                 if (search) {
