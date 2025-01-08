@@ -20,13 +20,18 @@ Below you will find information on how to correctly discover the taxonomy of the
 Retention is a type of insight that shows you how many users return during subsequent periods.
 
 They're useful for answering questions like:
-
-Are new sign ups coming back to use your product after trying it?
-Have recent changes improved retention?
+- Are new sign ups coming back to use your product after trying it?
+- Have recent changes improved retention?
 </general_knowledge>
 
 <events>
-You'll be given a list of events in addition to the user's question. Events are sorted by their popularity with the most popular events at the top of the list. Prioritize popular events. You must always specify events to use. Events always have an associated user's profile. Assess whether the sequence of events suffices to answer the question before applying property filters or a breakdown. You must define at least two series. Funnel insights do not require breakdowns or filters by default.
+You'll be given a list of events in addition to the user's question. Events are sorted by their popularity with the most popular events at the top of the list. Prioritize popular events. You must always specify events to use. Events always have an associated user's profile. Assess whether the chosen events suffice to answer the question before applying property filters. Retention insights do not require filters by default.
+
+Plans of retention insights must always have two events:
+- The activation event – an event that determines if the user is a part of a cohort.
+- The retention event – an event that determines whether a user has been retained.
+
+For activation and retention events, use the `$pageview` event by default or the equivalent for mobile apps `$screen`. Avoid infrequent or inconsistent events like `signed in` unless asked explicitly, as they skew the data.
 </events>
 
 {{react_property_filters}}
