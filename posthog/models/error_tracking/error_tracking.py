@@ -50,24 +50,6 @@ class ErrorTrackingIssue(UUIDModel):
         update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
 
-class ErrorTrackingIssueAssignment(UUIDModel):
-    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE)
-    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
-    team = models.ForeignKey(Team, null=True, on_delete=models.CASCADE)
-
-    class Meta:
-        constraints = [
-            models.CheckConstraint(check=Q(user__isnull=False) | Q(team__isnull=False), name="at_least_one_non_null"),
-            models.CheckConstraint(check=~(Q(user__isnull=False) & Q(team__isnull=False)), name="only_one_non_null"),
-            models.UniqueConstraint(
-                fields=["issue", "user"], condition=Q(user__isnull=False), name="unique_user_per_issue"
-            ),
-            models.UniqueConstraint(
-                fields=["issue", "team"], condition=Q(team__isnull=False), name="unique_team_per_issue"
-            ),
-        ]
-
-
 class ErrorTrackingTeam(UUIDModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     name = models.TextField(null=True, blank=True)
@@ -83,6 +65,30 @@ class ErrorTrackingTeamMembership(UUIDModel):
     team = models.ForeignKey(ErrorTrackingTeam, on_delete=models.CASCADE)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ErrorTrackingIssueAssignment(UUIDModel):
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+
+    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
+    error_tracking_team = models.ForeignKey(ErrorTrackingTeam, null=True, on_delete=models.CASCADE)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=Q(user__isnull=False) | Q(error_tracking_team__isnull=False), name="at_least_one_non_null"
+            ),
+            models.CheckConstraint(
+                check=~(Q(user__isnull=False) & Q(error_tracking_team__isnull=False)), name="only_one_non_null"
+            ),
+            models.UniqueConstraint(
+                fields=["issue", "user"], condition=Q(user__isnull=False), name="unique_user_per_issue"
+            ),
+            models.UniqueConstraint(
+                fields=["issue", "team"], condition=Q(team__isnull=False), name="unique_team_per_issue"
+            ),
+        ]
 
 
 class ErrorTrackingIssueFingerprintV2(UUIDModel):

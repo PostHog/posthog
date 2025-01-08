@@ -55,15 +55,14 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
         assignIssue: async ({ id, assignee }) => {
             const response = values.response
             if (response) {
-                const params = { assignee }
                 const results = response.results as ErrorTrackingIssue[]
                 const recordIndex = results.findIndex((r) => r.id === id)
                 if (recordIndex > -1) {
-                    const issue = { ...results[recordIndex], ...params }
+                    const issue = { ...results[recordIndex], assignee: assignee }
                     results.splice(recordIndex, 1, issue)
                     // optimistically update local results
                     actions.setResponse({ ...response, results: results })
-                    await api.errorTracking.updateIssue(issue.id, params)
+                    await api.errorTracking.assignIssue(issue.id, assignee)
                     actions.loadData(true)
                 }
             }

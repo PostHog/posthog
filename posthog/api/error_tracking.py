@@ -17,6 +17,7 @@ from posthog.models.error_tracking import (
     ErrorTrackingSymbolSet,
     ErrorTrackingStackFrame,
     ErrorTrackingTeam,
+    ErrorTrackingIssueAssignment,
 )
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
@@ -53,6 +54,24 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue: ErrorTrackingIssue = self.get_object()
         ids: list[str] = request.data.get("ids", [])
         issue.merge(issue_ids=ids)
+        return Response({"success": True})
+
+    @action(methods=["PATCH"], detail=True)
+    def assign(self, request, **kwargs):
+        assignee = request.data.get("assignee", None)
+
+        if assignee:
+            ErrorTrackingIssueAssignment.objects.update_or_create(
+                team_id=self.team_id,
+                issue_id=kwargs.get("pk"),
+                defaults={
+                    "user_id": None if assignee["type"] == "team" else assignee["id"],
+                    "error_tracking_team_id": None if assignee["type"] == "user" else assignee["id"],
+                },
+            )
+        else:
+            ErrorTrackingIssueAssignment.objects.filter(team_id=self.team_id, issue_id=kwargs.get("pk")).delete()
+
         return Response({"success": True})
 
 
