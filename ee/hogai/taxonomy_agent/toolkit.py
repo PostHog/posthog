@@ -172,11 +172,14 @@ class TaxonomyAgentToolkit(ABC):
             search: This tool is used for search
             calculator: This tool is used for math
         """
-        descriptions = []
+        root = ET.Element("tools")
         for tool in self.tools:
-            description = f"{tool['name']}{tool['signature']} - {tool['description']}"
-            descriptions.append(description)
-        return "\n".join(descriptions)
+            tool_tag = ET.SubElement(root, "tool")
+            name_tag = ET.SubElement(tool_tag, "name")
+            name_tag.text = f'{tool["name"]}{tool["signature"]}'
+            description_tag = ET.SubElement(tool_tag, "description")
+            description_tag.text = tool["description"]
+        return ET.tostring(root, encoding="unicode")
 
     @property
     def _groups(self):

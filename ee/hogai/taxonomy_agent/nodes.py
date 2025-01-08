@@ -90,6 +90,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     {
                         "react_format": self._get_react_format_prompt(toolkit),
                         "core_memory": self.core_memory.text if self.core_memory else "",
+                        "tools": toolkit.render_text_description(),
                         "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
                         "react_property_filters": self._get_react_property_filters_prompt(),
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
@@ -140,7 +141,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             str,
             ChatPromptTemplate.from_template(REACT_FORMAT_PROMPT, template_format="mustache")
             .format_messages(
-                tools=toolkit.render_text_description(),
                 tool_names=", ".join([t["name"] for t in toolkit.tools]),
             )[0]
             .content,

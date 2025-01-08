@@ -1,6 +1,6 @@
 REACT_FORMAT_PROMPT = """
-You have access to the following tools:
-{{tools}}
+<agent_instructions>
+You have access to the tools that are listed in the <tools> tag.
 
 Use a JSON blob to specify a tool by providing an action key (tool name) and an action_input key (tool input).
 
@@ -33,6 +33,7 @@ Action:
   "action_input": "Final response to human"
 }
 ```
+</agent_instructions>
 """.strip()
 
 REACT_PROPERTY_FILTERS_PROMPT = """
