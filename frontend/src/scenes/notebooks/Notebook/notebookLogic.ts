@@ -528,7 +528,7 @@ export const notebookLogic = kea<notebookLogicType>([
             )
         },
         setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
-            if (values.notebook?.user_access_level !== 'editor') {
+            if (values.mode !== 'canvas' && values.notebook?.user_access_level !== 'editor') {
                 actions.clearLocalContent()
                 return
             }
