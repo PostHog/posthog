@@ -49,10 +49,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
     WriterFormat,
 )
-from posthog.temporal.batch_exports.utils import (
-    JsonType,
-    set_status_to_running_task,
-)
+from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -98,6 +95,13 @@ class SnowflakeRetryableConnectionError(Exception):
     """Raised when a connection to Snowflake is not established."""
 
     pass
+
+
+class SnowflakeTableNotFoundError(Exception):
+    """Raised when a table is not found in Snowflake."""
+
+    def __init__(self, table_name: str):
+        super().__init__(f"Table '{table_name}' not found in Snowflake")
 
 
 @dataclasses.dataclass
@@ -298,6 +302,32 @@ class SnowflakeClient:
         await self.execute_async_query(query)
         return None
 
+    async def aget_table_columns(self, table_name: str) -> list[SnowflakeField]:
+        """Get the column names and types for a given table.
+
+        Arguments:
+            table_name: The name of the table to get columns for.
+
+        Returns:
+            A list of tuples containing (column_name, column_type).
+        """
+        results = await self.execute_async_query(f"""
+            SELECT
+                column_name,
+                data_type
+            FROM
+                information_schema.columns
+            WHERE
+                table_name = '{table_name}'
+            ORDER BY
+                ordinal_position
+        """)
+
+        if not results:
+            raise SnowflakeTableNotFoundError(table_name)
+
+        return [(str(row[0]), str(row[1])) for row in results]
+
     @contextlib.asynccontextmanager
     async def managed_table(
         self,
@@ -426,6 +456,13 @@ class SnowflakeClient:
         person_distinct_id_version_key: str = "person_distinct_id_version",
     ):
         """Merge two identical person model tables in Snowflake."""
+
+        # handle the case where the final table doesn't contain all the fields present in the stage table
+        # (for example, if we've added new fields to the person model)
+        final_table_columns = await self.aget_table_columns(final_table)
+        final_table_column_names = [field[0] for field in final_table_columns]
+        update_when_matched = [field for field in update_when_matched if field[0] in final_table_column_names]
+
         merge_condition = "ON "
 
         for n, field in enumerate(merge_key):
@@ -666,6 +703,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
+            use_latest_schema=True,
         )
         records_completed = 0
 
