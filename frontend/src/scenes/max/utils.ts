@@ -1,13 +1,20 @@
 import {
+    AssistantFunnelsQuery,
     AssistantMessage,
     AssistantMessageType,
+    AssistantRetentionQuery,
+    AssistantTrendsQuery,
     FailureMessage,
+    FunnelsQuery,
     HumanMessage,
     ReasoningMessage,
+    RetentionQuery,
     RootAssistantMessage,
     RouterMessage,
+    TrendsQuery,
     VisualizationMessage,
 } from '~/queries/schema'
+import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
     return message?.type === AssistantMessageType.Reasoning
@@ -33,4 +40,28 @@ export function isFailureMessage(message: RootAssistantMessage | undefined | nul
 
 export function isRouterMessage(message: RootAssistantMessage | undefined | null): message is RouterMessage {
     return message?.type === AssistantMessageType.Router
+}
+
+// The cast function below look like no-ops, but they're here to ensure AssistantFooQuery types stay compatible
+// with their respective FooQuery types. If an incompatibility arises, TypeScript will shout here
+function castAssistantTrendsQuery(query: AssistantTrendsQuery): TrendsQuery {
+    return query
+}
+function castAssistantFunnelsQuery(query: AssistantFunnelsQuery): FunnelsQuery {
+    return query
+}
+function castAssistantRetentionQuery(query: AssistantRetentionQuery): RetentionQuery {
+    return query
+}
+export function castAssistantQuery(
+    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery
+): TrendsQuery | FunnelsQuery | RetentionQuery {
+    if (isTrendsQuery(query)) {
+        return castAssistantTrendsQuery(query)
+    } else if (isFunnelsQuery(query)) {
+        return castAssistantFunnelsQuery(query)
+    } else if (isRetentionQuery(query)) {
+        return castAssistantRetentionQuery(query)
+    }
+    throw new Error('Unsupported query type')
 }
