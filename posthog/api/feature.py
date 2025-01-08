@@ -25,7 +25,6 @@ class FeatureSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "description",
-            "documentation_url",
             "issue_url",
             "primary_early_access_feature_id",
             "created_at",
