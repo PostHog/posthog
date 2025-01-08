@@ -12397,7 +12397,7 @@
                     "description": "Properties specific to the stickiness insight"
                 }
             },
-            "required": ["intervalCount", "kind", "series"],
+            "required": ["kind", "series"],
             "type": "object"
         },
         "StickinessQueryResponse": {
