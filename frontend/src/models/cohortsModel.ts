@@ -115,18 +115,17 @@ export const cohortsModel = kea<cohortsModelType>([
         exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
         setCohortFilters: (filters: Partial<CohortFilters>) => ({ filters }),
     })),
-    loaders(() => ({
+    loaders(({ values }) => ({
         cohorts: {
             __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
             loadCohorts: async () => {
-                // const response = await api.cohorts.listPaginated({
-                //     ...values.paramsFromFilters,
-                // })
-                const response = await api.cohorts.list()
+                const response = await api.cohorts.listPaginated({
+                    ...values.paramsFromFilters,
+                })
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts()
                 return {
-                    count: response.length,
-                    results: response.map((cohort) => processCohort(cohort)),
+                    count: response.count,
+                    results: response.results.map((cohort) => processCohort(cohort)),
                 }
             },
         },

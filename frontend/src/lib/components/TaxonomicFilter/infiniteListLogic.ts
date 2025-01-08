@@ -247,7 +247,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     if (group?.logic && group?.value) {
                         let items = group.logic.selectors[group.value]?.(state)
-                        if (group?.value === 'featureFlags' && items.results) {
+                        // Handle paginated responses for cohorts
+                        if (items?.results) {
                             items = items.results
                         }
                         // TRICKY: Feature flags don't support dynamic behavioral cohorts,
