@@ -308,6 +308,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
+            search_query = self.request.query_params.get("search", None)
+            if search_query:
+                queryset = queryset.filter(name__icontains=search_query)
+
         return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
 
     @action(
