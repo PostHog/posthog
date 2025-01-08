@@ -742,7 +742,7 @@ class Assignee(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    id: float
+    id: Union[float, str]
     type: Type5
 
 
@@ -771,17 +771,12 @@ class ErrorTrackingIssue(BaseModel):
     volume: Optional[Any] = None
 
 
-class Type6(StrEnum):
-    USER = "user"
-    TEAM = "team"
-
-
 class Assignee1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    id: float
-    type: Type6
+    id: Union[int, str]
+    type: Type5
 
 
 class OrderBy(StrEnum):

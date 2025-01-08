@@ -5404,7 +5404,7 @@
                             "additionalProperties": false,
                             "properties": {
                                 "id": {
-                                    "type": "number"
+                                    "type": ["number", "string"]
                                 },
                                 "type": {
                                     "enum": ["team", "user"],
@@ -5478,10 +5478,17 @@
                             "additionalProperties": false,
                             "properties": {
                                 "id": {
-                                    "type": "number"
+                                    "anyOf": [
+                                        {
+                                            "type": "integer"
+                                        },
+                                        {
+                                            "type": "string"
+                                        }
+                                    ]
                                 },
                                 "type": {
-                                    "enum": ["user", "team"],
+                                    "enum": ["team", "user"],
                                     "type": "string"
                                 }
                             },
@@ -5536,7 +5543,7 @@
                     "type": "array"
                 }
             },
-            "required": ["assignee", "dateRange", "kind"],
+            "required": ["dateRange", "kind"],
             "type": "object"
         },
         "ErrorTrackingQueryResponse": {
