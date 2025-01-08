@@ -329,6 +329,8 @@ export function pipelinePluginBackedNodeMenuCommonItems(
                                   name: node.name,
                               },
                               callback: loadPluginConfigs,
+                          }).catch((e) => {
+                              lemonToast.error(`Failed to delete plugin: ${e.detail}`)
                           })
                       },
                       disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to delete.',

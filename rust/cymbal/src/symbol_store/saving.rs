@@ -10,7 +10,8 @@ use crate::{
     error::{Error, FrameError, UnhandledError},
     metric_consts::{
         SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED, SAVE_SYMBOL_SET,
-        SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
+        SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES, SYMBOL_SET_FETCH_RETRY,
+        SYMBOL_SET_SAVED,
     },
 };
 
@@ -136,7 +137,10 @@ where
     async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Error> {
         let set_ref = r.to_string();
         info!("Fetching symbol set data for {}", set_ref);
+        metrics::counter!(SYMBOL_SET_DB_FETCHES).increment(1);
+
         if let Some(record) = SymbolSetRecord::load(&self.pool, team_id, &set_ref).await? {
+            metrics::counter!(SYMBOL_SET_DB_HITS).increment(1);
             if let Some(storage_ptr) = record.storage_ptr {
                 info!("Found s3 saved symbol set data for {}", set_ref);
                 let data = self.s3_client.get(&self.bucket, &storage_ptr).await?;
@@ -170,6 +174,8 @@ where
             // We last tried to get the symbol set more than a day ago, so we should try again
             metrics::counter!(SYMBOL_SET_FETCH_RETRY).increment(1);
         }
+
+        metrics::counter!(SYMBOL_SET_DB_MISSES).increment(1);
 
         match self.inner.fetch(team_id, r).await {
             // NOTE: We don't save the data here, because we want to save it only after parsing

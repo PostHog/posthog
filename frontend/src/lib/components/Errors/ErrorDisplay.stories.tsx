@@ -82,15 +82,13 @@ function errorProperties(properties: Record<string, any>): EventType['properties
             customer: 'the-customer',
             instance: 'https://app.posthog.com',
         },
-        $exception_message: 'ResizeObserver loop limit exceeded',
-        $exception_type: 'Error',
         $exception_fingerprint: 'Error',
         $exception_personURL: 'https://app.posthog.com/person/the-person-id',
         $sentry_event_id: 'id-from-the-sentry-integration',
         $sentry_exception: {
             values: [
                 {
-                    value: 'ResizeObserver loop limit exceeded',
+                    value: "DB::Exception: There was an error on [localhost:9000]: Code: 701. DB::Exception: Requested cluster 'posthog_single_shard' not found. (CLUSTER_DOESNT_EXIST) (version 23.11.2.11 (official build)). Stack trace: 0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x000000000c4fd597 in /usr/bin/clickhouse 1. DB::DDLQueryStatusSource::generate() @ 0x00000000113205f8 in /usr/bin/clickhouse 2. DB::ISource::tryGenerate() @ 0x0000000012290275 in /usr/bin/clickhouse 3. DB::ISource::work() @ 0x000000001228fcc3 in /usr/bin/clickhouse 4. DB::ExecutionThreadContext::executeTask() @ 0x00000000122a78ba in /usr/bin/clickhouse 5. DB::PipelineExecutor::executeStepImpl(unsigned long, std::atomic<bool>*) @ 0x000000001229e5d0 in /usr/bin/clickhouse 6. DB::PipelineExecutor::execute(unsigned long, bool) @ 0x000000001229d860 in /usr/bin/clickhouse 7. void std::__function::__policy_invoker<void ()>::__call_impl<std::__function::__default_alloc_func<ThreadFromGlobalPoolImpl<true>::ThreadFromGlobalPoolImpl<DB::PullingAsyncPipelineExecutor::pull(DB::Chunk&, unsigned long)::$_0>(DB::PullingAsyncPipelineExecutor::pull(DB::Chunk&, unsigned long)::$_0&&)::'lambda'(), void ()>>(std::__function::__policy_storage const*) @ 0x00000000122ab1cf in /usr/bin/clickhouse 8. void* std::__thread_proxy[abi:v15000]<std::tuple<std::unique_ptr<std::__thread_struct, std::default_delete<std::__thread_struct>>, void ThreadPoolImpl<std::thread>::scheduleImpl<void>(std::function<void ()>, Priority, std::optional<unsigned long>, bool)::'lambda0'()>>(void*) @ 0x000000000c5e45d3 in /usr/bin/clickhouse 9. ? @ 0x00007429a8071609 in ? 10. ? @ 0x00007429a7f96133 in ?",
                     type: 'Error',
                     mechanism: {
                         type: 'onerror',
@@ -135,42 +133,37 @@ function errorProperties(properties: Record<string, any>): EventType['properties
         $lib_version__major: 1,
         $lib_version__minor: 63,
         $lib_version__patch: 3,
+        $exception_list: [
+            {
+                value: 'ResizeObserver loop limit exceeded',
+                type: 'Error',
+            },
+        ],
         ...properties,
     }
 }
 
-export function ResizeObserverLoopLimitExceeded(): JSX.Element {
+export function StacktracelessSafariScriptError(): JSX.Element {
     return (
         <ErrorDisplay
             eventProperties={errorProperties({
-                $exception_message: 'ResizeObserver loop limit exceeded',
-                $exception_type: 'Error',
-                $exception_personURL: 'https://app.posthog.com/person/the-person-id',
+                $exception_list: [{ type: 'ScriptError', value: 'Script error.', mechanism: { synthetic: true } }],
             })}
         />
     )
 }
 
-export function SafariScriptError(): JSX.Element {
+export function StacktracelessImportModuleError(): JSX.Element {
     return (
         <ErrorDisplay
             eventProperties={errorProperties({
-                $exception_type: 'Error',
-                $exception_message: 'Script error.',
-                $exception_is_synthetic: true,
-            })}
-        />
-    )
-}
-
-export function ImportingModule(): JSX.Element {
-    return (
-        <ErrorDisplay
-            eventProperties={errorProperties({
-                $exception_type: 'UnhandledRejection',
-                $exception_message: "Importing module '/static/chunk-PIJHGO7Q.js' is not found.",
-                $exception_list: [],
-                $exception_handled: false,
+                $exception_list: [
+                    {
+                        type: 'UnhandledRejection',
+                        value: "Importing module '/static/chunk-PIJHGO7Q.js' is not found.",
+                        mechanism: { handled: true },
+                    },
+                ],
             })}
         />
     )
@@ -207,8 +200,6 @@ export function ChainedErrorStack(): JSX.Element {
     return (
         <ErrorDisplay
             eventProperties={errorProperties({
-                $exception_type: 'ZeroDivisionError',
-                $exception_message: 'division by zero',
                 $exception_list: [
                     {
                         module: null,
@@ -285,21 +276,6 @@ export function StackTraceWithLineContext(): JSX.Element {
     )
 }
 
-export function Stacktraceless(): JSX.Element {
-    return (
-        <ErrorDisplay
-            eventProperties={errorProperties({
-                $exception_list: [
-                    {
-                        type: 'Error',
-                        value: 'wat123',
-                    },
-                ],
-            })}
-        />
-    )
-}
-
 export function WithCymbalErrors(): JSX.Element {
     return (
         <ErrorDisplay
@@ -311,6 +287,23 @@ export function WithCymbalErrors(): JSX.Element {
                     },
                 ],
                 $cymbal_errors: ['This is an ingestion error', 'This is a second one'],
+            })}
+        />
+    )
+}
+
+export function SentryStackTrace(): JSX.Element {
+    return <ErrorDisplay eventProperties={errorProperties({ $exception_list: [] })} />
+}
+
+export function LegacyEventProperties(): JSX.Element {
+    return (
+        <ErrorDisplay
+            eventProperties={errorProperties({
+                $exception_message: 'ResizeObserver loop limit exceeded',
+                $exception_type: 'Error',
+                $exception_personURL: 'https://app.posthog.com/person/the-person-id',
+                $exception_synthetic: true,
             })}
         />
     )

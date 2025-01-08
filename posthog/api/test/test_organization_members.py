@@ -118,6 +118,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                     "email": user.email,
                     "is_email_verified": None,
                     "hedgehog_config": None,
+                    "role_at_organization": None,
                 },
                 "level": OrganizationMembership.Level.ADMIN.value,
             },

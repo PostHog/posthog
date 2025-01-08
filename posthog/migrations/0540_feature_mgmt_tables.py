@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0537_data_color_themes"),
+        ("posthog", "0539_user_role_at_organization"),
     ]
 
     operations = [

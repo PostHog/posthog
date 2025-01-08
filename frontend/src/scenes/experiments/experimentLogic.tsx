@@ -191,6 +191,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentGoal: true,
         updateExperimentCollectionGoal: true,
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
+        setExperimentStatsVersion: (version: number) => ({ version }),
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
@@ -694,6 +695,12 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: async ({ startDate }) => {
             actions.updateExperiment({ start_date: startDate })
             values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
+        },
+        setExperimentStatsVersion: async ({ version }, breakpoint) => {
+            actions.updateExperiment({ stats_config: { version } })
+            await breakpoint(100)
+            actions.loadMetricResults(true)
+            actions.loadSecondaryMetricResults(true)
         },
         endExperiment: async () => {
             const endDate = dayjs()
@@ -1384,8 +1391,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         credibleIntervalForVariant: [
-            () => [],
-            () =>
+            (s) => [s.experimentStatsVersion],
+            (experimentStatsVersion) =>
                 (
                     metricResult:
                         | Partial<ExperimentResults['result']>
@@ -1421,13 +1428,25 @@ export const experimentLogic = kea<experimentLogicType>([
                     const controlVariant = (metricResult.variants as TrendExperimentVariant[]).find(
                         ({ key }) => key === 'control'
                     ) as TrendExperimentVariant
+                    const variant = (metricResult.variants as TrendExperimentVariant[]).find(
+                        ({ key }) => key === variantKey
+                    ) as TrendExperimentVariant
 
                     const controlMean = controlVariant.count / controlVariant.absolute_exposure
 
+                    const meanLowerBound =
+                        experimentStatsVersion === 2
+                            ? credibleInterval[0] / variant.absolute_exposure
+                            : credibleInterval[0]
+                    const meanUpperBound =
+                        experimentStatsVersion === 2
+                            ? credibleInterval[1] / variant.absolute_exposure
+                            : credibleInterval[1]
+
                     // Calculate the percentage difference between the credible interval bounds of the variant and the control's mean.
                     // This represents the range in which the true percentage change relative to the control is likely to fall.
-                    const lowerBound = ((credibleInterval[0] - controlMean) / controlMean) * 100
-                    const upperBound = ((credibleInterval[1] - controlMean) / controlMean) * 100
+                    const lowerBound = ((meanLowerBound - controlMean) / controlMean) * 100
+                    const upperBound = ((meanUpperBound - controlMean) / controlMean) * 100
                     return [lowerBound, upperBound]
                 },
         ],
@@ -1749,6 +1768,12 @@ export const experimentLogic = kea<experimentLogicType>([
                     (filters?.events && filters.events.length > 0) ||
                     (filters?.data_warehouse && filters.data_warehouse.length > 0)
                 )
+            },
+        ],
+        experimentStatsVersion: [
+            (s) => [s.experiment],
+            (experiment: Experiment): number => {
+                return experiment.stats_config?.version || 1
             },
         ],
     }),
