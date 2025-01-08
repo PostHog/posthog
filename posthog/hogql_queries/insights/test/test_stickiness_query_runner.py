@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.action.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -34,6 +35,7 @@ from posthog.schema import (
     StickinessQuery,
     StickinessQueryResponse,
     CompareFilter,
+    StickinessActorsQuery,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import APIBaseTest, _create_event, _create_person, ClickhouseTestMixin
@@ -196,7 +198,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-    def _run_query(
+    def _get_query(
         self,
         series: Optional[list[EventsNode | ActionsNode]] = None,
         date_from: Optional[str] = None,
@@ -206,7 +208,6 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         properties: Optional[StickinessProperties] = None,
         filters: Optional[StickinessFilter] = None,
         filter_test_accounts: Optional[bool] = False,
-        limit_context: Optional[LimitContext] = None,
         compare_filters: Optional[CompareFilter] = None,
     ):
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
@@ -224,6 +225,10 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             compareFilter=compare_filters,
             filterTestAccounts=filter_test_accounts,
         )
+        return query
+
+    def _run_query(self, limit_context: Optional[LimitContext] = None, **kwargs):
+        query = self._get_query(**kwargs)
         return StickinessQueryRunner(team=self.team, query=query, limit_context=limit_context).calculate()
 
     def test_stickiness_runs(self):
@@ -432,6 +437,15 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
         assert result["days"] == [1, 2, 3, 4, 5]
         assert result["data"] == [0, 0, 1, 0, 1]
+
+        # Test Actors
+        query = self._get_query(interval=IntervalType.DAY, intervalCount=2)
+        runner = get_query_runner(query=StickinessActorsQuery(source=query, day=1, operator="exact"), team=self.team)
+        actors = runner.calculate()
+        assert 0 == len(actors.results)
+        runner = get_query_runner(query=StickinessActorsQuery(source=query, day=3, operator="gte"), team=self.team)
+        actors = runner.calculate()
+        assert 2 == len(actors.results)
 
     def test_interval_week(self):
         self._create_test_events()

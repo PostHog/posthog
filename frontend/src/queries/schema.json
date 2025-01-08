@@ -212,6 +212,9 @@
                             "$ref": "#/definitions/FunnelCorrelationActorsQuery"
                         },
                         {
+                            "$ref": "#/definitions/StickinessActorsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         }
                     ]
@@ -7702,6 +7705,9 @@
                         },
                         {
                             "$ref": "#/definitions/FunnelCorrelationActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/StickinessActorsQuery"
                         }
                     ]
                 }
@@ -12178,6 +12184,73 @@
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
+        },
+        "StickinessActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/BreakdownValueInt"
+                        },
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                },
+                "compare": {
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
+                "day": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/Day"
+                        }
+                    ]
+                },
+                "includeRecordings": {
+                    "type": "boolean"
+                },
+                "interval": {
+                    "description": "An interval selected out of available intervals in source query.",
+                    "type": "integer"
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "operator": {
+                    "$ref": "#/definitions/StickinessOperator"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "series": {
+                    "type": "integer"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightQuerySource"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
         },
         "StickinessFilter": {
             "additionalProperties": false,
