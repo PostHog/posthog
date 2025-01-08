@@ -807,7 +807,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
-            insights = feature_flag.usage_dashboard.insights.all()
+            assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+            insights = feature_flag.usage_dashboard.insights
             total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
             self.assertEqual(
                 total_volume_insight.description,
@@ -943,7 +944,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         feature_flag = FeatureFlag.objects.get(id=flag_id)
-        insights = feature_flag.usage_dashboard.insights.all()
+        assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+        insights = feature_flag.usage_dashboard.insights
         total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
         self.assertEqual(
             total_volume_insight.description,
@@ -978,7 +980,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
-            insights = feature_flag.usage_dashboard.insights.all()
+            assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+            insights = feature_flag.usage_dashboard.insights
             total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
             self.assertEqual(
                 total_volume_insight.description,
@@ -1029,7 +1032,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Total volume insight should not be updated because we changed its description
         # unique users insight should still be updated
         feature_flag = FeatureFlag.objects.get(id=flag_id)
-        insights = feature_flag.usage_dashboard.insights.all()
+        assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+        insights = feature_flag.usage_dashboard.insights
         self.assertIsNone(insights.filter(name="Feature Flag Called Total Volume").first())
         total_volume_insight = insights.get(name="This is a changed description")
         self.assertEqual(
@@ -1065,7 +1069,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
-            insights = feature_flag.usage_dashboard.insights.all()
+            assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+            insights = feature_flag.usage_dashboard.insights
             total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
             self.assertEqual(
                 total_volume_insight.description,
@@ -1118,7 +1123,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Total volume insight should not be updated because we changed its description
         # unique users insight should still be updated
         feature_flag = FeatureFlag.objects.get(id=flag_id)
-        insights = feature_flag.usage_dashboard.insights.all()
+        assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+        insights = feature_flag.usage_dashboard.insights
         total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
         self.assertEqual(
             total_volume_insight.description,
@@ -1153,7 +1159,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
-            insights = feature_flag.usage_dashboard.insights.all()
+            assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+            insights = feature_flag.usage_dashboard.insights
             total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
             self.assertEqual(
                 total_volume_insight.description,
@@ -1205,7 +1212,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Total volume insight should not be updated because we changed its description
         # unique users insight should still be updated
         feature_flag = FeatureFlag.objects.get(id=flag_id)
-        insights = feature_flag.usage_dashboard.insights.all()
+        assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+        insights = feature_flag.usage_dashboard.insights
         total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
         self.assertEqual(
             total_volume_insight.description,
