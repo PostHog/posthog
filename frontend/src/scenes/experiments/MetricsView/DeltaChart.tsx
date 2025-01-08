@@ -606,14 +606,17 @@ export function DeltaChart({
                                             <span className="font-semibold">
                                                 {(() => {
                                                     try {
-                                                        const detail = JSON.parse(error.detail)
-                                                        return Object.values(detail).filter((v) => v === false).length
+                                                        return Object.values(error.detail).filter((v) => v === false)
+                                                            .length
                                                     } catch {
                                                         return '0'
                                                     }
                                                 })()}
                                             </span>
-                                            /<span className="font-semibold">4</span>
+                                            /
+                                            <span className="font-semibold">
+                                                {metricType === InsightType.TRENDS ? '5' : '4'}
+                                            </span>
                                         </LemonTag>
                                     ) : (
                                         <LemonTag size="small" type="danger" className="mr-1">
