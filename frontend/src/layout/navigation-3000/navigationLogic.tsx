@@ -39,7 +39,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { ProductKey } from '~/types'
+import { ProductKey, ReplayTabs } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
@@ -359,6 +359,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
                 const hasOnboardedFeatureFlags = currentTeam?.has_completed_onboarding_for?.[ProductKey.FEATURE_FLAGS]
+
+                const replayLandingPageFlag = featureFlags[FEATURE_FLAGS.REPLAY_LANDING_PAGE]
+                let replayLandingPage: ReplayTabs
+                switch (replayLandingPageFlag) {
+                    case 'templates':
+                        replayLandingPage = ReplayTabs.Templates
+                        break
+                    default:
+                        replayLandingPage = ReplayTabs.Home
+                        break
+                }
+
                 const sectionOne: NavbarItem[] = hasOnboardedAnyProduct
                     ? [
                           {
@@ -480,7 +492,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.Replay,
                             label: 'Session replay',
                             icon: <IconRewindPlay />,
-                            to: urls.replay(),
+                            to: urls.replay(replayLandingPage),
                         },
                         featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
                             ? {
