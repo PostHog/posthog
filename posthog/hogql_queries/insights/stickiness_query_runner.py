@@ -95,6 +95,18 @@ class StickinessQueryRunner(QueryRunner):
         value = ast.Constant(value=self.query.stickinessFilter.stickinessCriteria.value)
         return parse_expr(f"""count() {get_count_operator(operator)} {{value}}""", {"value": value})
 
+    def date_to_start_of_interval_hogql(self, date: ast.Expr) -> ast.Call:
+        return ast.Call(
+            name="toStartOfInterval",
+            args=[
+                date,
+                ast.Call(
+                    name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
+                    args=[ast.Constant(value=self.query.intervalCount or 1)],
+                ),
+            ],
+        )
+
     def _events_query(self, series_with_extra: SeriesWithExtras) -> ast.SelectQuery:
         inner_query = parse_select(
             """
@@ -109,9 +121,7 @@ class StickinessQueryRunner(QueryRunner):
         """,
             {
                 "aggregation": self._aggregation_expressions(series_with_extra.series),
-                "start_of_interval": self.query_date_range.date_to_start_of_interval_hogql(
-                    ast.Field(chain=["e", "timestamp"])
-                ),
+                "start_of_interval": self.date_to_start_of_interval_hogql(ast.Field(chain=["e", "timestamp"])),
                 "sample": self._sample_value(),
                 "where_clause": self.where_clause(series_with_extra),
                 "having_clause": self._having_clause(),
@@ -169,7 +179,7 @@ class StickinessQueryRunner(QueryRunner):
                         SELECT sum(num_actors) as num_actors, num_intervals
                         FROM (
                             SELECT 0 as num_actors, (number + 1) as num_intervals
-                            FROM numbers(dateDiff({interval}, {date_from_start_of_interval}, {date_to_start_of_interval} + {interval_addition}))
+                            FROM numbers(ceil(dateDiff({interval}, {date_from_start_of_interval}, {date_to_start_of_interval} + {interval_addition}) / {intervalCount}))
                             UNION ALL
                             {events_query}
                         )
@@ -181,6 +191,7 @@ class StickinessQueryRunner(QueryRunner):
                     **date_range.to_placeholders(),
                     "interval_addition": interval_addition,
                     "events_query": self._events_query(series),
+                    "intervalCount": ast.Constant(value=self.query.intervalCount or 1),
                 },
             )
 

@@ -746,6 +746,7 @@ class ErrorTrackingIssue(BaseModel):
     )
     assignee: Optional[float] = None
     description: Optional[str] = None
+    earliest: str
     first_seen: AwareDatetime
     id: str
     last_seen: AwareDatetime

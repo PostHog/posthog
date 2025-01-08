@@ -2,7 +2,7 @@ use health::{HealthHandle, HealthRegistry};
 use quick_cache::sync::Cache;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use time::Duration;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::{
     config::Config,
@@ -72,6 +72,10 @@ impl AppContext {
             let mut tx = self.pool.begin().await?;
 
             for update in updates {
+                if update.team_id() == 2 {
+                    debug!("issued update {:?}", update)
+                }
+
                 match update.issue(&mut *tx).await {
                     Ok(_) => {}
                     Err(sqlx::Error::Database(e)) if e.constraint().is_some() => {

@@ -63,7 +63,6 @@ class InsightActorsQueryRunner(QueryRunner):
             return paths_runner.to_actors_query()
         elif isinstance(self.source_runner, StickinessQueryRunner):
             stickiness_runner = cast(StickinessQueryRunner, self.source_runner)
-            # might have to isinstance this
             stickiness_actors_query = cast(StickinessActorsQuery, self.query)
             return stickiness_runner.to_actors_query(
                 interval_num=int(stickiness_actors_query.day) if stickiness_actors_query.day is not None else None,
