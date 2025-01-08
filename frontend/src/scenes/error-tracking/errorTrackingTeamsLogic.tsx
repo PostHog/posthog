@@ -1,4 +1,4 @@
-import { kea, path } from 'kea'
+import { actions, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { ErrorTrackingTeam } from 'lib/components/Errors/types'
@@ -7,6 +7,10 @@ import type { errorTrackingTeamsLogicType } from './errorTrackingTeamsLogicType'
 
 export const errorTrackingTeamsLogic = kea<errorTrackingTeamsLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingTeamsLogic']),
+
+    actions({
+        ensureAllTeamsLoaded: true,
+    }),
 
     loaders(({ values }) => ({
         teams: [
@@ -23,5 +27,16 @@ export const errorTrackingTeamsLogic = kea<errorTrackingTeamsLogicType>([
                 },
             },
         ],
+    })),
+
+    listeners(({ values, actions }) => ({
+        ensureAllTeamsLoaded: async () => {
+            if (values.teamsLoading) {
+                return
+            }
+            if (values.teams.length === 0) {
+                actions.loadTeams()
+            }
+        },
     })),
 ])
