@@ -168,7 +168,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
         ],
         isSearchShown: [
-            false,
+            true,
             {
                 setIsSearchShown: (_, { isSearchShown }) => isSearchShown,
             },
