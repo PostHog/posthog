@@ -128,6 +128,7 @@ class PropertyDefinition(UUIDModel):
     def __str__(self) -> str:
         return f"{self.name} / {self.team.name}"
 
-    # This is a dynamically calculated field in api/property_definition.py. Defaults to `True` here to help serializers.
-    def is_seen_on_filtered_events(self) -> None:
+    # This is a dynamically calculated field in api/property_definition.py.
+    @property
+    def is_seen_on_filtered_events(self) -> None | bool:
         return None
