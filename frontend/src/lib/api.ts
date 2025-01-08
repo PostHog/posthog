@@ -752,6 +752,14 @@ class ApiRequest {
         return this.errorTrackingTeams().addPathComponent(id)
     }
 
+    public errorTrackingAddTeamMember(id: ErrorTrackingTeam['id']): ApiRequest {
+        return this.errorTrackingTeam(id).addPathComponent('add')
+    }
+
+    public errorTrackingRemoveTeamMember(id: ErrorTrackingTeam['id']): ApiRequest {
+        return this.errorTrackingTeam(id).addPathComponent('remove')
+    }
+
     public errorTrackingStackFrames({
         raw_ids,
         symbol_set,
@@ -1965,6 +1973,18 @@ const api = {
 
         async deleteTeam(id: ErrorTrackingTeam['id']): Promise<void> {
             return await new ApiRequest().errorTrackingTeam(id).delete()
+        },
+
+        async createTeam(name: ErrorTrackingTeam['name']): Promise<ErrorTrackingTeam> {
+            return await new ApiRequest().errorTrackingTeams().create({ data: { name } })
+        },
+
+        async addTeamMember(id: ErrorTrackingTeam['id'], userId: UserBasicType['id']): Promise<ErrorTrackingTeam> {
+            return await new ApiRequest().errorTrackingAddTeamMember(id).create({ data: { userId } })
+        },
+
+        async removeTeamMember(id: ErrorTrackingTeam['id'], userId: UserBasicType['id']): Promise<ErrorTrackingTeam> {
+            return await new ApiRequest().errorTrackingRemoveTeamMember(id).create({ data: { userId } })
         },
     },
 

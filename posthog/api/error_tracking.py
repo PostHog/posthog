@@ -18,6 +18,7 @@ from posthog.models.error_tracking import (
     ErrorTrackingStackFrame,
     ErrorTrackingTeam,
     ErrorTrackingIssueAssignment,
+    ErrorTrackingTeamMembership,
 )
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
@@ -62,15 +63,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         if assignee:
             ErrorTrackingIssueAssignment.objects.update_or_create(
-                team_id=self.team_id,
-                issue_id=kwargs.get("pk"),
+                issue_id=self.get_object().id,
                 defaults={
                     "user_id": None if assignee["type"] == "team" else assignee["id"],
                     "error_tracking_team_id": None if assignee["type"] == "user" else assignee["id"],
                 },
             )
         else:
-            ErrorTrackingIssueAssignment.objects.filter(team_id=self.team_id, issue_id=kwargs.get("pk")).delete()
+            ErrorTrackingIssueAssignment.objects.filter(issue_id=self.get_object().id).delete()
 
         return Response({"success": True})
 
@@ -108,6 +108,12 @@ class ErrorTrackingTeamSerializer(serializers.ModelSerializer):
         model = ErrorTrackingTeam
         fields = ["id", "name", "members"]
 
+    def create(self, validated_data: dict, *args, **kwargs) -> ErrorTrackingTeam:
+        return ErrorTrackingTeam.objects.create(
+            team=self.context["get_team"](),
+            **validated_data,
+        )
+
 
 class ErrorTrackingTeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
@@ -116,6 +122,18 @@ class ErrorTrackingTeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
+
+    @action(methods=["POST"], detail=True)
+    def add(self, request, **kwargs):
+        team = self.get_object()
+        ErrorTrackingTeamMembership.objects.get_or_create(team=team, user_id=request.data["userId"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["POST"], detail=True)
+    def remove(self, request, **kwargs):
+        team = self.get_object()
+        ErrorTrackingTeamMembership.objects.filter(team=team, user_id=request.data["userId"]).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):

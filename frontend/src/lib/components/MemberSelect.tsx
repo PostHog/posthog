@@ -1,4 +1,11 @@
-import { LemonButton, LemonDropdown, LemonDropdownProps, LemonInput, ProfilePicture } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonDropdown,
+    LemonDropdownProps,
+    LemonInput,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { fullName } from 'lib/utils'
 import { useEffect, useMemo, useState } from 'react'
@@ -19,18 +26,17 @@ export type MemberSelectProps = {
 export function MemberSelect({
     defaultLabel = 'Any user',
     allowNone = true,
-    excludedMembers = [],
     value,
+    excludedMembers = [],
     onChange,
     children,
-}: MemberSelectProps): JSX.Element {
+    ...buttonProps
+}: MemberSelectProps & Pick<LemonButtonProps, 'type' | 'size'>): JSX.Element {
     const { meFirstMembers, filteredMembers, search, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
 
     const propToCompare = typeof value === 'string' ? 'uuid' : 'id'
-
-    const selectableMembers = filteredMembers.filter((member) => !excludedMembers.includes(member.user[propToCompare]))
 
     const selectedMemberAsUser = useMemo(() => {
         if (!value) {
@@ -43,6 +49,8 @@ export function MemberSelect({
         setShowPopover(false)
         onChange(value)
     }
+
+    const selectableMembers = filteredMembers.filter((m) => !excludedMembers.includes(m.user[propToCompare]))
 
     useEffect(() => {
         if (showPopover) {
@@ -109,7 +117,7 @@ export function MemberSelect({
             {children ? (
                 children(selectedMemberAsUser)
             ) : (
-                <LemonButton size="small" type="secondary">
+                <LemonButton size="small" type="secondary" {...buttonProps}>
                     {selectedMemberAsUser ? (
                         <span>
                             {fullName(selectedMemberAsUser)}

@@ -66,6 +66,11 @@ class ErrorTrackingTeamMembership(UUIDModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user"], name="unique_per_user_per_team"),
+        ]
+
 
 class ErrorTrackingIssueAssignment(UUIDModel):
     issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
