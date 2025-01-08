@@ -361,16 +361,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 const hasOnboardedFeatureFlags = currentTeam?.has_completed_onboarding_for?.[ProductKey.FEATURE_FLAGS]
 
                 const replayLandingPageFlag = featureFlags[FEATURE_FLAGS.REPLAY_LANDING_PAGE]
-                let replayLandingPage: ReplayTabs
-                switch (replayLandingPageFlag) {
-                    case 'templates':
-                        replayLandingPage = ReplayTabs.Templates
-                        break
-                    default:
-                        replayLandingPage = ReplayTabs.Home
-                        break
-                }
-
+                const replayLandingPage: ReplayTabs =
+                    replayLandingPageFlag === 'templates' ? ReplayTabs.Templates : ReplayTabs.Home
                 const sectionOne: NavbarItem[] = hasOnboardedAnyProduct
                     ? [
                           {

@@ -112,15 +112,8 @@ export type OnboardingStep = JSX.Element
 
 export const getProductUri = (productKey: ProductKey, featureFlags: FeatureFlagsSet): string => {
     const replayLandingPageFlag = featureFlags[FEATURE_FLAGS.REPLAY_LANDING_PAGE]
-    let replayLandingPage: ReplayTabs
-    switch (replayLandingPageFlag) {
-        case 'templates':
-            replayLandingPage = ReplayTabs.Templates
-            break
-        default:
-            replayLandingPage = ReplayTabs.Templates
-            break
-    }
+    const replayLandingPage: ReplayTabs = replayLandingPageFlag === 'templates' ? ReplayTabs.Templates : ReplayTabs.Home
+
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
             return urls.insightNew()

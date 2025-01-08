@@ -62,15 +62,9 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     }),
 
     selectors(() => ({
-        tabs: [
-            () => [],
-            () => {
-                return Object.values(ReplayTabs)
-            },
-        ],
         breadcrumbs: [
             (s) => [s.tab],
-            (tab): Breadcrumb[] => {
+            (tab: ReplayTabs): Breadcrumb[] => {
                 const breadcrumbs: Breadcrumb[] = []
                 if (tab !== ReplayTabs.Home) {
                     breadcrumbs.push({
@@ -89,7 +83,7 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [router.selectors.searchParams],
-            (searchParams): SidePanelSceneContext | null => {
+            (searchParams: Record<string, any>): SidePanelSceneContext | null => {
                 return searchParams.sessionRecordingId
                     ? {
                           activity_scope: ActivityScope.REPLAY,
