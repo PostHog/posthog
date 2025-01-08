@@ -239,6 +239,7 @@ export const FEATURE_FLAGS = {
     INSIGHT_COLORS: 'insight-colors', // owner @thmsobrmlr #team-product-analytics
     WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner @robbie-c #team-web-analytics
     REPLAY_FLAGS_FILTERS: 'replay-flags-filters', // owner @pauldambra #team-replay
+    REPLAY_LANDING_PAGE: 'replay-landing-page', // owner #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
