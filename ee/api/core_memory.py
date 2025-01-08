@@ -20,6 +20,7 @@ class CoreMemorySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         try:
+            validated_data["team"] = self.context["team"]
             return super().create(validated_data)
         except IntegrityError:
             raise Conflict("Core memory already exists for this environment.")
@@ -36,3 +37,8 @@ class CoreMemoryViewSet(
     scope_object = "INTERNAL"
     serializer_class = CoreMemorySerializer
     queryset = CoreMemory.objects.all()
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["team"] = self.team
+        return context
