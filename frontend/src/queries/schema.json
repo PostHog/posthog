@@ -1095,6 +1095,83 @@
                 }
             ]
         },
+        "AssistantRetentionFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "cumulative": {
+                    "description": "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.",
+                    "type": "boolean"
+                },
+                "period": {
+                    "$ref": "#/definitions/RetentionPeriod",
+                    "default": "Day",
+                    "description": "Retention period, the interval to track cohorts by."
+                },
+                "retentionReference": {
+                    "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",
+                    "enum": ["total", "previous"],
+                    "type": "string"
+                },
+                "retentionType": {
+                    "$ref": "#/definitions/RetentionType",
+                    "description": "Retention type: recurring or first time. Recurring retention counts a user as part of a cohort if they performed the cohort event during that time period, irrespective of it was their first time or not. First time retention only counts a user as part of the cohort if it was their first time performing the cohort event."
+                },
+                "returningEntity": {
+                    "$ref": "#/definitions/RetentionEntity",
+                    "description": "Retention event (event marking the user coming back)."
+                },
+                "showMean": {
+                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
+                    "type": "boolean"
+                },
+                "targetEntity": {
+                    "$ref": "#/definitions/RetentionEntity",
+                    "description": "Activation event (event putting the actor into the initial cohort)."
+                },
+                "totalIntervals": {
+                    "default": 11,
+                    "description": "How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial cohort).",
+                    "type": "integer"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantRetentionQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "RetentionQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters for all series",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "retentionFilter": {
+                    "$ref": "#/definitions/AssistantRetentionFilter",
+                    "description": "Properties specific to the retention insight"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["kind", "retentionFilter"],
+            "type": "object"
+        },
         "AssistantSetPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -5404,6 +5481,9 @@
                 "description": {
                     "type": ["string", "null"]
                 },
+                "earliest": {
+                    "type": "string"
+                },
                 "first_seen": {
                     "format": "date-time",
                     "type": "string"
@@ -5442,6 +5522,7 @@
                 "users",
                 "first_seen",
                 "last_seen",
+                "earliest",
                 "assignee",
                 "status"
             ],
@@ -11509,6 +11590,7 @@
                     "default": "Day"
                 },
                 "retentionReference": {
+                    "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",
                     "enum": ["total", "previous"],
                     "type": "string"
                 },
@@ -11542,6 +11624,7 @@
                     "$ref": "#/definitions/RetentionPeriod"
                 },
                 "retention_reference": {
+                    "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",
                     "enum": ["total", "previous"],
                     "type": "string"
                 },
@@ -12951,6 +13034,9 @@
                         },
                         {
                             "$ref": "#/definitions/AssistantFunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantRetentionQuery"
                         }
                     ]
                 },

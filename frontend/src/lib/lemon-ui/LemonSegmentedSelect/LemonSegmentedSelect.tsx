@@ -13,7 +13,9 @@ export function LemonSegmentedSelect<T extends React.Key>({
     shrinkOn,
     ...props
 }: LemonSegmentedSelectProps<T>): JSX.Element {
-    const { width = 0 } = useWindowSize()
+    const {
+        windowSize: { width = 0 },
+    } = useWindowSize()
 
     if (props.options.length >= shrinkOn || width < props.options.length * 100) {
         return <LemonSelect {...props} />

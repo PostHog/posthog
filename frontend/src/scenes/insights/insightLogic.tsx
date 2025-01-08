@@ -121,7 +121,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     if (!Object.entries(insightUpdate).length) {
                         return values.insight
                     }
-
                     const response = await insightsApi.update(values.insight.id as number, insightUpdate)
                     breakpoint()
                     const updatedInsight: QueryBasedInsightModel = {

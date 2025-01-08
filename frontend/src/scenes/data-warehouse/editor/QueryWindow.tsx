@@ -50,7 +50,7 @@ export function QueryWindow(): JSX.Element {
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto px-1">
                 <QueryTabs
                     models={allTabs}
                     onClick={selectTab}

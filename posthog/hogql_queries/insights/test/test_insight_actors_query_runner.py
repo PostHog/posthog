@@ -5,10 +5,20 @@ from freezegun import freeze_time
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team import WeekStartDay
-from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion
+from posthog.schema import (
+    HogQLQueryModifiers,
+    PersonsArgMaxVersion,
+    ActorsQuery,
+    InsightActorsQuery,
+    PersonPropertyFilter,
+    TrendsQuery,
+    DateRange,
+    EventsNode,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -214,6 +224,55 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([("org1",)], response.results)
 
+    def test_insight_persons_trends_query_with_argmaxV1_calculate_adds_event_distinct_ids(self):
+        self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        actors_query = ActorsQuery(
+            select=["properties.name"],
+            source=InsightActorsQuery(
+                day="2020-01-09",
+                source=TrendsQuery(
+                    dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-19"),
+                    series=[EventsNode(event="$pageview")],
+                    properties=[
+                        PersonPropertyFilter(type="person", key="email", value="tom@posthog.com", operator="is_not")
+                    ],
+                ),
+            ),
+        )
+        actor_query_response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        self.assertTrue("event_distinct_ids" in actor_query_response.columns)
+
+    def test_insight_persons_trends_query_with_argmaxV1_no_event_distinct(self):
+        self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        with self.capture_queries(lambda query: re.match(r"^SELECT\s+name\s+AS\s+name", query) is not None) as queries:
+            response = self.select(
+                """
+                select * from (
+                    <ActorsQuery select={['properties.name']}>
+                        <InsightActorsQuery day='2020-01-09'>
+                            <TrendsQuery
+                                dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
+                                series={[<EventsNode event='$pageview' />]}
+                                properties={[<PersonPropertyFilter type='person' key='email' value='tom@posthog.com' operator='is_not' />]}
+                            />
+                        </InsightActorsQuery>
+                    </ActorsQuery>
+                )
+                """,
+                modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V1},
+            )
+
+        self.assertEqual([("p2",)], response.results)
+        assert "in(id," in queries[0]
+        self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
+
     @snapshot_clickhouse_queries
     def test_insight_persons_trends_query_with_argmaxV1(self):
         self._create_test_events()
@@ -224,7 +283,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = self.select(
                 """
                 select * from (
-                    <ActorsQuery select={['properties.name']}>
+                    <ActorsQuery select={['properties.name', 'event_distinct_ids']}>
                         <InsightActorsQuery day='2020-01-09'>
                             <TrendsQuery
                                 dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
@@ -252,7 +311,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = self.select(
                 """
                 select * from (
-                    <ActorsQuery select={['properties.name']}>
+                    <ActorsQuery select={['properties.name', 'event_distinct_ids']}>
                         <InsightActorsQuery day='2020-01-09'>
                             <TrendsQuery
                                 dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
