@@ -267,7 +267,11 @@ export type UserTheme = 'light' | 'dark' | 'system'
 /** Full User model. */
 export interface UserType extends UserBaseType {
     date_joined: string
-    notification_settings: NotificationSettings
+    notification_settings: {
+        plugin_disabled: boolean
+        project_weekly_digest_disabled: Record<number, boolean>
+        all_weekly_digest_disabled: boolean
+    }
     events_column_config: ColumnConfig
     anonymize_data: boolean
     toolbar_mode: 'disabled' | 'toolbar'
@@ -323,6 +327,8 @@ export interface HedgehogConfig extends MinimalHedgehogConfig {
 
 export interface NotificationSettings {
     plugin_disabled: boolean
+    project_weekly_digest_disabled: Record<string, boolean>
+    all_weekly_digest_disabled: boolean
 }
 
 export interface PluginAccess {
@@ -3332,6 +3338,9 @@ export interface Experiment {
     updated_at: string | null
     holdout_id?: number | null
     holdout?: Holdout
+    stats_config?: {
+        version?: number
+    }
 }
 
 export interface FunnelExperimentVariant {
