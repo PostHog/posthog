@@ -109,6 +109,10 @@ class TeamManager(models.Manager):
         create_dashboard_from_template("DEFAULT_APP", dashboard)
         team.primary_dashboard = dashboard
 
+        from posthog.models.event_definition import EventDefinition
+
+        EventDefinition.objects.create(name="$pageview", team=team)
+
         team.save()
         return team
 
