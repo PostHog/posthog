@@ -309,7 +309,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                 current_organization_id = self.team.organization_id
             if self._is_project_view:
                 current_organization_id = self.project.organization_id
-            else:
+            elif user:
                 current_organization_id = user.current_organization_id
 
             if not current_organization_id:

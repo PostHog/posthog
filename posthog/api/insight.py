@@ -800,6 +800,10 @@ class InsightViewSet(
             ),
         )
 
+        # Add access level filtering for list actions if not sharing access token
+        if not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            queryset = self._filter_queryset_by_access_level(queryset)
+
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
