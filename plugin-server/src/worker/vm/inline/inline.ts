@@ -5,6 +5,7 @@ import { upsertInlinePlugin } from '../../../utils/db/sql'
 import { status } from '../../../utils/status'
 import { PluginInstance } from '../lazy'
 import { NoopInlinePlugin } from './noop'
+import { AICostPlugin } from './ai-cost'
 import { SEMVER_FLATTENER_CONFIG_SCHEMA, SemverFlattener } from './semver-flattener'
 import { USER_AGENT_CONFIG_SCHEMA, UserAgentPlugin } from './user-agent'
 
@@ -24,7 +25,7 @@ export interface RegisteredInlinePlugin {
     description: Readonly<InlinePluginDescription>
 }
 
-export const INLINE_PLUGIN_URLS = ['inline://noop', 'inline://semver-flattener', 'inline://user-agent'] as const
+export const INLINE_PLUGIN_URLS = ['inline://noop', 'inline://semver-flattener', 'inline://user-agent', 'inline://ai-cost'] as const
 type InlinePluginId = (typeof INLINE_PLUGIN_URLS)[number]
 
 // TODO - add all inline plugins here
@@ -82,6 +83,22 @@ export const INLINE_PLUGIN_MAP: Record<InlinePluginId, RegisteredInlinePlugin> =
                 methods: ['processEvent'],
             },
             is_stateless: false,
+            log_level: PluginLogLevel.Info,
+        },
+    },
+
+    'inline://ai-cost': {
+        constructor: (hub: Hub, config: PluginConfig) => new AICostPlugin(hub, config),
+        description: {
+            name: 'AI Observability Cost Service',
+            description: 'Add the cost of an AI Generation to an event, based on the model type and number of input/output tokens',
+            is_global: true,
+            is_preinstalled: false,
+            url: 'inline://ai-cost',
+            config_schema: {},
+            tag: 'ai-observability-cost',
+            capabilities: {},
+            is_stateless: true,
             log_level: PluginLogLevel.Info,
         },
     },
