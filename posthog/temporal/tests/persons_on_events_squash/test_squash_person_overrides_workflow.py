@@ -88,54 +88,6 @@ async def person_overrides_data(clickhouse_client):
     await clickhouse_client.execute_query("TRUNCATE TABLE person_distinct_id_overrides")
 
 
-@pytest.mark.django_db
-async def test_parse_empty_mutation_counts(clickhouse_client):
-    query = f"""
-    SELECT mutation_id, is_done
-    FROM clusterAllReplicas('posthog', 'system', mutations)
-    """
-
-    response = await clickhouse_client.read_query(query)
-    mutations_in_progress, total_mutations = parse_mutation_counts(response)
-    assert mutations_in_progress == 0
-    assert total_mutations == 0
-
-
-@pytest.mark.django_db
-async def test_create_person_distinct_id_overrides_join_table(
-    activity_environment, person_overrides_data, clickhouse_client
-):
-    """Test `person_distinct_id_overrides_join` table creation."""
-
-    inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join",
-        query_parameters={},
-    )
-    await activity_environment.run(create_table, inputs)
-    await activity_environment.run(wait_for_table, inputs)
-
-    for team_id, person_overrides in person_overrides_data.items():
-        for person_override in person_overrides:
-            query = f"""
-            SELECT
-                '{person_override.distinct_id}' AS distinct_id,
-                joinGet(
-                    '{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join',
-                    'person_id',
-                    toInt64({team_id}),
-                    '{person_override.distinct_id}'
-                ) AS person_id
-            """
-
-            response = await clickhouse_client.read_query(query)
-            ids = response.decode("utf-8").strip().split("\t")
-
-            assert ids[0] == person_override.distinct_id
-            assert UUID(ids[1]) == person_override.person_id
-
-    await activity_environment.run(drop_table, inputs)
-
-
 @pytest_asyncio.fixture
 async def older_overrides(person_overrides_data, clickhouse_client):
     """Generate extra test data that is in an older partition."""
@@ -186,6 +138,54 @@ async def newer_overrides(person_overrides_data, clickhouse_client):
     )
 
     yield newer_overrides
+
+
+@pytest.mark.django_db
+async def test_parse_empty_mutation_counts(clickhouse_client):
+    query = f"""
+    SELECT mutation_id, is_done
+    FROM clusterAllReplicas('posthog', 'system', mutations)
+    """
+
+    response = await clickhouse_client.read_query(query)
+    mutations_in_progress, total_mutations = parse_mutation_counts(response)
+    assert mutations_in_progress == 0
+    assert total_mutations == 0
+
+
+@pytest.mark.django_db
+async def test_create_person_distinct_id_overrides_join_table(
+    activity_environment, person_overrides_data, clickhouse_client
+):
+    """Test `person_distinct_id_overrides_join` table creation."""
+
+    inputs = TableActivityInputs(
+        name="person_distinct_id_overrides_join",
+        query_parameters={},
+    )
+    await activity_environment.run(create_table, inputs)
+    await activity_environment.run(wait_for_table, inputs)
+
+    for team_id, person_overrides in person_overrides_data.items():
+        for person_override in person_overrides:
+            query = f"""
+            SELECT
+                '{person_override.distinct_id}' AS distinct_id,
+                joinGet(
+                    '{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join',
+                    'person_id',
+                    toInt64({team_id}),
+                    '{person_override.distinct_id}'
+                ) AS person_id
+            """
+
+            response = await clickhouse_client.read_query(query)
+            ids = response.decode("utf-8").strip().split("\t")
+
+            assert ids[0] == person_override.distinct_id
+            assert UUID(ids[1]) == person_override.person_id
+
+    await activity_environment.run(drop_table, inputs)
 
 
 @pytest.mark.django_db
