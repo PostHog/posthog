@@ -686,9 +686,6 @@ export const experimentLogic = kea<experimentLogicType>([
             if (values.experiment?.start_date) {
                 actions.loadMetricResults(true)
                 actions.loadSecondaryMetricResults(true)
-            } else {
-                actions.loadMetricResultsSuccess([])
-                actions.loadSecondaryMetricResultsSuccess([])
             }
         },
         endExperiment: async () => {
@@ -764,6 +761,7 @@ export const experimentLogic = kea<experimentLogicType>([
         resetRunningExperiment: async () => {
             actions.updateExperiment({ start_date: null, end_date: null, archived: false })
             values.experiment && actions.reportExperimentReset(values.experiment)
+            actions.loadMetricResultsSuccess([])
             actions.loadSecondaryMetricResultsSuccess([])
         },
         updateExperimentSuccess: async ({ experiment }) => {
@@ -771,9 +769,6 @@ export const experimentLogic = kea<experimentLogicType>([
             if (experiment.start_date) {
                 actions.loadMetricResults()
                 actions.loadSecondaryMetricResults()
-            } else {
-                actions.loadMetricResultsSuccess([])
-                actions.loadSecondaryMetricResultsSuccess([])
             }
         },
         setExperiment: async ({ experiment }) => {
