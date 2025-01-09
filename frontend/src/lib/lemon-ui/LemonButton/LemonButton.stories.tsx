@@ -110,7 +110,6 @@ export const Sizes = (): JSX.Element => {
             {sizes2.map((size) => (
                 <div key={size}>
                     <h5>size={size}</h5>
-                    {/* eslint-disable-next-line posthog/warn-elements */}
                     <Button size={size} intent="outline">
                         {size}
                     </Button>

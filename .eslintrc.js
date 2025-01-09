@@ -76,6 +76,7 @@ module.exports = {
         ],
         'unused-imports/no-unused-imports': 'error',
         'no-unused-vars': 'off',
+        'react/no-unknown-property': 'off',
         '@typescript-eslint/no-unused-vars': [
             'error',
             {
@@ -136,14 +137,14 @@ module.exports = {
             'warn',
             {
                 forbid: [
-                    {
-                        element: 'Button',
-                        message: 'use <LemonButton> instead',
-                    },
-                    {
-                        element: 'Input',
-                        message: 'use <LemonInput> instead',
-                    },
+                    // {
+                    //     element: 'Button',
+                    //     message: 'use <LemonButton> instead',
+                    // },
+                    // {
+                    //     element: 'Input',
+                    //     message: 'use <LemonInput> instead',
+                    // },
                     {
                         element: 'Modal',
                         message: 'use <LemonModal> or `<LemonDialog> instead',

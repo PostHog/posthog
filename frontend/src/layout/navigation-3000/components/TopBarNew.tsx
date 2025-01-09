@@ -17,7 +17,7 @@ import {
     IconServer,
     IconShieldLock,
 } from '@posthog/icons'
-import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonSnack, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 // import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -55,11 +55,12 @@ import { globalModalsLogic } from '~/layout/GlobalModals'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/OrganizationSwitcher'
-import { ProjectName } from '~/layout/navigation/ProjectSwitcher'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '~/lib/ui/Command/Command'
 import { AvailableFeature, SidePanelTab, TeamBasicType } from '~/types'
 
 import { sidePanelStateLogic } from '../sidepanel/sidePanelStateLogic'
 import { themeLogic } from '../themeLogic'
+
 /** Sync with --breadcrumbs-height-compact. */
 export const BREADCRUMBS_HEIGHT_COMPACT = 44
 
@@ -85,6 +86,15 @@ function NavLink({
     )
 }
 
+function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
+    return (
+        <>
+            <span>{team.name}</span>
+            {team.is_demo ? <LemonSnack className="ml-2 text-xs shrink-0">Demo</LemonSnack> : null}
+        </>
+    )
+}
+
 function NavAccountItem(): JSX.Element {
     const { user } = useValues(userLogic)
     // const { closeAccountPopover } = useActions(navigationLogic)
@@ -107,7 +117,7 @@ function NavAccountItem(): JSX.Element {
     )
 }
 
-function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
+function OtherProjectButton({ team, disabled }: { team: TeamBasicType; disabled?: boolean }): JSX.Element {
     const { location } = useValues(router)
 
     const relativeOtherProjectPath = useMemo(() => {
@@ -129,22 +139,20 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
         }
 
         return urls.project(team.id, route)
-    }, [location.pathname])
+    }, [location.pathname, team.id])
 
     return (
-        // eslint-disable-next-line posthog/warn-elements
-        <Button
-            to={relativeOtherProjectPath}
-            // sideAction={{
-            //     icon: <IconGear className="text-muted-alt" />,
-            //     tooltip: `Go to ${team.name} settings`,
-            //     to: urls.project(team.id, urls.settings()),
-            // }}
-            tooltip={`Switch to project ${team.name}`}
-            tooltipPlacement="right"
+        <CommandItem
+            key={team.name}
+            value={team.name}
+            disabled={disabled}
+            asChild
+            buttonProps={{
+                to: relativeOtherProjectPath,
+            }}
         >
             <ProjectName team={team} />
-        </Button>
+        </CommandItem>
     )
 }
 
@@ -174,7 +182,6 @@ export function TopBarNew(): JSX.Element | null {
         <div className="flex justify-between items-center gap-2 px-2 py-1 token-surface-3000-tertiary">
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    {/* eslint-disable-next-line posthog/warn-elements */}
                     <Button
                         intent="muted-darker"
                         aria-label="Account"
@@ -196,10 +203,12 @@ export function TopBarNew(): JSX.Element | null {
                         <DropdownMenuLabel>Organizations</DropdownMenuLabel>
                         <DropdownMenuSub>
                             <DropdownMenuSubTrigger
-                                buttonProps={{
-                                    hasIcon: true,
-                                    iconLeft: <IconCheckCircle className="size-4" />,
-                                }}
+                                buttonProps={
+                                    {
+                                        // hasIcon: true,
+                                        // iconLeft: <IconCheckCircle className="size-4" />,
+                                    }
+                                }
                             >
                                 {currentOrganization?.name}
                                 <AccessLevelIndicator organization={currentOrganization} />
@@ -243,7 +252,7 @@ export function TopBarNew(): JSX.Element | null {
                                         </>
                                     ))}
 
-                                    {preflight?.can_create_org && (
+                                    {/* {preflight?.can_create_org && (
                                         <DropdownMenuItem
                                             buttonProps={{
                                                 hasIcon: true,
@@ -261,40 +270,114 @@ export function TopBarNew(): JSX.Element | null {
                                         >
                                             New organization
                                         </DropdownMenuItem>
-                                    )}
+                                    )} */}
                                 </DropdownMenuSubContent>
                             </DropdownMenuPortal>
                         </DropdownMenuSub>
+
+                        {preflight?.can_create_org && (
+                            <DropdownMenuItem
+                                buttonProps={{
+                                    hasIcon: true,
+                                    iconLeft: <IconPlus />,
+                                    onClick: () =>
+                                        guardAvailableFeature(
+                                            AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                            () => {
+                                                showCreateOrganizationModal()
+                                            },
+                                            {
+                                                guardOnCloud: false,
+                                            }
+                                        ),
+                                }}
+                            >
+                                New organization
+                            </DropdownMenuItem>
+                        )}
 
                         <DropdownMenuSeparator />
 
                         <DropdownMenuLabel>Projects for {currentOrganization?.name}</DropdownMenuLabel>
 
-                        <DropdownMenuGroup>
-                            {/* Current project */}
-                            <DropdownMenuItem
+                        <DropdownMenuSub>
+                            <DropdownMenuSubTrigger
                                 buttonProps={{
-                                    tooltip: 'This is your current project',
-                                    tooltipPlacement: 'right',
-                                    // TODO: Add side action to button
-                                    // sideAction: {
-                                    //     icon: <IconGear className="text-muted-alt" />,
-                                    //     tooltip: `Go to ${currentTeam.name} settings`,
-                                    //     onClick: () => {
-                                    //         push(urls.settings('project'))
-                                    //     },
-                                    // },
+                                    hasIcon: true,
+                                    iconLeft: <IconCheckCircle className="size-4" />,
                                 }}
                             >
                                 <ProjectName team={currentTeam as TeamBasicType} />
-                            </DropdownMenuItem>
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent loop>
+                                <Command loop>
+                                    <CommandInput
+                                        placeholder="Search projects..."
+                                        id="project-search"
+                                        autoFocus={true}
+                                    />
+                                    <CommandList>
+                                        <CommandEmpty>No projects found.</CommandEmpty>
+                                        <CommandGroup>
+                                            {currentOrganization.teams
+                                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                                .map((team) => (
+                                                    // <CommandItem
+                                                    //     key={team.name}
+                                                    //     value={team.name}
+                                                    //     onSelect={(value) => {
+                                                    //         const selectedTeam = currentOrganization.teams.find((t) => t.name === value)
+                                                    //         if (!selectedTeam) {
+                                                    //             return
+                                                    //         }
+                                                    //         const route = removeProjectIdIfPresent(window.location.pathname)
+                                                    //         const redirectToHomeRoutes = ['/products', '/onboarding']
+                                                    //         const shouldRedirectToHome = redirectToHomeRoutes.some((r) => route.includes(r))
+                                                    //         const path = shouldRedirectToHome ? urls.project(selectedTeam.id) : urls.project(selectedTeam.id, route)
+                                                    //         router.actions.push(path)
+                                                    //     }}
+                                                    // >
+                                                    //     <ProjectName team={team as TeamBasicType} />
+                                                    // </CommandItem>
+                                                    <OtherProjectButton
+                                                        key={team.id}
+                                                        team={team}
+                                                        disabled={team.id === currentTeam?.id}
+                                                    />
+                                                ))}
+                                        </CommandGroup>
+                                    </CommandList>
+                                </Command>
+                            </DropdownMenuSubContent>
+                        </DropdownMenuSub>
 
-                            {/* Other projects */}
-                            {currentOrganization?.teams &&
-                                currentOrganization.teams
-                                    .filter((team) => team.id !== currentTeam?.id)
-                                    .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
-                                    .map((team) => <OtherProjectButton key={team.id} team={team} />)}
+                        <DropdownMenuGroup>
+                            <div className="hidden">
+                                {/* Current project */}
+                                <DropdownMenuItem
+                                    buttonProps={{
+                                        tooltip: 'This is your current project',
+                                        tooltipPlacement: 'right',
+                                        // TODO: Add side action to button
+                                        // sideAction: {
+                                        //     icon: <IconGear className="text-muted-alt" />,
+                                        //     tooltip: `Go to ${currentTeam.name} settings`,
+                                        //     onClick: () => {
+                                        //         push(urls.settings('project'))
+                                        //     },
+                                        // },
+                                    }}
+                                >
+                                    <ProjectName team={currentTeam as TeamBasicType} />
+                                </DropdownMenuItem>
+
+                                {/* Other projects */}
+                                {/* {currentOrganization?.teams &&
+                                    currentOrganization.teams
+                                        .filter((team) => team.id !== currentTeam?.id)
+                                        .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                        .map((team) => <OtherProjectButton key={team.id} team={team} />)} */}
+                            </div>
 
                             {/* New project */}
                             <DropdownMenuItem
@@ -363,7 +446,7 @@ export function TopBarNew(): JSX.Element | null {
 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        {/* eslint-disable-next-line posthog/warn-elements */}
+                        {}
                         <Button
                             intent="muted-darker"
                             aria-label="Account"

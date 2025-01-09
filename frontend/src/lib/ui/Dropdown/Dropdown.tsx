@@ -37,14 +37,13 @@ const DropdownMenuSubTrigger = React.forwardRef<
             )}
             {...props}
         >
-            {/* eslint-disable-next-line posthog/warn-elements */}
             <Button
                 intent="muted"
                 className="w-full"
                 {...{
                     ...buttonProps,
-                    size: 'base',
                     hasIcon: true,
+                    size: 'sm',
                     iconRight: buttonProps.iconRight ? buttonProps.iconRight : <IconChevronRight />,
                 }}
             >
@@ -114,8 +113,7 @@ const DropdownMenuItem = React.forwardRef<
             asChild
             {...props}
         >
-            {/* eslint-disable-next-line posthog/warn-elements */}
-            <Button intent="muted" className="w-full" {...{ ...buttonProps, size: 'base' }}>
+            <Button intent="muted" className="w-full" {...{ ...buttonProps, size: 'sm' }}>
                 {children}
             </Button>
         </DropdownMenuPrimitive.Item>

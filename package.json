@@ -118,6 +118,7 @@
         "class-variance-authority": "^0.7.1",
         "classnames": "^2.5.1",
         "clsx": "^1.1.1",
+        "cmdk": "^1.0.4",
         "core-js": "^3.32.0",
         "cors": "^2.8.5",
         "cssnano": "^6.0.3",

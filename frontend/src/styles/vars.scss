@@ -468,6 +468,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --fill-button-muted-darker-hover: var(
         --primitive-neutral-250
     ); /* Hover state of muted fill for button on a darker background */
+
     --fill-danger: var(--primitive-red-500); /* Fill for danger */
     --fill-danger-overlay: var(--primitive-red-500); /* Overlay fill for danger */
     --fill-success: var(--primitive-green-500); /* Fill for success */
@@ -506,6 +507,10 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --content-link-primary-hover: var(--primitive-accent-secondary); /* Hover state of link color */
     --content-link-primary-active: var(--primitive-accent-secondary); /* Active state of link color */
     --focus-ring: var(--primitive-accent-secondary);
+    --button-height-xs: 26px;
+    --button-height-sm: 30px;
+    --button-height-base: 34px;
+    --button-height-lg: 46px;
     --icon-size-xs: 14px;
     --icon-size-sm: 20px;
     --icon-size-base: 24px;
@@ -524,12 +529,12 @@ $_lifecycle_dormant: map.get($colors, 'danger');
             color: var(--content-tertiary);
         }
 
-        &-border-primary {
-            border-color: var(--primitive-3000-25) !important;
-        }
-
         &-surface-primary {
             background-color: var(--primitive-white);
+        }
+
+        &-border-primary {
+            border-color: var(--primitive-3000-25) !important;
         }
 
         &-border-secondary {
@@ -555,37 +560,129 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     }
 
     .element {
-        &-dropdown-menu-label {
-            font-weight: 600;
-            line-height: 1.5rem;
-            color: var(--content-tertiary);
-            letter-spacing: 0.075em;
+        &-dropdown-menu {
+            &-label {
+                font-weight: 600;
+                line-height: 1.5rem;
+                color: var(--content-tertiary);
+                letter-spacing: 0.075em;
 
-            @apply px-2 py-1.5 text-xxs font-semibold text-uppercase;
+                @apply px-2 py-1.5 text-xxs font-semibold text-uppercase grid-cols-1;
+            }
+
+            &-separator {
+                background-color: var(--primitive-3000-25);
+
+                @apply -mx-1 my-1 h-px;
+            }
         }
 
-        &-dropdown-menu-separator {
-            background-color: var(--primitive-3000-25);
-
-            @apply -mx-1 my-1 h-px;
+        &-input {
+            background: var(--primitive-white);
+            border: 1px solid var(--primitive-neutral-200);
         }
 
         &-button {
+            --button-padding-y: 2px;
+            --button-padding-x: 2px;
+            --button-height: var(--button-height-base);
+            --button-icon-size: var(--icon-size-base);
+
+            display: grid;
+            grid-template-columns: repeat(1, minmax(0, 1fr));
             outline: none !important;
+
+            &-size-xs {
+                --button-icon-height: var(--button-height-xs);
+                --button-icon-size: var(--icon-size-xs);
+
+                height: var(--button-height);
+
+                .element-button-icon {
+                    width: var(--button-icon-size);
+                    height: var(--button-icon-size);
+                }
+            }
+
+            &-size-sm {
+                --button-icon-height: var(--button-height-sm);
+                --button-icon-size: var(--icon-size-sm);
+
+                height: var(--button-height);
+
+                .element-button-icon {
+                    width: var(--button-icon-size);
+                    height: var(--button-icon-size);
+                }
+            }
+
+            &-size-base {
+                --button-icon-height: var(--button-height-base);
+                --button-icon-size: var(--icon-size-base);
+
+                height: var(--button-height);
+
+                .element-button-icon {
+                    width: var(--button-icon-size);
+                    height: var(--button-icon-size);
+                }
+            }
+
+            &-size-lg {
+                --button-icon-height: var(--button-height-lg);
+                --button-icon-size: var(--icon-size-lg);
+
+                height: var(--button-height);
+
+                .element-button-icon {
+                    width: var(--button-icon-size);
+                    height: var(--button-icon-size);
+                }
+            }
 
             &-icon {
                 display: flex;
                 flex-shrink: 0;
                 place-items: center center;
-                width: 24px;
-                height: 24px;
+                width: var(--button-icon-height);
+                height: var(--button-icon-height);
                 transition: color 200ms ease;
 
                 svg {
                     display: flex;
                     flex-shrink: 0;
                     place-items: center center;
+                    width: var(--button-icon-size);
+                    height: var(--button-icon-size);
                     transition: color 200ms ease;
+                }
+
+                &-inside-input {
+                    svg {
+                        position: relative;
+                        top: -1px;
+                    }
+                }
+            }
+
+            &-has-icon-left {
+                grid-template-columns: var(--button-icon-size) 1fr;
+            }
+
+            &-has-icon-right {
+                grid-template-columns: 1fr var(--button-icon-size);
+            }
+
+            &-has-icon-left-and-right {
+                grid-template-columns: var(--button-icon-size) 1fr var(--button-icon-size);
+            }
+
+            &-has-icon-only {
+                width: var(--button-height);
+
+                svg {
+                    width: var(--button-icon-size);
+                    height: var(--button-icon-size);
                 }
             }
 
@@ -599,7 +696,8 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 
             &:not(:disabled):hover,
             &:not(:disabled):focus,
-            &[data-state='open'] {
+            &[data-state='open'],
+            &[data-selected='true'] {
                 color: var(--content-primary);
                 background: var(--primitive-neutral-50);
                 border: 1px solid var(--primitive-neutral-400);
@@ -613,7 +711,8 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 
             &:not(:disabled):hover,
             &:not(:disabled):focus,
-            &[data-state='open'] {
+            &[data-state='open'],
+            &[data-selected='true'] {
                 color: var(--content-primary);
                 background: var(--primitive-neutral-200);
                 border: 1px solid var(--primitive-neutral-300);
@@ -626,7 +725,8 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 
             &:not(:disabled):hover,
             &:not(:disabled):focus,
-            &[data-state='open'] {
+            &[data-state='open'],
+            &[data-selected='true'] {
                 color: var(--content-on-fill-button-muted);
                 background: var(--fill-button-muted-hover);
             }
@@ -638,7 +738,8 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 
             &:not(:disabled):hover,
             &:not(:disabled):focus,
-            &[data-state='open'] {
+            &[data-state='open'],
+            &[data-selected='true'] {
                 color: var(--content-on-fill-button-muted);
                 background: var(--fill-button-muted-darker-hover);
             }

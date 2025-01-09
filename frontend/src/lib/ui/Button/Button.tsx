@@ -4,76 +4,111 @@ import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/styles'
 import { forwardRef } from 'react'
 
-const button = cva(['element-button', 'pt-[4.5px]', 'pb-[5.5px]', 'grid', 'grid-cols-1', 'text-left', 'items-center'], {
-    variants: {
-        intent: {
-            primary: ['element-button-primary'],
-            outline: ['element-button-outline'],
-            muted: ['element-button-muted'],
-            'muted-darker': ['element-button-muted-darker'],
+export const buttonStyles = cva(
+    `
+        element-button 
+        pt-[4.5px] pb-[5.5px] 
+        text-left 
+        items-center justify-center
+        cursor-pointer
+    `,
+    {
+        variants: {
+            intent: {
+                primary: ['element-button-primary'],
+                outline: ['element-button-outline'],
+                muted: ['element-button-muted'],
+                'muted-darker': ['element-button-muted-darker'],
+            },
+            active: {
+                true: [''],
+                false: [''],
+            },
+            size: {
+                xs: ['element-button-size-xs', 'text-xs', 'px-2'],
+                sm: ['element-button-size-sm', 'text-sm', 'px-2'],
+                base: ['element-button-size-base', 'text-sm', 'px-3'],
+                lg: ['element-button-size-lg', 'text-base', 'px-3'],
+            },
+            hasIcon: {
+                true: ['gap-2'],
+                false: [''],
+            },
+            hasIconLeft: {
+                true: [''],
+                false: [''],
+            },
+            hasIconRight: {
+                true: [''],
+                false: [''],
+            },
+            hasTooltip: {
+                true: ['items-center', 'gap-2'],
+                false: [''],
+            },
+            iconOnly: {
+                true: [''],
+                false: [''],
+            },
+            disabled: {
+                true: ['pointer-events-none'],
+                false: [''],
+            },
+            insideInput: {
+                true: ['element-button-inside-input'],
+                false: [''],
+            },
         },
-        active: {
-            true: [''],
-            false: [''],
+        defaultVariants: {
+            active: false,
+            intent: 'muted',
+            size: 'base',
         },
-        size: {
-            xs: ['text-xs', 'px-2', '[&_svg]:size-[14px]', 'min-h-[26px]'],
-            sm: ['text-sm', 'px-2', '[&_svg]:size-[20px]', 'min-h-[30px]'],
-            base: ['text-sm', 'px-3', '[&_svg]:size-[24px]', 'min-h-[34px]'],
-            lg: ['text-base', 'px-3', '[&_svg]:size-[28px]', 'min-h-[46px]'],
-        },
-        hasIcon: {
-            true: ['gap-2'],
-            false: [''],
-        },
-        hasIconLeft: {
-            true: [''],
-            false: [''],
-        },
-        hasIconRight: {
-            true: [''],
-            false: [''],
-        },
-        hasTooltip: {
-            true: ['items-center', 'gap-2'],
-            false: [''],
-        },
-    },
-    defaultVariants: {
-        active: false,
-        intent: 'muted',
-        size: 'base',
-    },
-    compoundVariants: [
-        {
-            size: ['xs', 'sm'],
-            hasIcon: true,
-            className: 'xs-or-sm-has-icon px-2',
-        },
-        {
-            size: ['base', 'lg'],
-            hasIcon: true,
-            className: 'base-or-lg-has-icon px-2',
-        },
-        {
-            hasIconLeft: true,
-            hasIcon: true,
-            className: 'grid grid-cols-[24px_1fr]',
-        },
-        {
-            hasIconRight: true,
-            hasIcon: true,
-            className: 'grid grid-cols-[1fr_24px]',
-        },
-        {
-            hasIconLeft: true,
-            hasIconRight: true,
-            className: 'grid grid-cols-[24px_1fr_24px]',
-        },
-    ],
-})
+        compoundVariants: [
+            {
+                size: ['xs', 'sm'],
+                hasIcon: true,
+                className: 'px-2',
+            },
+            {
+                size: ['base', 'lg'],
+                hasIcon: true,
+                className: 'px-2',
+            },
+            {
+                hasIconLeft: true,
+                hasIcon: true,
+                className: 'element-button-has-icon-left',
+            },
+            {
+                hasIconRight: true,
+                hasIcon: true,
+                className: 'element-button-has-icon-right',
+            },
+            {
+                hasIconLeft: true,
+                hasIconRight: true,
+                className: 'element-button-has-icon-left-and-right',
+            },
+            {
+                iconOnly: true,
+                className: 'element-button-has-icon-only py-2',
+            },
+            {
+                iconOnly: true,
+                size: ['xs', 'sm'],
+                className: 'py-2',
+            },
+            {
+                iconOnly: true,
+                size: ['base', 'lg'],
+                className: 'py-3',
+            },
+        ],
+    }
+)
 
-export type ButtonVariantProps = VariantProps<typeof button> & {
+export type ButtonVariantProps = VariantProps<typeof buttonStyles> & {
     children: React.ReactNode
     className?: string
     to?: string
@@ -84,9 +119,11 @@ export type ButtonVariantProps = VariantProps<typeof button> & {
     tooltip?: TooltipProps['title']
     tooltipPlacement?: TooltipProps['placement']
     disabledReason?: string | null | false
+    iconOnly?: boolean
     iconRight?: React.ReactNode
     iconLeft?: React.ReactNode
     onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void
+    insideInput?: boolean
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonVariantProps>(
@@ -105,7 +142,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonVariantProps>(
             iconRight,
             iconLeft,
             children,
+            iconOnly,
             onClick,
+            insideInput,
             ...rest
         },
         ref
@@ -141,23 +180,41 @@ export const Button = forwardRef<HTMLButtonElement, ButtonVariantProps>(
             <ButtonComponent
                 ref={ref}
                 className={cn(
-                    button({
+                    buttonStyles({
                         intent,
                         hasIconLeft: Boolean(iconLeft),
                         hasIconRight: Boolean(iconRight),
+                        iconOnly,
+                        disabled,
+                        insideInput,
                         ...rest,
                     }),
                     className
                 )}
+                disabled={disabled}
                 {...linkDependentProps}
                 {...rest}
                 onClick={(e) => {
                     onClick && onClick(e as React.MouseEvent<HTMLButtonElement>)
                 }}
             >
-                {iconLeft && <span className="element-button-icon">{iconLeft}</span>}
-                <span className="flex-1 flex justify-between items-center gap-2">{children}</span>
-                {iconRight && <span className="element-button-icon">{iconRight}</span>}
+                {iconLeft && (
+                    <span className={cn('element-button-icon', insideInput && 'element-button-icon-inside-input')}>
+                        {iconLeft}
+                    </span>
+                )}
+                {iconOnly ? (
+                    <span className={cn('element-button-icon', insideInput && 'element-button-icon-inside-input')}>
+                        {children}
+                    </span>
+                ) : (
+                    <span className="flex-1 flex justify-between items-center gap-2">{children}</span>
+                )}
+                {iconRight && (
+                    <span className={cn('element-button-icon', insideInput && 'element-button-icon-inside-input')}>
+                        {iconRight}
+                    </span>
+                )}
             </ButtonComponent>
         )
 
