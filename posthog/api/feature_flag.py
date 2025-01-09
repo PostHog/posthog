@@ -95,8 +95,8 @@ class FeatureFlagSerializer(
     TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.HyperlinkedModelSerializer
 ):
     created_by = UserBasicSerializer(read_only=True)
-    # :TRICKY: Needed for backwards compatibility
-    filters = serializers.DictField(source="get_filters", required=False)
+
+    filters = serializers.SerializerMethodField()
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
 
@@ -155,6 +155,7 @@ class FeatureFlagSerializer(
             "user_access_level",
             "creation_context",
             "is_remote_configuration",
+            "has_encrypted_payloads",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -163,6 +164,28 @@ class FeatureFlagSerializer(
             can_user_edit_feature_flag(self.context["request"], feature_flag)
             and self.get_user_access_level(feature_flag) == "editor"
         )
+
+    def get_filters(self, feature_flag: FeatureFlag) -> dict:
+        # :TRICKY: Needed for backwards compatibility
+        filters = feature_flag.get_filters()
+        request = self.context.get("request")
+        is_personal_api_request = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+
+        # Only decode encrypted flag payloads if the request is made with a personal API key
+        if feature_flag.has_encrypted_payloads:
+            from posthog.temporal.common.codec import EncryptionCodec
+            from django.conf import settings
+
+            codec = EncryptionCodec(settings)
+
+            for key, value in filters.get("payloads", {}).items():
+                filters["payloads"][key] = (
+                    codec.decrypt(value.encode("utf-8")).decode("utf-8")
+                    if is_personal_api_request
+                    else "********* (encrypted)"
+                )
+
+        return filters
 
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
@@ -390,6 +413,9 @@ class FeatureFlagSerializer(
                 key=validated_key, team__project_id=instance.team.project_id, deleted=True
             ).delete()
         self._update_filters(validated_data)
+        # TOMORROW: Unable to update encrypted payload for some reason
+        # Are we calling something else? No filters in validated_data
+        # self._encrypt_payloads_if_needed(instance, validated_data)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
@@ -427,6 +453,25 @@ class FeatureFlagSerializer(
         active = validated_data.get("active", None)
         if active:
             validated_data["performed_rollback"] = False
+
+    def _encrypt_payloads_if_needed(self, instance: FeatureFlag, validated_data: dict):
+        if not validated_data.get("has_encrypted_payloads", False):
+            return
+
+        if "filters" not in validated_data:
+            return
+
+        if "payloads" not in validated_data["filters"]:
+            return
+
+        payloads = validated_data["filters"]["payloads"]
+        from posthog.temporal.common.codec import EncryptionCodec
+        from django.conf import settings
+
+        codec = EncryptionCodec(settings)
+
+        for key, value in payloads.items():
+            payloads[key] = codec.encrypt(value.encode("utf-8")).decode("utf-8")
 
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):

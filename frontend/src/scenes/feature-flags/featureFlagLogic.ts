@@ -277,6 +277,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
+        resetEncryptedPayload: () => ({}),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
@@ -370,6 +371,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return {
                         ...state,
                         is_remote_configuration: enabled,
+                    }
+                },
+                resetEncryptedPayload: (state) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        filters: {
+                            ...state.filters,
+                            payloads: { true: ' .' },
+                        },
+                        has_encrypted_payloads: false,
                     }
                 },
                 addVariant: (state) => {
