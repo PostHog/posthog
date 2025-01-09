@@ -829,11 +829,11 @@ class TestCSVExporter(APIBaseTest):
             "user_1": [
                 {
                     "event": "$pageview",
-                    "timestamp": datetime(2024, 3, 22, 13, 46),
+                    "timestamp": datetime(2020, 3, 22, 13, 46),
                 },
                 {
                     "event": "$pageview",
-                    "timestamp": datetime(2024, 3, 22, 13, 47),
+                    "timestamp": datetime(2020, 3, 22, 13, 47),
                 },
             ],
         }
@@ -842,7 +842,7 @@ class TestCSVExporter(APIBaseTest):
             event="$pageview",
             distinct_id="user_2",  # personless user
             person_id="d0780d6b-ccd0-44fa-a227-47efe4f3f30d",
-            timestamp=datetime(2024, 3, 22, 13, 48),
+            timestamp=datetime(2020, 3, 22, 13, 48),
             team=self.team,
         )
         flush_persons_and_events()
@@ -856,7 +856,7 @@ class TestCSVExporter(APIBaseTest):
                     "search": "",
                     "select": ["actor", "event_count"],
                     "source": {
-                        "day": "2024-03-22T00:00:00Z",
+                        "day": "2020-03-22T00:00:00Z",
                         "kind": "InsightActorsQuery",
                         "series": 0,
                         "source": {
