@@ -7,24 +7,24 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { NodeKind } from '~/queries/schema'
 
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
-import { SavedFunnelsMetricForm } from './SavedFunnelsMetricForm'
-import { savedMetricLogic } from './savedMetricLogic'
-import { SavedTrendsMetricForm } from './SavedTrendsMetricForm'
-
+import { SharedFunnelsMetricForm } from './SharedFunnelsMetricForm'
+import { sharedMetricLogic } from './sharedMetricLogic'
+import { SharedTrendsMetricForm } from './SharedTrendsMetricForm'
 export const scene: SceneExport = {
-    component: SavedMetric,
-    logic: savedMetricLogic,
+    component: SharedMetric,
+    logic: sharedMetricLogic,
     paramsToProps: ({ params: { id } }) => ({
-        savedMetricId: id === 'new' ? 'new' : parseInt(id),
+        sharedMetricId: id === 'new' ? 'new' : parseInt(id),
     }),
 }
 
-export function SavedMetric(): JSX.Element {
-    const { savedMetricId, savedMetric } = useValues(savedMetricLogic)
-    const { setSavedMetric, createSavedMetric, updateSavedMetric, deleteSavedMetric } = useActions(savedMetricLogic)
+export function SharedMetric(): JSX.Element {
+    const { sharedMetricId, sharedMetric } = useValues(sharedMetricLogic)
+    const { setSharedMetric, createSharedMetric, updateSharedMetric, deleteSharedMetric } =
+        useActions(sharedMetricLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
-    if (!savedMetric || !savedMetric.query) {
+    if (!sharedMetric || !sharedMetric.query) {
         return (
             <div className="fixed inset-0 flex justify-center items-center">
                 <Spinner className="text-5xl" />
@@ -37,19 +37,19 @@ export function SavedMetric(): JSX.Element {
             <div className="flex gap-4 mb-4">
                 <div
                     className={`flex-1 cursor-pointer p-4 rounded border ${
-                        savedMetric.query.kind === NodeKind.ExperimentTrendsQuery
+                        sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery
                             ? 'border-primary bg-primary-highlight'
                             : 'border-border'
                     }`}
                     onClick={() => {
-                        setSavedMetric({
+                        setSharedMetric({
                             query: getDefaultTrendsMetric(),
                         })
                     }}
                 >
                     <div className="font-semibold flex justify-between items-center">
                         <span>Trend</span>
-                        {savedMetric.query.kind === NodeKind.ExperimentTrendsQuery && (
+                        {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery && (
                             <IconCheckCircle fontSize={18} color="var(--primary)" />
                         )}
                     </div>
@@ -59,19 +59,19 @@ export function SavedMetric(): JSX.Element {
                 </div>
                 <div
                     className={`flex-1 cursor-pointer p-4 rounded border ${
-                        savedMetric.query.kind === NodeKind.ExperimentFunnelsQuery
+                        sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery
                             ? 'border-primary bg-primary-highlight'
                             : 'border-border'
                     }`}
                     onClick={() => {
-                        setSavedMetric({
+                        setSharedMetric({
                             query: getDefaultFunnelsMetric(),
                         })
                     }}
                 >
                     <div className="font-semibold flex justify-between items-center">
                         <span>Funnel</span>
-                        {savedMetric.query.kind === NodeKind.ExperimentFunnelsQuery && (
+                        {sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery && (
                             <IconCheckCircle fontSize={18} color="var(--primary)" />
                         )}
                     </div>
@@ -84,9 +84,9 @@ export function SavedMetric(): JSX.Element {
                 <div className="mb-4">
                     <LemonLabel>Name</LemonLabel>
                     <LemonInput
-                        value={savedMetric.name}
+                        value={sharedMetric.name}
                         onChange={(newName) => {
-                            setSavedMetric({
+                            setSharedMetric({
                                 name: newName,
                             })
                         }}
@@ -95,18 +95,18 @@ export function SavedMetric(): JSX.Element {
                 <div className="mb-4">
                     <LemonLabel>Description (optional)</LemonLabel>
                     <LemonInput
-                        value={savedMetric.description}
+                        value={sharedMetric.description}
                         onChange={(newDescription) => {
-                            setSavedMetric({
+                            setSharedMetric({
                                 description: newDescription,
                             })
                         }}
                     />
                 </div>
-                {savedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
-                    <SavedTrendsMetricForm />
+                {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
+                    <SharedTrendsMetricForm />
                 ) : (
-                    <SavedFunnelsMetricForm />
+                    <SharedFunnelsMetricForm />
                 )}
             </div>
             <div className="flex justify-between mt-4">
@@ -121,7 +121,7 @@ export function SavedMetric(): JSX.Element {
                             primaryButton: {
                                 children: 'Delete',
                                 type: 'primary',
-                                onClick: () => deleteSavedMetric(),
+                                onClick: () => deleteSharedMetric(),
                                 size: 'small',
                             },
                             secondaryButton: {
@@ -135,14 +135,14 @@ export function SavedMetric(): JSX.Element {
                     Delete
                 </LemonButton>
                 <LemonButton
-                    disabledReason={savedMetric.name ? undefined : 'You must give your metric a name'}
+                    disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
                     size="medium"
                     type="primary"
                     onClick={() => {
-                        if (savedMetricId === 'new') {
-                            createSavedMetric()
+                        if (sharedMetricId === 'new') {
+                            createSharedMetric()
                         } else {
-                            updateSavedMetric()
+                            updateSharedMetric()
                         }
                     }}
                 >

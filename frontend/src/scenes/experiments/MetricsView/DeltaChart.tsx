@@ -108,8 +108,8 @@ export function DeltaChart({
     const {
         openPrimaryMetricModal,
         openSecondaryMetricModal,
-        openPrimarySavedMetricModal,
-        openSecondarySavedMetricModal,
+        openPrimarySharedMetricModal,
+        openSecondarySharedMetricModal,
     } = useActions(experimentLogic)
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
@@ -229,11 +229,11 @@ export function DeltaChart({
                                     size="xsmall"
                                     icon={<IconPencil fontSize="12" />}
                                     onClick={() => {
-                                        if (metric.isSavedMetric) {
+                                        if (metric.isSharedMetric) {
                                             if (isSecondary) {
-                                                openSecondarySavedMetricModal(metric.savedMetricId)
+                                                openSecondarySharedMetricModal(metric.sharedMetricId)
                                             } else {
-                                                openPrimarySavedMetricModal(metric.savedMetricId)
+                                                openPrimarySharedMetricModal(metric.sharedMetricId)
                                             }
                                             return
                                         }
@@ -247,7 +247,7 @@ export function DeltaChart({
                                 <LemonTag type="muted" size="small">
                                     {metric.kind === 'ExperimentFunnelsQuery' ? 'Funnel' : 'Trend'}
                                 </LemonTag>
-                                {metric.isSavedMetric && (
+                                {metric.isSharedMetric && (
                                     <LemonTag type="option" size="small">
                                         Shared
                                     </LemonTag>
