@@ -1,4 +1,5 @@
 import {
+    IconAI,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
@@ -505,6 +506,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   }
                                 : undefined,
                         },
+                        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
+                            ? {
+                                  identifier: Scene.LLMObservability,
+                                  label: 'LLM observability',
+                                  icon: <IconAI />,
+                                  to: urls.llmObservability(),
+                                  tag: 'beta' as const,
+                              }
+                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
