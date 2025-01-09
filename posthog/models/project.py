@@ -5,11 +5,6 @@ from django.db import transaction
 from django.core.validators import MinLengthValidator
 
 from posthog.models.utils import sane_repr
-from posthog.session_recordings.models.session_recording_playlist_templates import DEFAULT_PLAYLISTS
-from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
-from .team import Team
-from .user import User
-
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -19,6 +14,8 @@ class ProjectManager(models.Manager):
     def create_with_team(
         self, *, team_fields: Optional[dict] = None, initiating_user: Optional["User"], **kwargs
     ) -> tuple["Project", "Team"]:
+        from .team import Team
+
         if team_fields is None:
             team_fields = {}
         if "name" in kwargs and "name" not in team_fields:
@@ -35,19 +32,7 @@ class ProjectManager(models.Manager):
                 **team_fields,
             )
 
-            self._create_default_playlists(team, kwargs.get("initiating_user"))
-
             return project, team
-
-    def _create_default_playlists(self, team: Team, created_by: Optional[User] = None) -> None:
-        for playlist in DEFAULT_PLAYLISTS:
-            SessionRecordingPlaylist.objects.create(
-                team=team,
-                name=playlist["name"],
-                filters=playlist["filters"],
-                description=playlist.get("description", ""),
-                created_by=created_by,
-            )
 
 
 class Project(models.Model):
