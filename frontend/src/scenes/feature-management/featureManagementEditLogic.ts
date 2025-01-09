@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, FeatureType } from '~/types'
+import { Breadcrumb, FeatureType, InsightModel } from '~/types'
 
 import type { featureManagementEditLogicType } from './featureManagementEditLogicType'
 import { featureManagementLogic } from './featureManagementLogic'
@@ -17,12 +17,22 @@ export interface FeatureLogicProps {
     id: string
 }
 
-export type NewFeatureForm = Pick<FeatureType, 'key' | 'name' | 'description'>
+export type FeatureForm = {
+    name: string
+    key: string
+    description: string
+    success_metrics: InsightModel[]
+    failure_metrics: InsightModel[]
+    exposure_metrics: InsightModel[]
+}
 
-const NEW_FEATURE: NewFeatureForm = {
+const NEW_FEATURE: FeatureForm = {
     key: '',
     name: '',
     description: '',
+    success_metrics: [],
+    failure_metrics: [],
+    exposure_metrics: [],
 }
 
 export const featureManagementEditLogic = kea<featureManagementEditLogicType>([
@@ -32,23 +42,23 @@ export const featureManagementEditLogic = kea<featureManagementEditLogicType>([
         actions: [featureManagementLogic, ['loadFeatures']],
     }),
     loaders(({ props, actions }) => ({
-        feature: {
-            saveFeature: async (updatedFeature: NewFeatureForm | FeatureType) => {
+        featureForm: {
+            saveFeature: async (updatedFeature: FeatureForm): Promise<FeatureType> => {
                 let feature
                 if (props.id === 'new') {
                     feature = await api.features.create(updatedFeature)
                 } else {
-                    feature = await api.features.update(updatedFeature as FeatureType)
+                    feature = await api.features.update(updatedFeature)
                 }
 
                 // Reset the form after creation
                 actions.resetFeature()
-                return feature
+                return updatedFeature
             },
         },
     })),
     forms(({ actions }) => ({
-        feature: {
+        featureForm: {
             defaults: { ...NEW_FEATURE },
             // sync validation, will be shown as errors in the form
             errors: ({ name }) => {
@@ -63,7 +73,7 @@ export const featureManagementEditLogic = kea<featureManagementEditLogicType>([
         },
     })),
     reducers({
-        feature: [
+        featureForm: [
             NEW_FEATURE,
             {
                 setFeatureValue: (state, { name, value }) => {
