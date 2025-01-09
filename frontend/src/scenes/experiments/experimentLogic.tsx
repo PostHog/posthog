@@ -766,11 +766,12 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && actions.reportExperimentReset(values.experiment)
             actions.loadSecondaryMetricResultsSuccess([])
         },
-        updateExperimentSuccess: async ({ experiment }) => {
+        updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
             if (experiment.start_date) {
-                actions.loadMetricResults()
-                actions.loadSecondaryMetricResults()
+                const forceRefresh = payload?.start_date !== undefined
+                actions.loadMetricResults(forceRefresh)
+                actions.loadSecondaryMetricResults(forceRefresh)
             } else {
                 actions.loadMetricResultsSuccess([])
                 actions.loadSecondaryMetricResultsSuccess([])
