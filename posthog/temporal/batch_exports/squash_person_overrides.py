@@ -5,7 +5,7 @@ import contextlib
 import json
 import typing
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import timedelta
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -98,11 +98,6 @@ MUTATIONS = {
         submit_query=SUBMIT_DELETE_PERSON_OVERRIDES,
     ),
 }
-
-
-def parse_clickhouse_timestamp(s: str, tzinfo: timezone = UTC) -> datetime:
-    """Parse a timestamp from ClickHouse."""
-    return datetime.strptime(s.strip(), "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=tzinfo)
 
 
 def parse_count(response: bytes) -> int:
