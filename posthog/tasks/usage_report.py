@@ -1045,6 +1045,14 @@ def send_all_org_usage_reports(
     skip_capture_event: bool = False,
     only_organization_id: Optional[str] = None,
 ) -> None:
+    import posthoganalytics
+    from sentry_sdk import capture_message
+
+    are_usage_reports_disabled = posthoganalytics.feature_enabled("disabled-usage-reports", "internal_billing_events")
+    if are_usage_reports_disabled:
+        capture_message(f"Usage reports are disabled for {at}")
+        return
+
     capture_event_name = capture_event_name or "organization usage report"
 
     at_date = parser.parse(at) if at else None
