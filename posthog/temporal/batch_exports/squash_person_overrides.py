@@ -232,13 +232,11 @@ class TableActivityInputs:
     Attributes:
         name: The table name which we are working with.
         exists: Whether we expect the table to exist or not.
-        dry_run: Do not run the queries when `True`.
     """
 
     name: str
     query_parameters: QueryParameters
     exists: bool = True
-    dry_run: bool = True
 
 
 @activity.defn
@@ -257,11 +255,6 @@ async def create_table(inputs: TableActivityInputs) -> None:
         password=settings.CLICKHOUSE_PASSWORD,
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
-
-    if inputs.dry_run is True:
-        activity.logger.info("This is a DRY RUN so no table will be created.")
-        activity.logger.debug("Query: %s", create_table_query)
-        return
 
     async with Heartbeater():
         async with get_client() as clickhouse_client:
@@ -286,11 +279,6 @@ async def drop_table(inputs: TableActivityInputs) -> None:
         password=settings.CLICKHOUSE_PASSWORD,
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
-
-    if inputs.dry_run is True:
-        activity.logger.info("This is a DRY RUN so no table will be dropped.")
-        activity.logger.debug("Query: %s", drop_table_query)
-        return
 
     async with Heartbeater():
         async with get_client() as clickhouse_client:
@@ -321,10 +309,6 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
 
     goal = "exist" if inputs.exists else "not exist"
     activity.logger.info("Waiting for table %s in cluster to %s", inputs.name, goal)
-
-    if inputs.dry_run is True:
-        activity.logger.info("This is a DRY RUN so nothing will be waited for.")
-        return
 
     async with get_client() as clickhouse_client:
         response = await clickhouse_client.read_query(
@@ -392,13 +376,12 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
 
 @contextlib.asynccontextmanager
 async def manage_table(
-    table_name: str, dry_run: bool, query_parameters: QueryParameters
+    table_name: str, query_parameters: QueryParameters
 ) -> collections.abc.AsyncGenerator[None, None]:
     """A context manager to create ans subsequently drop a table."""
     table_activity_inputs = TableActivityInputs(
         name=table_name,
         query_parameters=query_parameters,
-        dry_run=dry_run,
         exists=True,
     )
     await workflow.execute_activity(
@@ -452,12 +435,10 @@ class MutationActivityInputs:
     Attributes:
         name: The mutation name which we are working with.
         query_parameters: Any query parameters needed for the mutation query.
-        dry_run: Do not run the queries when True.
     """
 
     name: str
     query_parameters: QueryParameters
-    dry_run: bool = True
 
 
 @activity.defn
@@ -479,12 +460,6 @@ async def submit_mutation(inputs: MutationActivityInputs) -> str:
 
     async with get_client() as clickhouse_client:
         prepared_query = clickhouse_client.prepare_query(query, inputs.query_parameters)
-
-        if inputs.dry_run is True:
-            activity.logger.info("This is a DRY RUN so mutation %s will not be submitted.", inputs.name)
-            activity.logger.debug(prepared_query)
-
-            return prepared_query
 
         # Best cancellation scenario: It fires off before we begin a new mutation and there is nothing to cancel.
         activity.heartbeat()
@@ -515,10 +490,6 @@ async def wait_for_mutation(inputs: MutationActivityInputs) -> None:
     from django.conf import settings
 
     activity.logger.info("Waiting for mutation  %s", inputs.name)
-
-    if inputs.dry_run is True:
-        activity.logger.info("This is a DRY RUN so nothing will be waited for.")
-        return
 
     mutation = MUTATIONS[inputs.name]
     submit_query = mutation.submit_query.format(
@@ -572,13 +543,11 @@ async def wait_for_mutation(inputs: MutationActivityInputs) -> None:
 async def submit_and_wait_for_mutation(
     mutation_name: str,
     mutation_parameters: QueryParameters,
-    dry_run: bool,
 ) -> None:
     """Submit and wait for a mutation in ClickHouse."""
     mutation_activity_inputs = MutationActivityInputs(
         name=mutation_name,
         query_parameters=mutation_parameters,
-        dry_run=dry_run,
     )
     await workflow.execute_activity(
         submit_mutation,
@@ -605,11 +574,9 @@ class SquashPersonOverridesInputs:
 
     Attributes:
         delete_grace_period_seconds: Number of seconds until an override can be deleted. Defaults to 24h.
-        dry_run: If True, queries that mutate or delete data will not execute and instead will be logged.
     """
 
     delete_grace_period_seconds: int = 24 * 3600
-    dry_run: bool = True
 
 
 @workflow.defn(name="squash-person-overrides")
@@ -663,25 +630,21 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
         workflow.logger.info("Starting squash workflow")
 
         table_query_parameters = {}
-        async with manage_table("person_distinct_id_overrides_join", inputs.dry_run, table_query_parameters):
+        async with manage_table("person_distinct_id_overrides_join", table_query_parameters):
             mutation_parameters: QueryParameters = {}
             await submit_and_wait_for_mutation(
                 "update_events_with_person_overrides",
                 mutation_parameters,
-                inputs.dry_run,
             )
             workflow.logger.info("Squash finished, now deleting person overrides")
 
-            async with manage_table(
-                "person_distinct_id_overrides_join_to_delete", inputs.dry_run, table_query_parameters
-            ):
+            async with manage_table("person_distinct_id_overrides_join_to_delete", table_query_parameters):
                 delete_mutation_parameters: QueryParameters = {
                     "grace_period": inputs.delete_grace_period_seconds,
                 }
                 await submit_and_wait_for_mutation(
                     "delete_person_overrides",
                     delete_mutation_parameters,
-                    inputs.dry_run,
                 )
 
         workflow.logger.info("Squash workflow is done 🎉")
