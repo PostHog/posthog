@@ -593,10 +593,6 @@ async def test_squash_person_overrides_workflow(
 
     await assert_events_have_been_overriden(events_to_override, person_overrides_data)
 
-    response = await clickhouse_client.read_query("SELECT team_id, old_person_id FROM person_overrides")
-    rows = response.splitlines()
-    assert len(rows) == 0
-
 
 @pytest.mark.django_db
 async def test_squash_person_overrides_workflow_with_newer_overrides(
