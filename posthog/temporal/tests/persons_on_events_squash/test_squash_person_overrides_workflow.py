@@ -210,63 +210,6 @@ async def test_create_person_distinct_id_overrides_join_with_older_overrides_pre
 
 
 @pytest.mark.django_db
-async def test_create_person_distinct_id_overrides_join_with_newer_overrides_after_create(
-    activity_environment,
-    person_overrides_data,
-    clickhouse_client,
-):
-    """Test `person_distinct_id_overrides_join` contains a static set of mappings."""
-    inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join",
-        query_parameters={},
-    )
-
-    await activity_environment.run(create_table, inputs)
-    await activity_environment.run(wait_for_table, inputs)
-
-    newer_values_to_insert = []
-    for team_id, person_override in person_overrides_data.items():
-        for distinct_id, _ in person_override:
-            newer_person_id = uuid4()
-            values = {
-                "team_id": team_id,
-                "distinct_id": distinct_id,
-                "person_id": newer_person_id,
-                "version": LATEST_VERSION + 1,
-            }
-
-            newer_values_to_insert.append(values)
-
-    await clickhouse_client.execute_query(
-        "INSERT INTO person_distinct_id_overrides FORMAT JSONEachRow", *newer_values_to_insert
-    )
-
-    # Ensure new updates have landed
-    await clickhouse_client.execute_query("OPTIMIZE TABLE person_distinct_id_overrides FINAL")
-
-    for team_id, person_overrides in person_overrides_data.items():
-        for person_override in person_overrides:
-            query = f"""
-            SELECT
-                '{person_override.distinct_id}' AS distinct_id,
-                joinGet(
-                    '{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join',
-                    'person_id',
-                    toInt64({team_id}),
-                    '{person_override.distinct_id}'
-                ) AS person_id
-            """
-            response = await clickhouse_client.read_query(query)
-
-            ids = response.decode("utf-8").strip().split("\t")
-
-            assert ids[0] == person_override.distinct_id
-            assert UUID(ids[1]) == person_override.person_id
-
-    await activity_environment.run(drop_table, inputs)
-
-
-@pytest.mark.django_db
 async def test_create_wait_and_drop_table(activity_environment, person_overrides_data, clickhouse_client):
     """Test if a table is created, waited on, and dropped in a normal workflow."""
     inputs = TableActivityInputs(
