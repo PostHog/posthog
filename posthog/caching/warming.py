@@ -168,6 +168,7 @@ def schedule_warming_for_teams_task():
                 properties={
                     "count": len(insight_tuples),
                     "team_id": team.id,
+                    "organization_id": team.organization_id,
                 },
             )
 
@@ -237,6 +238,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                         "dashboard_id": dashboard_id,
                         "is_cached": is_cached,
                         "team_id": insight.team_id,
+                        "organization_id": insight.team.organization_id,
                     },
                 )
 
