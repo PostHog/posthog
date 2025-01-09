@@ -18,6 +18,7 @@ from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueAssignment,
+    ErrorTrackingTeam,
     update_error_tracking_issue_fingerprints,
     override_error_tracking_issue_fingerprint,
 )
@@ -468,7 +469,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["occurrences"], 1)
 
     @snapshot_clickhouse_queries
-    def test_assignee_groups(self):
+    def test_user_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
         self.create_events_and_issue(
             issue_id=issue_id,
@@ -479,6 +480,23 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user)
 
         results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
+        self.assertEqual([x["id"] for x in results], [issue_id])
+
+    @snapshot_clickhouse_queries
+    def test_error_tracking_team_assignee(self):
+        issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
+        self.create_events_and_issue(
+            issue_id=issue_id,
+            fingerprint="assigned_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+        )
+        flush_persons_and_events()
+        error_tracking_team = ErrorTrackingTeam.objects.create(team=self.team, name="Test Team")
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, error_tracking_team=error_tracking_team)
+
+        results = self._calculate(assignee={"type": "error_tracking_team", "id": str(error_tracking_team.id)})[
+            "results"
+        ]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
 

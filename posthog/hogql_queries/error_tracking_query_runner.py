@@ -174,7 +174,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         for result_dict in mapped_results:
             issue = issues.get(result_dict["id"])
             if issue:
-                results.append(issue | result_dict | {"id": str(result_dict["id"])})
+                results.append(result_dict | issue)
             else:
                 logger.error(
                     "error tracking issue not found",
@@ -222,7 +222,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         results = {}
         for issue in issues:
             result = {
-                "id": issue["id"],
+                "id": str(issue["id"]),
                 "name": issue["name"],
                 "status": issue["status"],
                 "description": issue["description"],
@@ -233,7 +233,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
             result["assignee"] = (
                 {
-                    "id": assignment_user_id or assignment_error_tracking_team_id,
+                    "id": assignment_user_id or str(assignment_error_tracking_team_id),
                     "type": "user" if assignment_user_id else "error_tracking_team",
                 }
                 if assignment_user_id or assignment_error_tracking_team_id
