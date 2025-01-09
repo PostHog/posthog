@@ -249,8 +249,6 @@ async def create_table(inputs: TableActivityInputs) -> None:
 
     create_table_query = TABLES[inputs.name].create_query.format(
         database=settings.CLICKHOUSE_DATABASE,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
 
@@ -273,8 +271,6 @@ async def drop_table(inputs: TableActivityInputs) -> None:
 
     drop_table_query = TABLES[inputs.name].drop_query.format(
         database=settings.CLICKHOUSE_DATABASE,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
 
