@@ -5,6 +5,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { NewFeatureForm } from 'scenes/feature-management/featureManagementEditLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
@@ -57,6 +58,7 @@ import {
     FeatureFlagAssociatedRoleType,
     FeatureFlagStatusResponse,
     FeatureFlagType,
+    FeatureType,
     Group,
     GroupListParams,
     HogFunctionIconResponse,
@@ -632,6 +634,15 @@ class ApiRequest {
         return this.annotations(teamId).addPathComponent(id)
     }
 
+    // # Feature managment
+    public features(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('features')
+    }
+
+    public feature(id: FeatureType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.features(teamId).addPathComponent(id)
+    }
+
     // # Feature flags
     public featureFlags(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('feature_flags')
@@ -1036,6 +1047,29 @@ const api = {
         },
         async update(id: number, data: any): Promise<InsightModel> {
             return await new ApiRequest().insight(id).update({ data })
+        },
+    },
+
+    features: {
+        async list(
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<CountedPaginatedResponse<FeatureType>> {
+            return await new ApiRequest().features(teamId).get()
+        },
+        async get(id: FeatureType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<FeatureType> {
+            return await new ApiRequest().feature(id, teamId).get()
+        },
+        async create(
+            feature: NewFeatureForm,
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<FeatureType> {
+            return await new ApiRequest().features(teamId).create({ data: feature })
+        },
+        async update(
+            feature: FeatureType,
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<FeatureType> {
+            return await new ApiRequest().feature(feature.id, teamId).update({ data: feature })
         },
     },
 
