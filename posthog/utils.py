@@ -357,7 +357,6 @@ def render_template(
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
         "year_in_hog_url": year_in_hog_url,
-        "event_property_definitions": CORE_FILTER_DEFINITIONS_BY_GROUP.get("event_properties", {}),
     }
 
     posthog_bootstrap: dict[str, Any] = {}
