@@ -222,29 +222,6 @@ def parse_mutation_command(mutation_query: str) -> str:
     return query_command
 
 
-@activity.defn
-async def optimize_person_distinct_id_overrides(dry_run: bool) -> None:
-    """Prepare the person_distinct_id_overrides table to be used in a squash.
-
-    This activity executes an OPTIMIZE TABLE query to ensure we assign the latest overrides for each distinct_id.
-    """
-    from django.conf import settings
-
-    optimize_query = "OPTIMIZE TABLE {database}.person_distinct_id_overrides ON CLUSTER {cluster} FINAL"
-
-    if dry_run is True:
-        activity.logger.info("This is a DRY RUN so nothing will be optimized.")
-        activity.logger.debug("Optimize query: %s", optimize_query)
-        return
-
-    async with Heartbeater():
-        async with get_client(mutations_sync=2) as clickhouse_client:
-            await clickhouse_client.execute_query(
-                optimize_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER)
-            )
-    activity.logger.info("Optimized person_distinct_id_overrides")
-
-
 QueryParameters = dict[str, typing.Any]
 
 
@@ -684,14 +661,6 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
     async def run(self, inputs: SquashPersonOverridesInputs):
         """Workflow implementation to squash person overrides into events table."""
         workflow.logger.info("Starting squash workflow")
-
-        await workflow.execute_activity(
-            optimize_person_distinct_id_overrides,
-            inputs.dry_run,
-            start_to_close_timeout=timedelta(hours=1),
-            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=20)),
-            heartbeat_timeout=timedelta(minutes=1),
-        )
 
         table_query_parameters = {}
         async with manage_table("person_distinct_id_overrides_join", inputs.dry_run, table_query_parameters):

@@ -19,7 +19,6 @@ from posthog.temporal.batch_exports.squash_person_overrides import (
     TableActivityInputs,
     create_table,
     drop_table,
-    optimize_person_distinct_id_overrides,
     parse_mutation_counts,
     submit_mutation,
     wait_for_mutation,
@@ -88,18 +87,6 @@ async def person_overrides_data(clickhouse_client):
     yield person_overrides
 
     await clickhouse_client.execute_query("TRUNCATE TABLE person_distinct_id_overrides")
-
-
-@pytest_asyncio.fixture
-async def optimized_person_overrides(activity_environment, person_overrides_data):
-    """Provide an optimized person_distinct_id_overrides table for testing.
-
-    Some activities that run in unit tests depend on the person overrides table being optimized (to remove
-    duplicates and older versions). So, this fixture runs the activity for those tests.
-    """
-    await activity_environment.run(optimize_person_distinct_id_overrides, False)
-
-    yield
 
 
 @pytest.mark.django_db
@@ -214,9 +201,6 @@ async def test_create_person_distinct_id_overrides_join_with_older_overrides_pre
 
     Since `person_distinct_id_overrides` is using a 'ReplacingMergeTree' engine, the latest version
     should be the only available in the dictionary.
-
-    This test is a bit deceptive as optimizing the table is what takes care of older overrides,
-    not the JOIN table creation process.
     """
     inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
@@ -224,7 +208,6 @@ async def test_create_person_distinct_id_overrides_join_with_older_overrides_pre
         dry_run=False,
     )
 
-    await activity_environment.run(optimize_person_distinct_id_overrides, False)
     await activity_environment.run(create_table, inputs)
     await activity_environment.run(wait_for_table, inputs)
 
@@ -428,7 +411,7 @@ async def assert_events_have_been_overriden(overriden_events, person_overrides):
 
 
 @pytest_asyncio.fixture
-async def overrides_join_table(optimized_person_overrides, activity_environment):
+async def overrides_join_table(person_overrides_data, activity_environment):
     """Create a person overrides JOIN table testing.
 
     Some activities that run in unit tests depend on the overrides JOIN table. We create the table in
@@ -562,7 +545,6 @@ async def test_update_events_with_person_overrides_mutation_with_older_overrides
     could be duplicate overrides present, either in the partition we are currently working
     with as well as older ones.
     """
-    await activity_environment.run(optimize_person_distinct_id_overrides, False)
     inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
         query_parameters={},
@@ -600,7 +582,6 @@ async def test_update_events_with_person_overrides_mutation_with_newer_overrides
     could be duplicate overrides present, either in the partition we are currently working
     with as well as newer ones.
     """
-    await activity_environment.run(optimize_person_distinct_id_overrides, False)
     inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
         query_parameters={},
@@ -623,7 +604,6 @@ async def test_update_events_with_person_overrides_mutation_with_newer_overrides
 
 async def create_overrides_join_table_helper(activity_environment) -> TableActivityInputs:
     """Helper function to create overrides join table in test functions."""
-    await activity_environment.run(optimize_person_distinct_id_overrides, False)
 
     join_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
@@ -880,7 +860,6 @@ async def test_squash_person_overrides_workflow(
         activities=[
             create_table,
             drop_table,
-            optimize_person_distinct_id_overrides,
             submit_mutation,
             wait_for_mutation,
             wait_for_table,
@@ -925,7 +904,6 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
         activities=[
             create_table,
             drop_table,
-            optimize_person_distinct_id_overrides,
             submit_mutation,
             wait_for_mutation,
             wait_for_table,
