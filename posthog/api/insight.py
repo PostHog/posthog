@@ -1103,7 +1103,12 @@ When set, the specified dashboard's filters and date range override will be appl
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
-                funnel = self.calculate_funnel(request)
+                query_method = get_query_method(request=request, team=self.team)
+                if query_method == "hogql":
+                    funnel = self.calculate_funnel_hogql(request)
+                else:
+                    funnel = self.calculate_funnel(request)
+
         except ExposedHogQLError as e:
             raise ValidationError(str(e))
 
@@ -1133,6 +1138,19 @@ When set, the specified dashboard's filters and date range override will be appl
                 "result": funnel_order_class(team=team, filter=filter).run(),
                 "timezone": team.timezone,
             }
+
+    @cached_by_filters
+    def calculate_funnel_hogql(self, request: request.Request) -> dict[str, Any]:
+        team = self.team
+        filter = Filter(request=request, team=team)
+        query = filter_to_query(filter.to_dict())
+        query_runner = get_query_runner(query, team, limit_context=None)
+
+        # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        # assert isinstance(result, schema.CachedFunnelsQueryResponse)
+
+        return {"result": result.results, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/retention
