@@ -14,8 +14,6 @@ from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
-EPOCH = datetime(1970, 1, 1, 0, 0, tzinfo=UTC)
-
 
 CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
 CREATE OR REPLACE TABLE {database}.person_distinct_id_overrides_join ON CLUSTER {cluster} (
