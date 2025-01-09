@@ -145,7 +145,7 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
 
             if poe_v1 or poe_v2:
                 # Property used directly from event (from materialized column)
-                assert "ifNull(equals(nullIf(nullIf(events.mat_pp_rgInternal, ''), 'null')" in printed_query
+                assert "ifNull(equals(nullIf(nullIf(mat_pp_rgInternal, ''), 'null')" in printed_query
             else:
                 # We get the person property value from the persons JOIN
                 assert re.search(

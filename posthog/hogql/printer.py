@@ -1316,7 +1316,7 @@ class _Printer(Visitor):
 
         # check for a materialised column
         table = field_type.table_type
-        while isinstance(table, ast.TableAliasType) or isinstance(table, ast.VirtualTableType):
+        while isinstance(table, ast.TableAliasType):
             table = table.table_type
 
         if isinstance(table, ast.TableType):
@@ -1351,8 +1351,10 @@ class _Printer(Visitor):
                         self._print_identifier(property_group_column),
                         self.context.add_value(property_name),
                     )
-        elif self.context.within_non_hogql_query and (
-            isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person"
+        elif (
+            self.context.within_non_hogql_query
+            and (isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person")
+            or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
