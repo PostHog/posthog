@@ -7,7 +7,6 @@ import typing
 import uuid
 
 import pyarrow as pa
-import structlog
 import temporalio.common
 from django.conf import settings
 
@@ -42,8 +41,7 @@ from posthog.temporal.batch_exports.utils import (
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.heartbeat import Heartbeater
-
-logger = structlog.get_logger()
+from posthog.temporal.common.logger import get_internal_logger
 
 
 class RecordBatchQueue(asyncio.Queue):
@@ -123,6 +121,7 @@ async def raise_on_task_failure(task: asyncio.Task) -> None:
         return
 
     exc = task.exception()
+    logger = get_internal_logger()
     await logger.aexception("%s task failed", task.get_name(), exc_info=exc)
     raise RecordBatchTaskError() from exc
 
@@ -187,7 +186,7 @@ class Consumer:
         self.data_interval_start = data_interval_start
         self.data_interval_end = data_interval_end
         self.writer_format = writer_format
-        self.logger = logger
+        self.logger = get_internal_logger()
 
     @property
     def rows_exported_counter(self) -> temporalio.common.MetricCounter:
@@ -435,7 +434,7 @@ async def run_consumer(
         consumer_tasks_pending.remove(task)
         consumer_tasks_done.add(task)
 
-    await logger.adebug("Starting record batch consumer")
+    await consumer.logger.adebug("Starting record batch consumer")
 
     consumer_task = consumer.create_consumer_task(
         queue=queue,
@@ -460,7 +459,7 @@ async def run_consumer(
             raise consumer_task_exception
 
     await raise_on_task_failure(producer_task)
-    await logger.adebug("Successfully finished record batch consumer")
+    await consumer.logger.adebug("Successfully finished record batch consumer")
 
     consumer.complete_heartbeat()
 
@@ -509,6 +508,7 @@ class Producer:
     def __init__(self, clickhouse_client: ClickHouseClient):
         self.clickhouse_client = clickhouse_client
         self._task: asyncio.Task | None = None
+        self.logger = get_internal_logger()
 
     @property
     def task(self) -> asyncio.Task:
@@ -650,7 +650,7 @@ class Producer:
                         await queue.put(record_batch_slice)
 
             except Exception as e:
-                await logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
+                await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
                 raise
 
 

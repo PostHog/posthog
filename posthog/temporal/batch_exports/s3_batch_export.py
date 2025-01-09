@@ -55,7 +55,10 @@ from posthog.temporal.batch_exports.temporary_file import (
 from posthog.temporal.batch_exports.utils import set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.common.logger import (
+    bind_temporal_worker_logger,
+    get_internal_logger,
+)
 
 NON_RETRYABLE_ERROR_TYPES = [
     # S3 parameter validation failed.
@@ -257,6 +260,8 @@ class S3MultiPartUpload:
         if self.endpoint_url == "":
             raise InvalidS3EndpointError("Endpoint URL is empty.")
 
+        self.logger = get_internal_logger()
+
     def to_state(self) -> S3MultiPartUploadState:
         """Produce state tuple that can be used to resume this S3MultiPartUpload."""
         # The second predicate is trivial but required by type-checking.
@@ -314,17 +319,17 @@ class S3MultiPartUpload:
 
         upload_id: str = multipart_response["UploadId"]
         self.upload_id = upload_id
-
+        await self.logger.adebug("Started multipart upload for key %s with upload id %s", self.key, upload_id)
         return upload_id
 
-    def continue_from_state(self, state: S3MultiPartUploadState):
+    async def continue_from_state(self, state: S3MultiPartUploadState):
         """Continue this S3MultiPartUpload from a previous state.
 
         This method is intended to be used with the state found in an Activity heartbeat.
         """
         self.upload_id = state.upload_id
         self.parts = state.parts
-
+        await self.logger.adebug("Resuming multipart upload for key %s with upload id %s", self.key, self.upload_id)
         return self.upload_id
 
     async def complete(self) -> str | None:
@@ -428,6 +433,10 @@ class S3MultiPartUpload:
                 except botocore.exceptions.ClientError as err:
                     error_code = err.response.get("Error", {}).get("Code", None)
                     attempt += 1
+
+                    await self.logger.ainfo(
+                        "Caught ClientError while uploading part %s: %s", next_part_number, error_code
+                    )
 
                     if error_code is not None and error_code == "RequestTimeout":
                         if attempt >= max_attempts:
@@ -569,9 +578,10 @@ class S3Consumer(Consumer):
 
         async with self.s3_upload as s3_upload:
             await self.logger.adebug(
-                "Uploading file number %s part %s containing %s records with size %s bytes",
+                "Uploading file number %s part %s with upload id %s containing %s records with size %s bytes",
                 self.file_number,
                 s3_upload.part_number + 1,
+                s3_upload.upload_id,
                 records_since_last_flush,
                 bytes_since_last_flush,
             )
@@ -581,6 +591,9 @@ class S3Consumer(Consumer):
             self.bytes_exported_counter.add(bytes_since_last_flush)
 
             if is_last:
+                await self.logger.adebug(
+                    "Completing multipart upload %s for file number %s", s3_upload.upload_id, self.file_number
+                )
                 await s3_upload.complete()
 
         if is_last:
@@ -594,6 +607,9 @@ class S3Consumer(Consumer):
 
     async def close(self):
         if self.s3_upload is not None:
+            await self.logger.adebug(
+                "Completing multipart upload %s for file number %s", self.s3_upload.upload_id, self.file_number
+            )
             await self.s3_upload.complete()
             self.heartbeat_details.mark_file_upload_as_complete()
 
@@ -614,7 +630,7 @@ async def initialize_and_resume_multipart_upload(
     s3_upload = initialize_upload(inputs, file_number)
 
     if details.upload_state:
-        s3_upload.continue_from_state(details.upload_state)
+        await s3_upload.continue_from_state(details.upload_state)
 
         if inputs.compression == "brotli":
             # Even if we receive details we cannot resume a brotli compressed upload as
