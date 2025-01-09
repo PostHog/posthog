@@ -9,6 +9,7 @@ import {
     MultipleBreakdownType,
     Node,
     NodeKind,
+    RetentionFilterLegacy,
     TrendsFilterLegacy,
 } from './schema-general'
 import { integer } from './type-utils'
@@ -405,4 +406,41 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
      * Use this field to define the aggregation by a specific group from the group mapping that the user has provided.
      */
     aggregation_group_type_index?: integer
+}
+
+export interface AssistantRetentionFilter {
+    /**
+     * Retention type: recurring or first time.
+     * Recurring retention counts a user as part of a cohort if they performed the cohort event during that time period, irrespective of it was their first time or not.
+     * First time retention only counts a user as part of the cohort if it was their first time performing the cohort event.
+     */
+    retentionType?: RetentionFilterLegacy['retention_type']
+    retentionReference?: RetentionFilterLegacy['retention_reference']
+    /**
+     * How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial cohort).
+     * @default 11
+     */
+    totalIntervals?: integer
+    /** Retention event (event marking the user coming back). */
+    returningEntity?: RetentionFilterLegacy['returning_entity']
+    /** Activation event (event putting the actor into the initial cohort). */
+    targetEntity?: RetentionFilterLegacy['target_entity']
+    /**
+     * Retention period, the interval to track cohorts by.
+     * @default Day
+     */
+    period?: RetentionFilterLegacy['period']
+    /** Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
+    showMean?: RetentionFilterLegacy['show_mean']
+    /**
+     * Whether retention should be rolling (aka unbounded, cumulative).
+     * Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.
+     */
+    cumulative?: RetentionFilterLegacy['cumulative']
+}
+
+export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
+    kind: NodeKind.RetentionQuery
+    /** Properties specific to the retention insight */
+    retentionFilter: AssistantRetentionFilter
 }

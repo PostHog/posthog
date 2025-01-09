@@ -306,6 +306,7 @@ class RedshiftConsumer(Consumer):
         self.rows_exported_counter.add(records_since_last_flush)
         self.bytes_exported_counter.add(bytes_since_last_flush)
 
+        self.heartbeat_details.records_completed += records_since_last_flush
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
@@ -352,7 +353,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
     async with (
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
-        get_client(team_id=inputs.team_id, max_block_size=10) as client,
+        get_client(team_id=inputs.team_id) as client,
     ):
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
@@ -402,10 +403,12 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
+            max_record_batch_size_bytes=1024 * 1024 * 2,  # 2MB
         )
+
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            return 0
+            return details.records_completed
 
         record_batch_schema = pa.schema(
             [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
@@ -473,7 +476,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                     redshift_client=redshift_client,
                     redshift_table=redshift_stage_table if requires_merge else redshift_table,
                 )
-                records_completed = await run_consumer(
+                await run_consumer(
                     consumer=consumer,
                     queue=queue,
                     producer_task=producer_task,
@@ -503,7 +506,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                         merge_key=merge_key,
                     )
 
-                return records_completed
+                return details.records_completed
 
 
 @workflow.defn(name="redshift-export", failure_exception_types=[workflow.NondeterminismError])

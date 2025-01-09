@@ -400,6 +400,28 @@ describe('formatBreakdownLabel()', () => {
         expect(formatBreakdownLabel('661', breakdownFilter2, undefined, formatter, 0)).toEqual('661s')
     })
 
+    it('handles large stringified numbers', () => {
+        const formatter = (_breakdown: any, v: any): any => `${v}s`
+
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: '$session_duration',
+            breakdown_type: 'session',
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter1, undefined, formatter)).toEqual('661s')
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdowns: [
+                {
+                    property: '$session_duration',
+                    type: 'session',
+                },
+            ],
+        }
+        expect(formatBreakdownLabel('987654321012345678', breakdownFilter2, undefined, formatter, 0)).toEqual(
+            '987654321012345678s'
+        )
+    })
+
     it('handles array first', () => {
         const formatter = (_: any, value: any, type: any): any => (type === 'session' ? `${value}s` : value)
 
