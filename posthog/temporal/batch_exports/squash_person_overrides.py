@@ -5,7 +5,7 @@ import contextlib
 import json
 import typing
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone, UTC
+from datetime import datetime, timedelta, timezone, UTC
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -56,8 +56,6 @@ ON CLUSTER
     {cluster}
 UPDATE
     person_id = joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id)
-IN PARTITION
-    %(partition_id)s
 WHERE
     (joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id) != defaultValueOfTypeName('UUID'))
     AND ((length(%(team_ids)s) = 0) OR (team_id IN %(team_ids)s))
@@ -634,53 +632,13 @@ class SquashPersonOverridesInputs:
 
     Attributes:
         team_ids: List of team ids to squash. If `None`, will squash all.
-        partition_ids: Partitions to squash, preferred over `last_n_months`.
-        last_n_months: Execute the squash on the last n month partitions.
-        offset: Start from offset month when generating partitions to squash with `last_n_months`
-        delete_grace_period_seconds: Number of seconds until an override can be deleted. This grace
-            period works on top of checking if the override was applied to all partitions. Defaults
-            to 24h.
+        delete_grace_period_seconds: Number of seconds until an override can be deleted. Defaults to 24h.
         dry_run: If True, queries that mutate or delete data will not execute and instead will be logged.
     """
 
     team_ids: list[int] = field(default_factory=list)
-    partition_ids: list[str] | None = None
-    last_n_months: int = 1
-    offset: int = 0
     delete_grace_period_seconds: int = 24 * 3600
     dry_run: bool = True
-
-    def iter_partition_ids(self) -> collections.abc.Iterator[str]:
-        """Iterate over configured partition ids.
-
-        If partition_ids is set, then we will just yield from that.
-        Otherwise, we compute the partition keys for the last_n_months.
-        """
-        if self.partition_ids:
-            yield from self.partition_ids
-            return
-
-        for month in self.iter_last_n_months():
-            yield month.strftime("%Y%m")
-
-    def iter_last_n_months(self) -> collections.abc.Iterator[date]:
-        """Iterate over beginning of the month dates of the last N months.
-
-        If `self.offset` is 0, then the first day of the current month will be the
-        first month yielded. Otherwise, `self.offset` will be subtracted from the
-        current month to land on the first month to yield.
-        """
-        now = date.today()
-        start_month = (now.month - self.offset) % 12
-        start_year = now.year + (now.month - self.offset) // 12
-        current_date = date(year=start_year, month=start_month, day=1)
-
-        for _ in range(0, self.last_n_months):
-            current_date = current_date.replace(day=1)
-
-            yield current_date
-
-            current_date = current_date - timedelta(days=1)
 
 
 @workflow.defn(name="squash-person-overrides")
@@ -707,7 +665,7 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
     process:
 
     1. Build a JOIN table from person_distinct_id_overrides.
-    2. For each partition issue an ALTER TABLE UPDATE. This query uses joinGet
+    2. Issue an ALTER TABLE UPDATE. This query uses joinGet
         to efficiently find the override for each (team_id, distinct_id) pair
         in the JOIN table we built in 1.
     3. Delete from person_distinct_id_overrides any overrides that were squashed
@@ -745,23 +703,20 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             "team_ids": list(inputs.team_ids),
         }
         async with manage_table("person_distinct_id_overrides_join", inputs.dry_run, table_query_parameters):
-            for partition_id in inputs.iter_partition_ids():
-                mutation_parameters: QueryParameters = {
-                    "partition_id": partition_id,
-                    "team_ids": list(inputs.team_ids),
-                }
-                await submit_and_wait_for_mutation(
-                    "update_events_with_person_overrides",
-                    mutation_parameters,
-                    inputs.dry_run,
-                )
-                workflow.logger.info("Squash finished for all requested partitions, now deleting person overrides")
+            mutation_parameters: QueryParameters = {
+                "team_ids": list(inputs.team_ids),
+            }
+            await submit_and_wait_for_mutation(
+                "update_events_with_person_overrides",
+                mutation_parameters,
+                inputs.dry_run,
+            )
+            workflow.logger.info("Squash finished, now deleting person overrides")
 
             async with manage_table(
                 "person_distinct_id_overrides_join_to_delete", inputs.dry_run, table_query_parameters
             ):
                 delete_mutation_parameters: QueryParameters = {
-                    "partition_ids": list(inputs.iter_partition_ids()),
                     "grace_period": inputs.delete_grace_period_seconds,
                 }
                 await submit_and_wait_for_mutation(
