@@ -118,9 +118,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         }
 
                         return insight
-                    } catch (e) {
-                        actions.setAccessDeniedToInsight()
-                        throw e
+                    } catch (error: any) {
+                        if (error.status === 403) {
+                            actions.setAccessDeniedToInsight()
+                        }
+                        throw error
                     }
                 },
                 updateInsight: async ({ insightUpdate, callback }, breakpoint) => {
