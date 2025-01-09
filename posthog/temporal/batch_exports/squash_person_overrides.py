@@ -92,35 +92,6 @@ AND database = '{database}'
 AND command LIKE %(query)s
 """
 
-CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN_TO_DELETE = """
-CREATE OR REPLACE TABLE {database}.person_distinct_id_overrides_join_to_delete ON CLUSTER {cluster}
-ENGINE = Join(ANY, LEFT, team_id, distinct_id) AS
-SELECT
-    team_id,
-    distinct_id,
-    sum(person_id != joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id)) AS total_not_override_person_id,
-    sum(person_id = joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id)) AS total_override_person_id
-FROM
-    {database}.sharded_events
-WHERE
-    (joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id) != defaultValueOfTypeName('UUID'))
-GROUP BY
-    team_id, distinct_id
-HAVING
-    total_not_override_person_id = 0
-    AND total_override_person_id > 0
-SETTINGS
-    max_execution_time = 0,
-    max_memory_usage = 0,
-    distributed_ddl_task_timeout = 0
-"""
-
-DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN_TO_DELETE = """
-DROP TABLE IF EXISTS {database}.person_distinct_id_overrides_join_to_delete ON CLUSTER {cluster}
-SETTINGS
-    distributed_ddl_task_timeout = 0
-"""
-
 # The two first where predicates are redundant as the join table already excludes any rows that don't match.
 # However, there is no 'joinHas', and with 'joinGet' we are forced to grab a value.
 SUBMIT_DELETE_PERSON_OVERRIDES = """
@@ -129,9 +100,7 @@ ALTER TABLE
 ON CLUSTER
     {cluster}
 DELETE WHERE
-    (joinGet('{database}.person_distinct_id_overrides_join_to_delete', 'total_not_override_person_id', team_id, distinct_id) = 0)
-    AND (joinGet('{database}.person_distinct_id_overrides_join_to_delete', 'total_override_person_id', team_id, distinct_id) > 0)
-    AND (joinGet('{database}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version)
+    joinGet('{database}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version
 SETTINGS
     max_execution_time = 0
 """
@@ -142,11 +111,6 @@ TABLES = {
         name="person_distinct_id_overrides_join",
         create_query=CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN,
         drop_query=DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN,
-    ),
-    "person_distinct_id_overrides_join_to_delete": Table(
-        name="person_distinct_id_overrides_join_to_delete",
-        create_query=CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN_TO_DELETE,
-        drop_query=DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN_TO_DELETE,
     ),
 }
 
@@ -625,11 +589,10 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             )
             workflow.logger.info("Squash finished, now deleting person overrides")
 
-            async with manage_table("person_distinct_id_overrides_join_to_delete", table_query_parameters):
-                delete_mutation_parameters: QueryParameters = {}
-                await submit_and_wait_for_mutation(
-                    "delete_person_overrides",
-                    delete_mutation_parameters,
-                )
+            delete_mutation_parameters: QueryParameters = {}
+            await submit_and_wait_for_mutation(
+                "delete_person_overrides",
+                delete_mutation_parameters,
+            )
 
         workflow.logger.info("Squash workflow is done 🎉")

@@ -421,6 +421,8 @@ async def test_delete_person_overrides_mutation(
     We insert an extra person to ensure we are not deleting persons we shouldn't
     delete.
     """
+    join_table_inputs = await create_overrides_join_table_helper(activity_environment)
+
     not_overriden_distinct_id = str(uuid4())
     not_overriden_person = {
         "team_id": 1,
@@ -433,16 +435,7 @@ async def test_delete_person_overrides_mutation(
         "INSERT INTO person_distinct_id_overrides FORMAT JSONEachRow", not_overriden_person
     )
 
-    await create_overrides_join_table_helper(activity_environment)
     await run_squash_mutation_helper(activity_environment)
-
-    delete_table_inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join_to_delete",
-        query_parameters={},
-    )
-
-    await activity_environment.run(create_table, delete_table_inputs)
-    await activity_environment.run(wait_for_table, delete_table_inputs)
 
     mutation_activity_inputs = MutationActivityInputs(
         name="delete_person_overrides",
@@ -458,9 +451,7 @@ ALTER TABLE
 ON CLUSTER
     {settings.CLICKHOUSE_CLUSTER}
 DELETE WHERE
-    (joinGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join_to_delete', 'total_not_override_person_id', team_id, distinct_id) = 0)
-    AND (joinGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join_to_delete', 'total_override_person_id', team_id, distinct_id) > 0)
-    AND (joinGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version)
+    joinGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version
 SETTINGS
     max_execution_time = 0
     """.split()
@@ -480,11 +471,6 @@ SETTINGS
     assert row[1] == not_overriden_person["distinct_id"]
     assert UUID(row[2]) == not_overriden_person["person_id"]
 
-    await activity_environment.run(drop_table, delete_table_inputs)
-    join_table_inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join",
-        query_parameters={},
-    )
     await activity_environment.run(drop_table, join_table_inputs)
 
 
