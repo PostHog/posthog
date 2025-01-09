@@ -550,6 +550,7 @@ export interface TeamType extends TeamBasicType {
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
     cookieless_server_hash_mode?: CookielessServerHashMode
+    human_friendly_comparison_periods: boolean
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
@@ -3651,6 +3652,7 @@ export enum PropertyMathType {
     Minimum = 'min',
     Maximum = 'max',
     Median = 'median',
+    P75 = 'p75',
     P90 = 'p90',
     P95 = 'p95',
     P99 = 'p99',
@@ -3661,6 +3663,7 @@ export enum CountPerActorMathType {
     Minimum = 'min_count_per_actor',
     Maximum = 'max_count_per_actor',
     Median = 'median_count_per_actor',
+    P75 = 'p75_count_per_actor',
     P90 = 'p90_count_per_actor',
     P95 = 'p95_count_per_actor',
     P99 = 'p99_count_per_actor',
