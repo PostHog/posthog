@@ -15,9 +15,9 @@ import { OnboardingStep } from '../OnboardingStep'
 import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
 
-export function InviteHelpCard({ className = '' }: { className?: string }): JSX.Element {
+export function InviteHelpCard(): JSX.Element {
     return (
-        <LemonCard className={className} hoverEffect={false}>
+        <LemonCard hoverEffect={false}>
             <h3 className="font-bold">Need help?</h3>
             <p>Invite a team member to help you get set up.</p>
             <InviteMembersButton type="secondary" />
