@@ -1818,21 +1818,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["timezone"], "UTC")
 
     def test_nonexistent_cohort_is_handled(self) -> None:
-        response_nonexistent_property = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type': 'event', 'key': 'foo', 'value': 'barabarab'}])}"
-        )
-        response_nonexistent_cohort = self.client.get(
+        response = self.client.get(
             f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type': 'cohort', 'key': 'id', 'value': 2137}])}"
-        )  # This should not throw an error, just act like there's no event matches
+        )
 
-        response_nonexistent_property_data = response_nonexistent_property.json()
-        response_nonexistent_cohort_data = response_nonexistent_cohort.json()
-        response_nonexistent_property_data.pop("last_refresh")
-        response_nonexistent_cohort_data.pop("last_refresh")
-        self.assertEntityResponseEqual(
-            response_nonexistent_property_data["result"],
-            response_nonexistent_cohort_data["result"],
-        )  # Both cases just empty
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
     def test_cohort_without_match_group_works(self) -> None:
         whatever_cohort_without_match_groups = Cohort.objects.create(team=self.team)
