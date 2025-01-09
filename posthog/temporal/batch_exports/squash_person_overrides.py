@@ -131,7 +131,6 @@ ON CLUSTER
 DELETE WHERE
     (joinGet('{database}.person_distinct_id_overrides_join_to_delete', 'total_not_override_person_id', team_id, distinct_id) = 0)
     AND (joinGet('{database}.person_distinct_id_overrides_join_to_delete', 'total_override_person_id', team_id, distinct_id) > 0)
-    AND ((now() - _timestamp) > %(grace_period)s)
     AND (joinGet('{database}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version)
 SETTINGS
     max_execution_time = 0
@@ -564,13 +563,7 @@ async def submit_and_wait_for_mutation(
 
 @dataclass
 class SquashPersonOverridesInputs:
-    """Inputs for the SquashPersonOverrides workflow.
-
-    Attributes:
-        delete_grace_period_seconds: Number of seconds until an override can be deleted. Defaults to 24h.
-    """
-
-    delete_grace_period_seconds: int = 24 * 3600
+    """Inputs for the SquashPersonOverrides workflow."""
 
 
 @workflow.defn(name="squash-person-overrides")
@@ -633,9 +626,7 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             workflow.logger.info("Squash finished, now deleting person overrides")
 
             async with manage_table("person_distinct_id_overrides_join_to_delete", table_query_parameters):
-                delete_mutation_parameters: QueryParameters = {
-                    "grace_period": inputs.delete_grace_period_seconds,
-                }
+                delete_mutation_parameters: QueryParameters = {}
                 await submit_and_wait_for_mutation(
                     "delete_person_overrides",
                     delete_mutation_parameters,

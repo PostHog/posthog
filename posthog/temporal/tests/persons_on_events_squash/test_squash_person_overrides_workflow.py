@@ -1,6 +1,6 @@
 from collections import defaultdict
 from collections.abc import Mapping
-from datetime import datetime, UTC
+from datetime import datetime
 from typing import NamedTuple, TypedDict
 from uuid import UUID, uuid4
 
@@ -446,7 +446,7 @@ async def test_delete_person_overrides_mutation(
 
     mutation_activity_inputs = MutationActivityInputs(
         name="delete_person_overrides",
-        query_parameters={"grace_period": 111111},
+        query_parameters={},
     )
     mutation_query = await activity_environment.run(submit_mutation, mutation_activity_inputs)
 
@@ -460,7 +460,6 @@ ON CLUSTER
 DELETE WHERE
     (joinGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join_to_delete', 'total_not_override_person_id', team_id, distinct_id) = 0)
     AND (joinGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join_to_delete', 'total_override_person_id', team_id, distinct_id) > 0)
-    AND ((now() - _timestamp) > 111111)
     AND (joinGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version)
 SETTINGS
     max_execution_time = 0
@@ -480,73 +479,6 @@ SETTINGS
     assert int(row[0]) == 1
     assert row[1] == not_overriden_person["distinct_id"]
     assert UUID(row[2]) == not_overriden_person["person_id"]
-
-    await activity_environment.run(drop_table, delete_table_inputs)
-    join_table_inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join",
-        query_parameters={},
-    )
-    await activity_environment.run(drop_table, join_table_inputs)
-
-
-@pytest.mark.django_db
-async def test_delete_person_overrides_mutation_within_grace_period(
-    activity_environment, events_to_override, person_overrides_data, clickhouse_client
-):
-    """Test we do not delete person overrides if they are within the grace period."""
-    now = datetime.now(tz=UTC)
-    override_timestamp = int(now.timestamp())
-    team_id, person_override = next(iter(person_overrides_data.items()))
-    distinct_id, _ = next(iter(person_override))
-
-    not_deleted_person = {
-        "team_id": team_id,
-        "distinct_id": distinct_id,
-        "person_id": str(uuid4()),
-        "version": LATEST_VERSION + 1,
-        "_timestamp": override_timestamp,
-    }
-
-    await clickhouse_client.execute_query(
-        "INSERT INTO person_distinct_id_overrides FORMAT JSONEachRow", not_deleted_person
-    )
-
-    await create_overrides_join_table_helper(activity_environment)
-    await run_squash_mutation_helper(activity_environment)
-
-    delete_table_inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join_to_delete",
-        query_parameters={},
-    )
-
-    await activity_environment.run(create_table, delete_table_inputs)
-    await activity_environment.run(wait_for_table, delete_table_inputs)
-
-    # Assume it will take less than 120 seconds to run the rest of the test.
-    # So the row we have added should not be deleted like all the others as its _timestamp
-    # was just computed from datetime.now.
-    mutation_activity_inputs = MutationActivityInputs(
-        name="delete_person_overrides",
-        query_parameters={"grace_period": 120},
-    )
-
-    await activity_environment.run(submit_mutation, mutation_activity_inputs)
-    await activity_environment.run(wait_for_mutation, mutation_activity_inputs)
-
-    response = await clickhouse_client.read_query(
-        "SELECT team_id, distinct_id, person_id, _timestamp FROM person_distinct_id_overrides"
-    )
-    rows = response.decode("utf-8").splitlines()
-
-    assert len(rows) == 1, "Only the override within grace period should be left, but more found that were not deleted"
-
-    row = rows[0].split("\t")
-    assert int(row[0]) == not_deleted_person["team_id"]
-    assert row[1] == not_deleted_person["distinct_id"]
-    assert UUID(row[2]) == UUID(not_deleted_person["person_id"])
-    _timestamp = datetime.strptime(row[3], "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
-    # _timestamp is up to second precision
-    assert _timestamp == now.replace(microsecond=0)
 
     await activity_environment.run(drop_table, delete_table_inputs)
     join_table_inputs = TableActivityInputs(
