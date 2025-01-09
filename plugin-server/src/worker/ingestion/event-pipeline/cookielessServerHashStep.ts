@@ -4,6 +4,7 @@ import * as crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { getDomain } from 'tldts'
 
+import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { CookielessServerHashMode } from '../../../types'
 import { ConcurrencyController } from '../../../utils/concurrencyController'
 import { DB } from '../../../utils/db/db'
@@ -83,7 +84,12 @@ export async function cookielessServerHashStep(
     // if the team isn't allowed to use this mode, drop the event
     const team = await runner.hub.teamManager.getTeamForEvent(event)
     if (!team?.cookieless_server_hash_mode) {
-        // TODO log
+        eventDroppedCounter
+            .labels({
+                event_type: 'analytics',
+                drop_cause: 'cookieless_disabled_team',
+            })
+            .inc()
         return [undefined]
     }
     const teamTimeZone = team.timezone
@@ -92,23 +98,43 @@ export async function cookielessServerHashStep(
 
     // drop some events that aren't valid in this mode
     if (!timestamp) {
-        // TODO log
+        eventDroppedCounter
+            .labels({
+                event_type: 'analytics',
+                drop_cause: 'cookieless_no_timestamp',
+            })
+            .inc()
         return [undefined]
     }
     const { $session_id: sessionId, $device_id: deviceId } = event.properties
     if (sessionId != null || deviceId != null) {
-        // TODO log
+        eventDroppedCounter
+            .labels({
+                event_type: 'analytics',
+                drop_cause: sessionId != null ? 'cookieless_with_session_id' : 'cookieless_with_device_id',
+            })
+            .inc()
         return [undefined]
     }
 
     if (event.event === '$alias') {
-        // TODO support these
+        eventDroppedCounter
+            .labels({
+                event_type: 'analytics',
+                drop_cause: 'cookieless_unsupported_alias',
+            })
+            .inc()
         return [undefined]
     }
 
     // if it's an identify event, it must have the sentinel distinct id
     if (event.event === '$identify' && event.properties['$anon_distinct_id'] !== COOKIELESS_SENTINEL_VALUE) {
-        // TODO log
+        eventDroppedCounter
+            .labels({
+                event_type: 'analytics',
+                drop_cause: 'cookieless_missing_sentinel',
+            })
+            .inc()
         return [undefined]
     }
 
@@ -122,7 +148,16 @@ export async function cookielessServerHashStep(
         hashExtra,
     } = getProperties(event, timestamp)
     if (!userAgent || !ip || !host) {
-        // TODO log
+        eventDroppedCounter
+            .labels({
+                event_type: 'analytics',
+                drop_cause: !userAgent
+                    ? 'cookieless_missing_ua'
+                    : !ip
+                    ? 'cookieless_missing_ip'
+                    : 'cookieless_missing_host',
+            })
+            .inc()
         return [undefined]
     }
 
@@ -132,6 +167,12 @@ export async function cookielessServerHashStep(
     ) {
         if (event.event === '$identify' || event.distinct_id !== COOKIELESS_SENTINEL_VALUE) {
             // identifies and post-identify events are not valid in the stateless mode, drop the event
+            eventDroppedCounter
+                .labels({
+                    event_type: 'analytics',
+                    drop_cause: 'cookieless_stateless_unsupported_identify',
+                })
+                .inc()
             return [undefined]
         }
 
