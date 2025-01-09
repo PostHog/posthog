@@ -684,11 +684,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             kind: NodeKind.HogQLQuery,
                             query: hogql`SELECT properties, uuid
                                          FROM events
-                                         WHERE timestamp > ${dayjs(earliestTimestamp - 1000)}
-                                           AND timestamp < ${dayjs(latestTimestamp + 1000)}
+                                        -- the timestamp range here is only to avoid querying too much of the events table
+                                        -- we don't really care about the absolute value, 
+                                        -- but we do care about whether timezones have an odd impact
+                                        -- so, we extend the range by a day on each side so that timezones don't cause issues
+                                         WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
+                                           AND timestamp < ${dayjs(latestTimestamp).add(1, 'day')}
                                            AND event in ${eventNames}
                                            AND uuid in ${eventIds}`,
                         }
+
                         const response = await api.query(query)
                         if (response.error) {
                             throw new Error(response.error)
