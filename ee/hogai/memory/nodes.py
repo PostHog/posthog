@@ -212,33 +212,37 @@ class MemoryInitializerInterruptNode(AssistantNode):
         if not core_memory:
             raise ValueError("No core memory found.")
 
-        # If the user rejects the scraped memory, terminate the onboarding.
-        if last_message.content != SCRAPING_CONFIRMATION_MESSAGE:
-            core_memory.change_status_to_skipped()
-            return PartialAssistantState(
-                messages=[
-                    AssistantMessage(
-                        content=SCRAPING_TERMINATION_MESSAGE,
-                        id=str(uuid4()),
-                    )
+        try:
+            # If the user rejects the scraped memory, terminate the onboarding.
+            if last_message.content != SCRAPING_CONFIRMATION_MESSAGE:
+                core_memory.change_status_to_skipped()
+                return PartialAssistantState(
+                    messages=[
+                        AssistantMessage(
+                            content=SCRAPING_TERMINATION_MESSAGE,
+                            id=str(uuid4()),
+                        )
+                    ]
+                )
+
+            assistant_message = find_last_message_of_type(state.messages, AssistantMessage)
+
+            if not assistant_message:
+                raise ValueError("No memory message found.")
+
+            # Compress the memory before saving it. The Perplexity's text is very verbose. It just complicates things for the memory collector.
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", COMPRESSION_PROMPT),
+                    ("human", self._format_memory(assistant_message.content)),
                 ]
             )
-
-        assistant_message = find_last_message_of_type(state.messages, AssistantMessage)
-
-        if not assistant_message:
-            raise ValueError("No memory message found.")
-
-        # Compress the memory before saving it. The Perplexity's text is very verbose. It just complicates things for the memory collector.
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", COMPRESSION_PROMPT),
-                ("human", self._format_memory(assistant_message.content)),
-            ]
-        )
-        chain = prompt | self._model | StrOutputParser() | compressed_memory_parser
-        compressed_memory = cast(str, chain.invoke({}, config=config))
-        core_memory.set_core_memory(compressed_memory)
+            chain = prompt | self._model | StrOutputParser() | compressed_memory_parser
+            compressed_memory = cast(str, chain.invoke({}, config=config))
+            core_memory.set_core_memory(compressed_memory)
+        except:
+            core_memory.change_status_to_skipped()  # Ensure we don't leave the memory in a permanent pending state
+            raise
 
         return PartialAssistantState(
             messages=[
