@@ -9,6 +9,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { isEmail, pluralize } from 'lib/utils'
 import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
+import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
+import { sdksLogic } from 'scenes/onboarding/sdks/sdksLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -221,9 +223,52 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { invitesToSend, canSubmit } = useValues(inviteLogic)
-    const { resetInviteRows, inviteTeamMembers } = useActions(inviteLogic)
+    const { message } = useValues(inviteLogic)
+    const { stepKey, productKey } = useValues(onboardingLogic)
+    const { isUserInNonTechnicalTest } = useValues(sdksLogic)
+    const { resetInviteRows, inviteTeamMembers, updateMessage } = useActions(inviteLogic)
+
+    const inviteContext = (userMessage: string): string => {
+        return [
+            userMessage,
+            '',
+            '--- Setup Context ---',
+            `This message is auto-generated. Your team needs to complete the ${stepKey} step for ${productKey}`,
+            'Please ensure the installation is completed for everything to run smoothly.',
+            '',
+        ].join('\n')
+    }
 
     const validInvitesCount = invitesToSend.filter((invite) => invite.isValid && invite.target_email).length
+
+    const getModalDescription = (): JSX.Element => {
+        if (!preflight?.email_service_available) {
+            return (
+                <p>
+                    This PostHog instance isn't configured to send emails. In the meantime, you can generate a link for
+                    each team member you want to invite. You can always invite others at a later time.{' '}
+                    <strong>Make sure you share links with the organization members you want to invite.</strong>
+                </p>
+            )
+        }
+
+        if (isUserInNonTechnicalTest) {
+            return (
+                <p>
+                    We understand that the installation process may require some technical expertise. If you need help,
+                    we recommend inviting team members who can assist with the setup. We’ll provide them with the
+                    necessary context to get everything up and running.
+                </p>
+            )
+        }
+
+        return (
+            <p>
+                Invite others to your organization to collaborate together in PostHog. An invite is specific to an email
+                address and expires after 3 days. Name can be provided for the team member's convenience.
+            </p>
+        )
+    }
 
     return (
         <div className="InviteModal">
@@ -235,21 +280,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                 }}
                 width={800}
                 title={<>Invite others to {user?.organization?.name || 'PostHog'}</>}
-                description={
-                    preflight?.email_service_available ? (
-                        <p>
-                            Invite others to your organization to collaborate together in PostHog. An invite is specific
-                            to an email address and expires after 3 days. Name can be provided for the team member's
-                            convenience.
-                        </p>
-                    ) : (
-                        <p>
-                            This PostHog instance isn't configured to send emails. In the meantime, you can generate a
-                            link for each team member you want to invite. You can always invite others at a later time.{' '}
-                            <strong>Make sure you share links with the organization members you want to invite.</strong>
-                        </p>
-                    )
-                }
+                description={getModalDescription()}
                 footer={
                     <>
                         {!preflight?.email_service_available ? (
@@ -268,7 +299,13 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                     Cancel
                                 </LemonButton>
                                 <LemonButton
-                                    onClick={() => inviteTeamMembers()}
+                                    onClick={() => {
+                                        if (isUserInNonTechnicalTest) {
+                                            const finalMessage = inviteContext(message || '')
+                                            updateMessage(finalMessage)
+                                        }
+                                        inviteTeamMembers()
+                                    }}
                                     type="primary"
                                     disabled={!canSubmit}
                                     data-attr="invite-team-member-submit"
