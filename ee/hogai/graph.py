@@ -18,6 +18,12 @@ from ee.hogai.memory.nodes import (
     MemoryInitializerNode,
     MemoryOnboardingNode,
 )
+from ee.hogai.retention.nodes import (
+    RetentionGeneratorNode,
+    RetentionGeneratorToolsNode,
+    RetentionPlannerNode,
+    RetentionPlannerToolsNode,
+)
 from ee.hogai.router.nodes import RouterNode
 from ee.hogai.summarizer.nodes import SummarizerNode
 from ee.hogai.trends.nodes import (
@@ -64,6 +70,7 @@ class AssistantGraph:
         path_map = path_map or {
             "trends": AssistantNodeName.TRENDS_PLANNER,
             "funnel": AssistantNodeName.FUNNEL_PLANNER,
+            "retention": AssistantNodeName.RETENTION_PLANNER,
         }
         router_node = RouterNode(self._team)
         builder.add_node(AssistantNodeName.ROUTER, router_node.run)
@@ -168,6 +175,53 @@ class AssistantGraph:
 
         return self
 
+    def add_retention_planner(self, next_node: AssistantNodeName = AssistantNodeName.RETENTION_GENERATOR):
+        builder = self._graph
+
+        retention_planner = RetentionPlannerNode(self._team)
+        builder.add_node(AssistantNodeName.RETENTION_PLANNER, retention_planner.run)
+        builder.add_conditional_edges(
+            AssistantNodeName.RETENTION_PLANNER,
+            retention_planner.router,
+            path_map={
+                "tools": AssistantNodeName.RETENTION_PLANNER_TOOLS,
+            },
+        )
+
+        retention_planner_tools = RetentionPlannerToolsNode(self._team)
+        builder.add_node(AssistantNodeName.RETENTION_PLANNER_TOOLS, retention_planner_tools.run)
+        builder.add_conditional_edges(
+            AssistantNodeName.RETENTION_PLANNER_TOOLS,
+            retention_planner_tools.router,
+            path_map={
+                "continue": AssistantNodeName.RETENTION_PLANNER,
+                "plan_found": next_node,
+            },
+        )
+
+        return self
+
+    def add_retention_generator(self, next_node: AssistantNodeName = AssistantNodeName.SUMMARIZER):
+        builder = self._graph
+
+        retention_generator = RetentionGeneratorNode(self._team)
+        builder.add_node(AssistantNodeName.RETENTION_GENERATOR, retention_generator.run)
+
+        retention_generator_tools = RetentionGeneratorToolsNode(self._team)
+        builder.add_node(AssistantNodeName.RETENTION_GENERATOR_TOOLS, retention_generator_tools.run)
+
+        builder.add_edge(AssistantNodeName.RETENTION_GENERATOR_TOOLS, AssistantNodeName.RETENTION_GENERATOR)
+        builder.add_conditional_edges(
+            AssistantNodeName.RETENTION_GENERATOR,
+            retention_generator.router,
+            path_map={
+                "tools": AssistantNodeName.RETENTION_GENERATOR_TOOLS,
+                "next": next_node,
+            },
+        )
+
+        return self
+
     def add_summarizer(self, next_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
         summarizer_node = SummarizerNode(self._team)
@@ -241,6 +295,8 @@ class AssistantGraph:
             .add_trends_generator()
             .add_funnel_planner()
             .add_funnel_generator()
+            .add_retention_planner()
+            .add_retention_generator()
             .add_summarizer()
             .compile()
         )

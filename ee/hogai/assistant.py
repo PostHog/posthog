@@ -10,15 +10,12 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 from ee import settings
-from ee.hogai.funnels.nodes import (
-    FunnelGeneratorNode,
-)
+from ee.hogai.funnels.nodes import FunnelGeneratorNode
 from ee.hogai.graph import AssistantGraph
 from ee.hogai.memory.nodes import MemoryInitializerNode
+from ee.hogai.retention.nodes import RetentionGeneratorNode
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
-from ee.hogai.trends.nodes import (
-    TrendsGeneratorNode,
-)
+from ee.hogai.trends.nodes import TrendsGeneratorNode
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
@@ -58,6 +55,7 @@ else:
 VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
+    AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
 }
 
 STREAMING_NODES: set[AssistantNodeName] = {
@@ -181,6 +179,8 @@ class Assistant:
                 | AssistantNodeName.TRENDS_PLANNER_TOOLS
                 | AssistantNodeName.FUNNEL_PLANNER
                 | AssistantNodeName.FUNNEL_PLANNER_TOOLS
+                | AssistantNodeName.RETENTION_PLANNER
+                | AssistantNodeName.RETENTION_PLANNER_TOOLS
             ):
                 substeps: list[str] = []
                 if input:
@@ -206,6 +206,8 @@ class Assistant:
                 return ReasoningMessage(content="Creating trends query")
             case AssistantNodeName.FUNNEL_GENERATOR:
                 return ReasoningMessage(content="Creating funnel query")
+            case AssistantNodeName.RETENTION_GENERATOR:
+                return ReasoningMessage(content="Creating retention query")
             case _:
                 return None
 
