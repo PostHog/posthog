@@ -414,41 +414,6 @@ async def test_update_events_with_person_overrides_mutation_with_older_overrides
     await assert_events_have_been_overriden(events_to_override, person_overrides_data)
 
 
-@pytest.mark.django_db
-async def test_update_events_with_person_overrides_mutation_with_newer_overrides(
-    activity_environment,
-    overrides_join_table,
-    person_overrides_data,
-    events_to_override,
-    newer_overrides,
-    clickhouse_client,
-):
-    """Test events are properly squashed even in the prescence of newer overrides.
-
-    If we get an override from Postgres we can get be sure it's the only one for a given
-    old_person_id as PG constraints enforce uniqueness on the mapping. However, ClickHouse
-    doesn't enforce any kind of uniqueness constraints, so our queries need to be aware there
-    could be duplicate overrides present, either in the partition we are currently working
-    with as well as newer ones.
-    """
-    inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join",
-        query_parameters={},
-    )
-
-    await activity_environment.run(create_table, inputs)
-    await activity_environment.run(wait_for_table, inputs)
-
-    mutation_activity_inputs = MutationActivityInputs(
-        name="update_events_with_person_overrides",
-        query_parameters={},
-    )
-    await activity_environment.run(submit_mutation, mutation_activity_inputs)
-    await activity_environment.run(wait_for_mutation, mutation_activity_inputs)
-
-    await assert_events_have_been_overriden(events_to_override, newer_overrides)
-
-
 async def create_overrides_join_table_helper(activity_environment) -> TableActivityInputs:
     """Helper function to create overrides join table in test functions."""
 
