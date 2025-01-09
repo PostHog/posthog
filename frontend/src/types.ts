@@ -550,6 +550,7 @@ export interface TeamType extends TeamBasicType {
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
     cookieless_server_hash_mode?: CookielessServerHashMode
+    human_friendly_comparison_periods: boolean
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
