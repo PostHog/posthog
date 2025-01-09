@@ -108,8 +108,8 @@ export function DeltaChart({
     const {
         openPrimaryMetricModal,
         openSecondaryMetricModal,
-        openPrimarySavedMetricModal,
-        openSecondarySavedMetricModal,
+        openPrimarySharedMetricModal,
+        openSecondarySharedMetricModal,
     } = useActions(experimentLogic)
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
@@ -229,11 +229,11 @@ export function DeltaChart({
                                     size="xsmall"
                                     icon={<IconPencil fontSize="12" />}
                                     onClick={() => {
-                                        if (metric.isSavedMetric) {
+                                        if (metric.isSharedMetric) {
                                             if (isSecondary) {
-                                                openSecondarySavedMetricModal(metric.savedMetricId)
+                                                openSecondarySharedMetricModal(metric.sharedMetricId)
                                             } else {
-                                                openPrimarySavedMetricModal(metric.savedMetricId)
+                                                openPrimarySharedMetricModal(metric.sharedMetricId)
                                             }
                                             return
                                         }
@@ -247,7 +247,7 @@ export function DeltaChart({
                                 <LemonTag type="muted" size="small">
                                     {metric.kind === 'ExperimentFunnelsQuery' ? 'Funnel' : 'Trend'}
                                 </LemonTag>
-                                {metric.isSavedMetric && (
+                                {metric.isSharedMetric && (
                                     <LemonTag type="option" size="small">
                                         Shared
                                     </LemonTag>
@@ -606,14 +606,17 @@ export function DeltaChart({
                                             <span className="font-semibold">
                                                 {(() => {
                                                     try {
-                                                        const detail = JSON.parse(error.detail)
-                                                        return Object.values(detail).filter((v) => v === false).length
+                                                        return Object.values(error.detail).filter((v) => v === false)
+                                                            .length
                                                     } catch {
                                                         return '0'
                                                     }
                                                 })()}
                                             </span>
-                                            /<span className="font-semibold">4</span>
+                                            /
+                                            <span className="font-semibold">
+                                                {metricType === InsightType.TRENDS ? '5' : '4'}
+                                            </span>
                                         </LemonTag>
                                     ) : (
                                         <LemonTag size="small" type="danger" className="mr-1">
@@ -668,7 +671,13 @@ export function DeltaChart({
                             {metricType === InsightType.TRENDS ? (
                                 <>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">Count:</span>
+                                        <span className="text-muted font-semibold">
+                                            {metricType === InsightType.TRENDS &&
+                                            result.exposure_query?.series?.[0]?.math
+                                                ? 'Total'
+                                                : 'Count'}
+                                            :
+                                        </span>
                                         <span className="font-semibold">
                                             {(() => {
                                                 const count = countDataForVariant(result, tooltipData.variant)

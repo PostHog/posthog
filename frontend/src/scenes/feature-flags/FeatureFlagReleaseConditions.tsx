@@ -41,10 +41,14 @@ export function FeatureFlagReleaseConditions({
     onChange,
     hideMatchOptions,
     nonEmptyFeatureFlagVariants,
+    showTrashIconWithOneCondition = false,
+    removedLastConditionCallback,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
     isSuper?: boolean
     excludeTitle?: boolean
+    showTrashIconWithOneCondition?: boolean
+    removedLastConditionCallback?: () => void
 }): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -137,13 +141,19 @@ export function FeatureFlagReleaseConditions({
                                     noPadding
                                     onClick={() => duplicateConditionSet(index)}
                                 />
-                                {!isEarlyAccessFeatureCondition(group) && filterGroups.length > 1 && (
-                                    <LemonButton
-                                        icon={<IconTrash />}
-                                        noPadding
-                                        onClick={() => removeConditionSet(index)}
-                                    />
-                                )}
+                                {!isEarlyAccessFeatureCondition(group) &&
+                                    (filterGroups.length > 1 || showTrashIconWithOneCondition) && (
+                                        <LemonButton
+                                            icon={<IconTrash />}
+                                            noPadding
+                                            onClick={() => {
+                                                removeConditionSet(index)
+                                                if (filterGroups.length === 1) {
+                                                    removedLastConditionCallback?.()
+                                                }
+                                            }}
+                                        />
+                                    )}
                             </div>
                         )}
                     </div>
