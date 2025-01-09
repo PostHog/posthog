@@ -44,9 +44,7 @@ from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.constants import (
     INSIGHT,
     INSIGHT_FUNNELS,
-    INSIGHT_PATHS,
     INSIGHT_STICKINESS,
-    PATHS_INCLUDE_EVENT_TYPES,
     TRENDS_STICKINESS,
     FunnelVizType,
 )
@@ -88,7 +86,6 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.alert import are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
-from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
@@ -100,7 +97,6 @@ from posthog.queries.funnels import (
     ClickhouseFunnelTrends,
 )
 from posthog.queries.funnels.utils import get_funnel_order_class
-from posthog.queries.paths.paths import Paths
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
@@ -753,8 +749,6 @@ class InsightViewSet(
 
     retention_query_class = Retention
     stickiness_query_class = Stickiness
-    paths_query_class = Paths
-
     parser_classes = (QuerySchemaParser,)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
@@ -1164,46 +1158,6 @@ When set, the specified dashboard's filters and date range override will be appl
         base_uri = request.build_absolute_uri("/")
         result = self.retention_query_class(base_uri=base_uri).run(filter, team)
         return {"result": result, "timezone": team.timezone}
-
-    # ******************************************
-    # /projects/:id/insights/path
-    # params:
-    # - start: (string) specifies the name of the starting property or element
-    # - request_type: (string: $pageview, $autocapture, $screen, custom_event) specifies the path type
-    # - **shared filter types
-    # ******************************************
-    @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
-    def path(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        capture_legacy_api_call(request, self.team)
-
-        timings = HogQLTimings()
-        try:
-            with timings.measure("calculate"):
-                result = self.calculate_path(request)
-        except ExposedHogQLError as e:
-            raise ValidationError(str(e))
-
-        result["timings"] = [val.model_dump() for val in timings.to_list()]
-        return Response(result)
-
-    @cached_by_filters
-    def calculate_path(self, request: request.Request) -> dict[str, Any]:
-        team = self.team
-        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
-
-        funnel_filter = None
-        funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
-        if funnel_filter_data:
-            if isinstance(funnel_filter_data, str):
-                funnel_filter_data = json.loads(funnel_filter_data)
-            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
-
-        #  backwards compatibility
-        if filter.path_type:
-            filter = filter.shallow_clone({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
-        resp = self.paths_query_class(filter=filter, team=team, funnel_filter=funnel_filter).run()
-
-        return {"result": resp, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/:short_id/viewed
