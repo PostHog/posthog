@@ -823,7 +823,7 @@ class TestCSVExporter(APIBaseTest):
         self,
     ) -> None:
         with freeze_time("2022-06-01T12:00:00.000Z"):
-            _create_person(distinct_ids=[f"user_1"], team=self.team)
+            _create_person(distinct_ids=[f"user_1"], team=self.team, uuid="4beb316f-23aa-2584-66d3-4a1b8ab458f3")
 
         events_by_person = {
             "user_1": [
@@ -876,13 +876,13 @@ class TestCSVExporter(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
-            content = object_storage.read(exported_asset.content_location)
+            content = object_storage.read(exported_asset.content_location)  # type: ignore
             lines = (content or "").strip().split("\r\n")
             self.assertEqual(
                 lines,
                 [
                     "actor.id,actor.is_identified,actor.created_at,actor.distinct_ids.0,event_count,event_distinct_ids.0",
-                    "4beb316f-23aa-2584-66d3-4a1b8ab458f2,False,2022-06-01 12:00:00+00:00,user_1,2,user_1",
+                    "4beb316f-23aa-2584-66d3-4a1b8ab458f3,False,2022-06-01 12:00:00+00:00,user_1,2,user_1",
                     "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,user_2,1,user_2",
                 ],
             )
