@@ -5560,7 +5560,14 @@
             "additionalProperties": false,
             "properties": {
                 "assignee": {
-                    "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
