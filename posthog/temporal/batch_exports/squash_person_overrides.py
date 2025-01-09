@@ -6,6 +6,7 @@ import json
 import typing
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import NamedTuple
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -15,141 +16,16 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 
-# snapshot table lifecycle management
-
-CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
-CREATE OR REPLACE TABLE {database}.person_distinct_id_overrides_join ON CLUSTER {cluster} (
-    `team_id` Int64,
-    `distinct_id` String,
-    `person_id` UUID,
-    `latest_version` Int64
-)
-ENGINE = Join(ANY, left, team_id, distinct_id)
-AS
-    SELECT
-        team_id,
-        distinct_id,
-        argMax(person_id, version) AS person_id,
-        max(version) AS latest_version
-    FROM
-        {database}.person_distinct_id_overrides
-    GROUP BY
-        team_id, distinct_id
-SETTINGS
-    max_execution_time = 0,
-    max_memory_usage = 0,
-    distributed_ddl_task_timeout = 0
-"""
-
-DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
-DROP TABLE IF EXISTS {database}.person_distinct_id_overrides_join ON CLUSTER {cluster}
-SETTINGS
-    distributed_ddl_task_timeout = 0
-"""
-
-Table = collections.namedtuple("Table", ("name", "create_query", "drop_query"))
-TABLES = {
-    "person_distinct_id_overrides_join": Table(
-        name="person_distinct_id_overrides_join",
-        create_query=CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN,
-        drop_query=DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN,
-    ),
-}
-
-
-# mutation definitions
-
-SUBMIT_UPDATE_EVENTS_WITH_PERSON_OVERRIDES = """
-ALTER TABLE
-    {database}.sharded_events
-ON CLUSTER
-    {cluster}
-UPDATE
-    person_id = joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id)
-WHERE
-    (joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id) != defaultValueOfTypeName('UUID'))
-SETTINGS
-    max_execution_time = 0
-"""
-
-# The two first where predicates are redundant as the join table already excludes any rows that don't match.
-# However, there is no 'joinHas', and with 'joinGet' we are forced to grab a value.
-SUBMIT_DELETE_PERSON_OVERRIDES = """
-ALTER TABLE
-    {database}.person_distinct_id_overrides
-ON CLUSTER
-    {cluster}
-DELETE WHERE
-    joinGet('{database}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version
-SETTINGS
-    max_execution_time = 0
-"""
-
-Mutation = collections.namedtuple("Mutation", ("name", "table", "submit_query"))
-MUTATIONS = {
-    "update_events_with_person_overrides": Mutation(
-        name="update_events_with_person_overrides",
-        table="sharded_events",
-        submit_query=SUBMIT_UPDATE_EVENTS_WITH_PERSON_OVERRIDES,
-    ),
-    "delete_person_overrides": Mutation(
-        name="delete_person_overrides",
-        table="person_distinct_id_overrides",
-        submit_query=SUBMIT_DELETE_PERSON_OVERRIDES,
-    ),
-}
-
-
-def parse_count(response: bytes) -> int:
-    """Parse the result of a single row SELECT count(*)."""
-    line = response.decode("utf-8").splitlines()[0]
-    count_str = line.strip()
-
-    return int(count_str)
-
-
-def parse_mutation_counts(response: bytes) -> tuple[int, int]:
-    """Parse the count of mutations in progress and total mutations."""
-    rows = []
-
-    for line in response.decode("utf-8").splitlines():
-        mutation_id, is_done = line.strip().split("\t")
-        rows.append((mutation_id, int(is_done)))
-
-    total_mutations = len(rows)
-    mutations_in_progress = sum(row[1] == 0 for row in rows)
-
-    return (mutations_in_progress, total_mutations)
-
-
-def parse_mutation_command(mutation_query: str) -> str:
-    """Parse a mutation query to try and extract a command from it.
-
-    Mutations start with 'ALTER TABLE {table identifier} ON CLUSTER {cluster}'.
-    The mutation command comes right after, and its one of 'UPDATE', 'DELETE WHERE', etc..., statements.
-    So, we split and look for index 6 to find the start of the command:
-    ["ALTER", "TABLE", "{table identifier}", "ON", "CLUSTER", "{cluster}", "{command}", ...].
-                                                                            ^^^^^^^^^
-    Also we get rid of any SETTINGS clause as these are not passed along as a command.
-
-    Raises:
-        ValueError: If we cannot parse the command. Usually this means the query is not an 'ALTER TABLE ... ON CLUSTER'.
-
-    Examples:
-        >>> parse_mutation_command("ALTER TABLE events ON CLUSTER UPDATE event = 'wow_event_name' SETTINGS max_execution_time = 0")
-        "UPDATE event = 'wow_event_name'"
-    """
-    try:
-        # Note: `split()` without `sep` takes care of all whitespace, so indent to your heart's content.
-        query_command = " ".join(mutation_query.split()[6:])
-        query_command = query_command.split("SETTINGS")[0].strip()
-    except IndexError:
-        raise ValueError("Provided query does not appear to be an 'ALTER TABLE ... ON CLUSTER' mutation")
-
-    return query_command
-
-
 QueryParameters = dict[str, typing.Any]
+
+
+# table management
+
+
+class Table(NamedTuple):
+    name: str
+    create_query: str
+    drop_query: str
 
 
 @dataclass
@@ -208,6 +84,14 @@ async def drop_table(inputs: TableActivityInputs) -> None:
             await clickhouse_client.execute_query(drop_table_query)
 
     activity.logger.info("Dropped table %s", inputs.name)
+
+
+def parse_count(response: bytes) -> int:
+    """Parse the result of a single row SELECT count(*)."""
+    line = response.decode("utf-8").splitlines()[0]
+    count_str = line.strip()
+
+    return int(count_str)
 
 
 @activity.defn
@@ -345,6 +229,15 @@ async def manage_table(
         )
 
 
+# mutation management
+
+
+class Mutation(NamedTuple):
+    name: str
+    table: str
+    submit_query: str
+
+
 @dataclass
 class MutationActivityInputs:
     """Inputs for activities that work with mutations.
@@ -386,6 +279,47 @@ async def submit_mutation(inputs: MutationActivityInputs) -> str:
     activity.logger.info("Mutation %s submitted", inputs.name)
 
     return prepared_query
+
+
+def parse_mutation_counts(response: bytes) -> tuple[int, int]:
+    """Parse the count of mutations in progress and total mutations."""
+    rows = []
+
+    for line in response.decode("utf-8").splitlines():
+        mutation_id, is_done = line.strip().split("\t")
+        rows.append((mutation_id, int(is_done)))
+
+    total_mutations = len(rows)
+    mutations_in_progress = sum(row[1] == 0 for row in rows)
+
+    return (mutations_in_progress, total_mutations)
+
+
+def parse_mutation_command(mutation_query: str) -> str:
+    """Parse a mutation query to try and extract a command from it.
+
+    Mutations start with 'ALTER TABLE {table identifier} ON CLUSTER {cluster}'.
+    The mutation command comes right after, and its one of 'UPDATE', 'DELETE WHERE', etc..., statements.
+    So, we split and look for index 6 to find the start of the command:
+    ["ALTER", "TABLE", "{table identifier}", "ON", "CLUSTER", "{cluster}", "{command}", ...].
+                                                                            ^^^^^^^^^
+    Also we get rid of any SETTINGS clause as these are not passed along as a command.
+
+    Raises:
+        ValueError: If we cannot parse the command. Usually this means the query is not an 'ALTER TABLE ... ON CLUSTER'.
+
+    Examples:
+        >>> parse_mutation_command("ALTER TABLE events ON CLUSTER UPDATE event = 'wow_event_name' SETTINGS max_execution_time = 0")
+        "UPDATE event = 'wow_event_name'"
+    """
+    try:
+        # Note: `split()` without `sep` takes care of all whitespace, so indent to your heart's content.
+        query_command = " ".join(mutation_query.split()[6:])
+        query_command = query_command.split("SETTINGS")[0].strip()
+    except IndexError:
+        raise ValueError("Provided query does not appear to be an 'ALTER TABLE ... ON CLUSTER' mutation")
+
+    return query_command
 
 
 @activity.defn
@@ -497,6 +431,86 @@ async def submit_and_wait_for_mutation(
         ),
         heartbeat_timeout=timedelta(minutes=2),
     )
+
+
+# core workflow logic
+
+CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
+CREATE OR REPLACE TABLE {database}.person_distinct_id_overrides_join ON CLUSTER {cluster} (
+    `team_id` Int64,
+    `distinct_id` String,
+    `person_id` UUID,
+    `latest_version` Int64
+)
+ENGINE = Join(ANY, left, team_id, distinct_id)
+AS
+    SELECT
+        team_id,
+        distinct_id,
+        argMax(person_id, version) AS person_id,
+        max(version) AS latest_version
+    FROM
+        {database}.person_distinct_id_overrides
+    GROUP BY
+        team_id, distinct_id
+SETTINGS
+    max_execution_time = 0,
+    max_memory_usage = 0,
+    distributed_ddl_task_timeout = 0
+"""
+
+DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
+DROP TABLE IF EXISTS {database}.person_distinct_id_overrides_join ON CLUSTER {cluster}
+SETTINGS
+    distributed_ddl_task_timeout = 0
+"""
+
+TABLES = {
+    "person_distinct_id_overrides_join": Table(
+        name="person_distinct_id_overrides_join",
+        create_query=CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN,
+        drop_query=DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN,
+    ),
+}
+
+SUBMIT_UPDATE_EVENTS_WITH_PERSON_OVERRIDES = """
+ALTER TABLE
+    {database}.sharded_events
+ON CLUSTER
+    {cluster}
+UPDATE
+    person_id = joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id)
+WHERE
+    (joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id) != defaultValueOfTypeName('UUID'))
+SETTINGS
+    max_execution_time = 0
+"""
+
+# The two first where predicates are redundant as the join table already excludes any rows that don't match.
+# However, there is no 'joinHas', and with 'joinGet' we are forced to grab a value.
+SUBMIT_DELETE_PERSON_OVERRIDES = """
+ALTER TABLE
+    {database}.person_distinct_id_overrides
+ON CLUSTER
+    {cluster}
+DELETE WHERE
+    joinGet('{database}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version
+SETTINGS
+    max_execution_time = 0
+"""
+
+MUTATIONS = {
+    "update_events_with_person_overrides": Mutation(
+        name="update_events_with_person_overrides",
+        table="sharded_events",
+        submit_query=SUBMIT_UPDATE_EVENTS_WITH_PERSON_OVERRIDES,
+    ),
+    "delete_person_overrides": Mutation(
+        name="delete_person_overrides",
+        table="person_distinct_id_overrides",
+        submit_query=SUBMIT_DELETE_PERSON_OVERRIDES,
+    ),
+}
 
 
 @dataclass
