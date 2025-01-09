@@ -9,7 +9,10 @@ use rdkafka::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::error::Error as SerdeError;
-use std::sync::{Arc, Weak};
+use std::{
+    sync::{Arc, Weak},
+    time::Duration,
+};
 use thiserror::Error;
 use tracing::{debug, error, info};
 
@@ -41,6 +44,10 @@ pub struct KafkaConfig {
 pub struct ConsumerConfig {
     pub kafka_consumer_group: String,
     pub kafka_consumer_topic: String,
+
+    // We default to "earliest" for this, but if you're bringing up a new service, you probably want "latest"
+    #[envconfig(default = "earliest")]
+    pub kafka_consumer_offset_reset: String, // earliest, latest
 }
 
 impl ConsumerConfig {
@@ -94,7 +101,11 @@ impl SingleTopicConsumer {
         client_config
             .set("bootstrap.servers", &common_config.kafka_hosts)
             .set("statistics.interval.ms", "10000")
-            .set("group.id", consumer_config.kafka_consumer_group);
+            .set("group.id", consumer_config.kafka_consumer_group)
+            .set(
+                "auto.offset.reset",
+                &consumer_config.kafka_consumer_offset_reset,
+            );
 
         client_config.set("enable.auto.offset.store", "false");
 
@@ -144,6 +155,33 @@ impl SingleTopicConsumer {
         };
 
         Ok((payload, offset))
+    }
+
+    pub async fn json_recv_batch<T>(
+        &self,
+        max: usize,
+        timeout: Duration,
+    ) -> Vec<Result<(T, Offset), RecvErr>>
+    where
+        T: DeserializeOwned,
+    {
+        let mut results = Vec::with_capacity(max);
+
+        tokio::select! {
+            _ = tokio::time::sleep(timeout) => {},
+            _ = async {
+                while results.len() < max {
+                    let result = self.json_recv::<T>().await;
+                    let was_err = result.is_err();
+                    results.push(result);
+                    if was_err {
+                        break; // Early exit on error, since it might indicate a kafka error or something
+                    }
+                }
+            } => {}
+        }
+
+        results
     }
 }
 

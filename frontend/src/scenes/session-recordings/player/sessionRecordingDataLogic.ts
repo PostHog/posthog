@@ -683,8 +683,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             kind: NodeKind.HogQLQuery,
                             query: hogql`SELECT properties, uuid
                                          FROM events
-                                         WHERE timestamp > ${(earliestTimestamp - 1000) / 1000}
-                                           AND timestamp < ${(latestTimestamp + 1000) / 1000}
+                                         WHERE timestamp > ${dayjs(earliestTimestamp - 1000)
+                                             .utc()
+                                             .format('YYYY-MM-DD HH:MM:ss.SSS')}
+                                           AND timestamp < ${dayjs(latestTimestamp + 1000)
+                                               .utc()
+                                               .format('YYYY-MM-DD HH:MM:ss.SSS')}
                                            AND event in ${eventNames}
                                            AND uuid in ${eventIds}`,
                         }
@@ -1087,19 +1091,27 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (everyWindowMissingFullSnapshot) {
                     // video is definitely unplayable
                     posthog.capture('recording_has_no_full_snapshot', {
-                        sessionId: sessionRecordingId,
+                        watchedSession: sessionRecordingId,
                         teamId: currentTeam?.id,
                         teamName: currentTeam?.name,
                     })
                 } else if (anyWindowMissingFullSnapshot) {
                     posthog.capture('recording_window_missing_full_snapshot', {
-                        sessionId: sessionRecordingId,
+                        watchedSession: sessionRecordingId,
                         teamID: currentTeam?.id,
                         teamName: currentTeam?.name,
                     })
                 }
 
                 return everyWindowMissingFullSnapshot
+            },
+        ],
+
+        isRecentAndInvalid: [
+            (s) => [s.start, s.snapshotsInvalid],
+            (start, snapshotsInvalid) => {
+                const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
+                return snapshotsInvalid && lessThanFiveMinutesOld
             },
         ],
 
@@ -1158,6 +1170,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             // we preload all web vitals data, so it can be used before user interaction
             if (!values.sessionEventsDataLoading) {
                 actions.loadFullEventData(value)
+            }
+        },
+        isRecentAndInvalid: (prev: boolean, next: boolean) => {
+            if (!prev && next) {
+                posthog.capture('recording cannot playback yet', {
+                    watchedSession: values.sessionPlayerData.sessionRecordingId,
+                })
             }
         },
     })),

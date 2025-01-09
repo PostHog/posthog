@@ -55,6 +55,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: clickhouse
+        hostname: clickhouse
         ports:
             - '8123:8123'
             - '8443:8443'

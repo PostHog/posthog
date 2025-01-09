@@ -224,6 +224,27 @@
             "console": "integratedTerminal",
             "internalConsoleOptions": "neverOpen",
             "runtimeExecutable": "${env:HOME}/.nvm/versions/node/${input:pickVersion}/bin/node"
+        },
+        {
+            "name": "Python Debugger: Django Migrations",
+            "type": "debugpy",
+            "request": "launch",
+            "args": ["migrate", "posthog"],
+            "django": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "DJANGO_SETTINGS_MODULE": "posthog.settings",
+                "DEBUG": "1",
+                "CLICKHOUSE_SECURE": "False",
+                "KAFKA_HOSTS": "localhost",
+                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+                "PRINT_SQL": "1",
+                "BILLING_SERVICE_URL": "http://localhost:8100/",
+                "CLOUD_DEPLOYMENT": "dev"
+            },
+            "autoStartBrowser": false,
+            "program": "${workspaceFolder}/manage.py"
         }
     ],
     "inputs": [

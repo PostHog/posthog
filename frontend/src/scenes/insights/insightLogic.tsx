@@ -121,7 +121,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     if (!Object.entries(insightUpdate).length) {
                         return values.insight
                     }
-
                     const response = await insightsApi.update(values.insight.id as number, insightUpdate)
                     breakpoint()
                     const updatedInsight: QueryBasedInsightModel = {
@@ -336,6 +335,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     ? await insightsApi.update(insightNumericId, insightRequest)
                     : await insightsApi.create(insightRequest)
                 savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
+                // remove draft query from local storage
+                localStorage.removeItem(`draft-query-${values.currentTeamId}`)
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()

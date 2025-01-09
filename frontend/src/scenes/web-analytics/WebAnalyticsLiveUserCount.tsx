@@ -9,8 +9,8 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
     const { liveUserCount, liveUserUpdatedSecondsAgo } = useValues(liveEventsTableLogic)
     const { currentTeam } = useValues(teamLogic)
 
+    // No data yet, or feature flag disabled
     if (liveUserCount == null) {
-        // No data yet, or feature flag disabled
         return null
     }
 
@@ -27,13 +27,10 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
     const tooltip = `${usersOnlineString}${inTeamString}${updatedAgoString}`
 
     return (
-        <div className="flex-row">
-            <Tooltip title={tooltip}>
-                <span>
-                    <IconLive /> <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> currently online
-                </span>
-            </Tooltip>
-            <div className="bg-border h-px w-full mt-2" />
-        </div>
+        <Tooltip title={tooltip}>
+            <span>
+                <IconLive /> <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> currently online
+            </span>
+        </Tooltip>
     )
 }

@@ -267,7 +267,11 @@ export type UserTheme = 'light' | 'dark' | 'system'
 /** Full User model. */
 export interface UserType extends UserBaseType {
     date_joined: string
-    notification_settings: NotificationSettings
+    notification_settings: {
+        plugin_disabled: boolean
+        project_weekly_digest_disabled: Record<number, boolean>
+        all_weekly_digest_disabled: boolean
+    }
     events_column_config: ColumnConfig
     anonymize_data: boolean
     toolbar_mode: 'disabled' | 'toolbar'
@@ -323,6 +327,8 @@ export interface HedgehogConfig extends MinimalHedgehogConfig {
 
 export interface NotificationSettings {
     plugin_disabled: boolean
+    project_weekly_digest_disabled: Record<string, boolean>
+    all_weekly_digest_disabled: boolean
 }
 
 export interface PluginAccess {
@@ -543,6 +549,7 @@ export interface TeamType extends TeamBasicType {
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
+    cookieless_server_hash_mode?: CookielessServerHashMode
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
@@ -558,6 +565,7 @@ export interface TeamType extends TeamBasicType {
     modifiers?: HogQLQueryModifiers
     default_modifiers?: HogQLQueryModifiers
     product_intents?: ProductIntentType[]
+    default_data_theme?: number
 }
 
 export interface ProductIntentType {
@@ -655,7 +663,7 @@ export interface ToolbarProps extends ToolbarParams {
 
 export type PathCleaningFilter = { alias?: string; regex?: string }
 
-export type PropertyFilterValue = string | number | (string | number)[] | null
+export type PropertyFilterValue = string | number | bigint | (string | number | bigint)[] | null
 
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {
@@ -701,6 +709,7 @@ export enum ExperimentsTabs {
     Yours = 'yours',
     Archived = 'archived',
     Holdouts = 'holdouts',
+    SavedMetrics = 'shared-metrics',
 }
 
 export enum ActivityTab {
@@ -2392,7 +2401,8 @@ export interface RetentionEntity {
 
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
-    retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
+    /** Whether retention is with regard to initial cohort size, or that of the previous period. */
+    retention_reference?: 'total' | 'previous'
     /**
      * @asType integer
      */
@@ -3309,6 +3319,8 @@ export interface Experiment {
     filters: TrendsFilterType | FunnelsFilterType
     metrics: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metrics_secondary: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
+    saved_metrics: any[]
     parameters: {
         minimum_detectable_effect?: number
         recommended_running_time?: number
@@ -3327,6 +3339,9 @@ export interface Experiment {
     updated_at: string | null
     holdout_id?: number | null
     holdout?: Holdout
+    stats_config?: {
+        version?: number
+    }
 }
 
 export interface FunnelExperimentVariant {
@@ -3578,7 +3593,7 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Value (count) for specific data point; only valid in the context of an xy intercept */
         personUrl?: string
         /** Action/event filter defition */
-        action?: ActionFilter
+        action?: ActionFilter | null
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }
@@ -3758,6 +3773,7 @@ export type IntegrationKind =
     | 'google-pubsub'
     | 'google-cloud-storage'
     | 'google-ads'
+    | 'snapchat'
 
 export interface IntegrationType {
     id: number
@@ -4230,6 +4246,7 @@ export type BatchExportServiceS3 = {
         kms_key_id: string | null
         endpoint_url: string | null
         file_format: string
+        max_file_size_mb: number | null
     }
 }
 
@@ -4488,7 +4505,7 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
-    // AccessControl = 'access-control',
+    AccessControl = 'access-control',
 }
 
 export interface SourceFieldOauthConfig {
@@ -4605,6 +4622,7 @@ export type HogFunctionInputSchemaType = {
     integration?: string
     integration_key?: string
     integration_field?: 'slack_channel'
+    requiredScopes?: string
 }
 
 export type HogFunctionInputType = {
@@ -4654,10 +4672,22 @@ export interface HogFunctionFiltersType {
     bytecode_error?: string
 }
 
+export interface HogFunctionMappingType {
+    inputs_schema?: HogFunctionInputSchemaType[]
+    inputs?: Record<string, HogFunctionInputType> | null
+    filters?: HogFunctionFiltersType | null
+}
+export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
+    name: string
+    include_by_default?: boolean
+}
+
 export type HogFunctionTypeType =
     | 'destination'
+    | 'internal_destination'
     | 'site_destination'
     | 'site_app'
+    | 'transformation'
     | 'email'
     | 'sms'
     | 'push'
@@ -4679,6 +4709,7 @@ export type HogFunctionType = {
 
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
+    mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
     filters?: HogFunctionFiltersType | null
     template?: HogFunctionTemplateType
@@ -4686,7 +4717,7 @@ export type HogFunctionType = {
 }
 
 export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated' | 'client-side'
-export type HogFunctionSubTemplateIdType = 'early_access_feature_enrollment' | 'survey_response'
+export type HogFunctionSubTemplateIdType = 'early-access-feature-enrollment' | 'survey-response' | 'activity-log'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
@@ -4696,7 +4727,7 @@ export type HogFunctionConfigurationType = Omit<
     sub_template_id?: HogFunctionSubTemplateIdType
 }
 
-export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking'> & {
+export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking' | 'mappings'> & {
     id: HogFunctionSubTemplateIdType
     name: string
     description: string | null
@@ -4704,10 +4735,11 @@ export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inpu
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
+    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     sub_templates?: HogFunctionSubTemplateType[]
+    mapping_templates?: HogFunctionMappingTemplateType[]
 }
 
 export type HogFunctionIconResponse = {
@@ -4813,4 +4845,29 @@ export type ReplayTemplateVariableType = {
     description?: string
     filterGroup?: UniversalFiltersGroupValue
     noTouch?: boolean
+}
+
+export type DataColorThemeModel = {
+    id: number
+    name: string
+    colors: string[]
+    is_global: boolean
+}
+
+export type DataColorThemeModelPayload = Omit<DataColorThemeModel, 'id' | 'is_global'> & {
+    id?: number
+    is_global?: boolean
+}
+
+export enum CookielessServerHashMode {
+    Disabled = 0,
+    Stateless = 1,
+    Stateful = 2,
+}
+
+/**
+ * Assistant Conversation
+ */
+export interface Conversation {
+    id: string
 }

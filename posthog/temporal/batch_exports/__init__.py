@@ -17,6 +17,13 @@ from posthog.temporal.batch_exports.http_batch_export import (
     HttpBatchExportWorkflow,
     insert_into_http_activity,
 )
+from posthog.temporal.batch_exports.monitoring import (
+    BatchExportMonitoringWorkflow,
+    check_for_missing_batch_export_runs,
+    get_batch_export,
+    get_event_counts,
+    update_batch_export_runs,
+)
 from posthog.temporal.batch_exports.noop import NoOpWorkflow, noop_activity
 from posthog.temporal.batch_exports.postgres_batch_export import (
     PostgresBatchExportWorkflow,
@@ -54,6 +61,7 @@ WORKFLOWS = [
     SnowflakeBatchExportWorkflow,
     HttpBatchExportWorkflow,
     SquashPersonOverridesWorkflow,
+    BatchExportMonitoringWorkflow,
 ]
 
 ACTIVITIES = [
@@ -76,4 +84,8 @@ ACTIVITIES = [
     update_batch_export_backfill_model_status,
     wait_for_mutation,
     wait_for_table,
+    get_batch_export,
+    get_event_counts,
+    update_batch_export_runs,
+    check_for_missing_batch_export_runs,
 ]

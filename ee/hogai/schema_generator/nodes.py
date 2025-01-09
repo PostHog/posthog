@@ -1,10 +1,16 @@
-import itertools
 import xml.etree.ElementTree as ET
+from collections.abc import Sequence
 from functools import cached_property
 from typing import Generic, Optional, TypeVar
+from uuid import uuid4
 
 from langchain_core.agents import AgentAction
-from langchain_core.messages import AIMessage as LangchainAssistantMessage, BaseMessage, merge_message_runs
+from langchain_core.messages import (
+    AIMessage as LangchainAssistantMessage,
+    BaseMessage,
+    HumanMessage as LangchainHumanMessage,
+    merge_message_runs,
+)
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
@@ -23,10 +29,14 @@ from ee.hogai.schema_generator.prompts import (
     QUESTION_PROMPT,
 )
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.utils import AssistantNode, AssistantState, filter_visualization_conversation
+from ee.hogai.utils.helpers import find_last_message_of_type, slice_messages_to_conversation_start
+from ee.hogai.utils.nodes import AssistantNode
+from ee.hogai.utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
+    AssistantMessage,
     FailureMessage,
+    HumanMessage,
     VisualizationMessage,
 )
 
@@ -45,7 +55,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True).with_structured_output(
+        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True).with_structured_output(
             self.OUTPUT_SCHEMA,
             method="function_calling",
             include_raw=False,
@@ -63,9 +73,10 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         state: AssistantState,
         prompt: ChatPromptTemplate,
         config: Optional[RunnableConfig] = None,
-    ) -> AssistantState:
-        generated_plan = state.get("plan", "")
-        intermediate_steps = state.get("intermediate_steps") or []
+    ) -> PartialAssistantState:
+        start_id = state.start_id
+        generated_plan = state.plan or ""
+        intermediate_steps = state.intermediate_steps or []
         validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
 
         generation_prompt = prompt + self._construct_messages(state, validation_error_message=validation_error_message)
@@ -79,35 +90,38 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         except PydanticOutputParserException as e:
             # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
             if len(intermediate_steps) >= 2:
-                return {
-                    "messages": [
+                return PartialAssistantState(
+                    messages=[
                         FailureMessage(
                             content=f"Oops! It looks like I’m having trouble generating this {self.INSIGHT_NAME} insight. Could you please try again?"
                         )
                     ],
-                    "intermediate_steps": None,
-                }
+                    intermediate_steps=[],
+                    plan="",
+                )
 
-            return {
-                "intermediate_steps": [
+            return PartialAssistantState(
+                intermediate_steps=[
                     *intermediate_steps,
                     (AgentAction("handle_incorrect_response", e.llm_output, e.validation_message), None),
                 ],
-            }
+            )
 
-        return {
-            "messages": [
-                VisualizationMessage(
-                    plan=generated_plan,
-                    answer=message.query,
-                    done=True,
-                )
-            ],
-            "intermediate_steps": None,
-        }
+        final_message = VisualizationMessage(
+            plan=generated_plan,
+            answer=message.query,
+            initiator=start_id,
+            id=str(uuid4()),
+        )
+
+        return PartialAssistantState(
+            messages=[final_message],
+            intermediate_steps=[],
+            plan="",
+        )
 
     def router(self, state: AssistantState):
-        if state.get("intermediate_steps") is not None:
+        if state.intermediate_steps:
             return "tools"
         return "next"
 
@@ -123,15 +137,25 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         )
         return ET.tostring(root, encoding="unicode")
 
+    def _get_human_viz_message_mapping(self, messages: Sequence[AssistantMessageUnion]) -> dict[str, int]:
+        mapping: dict[str, int] = {}
+        for idx, msg in enumerate(messages):
+            if isinstance(msg, VisualizationMessage) and msg.initiator is not None:
+                mapping[msg.initiator] = idx
+        return mapping
+
     def _construct_messages(
         self, state: AssistantState, validation_error_message: Optional[str] = None
     ) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
         """
-        messages = state.get("messages", [])
-        generated_plan = state.get("plan", "")
+        messages = state.messages
+        generated_plan = state.plan
+        start_id = state.start_id
 
+        if start_id is not None:
+            messages = slice_messages_to_conversation_start(messages, start_id)
         if len(messages) == 0:
             return []
 
@@ -141,43 +165,61 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             )
         ]
 
-        human_messages, visualization_messages = filter_visualization_conversation(messages)
-        first_ai_message = True
+        msg_mapping = self._get_human_viz_message_mapping(messages)
+        initiator_message = messages[-1]
+        last_viz_message = find_last_message_of_type(messages, VisualizationMessage)
 
-        for idx, (human_message, ai_message) in enumerate(
-            itertools.zip_longest(human_messages, visualization_messages)
-        ):
-            # Plans go first
-            if ai_message:
-                conversation.append(
-                    HumanMessagePromptTemplate.from_template(
-                        PLAN_PROMPT if first_ai_message else NEW_PLAN_PROMPT,
-                        template_format="mustache",
-                    ).format(plan=ai_message.plan or "")
-                )
-                first_ai_message = False
-            elif generated_plan:
-                conversation.append(
-                    HumanMessagePromptTemplate.from_template(
-                        PLAN_PROMPT if first_ai_message else NEW_PLAN_PROMPT,
-                        template_format="mustache",
-                    ).format(plan=generated_plan)
-                )
+        for message in messages:
+            # The initial human message and the new plan are added to the end of the conversation.
+            if message == initiator_message:
+                continue
+            if isinstance(message, HumanMessage):
+                if message.id and (viz_message_idx := msg_mapping.get(message.id)):
+                    # Plans go first.
+                    viz_message = messages[viz_message_idx]
+                    if isinstance(viz_message, VisualizationMessage):
+                        conversation.append(
+                            HumanMessagePromptTemplate.from_template(PLAN_PROMPT, template_format="mustache").format(
+                                plan=viz_message.plan or ""
+                            )
+                        )
 
-            # Then questions
-            if human_message:
+                    # Augment with the prompt previous initiator messages.
+                    conversation.append(
+                        HumanMessagePromptTemplate.from_template(QUESTION_PROMPT, template_format="mustache").format(
+                            question=message.content
+                        )
+                    )
+                # Otherwise, just append the human message.
+                else:
+                    conversation.append(LangchainHumanMessage(content=message.content))
+            # Summary, human-in-the-loop messages.
+            elif isinstance(message, AssistantMessage):
+                conversation.append(LangchainAssistantMessage(content=message.content))
+
+        # Include only last generated schema because it doesn't need more context.
+        if last_viz_message:
+            conversation.append(
+                LangchainAssistantMessage(
+                    content=last_viz_message.answer.model_dump_json() if last_viz_message.answer else ""
+                )
+            )
+        # Add the initiator message and the generated plan to the end, so instructions are clear.
+        if isinstance(initiator_message, HumanMessage):
+            if generated_plan:
+                plan_prompt = PLAN_PROMPT if messages[0] == initiator_message else NEW_PLAN_PROMPT
                 conversation.append(
-                    HumanMessagePromptTemplate.from_template(QUESTION_PROMPT, template_format="mustache").format(
-                        question=human_message.content
+                    HumanMessagePromptTemplate.from_template(plan_prompt, template_format="mustache").format(
+                        plan=generated_plan or ""
                     )
                 )
-
-            # Then schemas, but include only last generated schema because it doesn't need more context.
-            if ai_message and idx + 1 == len(visualization_messages):
-                conversation.append(
-                    LangchainAssistantMessage(content=ai_message.answer.model_dump_json() if ai_message.answer else "")
+            conversation.append(
+                HumanMessagePromptTemplate.from_template(QUESTION_PROMPT, template_format="mustache").format(
+                    question=initiator_message.content
                 )
+            )
 
+        # Retries must be added to the end of the conversation.
         if validation_error_message:
             conversation.append(
                 HumanMessagePromptTemplate.from_template(FAILOVER_PROMPT, template_format="mustache").format(
@@ -193,10 +235,10 @@ class SchemaGeneratorToolsNode(AssistantNode):
     Used for failover from generation errors.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-        intermediate_steps = state.get("intermediate_steps", [])
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        intermediate_steps = state.intermediate_steps or []
         if not intermediate_steps:
-            return state
+            return PartialAssistantState()
 
         action, _ = intermediate_steps[-1]
         prompt = (
@@ -205,9 +247,9 @@ class SchemaGeneratorToolsNode(AssistantNode):
             .content
         )
 
-        return {
-            "intermediate_steps": [
+        return PartialAssistantState(
+            intermediate_steps=[
                 *intermediate_steps[:-1],
                 (action, str(prompt)),
             ]
-        }
+        )

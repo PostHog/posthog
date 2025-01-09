@@ -2,8 +2,7 @@ import './EditSurvey.scss'
 
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { IconInfo } from '@posthog/icons'
-import { IconLock, IconPlus, IconTrash } from '@posthog/icons'
+import { IconInfo, IconLock, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelect,
@@ -113,7 +112,9 @@ export default function SurveyEdit(): JSX.Element {
         },
     ]
 
-    if (featureFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_LIMITS]) {
+    const adaptiveLimitFFEnabled = featureFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_LIMITS]
+
+    if (adaptiveLimitFFEnabled) {
         surveyLimitOptions.push({
             value: 'until_adaptive_limit',
             label: 'Collect a certain number of surveys per day, week or month',
@@ -121,15 +122,16 @@ export default function SurveyEdit(): JSX.Element {
             disabledReason: surveysAdaptiveLimitsDisabledReason,
         } as unknown as LemonRadioOption<'until_stopped' | 'until_limit' | 'until_adaptive_limit'>)
     }
+
     useMemo(() => {
         if (surveyUsesLimit) {
             setDataCollectionType('until_limit')
-        } else if (surveyUsesAdaptiveLimit) {
+        } else if (surveyUsesAdaptiveLimit && adaptiveLimitFFEnabled) {
             setDataCollectionType('until_adaptive_limit')
         } else {
             setDataCollectionType('until_stopped')
         }
-    }, [surveyUsesLimit, surveyUsesAdaptiveLimit, setDataCollectionType])
+    }, [surveyUsesLimit, surveyUsesAdaptiveLimit, adaptiveLimitFFEnabled, setDataCollectionType])
 
     if (survey.iteration_count && survey.iteration_count > 0) {
         setSchedule('recurring')
@@ -538,12 +540,12 @@ export default function SurveyEdit(): JSX.Element {
                                                           appearance={value || defaultSurveyAppearance}
                                                           hasBranchingLogic={hasBranchingLogic}
                                                           deleteBranchingLogic={deleteBranchingLogic}
-                                                          customizeRatingButtons={
-                                                              survey.questions[0].type === SurveyQuestionType.Rating
-                                                          }
-                                                          customizePlaceholderText={
-                                                              survey.questions[0].type === SurveyQuestionType.Open
-                                                          }
+                                                          customizeRatingButtons={survey.questions.some(
+                                                              (question) => question.type === SurveyQuestionType.Rating
+                                                          )}
+                                                          customizePlaceholderText={survey.questions.some(
+                                                              (question) => question.type === SurveyQuestionType.Open
+                                                          )}
                                                           onAppearanceChange={(appearance) => {
                                                               onChange(appearance)
                                                           }}
@@ -689,7 +691,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                         }
                                                                     }}
                                                                 />
-                                                                Don't show to users who saw a survey within the last
+                                                                Don't show to users who saw any survey in the last
                                                                 <LemonInput
                                                                     type="number"
                                                                     size="xsmall"
@@ -719,7 +721,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     </>
                                                 )}
                                             </LemonField>
-                                            <LemonField.Pure label="User properties">
+                                            <LemonField.Pure label="Properties">
                                                 <BindLogic
                                                     logic={featureFlagLogic}
                                                     props={{ id: survey.targeting_flag?.id || 'new' }}
@@ -743,7 +745,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 setSurveyValue('remove_targeting_flag', false)
                                                             }}
                                                         >
-                                                            Add user targeting
+                                                            Add property targeting
                                                         </LemonButton>
                                                     )}
                                                     {targetingFlagFilters && (
@@ -772,7 +774,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                     setSurveyValue('remove_targeting_flag', true)
                                                                 }}
                                                             >
-                                                                Remove all user properties
+                                                                Remove all property targeting
                                                             </LemonButton>
                                                         </>
                                                     )}

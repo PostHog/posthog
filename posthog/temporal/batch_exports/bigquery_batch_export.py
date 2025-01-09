@@ -40,7 +40,7 @@ from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
-    run_consumer_loop,
+    run_consumer,
     wait_for_schema_or_producer,
 )
 from posthog.temporal.batch_exports.temporary_file import (
@@ -295,9 +295,14 @@ class BigQueryClient(bigquery.Client):
     ):
         """Attempt to SELECT from table to check for query permissions."""
         job_config = bigquery.QueryJobConfig()
-        query = f"""
-        SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}`
-        """
+        if "timestamp" in [field.name for field in table.schema]:
+            query = f"""
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` WHERE timestamp IS NOT NULL
+            """
+        else:
+            query = f"""
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}`
+            """
 
         try:
             query_job = self.query(query, job_config=job_config)
@@ -386,7 +391,17 @@ class BigQueryClient(bigquery.Client):
 
         merge_query = f"""
         MERGE `{final_table.full_table_id.replace(":", ".", 1)}` final
-        USING `{stage_table.full_table_id.replace(":", ".", 1)}` stage
+        USING (
+            SELECT * FROM
+            (
+              SELECT
+              *,
+              ROW_NUMBER() OVER (PARTITION BY {",".join(field.name for field in merge_key)}) row_num
+            FROM
+              `{stage_table.full_table_id.replace(":", ".", 1)}`
+            )
+            WHERE row_num = 1
+        ) stage
         {merge_condition}
 
         WHEN MATCHED AND (stage.`{person_version_key}` > final.`{person_version_key}` OR stage.`{person_distinct_id_version_key}` > final.`{person_distinct_id_version_key}`) THEN
@@ -504,12 +519,19 @@ class BigQueryConsumer(Consumer):
         heartbeater: Heartbeater,
         heartbeat_details: BigQueryHeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        data_interval_end: dt.datetime | str,
         writer_format: WriterFormat,
         bigquery_client: BigQueryClient,
         bigquery_table: bigquery.Table,
-        table_schema: list[BatchExportField],
+        table_schema: list[bigquery.SchemaField],
     ):
-        super().__init__(heartbeater, heartbeat_details, data_interval_start, writer_format)
+        super().__init__(
+            heartbeater=heartbeater,
+            heartbeat_details=heartbeat_details,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            writer_format=writer_format,
+        )
         self.bigquery_client = bigquery_client
         self.bigquery_table = bigquery_table
         self.table_schema = table_schema
@@ -685,21 +707,23 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     create=can_perform_merge,
                     delete=can_perform_merge,
                 ) as bigquery_stage_table:
-                    await run_consumer_loop(
-                        queue=queue,
-                        consumer_cls=BigQueryConsumer,
-                        producer_task=producer_task,
+                    consumer = BigQueryConsumer(
                         heartbeater=heartbeater,
                         heartbeat_details=details,
                         data_interval_end=data_interval_end,
                         data_interval_start=data_interval_start,
-                        schema=record_batch_schema,
                         writer_format=WriterFormat.PARQUET if can_perform_merge else WriterFormat.JSONL,
-                        max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                        json_columns=() if can_perform_merge else json_columns,
                         bigquery_client=bq_client,
                         bigquery_table=bigquery_stage_table if can_perform_merge else bigquery_table,
                         table_schema=stage_schema if can_perform_merge else schema,
+                    )
+                    records_completed = await run_consumer(
+                        consumer=consumer,
+                        queue=queue,
+                        producer_task=producer_task,
+                        schema=record_batch_schema,
+                        max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                        json_columns=() if can_perform_merge else json_columns,
                         writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
                         multiple_files=True,
                     )

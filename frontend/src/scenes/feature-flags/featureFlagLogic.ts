@@ -23,9 +23,11 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
+    ActivityScope,
     AvailableFeature,
     Breadcrumb,
     CohortType,
@@ -152,7 +154,7 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
     }
 }
 
-const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> => {
+export const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> => {
     if (flag.filters?.multivariate) {
         const newPayloads: Record<string, JsonType> = {}
         flag.filters.multivariate.variants.forEach(({ key }, index) => {
@@ -212,29 +214,10 @@ export const getRecordingFilterForFlagVariant = (
                                   ],
                               }
                             : {
-                                  id: '$feature_flag_called',
-                                  name: '$feature_flag_called',
-                                  type: 'events',
-                                  properties: [
-                                      {
-                                          key: '$feature/' + flagKey,
-                                          type: PropertyFilterType.Event,
-                                          value: [variantKey ? variantKey : 'false'],
-                                          operator: variantKey ? PropertyOperator.Exact : PropertyOperator.IsNot,
-                                      },
-                                      {
-                                          key: '$feature/' + flagKey,
-                                          type: PropertyFilterType.Event,
-                                          value: 'is_set',
-                                          operator: PropertyOperator.IsSet,
-                                      },
-                                      {
-                                          key: '$feature_flag',
-                                          type: PropertyFilterType.Event,
-                                          value: flagKey,
-                                          operator: PropertyOperator.Exact,
-                                      },
-                                  ],
+                                  type: PropertyFilterType.Event,
+                                  key: `$feature/${flagKey}`,
+                                  operator: PropertyOperator.Exact,
+                                  value: [variantKey ? variantKey : 'true'],
                               },
                     ],
                 },
@@ -972,6 +955,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.featureFlag],
+            (featureFlag): SidePanelSceneContext | null => {
+                return featureFlag?.id
+                    ? {
+                          activity_scope: ActivityScope.FEATURE_FLAG,
+                          activity_item_id: `${featureFlag.id}`,
+                          access_control_resource: 'feature_flag',
+                          access_control_resource_id: `${featureFlag.id}`,
+                      }
+                    : null
+            },
         ],
         filteredDashboards: [
             (s) => [s.dashboards, s.featureFlag],

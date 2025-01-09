@@ -67,7 +67,10 @@ export function CreateProjectModal({
                     <p>
                         <strong>Tip:</strong> We recommend using the same project for both your website and app to track
                         conversion fully.{' '}
-                        <Link to="https://posthog.com/manual/organizations-and-projects#projects" target="_blank">
+                        <Link
+                            to="https://posthog.com/docs/settings/organizations-and-projects#projects"
+                            target="_blank"
+                        >
                             Learn more in PostHog Docs.
                         </Link>
                     </p>
