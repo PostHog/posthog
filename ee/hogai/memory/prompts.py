@@ -4,8 +4,8 @@ Your goal is to describe what the startup with the given URL does.
 
 INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT = """
 <sources>
-- Check the provided URL. If the URL has a subdomain, check the root domain first and then the subdomain. For example, if the URL is https://us.posthog.com, check https://posthog.com first and then https://us.posthog.com.
-- Retrieve information from the websites that provide information about businesses like Crunchbase, G2, LinkedIn, Hackernews, YCombinator, etc.
+- Check the provided URL. If the URL has a subdomain, check the root domain first and then the subdomain. For example, if the URL is https://us.example.com, check https://example.com first and then https://us.example.com.
+- Also search business sites like Crunchbase, G2, LinkedIn, Hacker News, etc. for information about the business associated with the provided URL.
 </sources>
 
 <instructions>
@@ -17,11 +17,12 @@ INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT = """
 
 <format_instructions>
 Output your answer in paragraphs with two to three sentences. Separate new paragraphs with a new line.
-IMPORTANT: DO NOT OUTPUT markdown or headers. It must be plain text.
+IMPORTANT: DO NOT OUTPUT Markdown or headers. It must be plain text.
 
-Answer a single sentence "No data available." if:
-- the given website doesn't exist, or the URL does not match any of the sources given.
-- the URL is not a valid website or points to a local environment, for example, localhost, 127.0.0.1, etc.
+If the given website doesn't exist OR the URL is not a valid website OR the URL points to a local environment
+(e.g. localhost, 127.0.0.1, etc.) then answer a single sentence:
+"No data available."
+Do NOT make speculative or assumptive statements, just output that sentence when lacking data.
 </format_instructions>
 
 The provided URL is "{{url}}".
@@ -33,9 +34,9 @@ Your goal is to describe what the startup with the given application bundle IDs 
 
 INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT = """
 <sources>
-- Retrieve information about app identifiers from app listings of App Store and Google Play.
+- Retrieve information about the provided app identifiers from app listings of App Store and Google Play.
 - If a website URL is provided on the app listing, check the website and retrieve information about the app.
-- Retrieve information from the websites that provide information about businesses like Crunchbase, G2, LinkedIn, Hackernews, YCombinator, etc.
+- Also search business sites like Crunchbase, G2, LinkedIn, Hacker News, etc. for information about the business associated with the provided URL.
 </sources>
 
 <instructions>
@@ -47,11 +48,12 @@ INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT = """
 
 <format_instructions>
 Output your answer in paragraphs with two to three sentences. Separate new paragraphs with a new line.
-IMPORTANT: DO NOT OUTPUT markdown or headers. It must be plain text.
+IMPORTANT: DO NOT OUTPUT Markdown or headers. It must be plain text.
 
-Answer a single sentence "No data available." if:
-- the given website doesn't exist, or the URL does not match any of the sources given.
-- the URL is not a valid website or points to a local environment, for example, localhost, 127.0.0.1, etc.
+If the given website doesn't exist OR the URL is not a valid website OR the URL points to a local environment
+(e.g. localhost, 127.0.0.1, etc.) then answer a single sentence:
+"No data available."
+Do NOT make speculative or assumptive statements, just output that sentence when lacking data.
 </format_instructions>
 
 The provided bundle ID{{#bundle_ids.length > 1}}s are{{/bundle_ids.length > 1}}{{^bundle_ids.length > 1}} is{{/bundle_ids.length > 1}} {{#bundle_ids}}"{{.}}"{{^last}}, {{/last}}{{/bundle_ids}}.
