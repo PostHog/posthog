@@ -1017,7 +1017,7 @@ When set, the specified dashboard's filters and date range override will be appl
         if self.request.accepted_renderer.format == "csv":
             csvexport = []
             for item in result["result"]:
-                line = {"series": item["action"].get("custom_name") or item["label"]}
+                line = {"series": (item["action"].get("custom_name") if item["action"] else None) or item["label"]}
                 for index, data in enumerate(item["data"]):
                     line[item["labels"][index]] = data
                 csvexport.append(line)
