@@ -268,6 +268,8 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --notebook-column-left-width: 27rem;
     --notebook-column-right-width: 20rem;
 
+    // EXPERIMENTAL
+    // THINGS WILL CHANGE, REACH OUT TO ADAM FOR MORE INFO
     // Design System colors
     --primitive-3000-5: hsl(75deg 14% 95%);
     --primitive-3000-10: hsl(70deg 16% 93%); /* light background */
@@ -469,6 +471,8 @@ $_lifecycle_dormant: map.get($colors, 'danger');
         --primitive-neutral-250
     ); /* Hover state of muted fill for button on a darker background */
 
+    // EXPERIMENTAL
+    // THINGS WILL CHANGE, REACH OUT TO ADAM FOR MORE INFO
     --fill-danger: var(--primitive-red-500); /* Fill for danger */
     --fill-danger-overlay: var(--primitive-red-500); /* Overlay fill for danger */
     --fill-success: var(--primitive-green-500); /* Fill for success */
@@ -516,6 +520,8 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --icon-size-base: 24px;
     --icon-size-lg: 28px;
 
+    // EXPERIMENTAL
+    // THINGS WILL CHANGE, REACH OUT TO ADAM FOR MORE INFO
     .token {
         &-content-primary {
             color: var(--content-primary);
@@ -559,6 +565,8 @@ $_lifecycle_dormant: map.get($colors, 'danger');
         }
     }
 
+    // EXPERIMENTAL
+    // THINGS WILL CHANGE, REACH OUT TO ADAM FOR MORE INFO
     .element {
         &-dropdown-menu {
             &-label {
@@ -746,7 +754,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
         }
     }
 
-    // Design System colors
+    // Design System colors (old / 3000)
     @each $name, $hex in $colors {
         --#{$name}: #{$hex};
     }
