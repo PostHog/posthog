@@ -360,8 +360,6 @@ EVENTS_HIDDEN_PROPERTY_DEFINITIONS = set(
 
 
 class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
-    is_seen_on_filtered_events = serializers.SerializerMethodField()
-
     class Meta:
         model = PropertyDefinition
         fields = (
@@ -373,9 +371,6 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             # This is a calculated property, set when property has been seen with the provided `event_names` query param events. NULL if no `event_names` provided
             "is_seen_on_filtered_events",
         )
-
-    def get_is_seen_on_filtered_events(self, obj):
-        return getattr(obj, "is_seen_on_filtered_events", None)
 
     def update(self, property_definition: PropertyDefinition, validated_data):
         changed_fields = {
