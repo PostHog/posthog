@@ -24,7 +24,7 @@ import { Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types
 import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
 import { Holdouts } from './Holdouts'
-import { SavedMetrics } from './SavedMetrics/SavedMetrics'
+import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -222,15 +222,15 @@ export function Experiments(): JSX.Element {
                     { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                     { key: ExperimentsTabs.Holdouts, label: 'Holdout groups' },
                     ...(featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS]
-                        ? [{ key: ExperimentsTabs.SavedMetrics, label: 'Shared metrics' }]
+                        ? [{ key: ExperimentsTabs.SharedMetrics, label: 'Shared metrics' }]
                         : []),
                 ]}
             />
 
             {tab === ExperimentsTabs.Holdouts ? (
                 <Holdouts />
-            ) : tab === ExperimentsTabs.SavedMetrics && featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
-                <SavedMetrics />
+            ) : tab === ExperimentsTabs.SharedMetrics && featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
+                <SharedMetrics />
             ) : (
                 <>
                     {tab === ExperimentsTabs.Archived ? (
