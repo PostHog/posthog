@@ -15,43 +15,6 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 
-# generic mutation management
-
-MUTATIONS_IN_PROGRESS_IN_CLUSTER = """
-SELECT mutation_id, is_done
-FROM clusterAllReplicas('{cluster}', 'system', mutations)
-WHERE table = %(table)s
-AND database = '{database}'
-AND command LIKE %(query)s
-"""
-
-NODES_ON_CLUSTER = """
-SELECT
-    count(*)
-FROM
-    system.clusters
-WHERE
-    cluster = '{cluster}'
-"""
-
-COUNT_TABLE_ON_CLUSTER = """
-SELECT
-    count(*)
-FROM
-    clusterAllReplicas('{cluster}', 'system', tables)
-WHERE
-    name = '{name}'
-"""
-
-KILL_MUTATION_IN_PROGRESS_ON_CLUSTER = """
-KILL MUTATION ON CLUSTER {cluster}
-WHERE is_done = 0
-AND table = '{table}'
-AND database = '{database}'
-AND command LIKE %(query)s
-"""
-
-
 # snapshot table lifecycle management
 
 CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
@@ -277,10 +240,7 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
 
     async with get_client() as clickhouse_client:
         response = await clickhouse_client.read_query(
-            NODES_ON_CLUSTER.format(
-                database=settings.CLICKHOUSE_DATABASE,
-                cluster=settings.CLICKHOUSE_CLUSTER,
-            ),
+            "SELECT count(*) FROM system.clusters WHERE cluster = %(cluster)s", {"cluster": settings.CLICKHOUSE_CLUSTER}
         )
         count_of_nodes = parse_count(response)
 
@@ -289,11 +249,8 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
                 activity.heartbeat()
 
                 response = await clickhouse_client.read_query(
-                    COUNT_TABLE_ON_CLUSTER.format(
-                        database=settings.CLICKHOUSE_DATABASE,
-                        cluster=settings.CLICKHOUSE_CLUSTER,
-                        name=inputs.name,
-                    ),
+                    "SELECT count(*) FROM clusterAllReplicas(%(cluster)s, 'system', tables) WHERE name = %(name)s",
+                    {"cluster": settings.CLICKHOUSE_CLUSTER, "name": inputs.name},
                 )
 
                 count_of_tables = parse_count(response)
@@ -469,11 +426,19 @@ async def wait_for_mutation(inputs: MutationActivityInputs) -> None:
             try:
                 while True:
                     response = await clickhouse_client.read_query(
-                        MUTATIONS_IN_PROGRESS_IN_CLUSTER.format(
-                            database=settings.CLICKHOUSE_DATABASE,
-                            cluster=settings.CLICKHOUSE_CLUSTER,
-                        ),
-                        query_parameters={"query": query_command, "table": mutation.table},
+                        """
+                        SELECT mutation_id, is_done
+                        FROM clusterAllReplicas(%(cluster)s, 'system', mutations)
+                        WHERE table = %(table)s
+                        AND database = %(database)s
+                        AND command LIKE %(query)s
+                        """,
+                        query_parameters={
+                            "cluster": settings.CLICKHOUSE_CLUSTER,
+                            "database": settings.CLICKHOUSE_DATABASE,
+                            "query": query_command,
+                            "table": mutation.table,
+                        },
                     )
 
                     mutations_in_progress, _ = parse_mutation_counts(response)
@@ -492,12 +457,18 @@ async def wait_for_mutation(inputs: MutationActivityInputs) -> None:
                 )
 
                 await clickhouse_client.execute_query(
-                    KILL_MUTATION_IN_PROGRESS_ON_CLUSTER.format(
-                        database=settings.CLICKHOUSE_DATABASE,
-                        cluster=settings.CLICKHOUSE_CLUSTER,
-                        table=mutation.table,
-                    ),
-                    query_parameters={"query": query_command, "table": mutation.table},
+                    f"""
+                    KILL MUTATION ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
+                    WHERE is_done = 0
+                    AND table = %(table)s
+                    AND database = %(database)s
+                    AND command LIKE %(query)s
+                    """,
+                    query_parameters={
+                        "database": settings.CLICKHOUSE_DATABASE,
+                        "query": query_command,
+                        "table": mutation.table,
+                    },
                 )
                 raise
 
