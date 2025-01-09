@@ -25,6 +25,12 @@ services:
             service: db
         ports:
             - '5432:5432'
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U posthog']
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
 
     redis:
         extends:
@@ -33,25 +39,51 @@ services:
         ports:
             - '6379:6379'
 
+    redis7:
+        extends:
+            file: docker-compose.base.yml
+            service: redis7
+        ports:
+            - '6479:6379'
+
+    flower:
+        extends:
+            file: docker-compose.base.yml
+            service: flower
+        ports:
+            - '5555:5555'
+
     clickhouse:
         extends:
             file: docker-compose.base.yml
             service: clickhouse
         ports:
             - '8123:8123'
+            - '8443:8443'
             - '9000:9000'
             - '9440:9440'
             - '9009:9009'
         volumes:
+            # this new entrypoint file is to fix a bug detailed here https://github.com/ClickHouse/ClickHouse/pull/59991
+            # revert this when we upgrade clickhouse
+            - ./docker/clickhouse/entrypoint.sh:/entrypoint.sh
             - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
         depends_on:
             - kafka
             - zookeeper
+        healthcheck:
+            test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:8123/ping']
+            interval: 10s
+            timeout: 5s
+            retries: 3
+            start_period: 10s
 
     zookeeper:
         extends:
@@ -66,6 +98,15 @@ services:
             - '9092:9092'
         depends_on:
             - zookeeper
+
+    kafka_ui:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka_ui
+        ports:
+            - '9093:8080'
+        depends_on:
+            - kafka
 
     objectstorage:
         extends:
@@ -91,40 +132,7 @@ services:
         environment:
             - PORT=2080
 
-    worker:
-        extends:
-            file: docker-compose.base.yml
-            service: worker
-        build: .
-        volumes:
-            - .:/app/posthog
-        environment:
-            - DEBUG=1
-            - PLUGIN_SERVER_IDLE=1
-
-    web:
-        extends:
-            file: docker-compose.base.yml
-            service: web
-        ports:
-            - 8000:8000
-        build: .
-        command: ./bin/docker-server-unit
-        volumes:
-            - .:/app/posthog
-        environment:
-            - DEBUG=1
-            - OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000
-            - POSTHOG_SKIP_MIGRATION_CHECKS=true
-            - JS_URL=http://localhost:8000
-        depends_on:
-            - db
-            - redis
-            - clickhouse
-            - kafka
-        links:
-            - objectstorage:objectstorage
-
+    # capture-rs
     capture:
         extends:
             file: docker-compose.base.yml
@@ -135,6 +143,7 @@ services:
             - redis
             - kafka
 
+    # vector replay capture
     replay-capture:
         extends:
             file: docker-compose.base.yml
@@ -150,31 +159,147 @@ services:
         depends_on:
             - kafka
 
+    livestream:
+        extends:
+            file: docker-compose.base.yml
+            service: livestream
+        environment:
+            - JWT.TOKEN=${SECRET_KEY}
+        ports:
+            - '8666:8080'
+        volumes:
+            - ./docker/livestream/configs-dev.yml:/configs/configs.yml
+
+    migrate:
+        build: .
+        command: >
+            bash -c "
+            python -m pip install -r /local/requirements-dev.txt &&
+            python /local/manage.py create_max_migration_files &&
+            ./bin/migrate &&
+            python /local/manage.py generate_demo_data"
+        volumes:
+            - ./posthog:/code/posthog
+            - .:/local
+        environment:
+            DISABLE_SECURE_SSL_REDIRECT: 'true'
+            IS_BEHIND_PROXY: 'true'
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_DATABASE: 'posthog'
+            CLICKHOUSE_SECURE: 'false'
+            CLICKHOUSE_VERIFY: 'false'
+            KAFKA_HOSTS: 'kafka'
+            REDIS_URL: 'redis://redis:6379/'
+            PGHOST: db
+            PGUSER: posthog
+            PGPASSWORD: posthog
+            DEPLOYMENT: hobby
+            DEBUG: 1
+        depends_on:
+            redis:
+                condition: service_started
+            db:
+                condition: service_healthy
+            clickhouse:
+                condition: service_healthy
+
+    worker:
+        extends:
+            file: docker-compose.base.yml
+            service: worker
+        build: .
+        command: >
+            bash -c "
+            python -m pip install -r /local/requirements-dev.txt &&
+            ./bin/start-worker"
+        volumes:
+            - ./posthog:/code/posthog
+            - .:/local
+        environment:
+            - DEBUG=1
+            - PLUGIN_SERVER_IDLE=1
+        depends_on:
+            migrate:
+                condition: service_completed_successfully
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_started
+            clickhouse:
+                condition: service_healthy
+            kafka:
+                condition: service_started
+
+    frontend:
+        image: node:18.19.1-bullseye-slim
+        restart: on-failure
+        command: >
+            bash -c "
+            cd /code &&
+            npm install -g pnpm &&
+            ./bin/start-frontend"
+        volumes:
+            - .:/code
+
+    web:
+        extends:
+            file: docker-compose.base.yml
+            service: web
+        ports:
+            - 8000:8000
+        build: .
+        command: >
+            bash -c "
+            python -m pip install -r /local/requirements-dev.txt &&
+            ./bin/start-backend"
+        volumes:
+            - ./posthog:/code/posthog
+            - .:/local
+        environment:
+            - DEBUG=1
+            - OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000
+            - POSTHOG_SKIP_MIGRATION_CHECKS=true
+            - JS_URL=http://localhost:8000
+            - BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
+        depends_on:
+            migrate:
+                condition: service_completed_successfully
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_started
+            clickhouse:
+                condition: service_healthy
+            kafka:
+                condition: service_started
+
     plugins:
         extends:
             file: docker-compose.base.yml
             service: plugins
-        build: .
+        build: ./docker/Dockerfile.plugin
+        command: >
+            bash -c "
+            cd /local &&
+            ./bin/plugin-server"
         volumes:
-            - .:/app/posthog
+            - .:/local
         environment:
             - DOCKER=1
         depends_on:
-            - db
-            - redis
-            - clickhouse
-            - kafka
-            - objectstorage
-
-    migrate:
-        extends:
-            file: docker-compose.base.yml
-            service: migrate
-        build: .
-        volumes:
-            - .:/app/posthog
-        environment:
-            - DEBUG=1
+            migrate:
+                condition: service_completed_successfully
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_started
+            clickhouse:
+                condition: service_healthy
+            kafka:
+                condition: service_started
+            objectstorage:
+                condition: service_started
 
     # Temporal containers
     elasticsearch:
@@ -211,8 +336,13 @@ services:
             file: docker-compose.base.yml
             service: temporal-django-worker
         build: .
+        command: >
+            bash -c "
+            python -m pip install -r /local/requirements-dev.txt &&
+            ./bin/temporal-django-worker"
         volumes:
-            - .:/app/posthog
+            - .:/local
+            - ./posthog:/code/posthog
         depends_on:
             - db
             - redis
