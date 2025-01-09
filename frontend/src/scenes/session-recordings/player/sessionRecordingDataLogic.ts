@@ -678,6 +678,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const eventIds = existingEvents.map((ee) => ee.id)
                     const earliestTimestamp = timestamps.reduce((a, b) => Math.min(a, b))
                     const latestTimestamp = timestamps.reduce((a, b) => Math.max(a, b))
+
                     try {
                         const query: HogQLQuery = {
                             kind: NodeKind.HogQLQuery,
@@ -685,10 +686,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                          FROM events
                                          WHERE timestamp > ${dayjs(earliestTimestamp - 1000)
                                              .utc()
-                                             .format('YYYY-MM-DD HH:MM:ss.SSS')}
+                                             .format('YYYY-MM-DD HH:mm:ss.SSS')}
                                            AND timestamp < ${dayjs(latestTimestamp + 1000)
                                                .utc()
-                                               .format('YYYY-MM-DD HH:MM:ss.SSS')}
+                                               .format('YYYY-MM-DD HH:mm:ss.SSS')}
                                            AND event in ${eventNames}
                                            AND uuid in ${eventIds}`,
                         }
