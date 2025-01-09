@@ -603,6 +603,7 @@ class S3Consumer(Consumer):
         else:
             self.heartbeat_details.append_upload_state(self.s3_upload.to_state())
 
+        self.heartbeat_details.records_completed += records_since_last_flush
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
     async def close(self):
@@ -772,11 +773,10 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
             use_latest_schema=True,
         )
-        records_completed = 0
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            return records_completed
+            return details.records_completed
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -796,7 +796,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             s3_upload=s3_upload,
             s3_inputs=inputs,
         )
-        records_completed = await run_consumer(
+        await run_consumer(
             consumer=consumer,
             queue=queue,
             producer_task=producer_task,
@@ -807,7 +807,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
         )
 
-        return records_completed
+        return details.records_completed
 
 
 @workflow.defn(name="s3-export", failure_exception_types=[workflow.NondeterminismError])

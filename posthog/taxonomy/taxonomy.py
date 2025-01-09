@@ -74,8 +74,10 @@ SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
     "rdt_cid",
 }
 
+# synced with frontend/src/lib/taxonomy.tsx
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
+        # in front end this key is the empty string
         "All Events": {
             "label": "All events",
             "description": "This is a wildcard that matches all events.",
@@ -94,6 +96,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "User interactions that were automatically captured.",
             "examples": ["clicked button"],
             "ignored_in_assistant": True,  # Autocapture is only useful with autocapture-specific filters, which the LLM isn't adept at yet
+        },
+        "$$heatmap": {
+            "label": "Heatmap",
+            "description": "Heatmap events carry heatmap data to the backend, they do not contribute to event counts.",
+            "ignored_in_assistant": True,  # Heatmap events are not useful for LLM
         },
         "$copy_autocapture": {
             "label": "Clipboard autocapture",
@@ -225,53 +232,90 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The current distinct ID of the user",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
         },
+        "timestamp": {
+            "label": "Timestamp",
+            "description": "Time the event happened.",
+            "examples": ["2023-05-20T15:30:00Z"],
+            "system": True,
+            "ignored_in_assistant": True,  # Timestamp is not a filterable property
+        },
+        "event": {
+            "label": "Event",
+            "description": "The name of the event.",
+            "examples": ["$pageview"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
     },
     "event_properties": {
+        # do we need distinct_id and $session_duration here in the back end?
         "$copy_type": {
             "label": "Copy Type",
             "description": "Type of copy event.",
             "examples": ["copy", "cut"],
+            "ignored_in_assistant": True,
         },
         "$selected_content": {
             "label": "Copied content",
             "description": "The content that was selected when the user copied or cut.",
+            "ignored_in_assistant": True,
         },
         "$set": {
             "label": "Set",
             "description": "Person properties to be set",
+            "ignored_in_assistant": True,
         },
         "$set_once": {
             "label": "Set Once",
             "description": "Person properties to be set if not set already (i.e. first-touch)",
+            "ignored_in_assistant": True,
         },
         "$pageview_id": {
             "label": "Pageview ID",
             "description": "PostHog's internal ID for matching events to a pageview.",
             "system": True,
+            "ignored_in_assistant": True,
         },
         "$autocapture_disabled_server_side": {
             "label": "Autocapture Disabled Server-Side",
             "description": "If autocapture has been disabled server-side.",
             "system": True,
+            "ignored_in_assistant": True,
         },
         "$console_log_recording_enabled_server_side": {
             "label": "Console Log Recording Enabled Server-Side",
             "description": "If console log recording has been enabled server-side.",
             "system": True,
+            "ignored_in_assistant": True,
         },
         "$session_recording_recorder_version_server_side": {
             "label": "Session Recording Recorder Version Server-Side",
             "description": "The version of the session recording recorder that is enabled server-side.",
             "examples": ["v2"],
             "system": True,
+            "ignored_in_assistant": True,
         },
         "$feature_flag_payloads": {
             "label": "Feature Flag Payloads",
             "description": "Feature flag payloads active in the environment.",
+            "ignored_in_assistant": True,
         },
         "$capture_failed_request": {
             "label": "Capture Failed Request",
             "description": "",
+            "ignored_in_assistant": True,
+        },
+        "$lib_rate_limit_remaining_tokens": {
+            "label": "Clientside rate limit remaining tokens",
+            "description": "Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.",
+            "examples": ["100"],
+            "ignored_in_assistant": True,
+        },
+        "token": {
+            "label": "Token",
+            "description": "Token used for authentication.",
+            "examples": ["ph_abcdefg"],
+            "ignored_in_assistant": True,
         },
         "$sentry_exception": {
             "label": "Sentry exception",
@@ -300,6 +344,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$exception_source": {
             "label": "Exception source",
             "description": "The source of the exception. E.g. JS file.",
+        },
+        "$exception_list": {
+            "label": "Exception list",
+            "description": "List of one or more associated exceptions",
+            "system": True,
         },
         "$exception_lineno": {
             "label": "Exception source line number",
@@ -356,10 +405,77 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
             "examples": ["1681211521.345"],
         },
+        "$browser_type": {
+            "label": "Browser Type",
+            "description": "This is only added when posthog-js config.opt_out_useragent_filter is true.",
+            "examples": ["browser", "bot"],
+        },
         "$device_id": {
             "label": "Device ID",
             "description": "Unique ID for that device, consistent even if users are logging in/out.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+            "system": True,
+        },
+        "$replay_minimum_duration": {
+            "label": "Replay config - minimum duration",
+            "description": "Config for minimum duration before emitting a session recording.",
+            "examples": ["1000"],
+            "system": True,
+        },
+        "$replay_sample_rate": {
+            "label": "Replay config - sample rate",
+            "description": "Config for sampling rate of session recordings.",
+            "examples": ["0.1"],
+            "system": True,
+        },
+        "$session_recording_start_reason": {
+            "label": "Session recording start reason",
+            "description": "Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to see on batch exported events which sessions have recordings available.",
+            "examples": ["sampling_override", "recording_initialized", "linked_flag_match"],
+            "system": True,
+        },
+        "$session_recording_canvas_recording": {
+            "label": "Session recording canvas recording",
+            "description": "Session recording canvas capture config.",
+            "examples": ['{"enabled": false}'],
+            "system": True,
+        },
+        "$session_recording_network_payload_capture": {
+            "label": "Session recording network payload capture",
+            "description": "Session recording network payload capture config.",
+            "examples": ['{"recordHeaders": false}'],
+            "system": True,
+        },
+        "$configured_session_timeout_ms": {
+            "label": "Configured session timeout",
+            "description": "Configured session timeout in milliseconds.",
+            "examples": ["1800000"],
+            "system": True,
+        },
+        "$replay_script_config": {
+            "label": "Replay script config",
+            "description": "Sets an alternative recorder script for the web sdk.",
+            "examples": ['{"script": "recorder-next""}'],
+            "system": True,
+        },
+        "$session_recording_url_trigger_activated_session": {
+            "label": "Session recording URL trigger activated session",
+            "description": "Session recording URL trigger activated session config. Used by posthog-js to track URL activation of session replay.",
+            "system": True,
+        },
+        "$session_recording_url_trigger_status": {
+            "label": "Session recording URL trigger status",
+            "description": "Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.",
+            "system": True,
+        },
+        "$recording_status": {
+            "label": "Session recording status",
+            "description": "The status of session recording at the time the event was captured",
+            "system": True,
+        },
+        "$cymbal_errors": {
+            "label": "Exception processing errors",
+            "description": "Errors encountered while trying to process exceptions",
             "system": True,
         },
         "$geoip_city_name": {
@@ -619,9 +735,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
         },
         "$timestamp": {
-            "label": "Timestamp",
-            "description": "Time the event happened.",
+            "label": "Timestamp (deprecated)",
+            "description": "Use the HogQL field `timestamp` instead. This field was previously set on some client side events.",
             "examples": ["2023-05-20T15:30:00Z"],
+            "system": True,
         },
         "$sent_at": {
             "label": "Sent At",
@@ -977,6 +1094,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Is Identified",
             "description": "When the person was identified",
         },
+        "$initial_person_info": {
+            "label": "Initial Person Info",
+            "description": "posthog-js initial person information. used in the $set_once flow",
+            "system": True,
+        },
         "$web_vitals_enabled_server_side": {
             "label": "Web vitals enabled server side",
             "description": "Whether web vitals was enabled in remote config",
@@ -1004,6 +1126,125 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$web_vitals_CLS_value": {
             "label": "Web vitals CLS value",
+        },
+        "$web_vitals_allowed_metrics": {
+            "label": "Web vitals allowed metrics",
+            "description": "Allowed web vitals metrics config.",
+            "examples": ['["LCP", "CLS"]'],
+            "system": True,
+        },
+        "$prev_pageview_last_scroll": {
+            "label": "Previous pageview last scroll",
+            "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
+            "examples": [0],
+        },
+        "$prev_pageview_last_scroll_percentage": {
+            "label": "Previous pageview last scroll percentage",
+            "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
+            "examples": [0],
+        },
+        "$prev_pageview_max_scroll": {
+            "examples": [0],
+            "label": "Previous pageview max scroll",
+            "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
+        },
+        "$prev_pageview_max_scroll_percentage": {
+            "examples": [0],
+            "label": "Previous pageview max scroll percentage",
+            "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
+        },
+        "$prev_pageview_last_content": {
+            "examples": [0],
+            "label": "Previous pageview last content",
+            "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
+        },
+        "$prev_pageview_last_content_percentage": {
+            "examples": [0],
+            "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
+            "label": "Previous pageview last content percentage",
+        },
+        "$prev_pageview_max_content": {
+            "examples": [0],
+            "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
+            "label": "Previous pageview max content",
+        },
+        "$prev_pageview_max_content_percentage": {
+            "examples": [0],
+            "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
+            "label": "Previous pageview max content percentage",
+        },
+        "$prev_pageview_pathname": {
+            "examples": ["/pricing", "/about-us/team"],
+            "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
+            "label": "Previous pageview pathname",
+        },
+        "$prev_pageview_duration": {
+            "examples": [0],
+            "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
+            "label": "Previous pageview duration",
+        },
+        "$surveys_activated": {
+            "label": "Surveys Activated",
+            "description": "The surveys that were activated for this event.",
+        },
+        "$process_person_profile": {
+            "label": "Person Profile processing flag",
+            "description": "The setting from an SDK to control whether an event has person processing enabled",
+            "system": True,
+        },
+        "$dead_clicks_enabled_server_side": {
+            "label": "Dead clicks enabled server side",
+            "description": "Whether dead clicks were enabled in remote config",
+            "system": True,
+        },
+        "$dead_click_scroll_delay_ms": {
+            "label": "Dead click scroll delay in milliseconds",
+            "description": "The delay between a click and the next scroll event",
+            "system": True,
+        },
+        "$dead_click_mutation_delay_ms": {
+            "label": "Dead click mutation delay in milliseconds",
+            "description": "The delay between a click and the next mutation event",
+            "system": True,
+        },
+        "$dead_click_absolute_delay_ms": {
+            "label": "Dead click absolute delay in milliseconds",
+            "description": "The delay between a click and having seen no activity at all",
+            "system": True,
+        },
+        "$dead_click_selection_changed_delay_ms": {
+            "label": "Dead click selection changed delay in milliseconds",
+            "description": "The delay between a click and the next text selection change event",
+            "system": True,
+        },
+        "$dead_click_last_mutation_timestamp": {
+            "label": "Dead click last mutation timestamp",
+            "description": "debug signal time of the last mutation seen by dead click autocapture",
+            "system": True,
+        },
+        "$dead_click_event_timestamp": {
+            "label": "Dead click event timestamp",
+            "description": "debug signal time of the event that triggered dead click autocapture",
+            "system": True,
+        },
+        "$dead_click_scroll_timeout": {
+            "label": "Dead click scroll timeout",
+            "description": "whether the dead click autocapture passed the threshold for waiting for a scroll event",
+        },
+        "$dead_click_mutation_timeout": {
+            "label": "Dead click mutation timeout",
+            "description": "whether the dead click autocapture passed the threshold for waiting for a mutation event",
+            "system": True,
+        },
+        "$dead_click_absolute_timeout": {
+            "label": "Dead click absolute timeout",
+            "description": "whether the dead click autocapture passed the threshold for waiting for any activity",
+            "system": True,
+        },
+        "$dead_click_selection_changed_timeout": {
+            "label": "Dead click selection changed timeout",
+            "description": "whether the dead click autocapture passed the threshold for waiting for a text selection change event",
+            "system": True,
         },
     },
     "numerical_event_properties": {},
@@ -1093,6 +1334,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["true", "false"],
             "type": "Boolean",
         },
+        "$last_external_click_url": {
+            "label": "Last external click URL",
+            "description": "The last external URL clicked in this session.",
+            "examples": ["https://example.com/interesting-article?parameter=true"],
+        },
+        "$vitals_lcp": {
+            "label": "Web vitals LCP",
+            "description": "The time it took for the Largest Contentful Paint on the page. This captures the perceived load time of the page, and measure how long it took for the main content of the page to be visible to users.",
+            "examples": ["2.2"],
+        },
     },
     "groups": {
         "$group_key": {
@@ -1118,6 +1369,29 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "visited_page": {
             "label": "Visited page",
             "description": "URL a user visited during their session",
+        },
+        "click_count": {
+            "label": "Clicks",
+            "description": "Number of clicks during the session",
+        },
+        "keypress_count": {
+            "label": "Key presses",
+            "description": "Number of key presses during the session",
+        },
+        "console_error_count": {
+            "label": "Errors",
+            "description": "Number of console errors during the session",
+        },
+    },
+    "log_entries": {
+        "level": {
+            "label": "Console log level",
+            "description": "Level of the ",
+            "examples": ["info", "warn", "error"],
+        },
+        "message": {
+            "label": "Console log message",
+            "description": "The contents of the log message",
         },
     },
 }
@@ -1156,3 +1430,9 @@ for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
                 else "Data from the first event in this session."
             ),
         }
+
+PROPERTY_NAME_ALIASES = {
+    key: value["label"]
+    for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
+    if "label" in value and "deprecated" not in value["label"]
+}

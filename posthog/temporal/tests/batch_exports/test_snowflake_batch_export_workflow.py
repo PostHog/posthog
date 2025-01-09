@@ -1633,8 +1633,11 @@ async def test_insert_into_snowflake_activity_heartbeats(
 @pytest.mark.parametrize(
     "details",
     [
-        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())], 1),
-        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())],),
+        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())], 10, 1),
+        (
+            [(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())],
+            10,
+        ),
     ],
 )
 def test_snowflake_heartbeat_details_parses_from_tuple(details):
