@@ -2,6 +2,7 @@ import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { PostHogFeature } from 'posthog-js/react'
+import { useEffect, useState } from 'react'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
@@ -34,7 +35,11 @@ const NewResultsTab = (): JSX.Element => {
     const { experiment, metricResults } = useValues(experimentLogic)
     const hasSomeResults = metricResults?.some((result) => result?.insight)
 
-    const hasSinglePrimaryMetric = experiment.metrics.length === 1
+    const [hasSinglePrimaryMetric, setHasSinglePrimaryMetric] = useState(false)
+
+    useEffect(() => {
+        setHasSinglePrimaryMetric(experiment.metrics.length === 1)
+    }, [experiment.metrics])
 
     return (
         <>
