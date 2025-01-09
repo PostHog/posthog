@@ -137,7 +137,6 @@ async def create_overrides_join_table_helper(activity_environment) -> TableActiv
 
     join_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
-        query_parameters={},
     )
 
     await activity_environment.run(create_table, join_table_inputs)
@@ -226,7 +225,6 @@ async def test_create_wait_and_drop_table(activity_environment, person_overrides
     """Test if a table is created, waited on, and dropped in a normal workflow."""
     inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
-        query_parameters={},
     )
 
     # Ensure we are starting from scratch

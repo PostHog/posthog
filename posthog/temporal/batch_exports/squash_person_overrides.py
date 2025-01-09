@@ -16,9 +16,6 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 
-QueryParameters = dict[str, typing.Any]
-
-
 # table management
 
 
@@ -38,7 +35,6 @@ class TableActivityInputs:
     """
 
     name: str
-    query_parameters: QueryParameters
     exists: bool = True
 
     async def create_table(self, clickhouse_client):
@@ -49,7 +45,7 @@ class TableActivityInputs:
             cluster=settings.CLICKHOUSE_CLUSTER,
         )
 
-        return await clickhouse_client.execute_query(create_table_query, query_parameters=self.query_parameters)
+        return await clickhouse_client.execute_query(create_table_query)
 
     async def drop_table(self, clickhouse_client):
         from django.conf import settings
@@ -183,13 +179,10 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
 
 
 @contextlib.asynccontextmanager
-async def manage_table(
-    table_name: str, query_parameters: QueryParameters
-) -> collections.abc.AsyncGenerator[None, None]:
+async def manage_table(table_name: str) -> collections.abc.AsyncGenerator[None, None]:
     """A context manager to create ans subsequently drop a table."""
     table_activity_inputs = TableActivityInputs(
         name=table_name,
-        query_parameters=query_parameters,
         exists=True,
     )
     await workflow.execute_activity(
@@ -237,6 +230,8 @@ async def manage_table(
 
 
 # mutation management
+
+QueryParameters = dict[str, typing.Any]
 
 
 class Mutation(NamedTuple):
@@ -575,8 +570,7 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
         """Workflow implementation to squash person overrides into events table."""
         workflow.logger.info("Starting squash workflow")
 
-        table_query_parameters = {}
-        async with manage_table("person_distinct_id_overrides_join", table_query_parameters):
+        async with manage_table("person_distinct_id_overrides_join"):
             mutation_parameters: QueryParameters = {}
             await submit_and_wait_for_mutation(
                 "update_events_with_person_overrides",
