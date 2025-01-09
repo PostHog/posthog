@@ -10,7 +10,13 @@ from django.test import override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from posthog.test.base import APIBaseTest
-from posthog.models import ErrorTrackingSymbolSet, ErrorTrackingStackFrame
+from posthog.models import (
+    ErrorTrackingSymbolSet,
+    ErrorTrackingStackFrame,
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingTeam,
+)
 from botocore.config import Config
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
@@ -194,3 +200,55 @@ class TestErrorTracking(APIBaseTest):
         )
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["symbol_set_ref"], symbol_set.ref)
+
+    def test_assigning_issues(self):
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+
+        self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}/assign",
+            data={"assignee": {"id": self.user.id, "type": "user"}},
+        )
+        # assigns the issue
+        self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 1)
+        self.assertEqual(ErrorTrackingIssueAssignment.objects.filter(issue=issue, user_id=self.user.id).count(), 1)
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}/assign",
+            data={"assignee": None},
+        )
+        # deletes the assignment
+        self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
+
+        other_team = self.create_team_with_organization(organization=self.organization)
+        response = self.client.patch(
+            f"/api/projects/{other_team.id}/error_tracking/issue/{issue.id}/assign",
+            data={"assignee": None},
+        )
+        # cannot assign issues from other teams
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_error_tracking_teams(self):
+        self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/teams",
+            data={"name": "My team"},
+        )
+
+        # creates the team
+        error_tracking_team = ErrorTrackingTeam.objects.get(team=self.team)
+        self.assertIsNotNone(error_tracking_team)
+        self.assertEqual(error_tracking_team.name, "My team")
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/teams/{error_tracking_team.id}/add",
+            data={"userId": self.user.id},
+        )
+        # adds a team member
+        self.assertEqual(error_tracking_team.members.count(), 1)
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/teams/{error_tracking_team.id}/remove",
+            data={"userId": self.user.id},
+        )
+        # removes a team member
+        self.assertEqual(error_tracking_team.members.count(), 0)

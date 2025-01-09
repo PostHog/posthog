@@ -1,5 +1,14 @@
+import pytest
+from django.db.utils import IntegrityError
+
 from posthog.test.base import BaseTest
-from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from posthog.models.error_tracking import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingTeamMembership,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingTeam,
+)
 
 
 class TestErrorTracking(BaseTest):
@@ -74,3 +83,29 @@ class TestErrorTracking(BaseTest):
         assert override
         assert override.issue_id != issue.id
         assert override.version == 1
+
+    def test_error_tracking_team_membership_uniqueness(self):
+        error_tracking_team = ErrorTrackingTeam.objects.create(team=self.team)
+        with pytest.raises(IntegrityError):
+            ErrorTrackingTeamMembership.objects.create(team=error_tracking_team, user=self.user)
+            ErrorTrackingTeamMembership.objects.create(team=error_tracking_team, user=self.user)
+
+    def test_error_tracking_issue_assignment_uniqueness(self):
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        with pytest.raises(IntegrityError):
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
+
+    def test_error_tracking_issue_assignment_ensure_at_least_one(self):
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        with pytest.raises(IntegrityError):
+            ErrorTrackingIssueAssignment.objects.create(issue=issue)
+
+    def test_error_tracking_issue_assignment_ensure_not_both(self):
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        error_tracking_team = ErrorTrackingTeam.objects.create(team=self.team)
+
+        with pytest.raises(IntegrityError):
+            ErrorTrackingIssueAssignment.objects.create(
+                issue=issue, user=self.user, error_tracking_team=error_tracking_team
+            )
