@@ -59,7 +59,7 @@ interface MessageGroupProps {
     index: number
 }
 
-function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupIndex }: MessageGroupProps): JSX.Element {
+function MessageGroup({ messages, isFinal: isFinalGroup, index: messageGroupIndex }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
@@ -102,7 +102,7 @@ function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupInde
                                 key={key}
                                 message={message}
                                 interactable={messageIndex === messages.length - 1}
-                                finalGroup={isGroupFinal}
+                                isFinalGroup={isFinalGroup}
                                 messageGroupIndex={messageGroupIndex}
                             />
                         )
@@ -176,14 +176,14 @@ interface TextAnswerProps {
     message: (AssistantMessage | FailureMessage) & ThreadMessage
     messageGroupIndex: number
     interactable?: boolean
-    finalGroup?: boolean
+    isFinalGroup?: boolean
 }
 
 const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function TextAnswer(
-    { message, messageGroupIndex, interactable, finalGroup },
+    { message, messageGroupIndex, interactable, isFinalGroup },
     ref
 ) {
-    const retriable = !!(interactable && finalGroup)
+    const retriable = !!(interactable && isFinalGroup)
 
     const action = (() => {
         if (message.status !== 'completed') {
@@ -201,7 +201,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
         if (isAssistantMessage(message) && interactable) {
             // Message has been interrupted with a form
-            if (message.meta?.form?.options && finalGroup) {
+            if (message.meta?.form?.options && isFinalGroup) {
                 return <AssistantMessageForm form={message.meta.form} />
             }
 
