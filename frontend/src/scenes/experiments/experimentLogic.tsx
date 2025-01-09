@@ -64,8 +64,8 @@ import { MetricInsightId } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
-import { SavedMetric } from './SavedMetrics/savedMetricLogic'
-import { savedMetricsLogic } from './SavedMetrics/savedMetricsLogic'
+import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
+import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
@@ -136,8 +136,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['insightDataLoading as trendMetricInsightLoading'],
             insightDataLogic({ dashboardItemId: MetricInsightId.Funnels }),
             ['insightDataLoading as funnelMetricInsightLoading'],
-            savedMetricsLogic,
-            ['savedMetrics'],
+            sharedMetricsLogic,
+            ['sharedMetrics'],
         ],
         actions: [
             experimentsLogic,
@@ -269,18 +269,18 @@ export const experimentLogic = kea<experimentLogicType>([
         closePrimaryMetricSourceModal: true,
         openSecondaryMetricSourceModal: true,
         closeSecondaryMetricSourceModal: true,
-        openPrimarySavedMetricModal: (savedMetricId: SavedMetric['id'] | null) => ({ savedMetricId }),
-        closePrimarySavedMetricModal: true,
-        openSecondarySavedMetricModal: (savedMetricId: SavedMetric['id'] | null) => ({ savedMetricId }),
-        closeSecondarySavedMetricModal: true,
-        addSavedMetricToExperiment: (
-            savedMetricId: SavedMetric['id'],
+        openPrimarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => ({ sharedMetricId }),
+        closePrimarySharedMetricModal: true,
+        openSecondarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => ({ sharedMetricId }),
+        closeSecondarySharedMetricModal: true,
+        addSharedMetricToExperiment: (
+            sharedMetricId: SharedMetric['id'],
             metadata: { type: 'primary' | 'secondary' }
         ) => ({
-            savedMetricId,
+            sharedMetricId,
             metadata,
         }),
-        removeSavedMetricFromExperiment: (savedMetricId: SavedMetric['id']) => ({ savedMetricId }),
+        removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
     }),
     reducers({
         experiment: [
@@ -523,13 +523,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 updateExperimentGoal: () => null,
             },
         ],
-        editingSavedMetricId: [
-            null as SavedMetric['id'] | null,
+        editingSharedMetricId: [
+            null as SharedMetric['id'] | null,
             {
-                openPrimarySavedMetricModal: (_, { savedMetricId }) => savedMetricId,
-                openSecondarySavedMetricModal: (_, { savedMetricId }) => savedMetricId,
-                closePrimarySavedMetricModal: () => null,
-                closeSecondarySavedMetricModal: () => null,
+                openPrimarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
+                openSecondarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
+                closePrimarySharedMetricModal: () => null,
+                closeSecondarySharedMetricModal: () => null,
                 updateExperimentGoal: () => null,
             },
         ],
@@ -555,18 +555,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeSecondaryMetricSourceModal: () => false,
             },
         ],
-        isPrimarySavedMetricModalOpen: [
+        isPrimarySharedMetricModalOpen: [
             false,
             {
-                openPrimarySavedMetricModal: () => true,
-                closePrimarySavedMetricModal: () => false,
+                openPrimarySharedMetricModal: () => true,
+                closePrimarySharedMetricModal: () => false,
             },
         ],
-        isSecondarySavedMetricModalOpen: [
+        isSecondarySharedMetricModalOpen: [
             false,
             {
-                openSecondarySavedMetricModal: () => true,
-                closeSecondarySavedMetricModal: () => false,
+                openSecondarySharedMetricModal: () => true,
+                closeSecondarySharedMetricModal: () => false,
             },
         ],
     }),
@@ -750,10 +750,10 @@ export const experimentLogic = kea<experimentLogicType>([
         closeSecondaryMetricModal: () => {
             actions.loadExperiment()
         },
-        closePrimarySavedMetricModal: () => {
+        closePrimarySharedMetricModal: () => {
             actions.loadExperiment()
         },
-        closeSecondarySavedMetricModal: () => {
+        closeSecondarySharedMetricModal: () => {
             actions.loadExperiment()
         },
         resetRunningExperiment: async () => {
@@ -901,34 +901,34 @@ export const experimentLogic = kea<experimentLogicType>([
                 holdout_id: values.experiment.holdout_id,
             })
         },
-        addSavedMetricToExperiment: async ({ savedMetricId, metadata }) => {
-            const savedMetricsIds = values.experiment.saved_metrics.map((savedMetric) => ({
-                id: savedMetric.saved_metric,
+        addSharedMetricToExperiment: async ({ sharedMetricId, metadata }) => {
+            const sharedMetricsIds = values.experiment.saved_metrics.map((sharedMetric) => ({
+                id: sharedMetric.saved_metric,
                 metadata,
             }))
-            savedMetricsIds.push({ id: savedMetricId, metadata })
+            sharedMetricsIds.push({ id: sharedMetricId, metadata })
 
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: savedMetricsIds,
+                saved_metrics_ids: sharedMetricsIds,
             })
 
-            actions.closePrimarySavedMetricModal()
-            actions.closeSecondarySavedMetricModal()
+            actions.closePrimarySharedMetricModal()
+            actions.closeSecondarySharedMetricModal()
             actions.loadExperiment()
         },
-        removeSavedMetricFromExperiment: async ({ savedMetricId }) => {
-            const savedMetricsIds = values.experiment.saved_metrics
-                .filter((savedMetric) => savedMetric.saved_metric !== savedMetricId)
-                .map((savedMetric) => ({
-                    id: savedMetric.saved_metric,
-                    metadata: savedMetric.metadata,
+        removeSharedMetricFromExperiment: async ({ sharedMetricId }) => {
+            const sharedMetricsIds = values.experiment.saved_metrics
+                .filter((sharedMetric) => sharedMetric.saved_metric !== sharedMetricId)
+                .map((sharedMetric) => ({
+                    id: sharedMetric.saved_metric,
+                    metadata: sharedMetric.metadata,
                 }))
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: savedMetricsIds,
+                saved_metrics_ids: sharedMetricsIds,
             })
 
-            actions.closePrimarySavedMetricModal()
-            actions.closeSecondarySavedMetricModal()
+            actions.closePrimarySharedMetricModal()
+            actions.closeSecondarySharedMetricModal()
             actions.loadExperiment()
         },
     })),
@@ -966,11 +966,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     refresh?: boolean
                 ): Promise<(CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]> => {
                     let metrics = values.experiment?.metrics
-                    const savedMetrics = values.experiment?.saved_metrics
-                        .filter((savedMetric) => savedMetric.metadata.type === 'primary')
-                        .map((savedMetric) => savedMetric.query)
-                    if (savedMetrics) {
-                        metrics = [...metrics, ...savedMetrics]
+                    const sharedMetrics = values.experiment?.saved_metrics
+                        .filter((sharedMetric) => sharedMetric.metadata.type === 'primary')
+                        .map((sharedMetric) => sharedMetric.query)
+                    if (sharedMetrics) {
+                        metrics = [...metrics, ...sharedMetrics]
                     }
 
                     return (await Promise.all(
@@ -1011,11 +1011,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     refresh?: boolean
                 ): Promise<(CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]> => {
                     let metrics = values.experiment?.metrics_secondary
-                    const savedMetrics = values.experiment?.saved_metrics
-                        .filter((savedMetric) => savedMetric.metadata.type === 'secondary')
-                        .map((savedMetric) => savedMetric.query)
-                    if (savedMetrics) {
-                        metrics = [...metrics, ...savedMetrics]
+                    const sharedMetrics = values.experiment?.saved_metrics
+                        .filter((sharedMetric) => sharedMetric.metadata.type === 'secondary')
+                        .map((sharedMetric) => sharedMetric.query)
+                    if (sharedMetrics) {
+                        metrics = [...metrics, ...sharedMetrics]
                     }
 
                     return (await Promise.all(

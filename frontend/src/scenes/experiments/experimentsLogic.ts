@@ -76,8 +76,8 @@ export const experimentsLogic = kea<experimentsLogicType>([
     }),
     listeners(({ actions }) => ({
         setExperimentsTab: ({ tabKey }) => {
-            if (tabKey === ExperimentsTabs.SavedMetrics) {
-                // Saved Metrics is a fake tab that we use to redirect to the saved metrics page
+            if (tabKey === ExperimentsTabs.SharedMetrics) {
+                // Saved Metrics is a fake tab that we use to redirect to the shared metrics page
                 actions.setExperimentsTab(ExperimentsTabs.All)
                 router.actions.push('/experiments/shared-metrics')
             } else {
