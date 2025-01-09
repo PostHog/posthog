@@ -49,6 +49,7 @@ export function SDKs({
     const [showListeningFor, setShowListeningFor] = React.useState(false)
     const [hasCheckedInstallation, setHasCheckedInstallation] = React.useState(false)
     const { isUserInNonTechnicalTest } = useValues(sdksLogic)
+    const { isUserInNonTechnicalTest } = useValues(sdksLogic)
 
     const {
         windowSize: { width },
