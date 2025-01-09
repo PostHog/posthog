@@ -1,4 +1,3 @@
-import operator
 from collections import defaultdict
 from datetime import datetime, UTC
 from typing import NamedTuple, TypedDict
@@ -320,17 +319,6 @@ async def test_create_wait_and_drop_table(activity_environment, person_overrides
     response = await clickhouse_client.read_query(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{inputs.name}")
     after = int(response.splitlines()[0])
     assert after == 0
-
-
-get_team_id_old_person_id = operator.attrgetter("team_id", "old_person_id")
-
-
-def is_equal_sorted(list_left, list_right, key=get_team_id_old_person_id) -> bool:
-    """Compare two lists sorted by key are equal.
-
-    Useful when we don't care about order.
-    """
-    return sorted(list_left, key=key) == sorted(list_right, key=key)
 
 
 class EventValues(TypedDict):
