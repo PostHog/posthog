@@ -75,7 +75,7 @@ from posthog.hogql_queries.query_runner import (
     shared_insights_execution_mode,
 )
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import DashboardTile, Filter, Insight, User
+from posthog.models import DashboardTile, Filter, Insight, User, Cohort
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -1000,6 +1000,8 @@ When set, the specified dashboard's filters and date range override will be appl
                 else:
                     result = self.calculate_trends(request)
         except ExposedHogQLError as e:
+            raise ValidationError(str(e))
+        except Cohort.DoesNotExist as e:
             raise ValidationError(str(e))
         filter = Filter(request=request, team=self.team)
 
