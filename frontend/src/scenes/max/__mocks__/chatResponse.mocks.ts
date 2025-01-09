@@ -75,17 +75,17 @@ export const failureChunk = generateChunk(['event: message', `data: ${JSON.strin
 
 const formMessage: AssistantMessage = {
     type: AssistantMessageType.Assistant,
-    content: 'Does it look like a good summary of what your product does?',
+    content: 'Does this look like a good summary of what your product does?',
     id: 'assistant-1',
     meta: {
         form: {
             options: [
                 {
-                    value: 'Yes, save this.',
+                    value: 'Yes, save this',
                     variant: 'primary',
                 },
                 {
-                    value: "No, this doesn't look right.",
+                    value: 'No, not quite right',
                 },
             ],
         },

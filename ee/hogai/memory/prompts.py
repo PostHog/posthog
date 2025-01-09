@@ -57,19 +57,21 @@ Answer a single sentence "No data available." if:
 The provided bundle ID{{#bundle_ids.length > 1}}s are{{/bundle_ids.length > 1}}{{^bundle_ids.length > 1}} is{{/bundle_ids.length > 1}} {{#bundle_ids}}"{{.}}"{{^last}}, {{/last}}{{/bundle_ids}}.
 """.strip()
 
-SCRAPING_INITIAL_MESSAGE = "Hey, my name is Max. Before we start, let's find and verify information about your product."
+SCRAPING_INITIAL_MESSAGE = (
+    "Hey, my name is Max! Before we begin, let me find and verify information about your product…"
+)
 
 FAILED_SCRAPING_MESSAGE = """
 Unfortunately, I couldn't find any information about your product. You could edit my initial memory in Settings. Let me help with your request.
 """.strip()
 
-SCRAPING_VERIFICATION_MESSAGE = "Does it look like a good summary of what your product does?"
+SCRAPING_VERIFICATION_MESSAGE = "Does this look like a good summary of what your product does?"
 
-SCRAPING_CONFIRMATION_MESSAGE = "Yes, save this."
+SCRAPING_CONFIRMATION_MESSAGE = "Yes, save this"
 
-SCRAPING_REJECTION_MESSAGE = "No, this doesn't look right."
+SCRAPING_REJECTION_MESSAGE = "No, not quite right"
 
-SCRAPING_TERMINATION_MESSAGE = "All right, let's skip this step. You could always ask me to update my memory."
+SCRAPING_TERMINATION_MESSAGE = "All right, let's skip this step then. You can always ask me to update my memory."
 
 SCRAPING_MEMORY_SAVED_MESSAGE = "Thanks! I've updated my initial memory. Let me help with your request."
 
