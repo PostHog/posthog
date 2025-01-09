@@ -812,6 +812,8 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 # We do not create any ourselves, so this generally is a user-managed check, so we
                 # should not retry.
                 "CheckViolation",
+                # We do not create foreign keys, so this is a user managed check we have failed.
+                "ForeignKeyViolation",
             ],
             finish_inputs=finish_inputs,
         )
