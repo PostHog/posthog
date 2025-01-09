@@ -386,6 +386,7 @@ class FeatureFlagSerializer(
         request = self.context["request"]
         validated_key = validated_data.get("key", None)
         if validated_key:
+            # Delete any soft deleted feature flags with the same key to prevent conflicts
             FeatureFlag.objects.filter(
                 key=validated_key, team__project_id=instance.team.project_id, deleted=True
             ).delete()
@@ -396,6 +397,8 @@ class FeatureFlagSerializer(
         if analytics_dashboards is not None:
             for dashboard in analytics_dashboards:
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
+
+        old_key = instance.key
 
         instance = super().update(instance, validated_data)
 
@@ -415,6 +418,9 @@ class FeatureFlagSerializer(
                 else:
                     experiment.parameters.pop("aggregation_group_type_index", None)
                 experiment.save()
+
+        if old_key != instance.key:
+            _update_feature_flag_dashboard(instance, old_key)
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
 
@@ -445,6 +451,15 @@ def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     feature_flag.save()
 
     return usage_dashboard
+
+
+def _update_feature_flag_dashboard(feature_flag: FeatureFlag, old_key: str) -> None:
+    from posthog.helpers.dashboard_templates import update_feature_flag_dashboard
+
+    if not old_key:
+        return
+
+    update_feature_flag_dashboard(feature_flag, old_key)
 
 
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):

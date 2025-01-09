@@ -1,4 +1,4 @@
-import { LemonButton, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useEffect, useState } from 'react'
@@ -8,40 +8,40 @@ import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/Goal'
-import { SavedMetric } from '../SavedMetrics/savedMetricLogic'
+import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 
-export function SavedMetricModal({
+export function SharedMetricModal({
     experimentId,
     isSecondary,
 }: {
     experimentId: Experiment['id']
     isSecondary?: boolean
 }): JSX.Element {
-    const { savedMetrics, isPrimarySavedMetricModalOpen, isSecondarySavedMetricModalOpen, editingSavedMetricId } =
+    const { sharedMetrics, isPrimarySharedMetricModalOpen, isSecondarySharedMetricModalOpen, editingSharedMetricId } =
         useValues(experimentLogic({ experimentId }))
     const {
-        closePrimarySavedMetricModal,
-        closeSecondarySavedMetricModal,
-        addSavedMetricToExperiment,
-        removeSavedMetricFromExperiment,
+        closePrimarySharedMetricModal,
+        closeSecondarySharedMetricModal,
+        addSharedMetricToExperiment,
+        removeSharedMetricFromExperiment,
     } = useActions(experimentLogic({ experimentId }))
 
-    const [selectedMetricId, setSelectedMetricId] = useState<SavedMetric['id'] | null>(null)
+    const [selectedMetricId, setSelectedMetricId] = useState<SharedMetric['id'] | null>(null)
     const [mode, setMode] = useState<'create' | 'edit'>('create')
 
     useEffect(() => {
-        if (editingSavedMetricId) {
-            setSelectedMetricId(editingSavedMetricId)
+        if (editingSharedMetricId) {
+            setSelectedMetricId(editingSharedMetricId)
             setMode('edit')
         }
-    }, [editingSavedMetricId])
+    }, [editingSharedMetricId])
 
-    if (!savedMetrics) {
+    if (!sharedMetrics) {
         return <></>
     }
 
-    const isOpen = isSecondary ? isSecondarySavedMetricModalOpen : isPrimarySavedMetricModalOpen
-    const closeModal = isSecondary ? closeSecondarySavedMetricModal : closePrimarySavedMetricModal
+    const isOpen = isSecondary ? isSecondarySharedMetricModalOpen : isPrimarySharedMetricModalOpen
+    const closeModal = isSecondary ? closeSecondarySharedMetricModal : closePrimarySharedMetricModal
 
     return (
         <LemonModal
@@ -52,11 +52,11 @@ export function SavedMetricModal({
             footer={
                 <div className="flex justify-between w-full">
                     <div>
-                        {editingSavedMetricId && (
+                        {editingSharedMetricId && (
                             <LemonButton
                                 status="danger"
                                 onClick={() => {
-                                    removeSavedMetricFromExperiment(editingSavedMetricId)
+                                    removeSharedMetricFromExperiment(editingSharedMetricId)
                                 }}
                                 type="secondary"
                             >
@@ -74,7 +74,7 @@ export function SavedMetricModal({
                             <LemonButton
                                 onClick={() => {
                                     if (selectedMetricId) {
-                                        addSavedMetricToExperiment(selectedMetricId, {
+                                        addSharedMetricToExperiment(selectedMetricId, {
                                             type: isSecondary ? 'secondary' : 'primary',
                                         })
                                     }
@@ -91,25 +91,39 @@ export function SavedMetricModal({
         >
             {mode === 'create' && (
                 <div className="flex gap-4 mb-4">
-                    <LemonSelect
-                        options={savedMetrics.map((metric: SavedMetric) => ({
-                            label: metric.name,
-                            value: metric.id,
-                        }))}
-                        placeholder="Select a saved metric"
-                        loading={false}
-                        value={selectedMetricId}
-                        onSelect={(value) => {
-                            setSelectedMetricId(value)
-                        }}
-                    />
+                    {sharedMetrics.length > 0 ? (
+                        <LemonSelect
+                            options={sharedMetrics.map((metric: SharedMetric) => ({
+                                label: metric.name,
+                                value: metric.id,
+                            }))}
+                            placeholder="Select a shared metric"
+                            loading={false}
+                            value={selectedMetricId}
+                            onSelect={(value) => {
+                                setSelectedMetricId(value)
+                            }}
+                        />
+                    ) : (
+                        <LemonBanner
+                            className="w-full"
+                            type="info"
+                            action={{
+                                children: 'New shared metric',
+                                to: urls.experimentsSharedMetric('new'),
+                            }}
+                        >
+                            You don't have any shared metrics yet. Shared metrics let you create reusable metrics that
+                            you can quickly add to any experiment.
+                        </LemonBanner>
+                    )}
                 </div>
             )}
 
             {selectedMetricId && (
                 <div>
                     {(() => {
-                        const metric = savedMetrics.find((m: SavedMetric) => m.id === selectedMetricId)
+                        const metric = sharedMetrics.find((m: SharedMetric) => m.id === selectedMetricId)
                         if (!metric) {
                             return <></>
                         }
@@ -121,7 +135,7 @@ export function SavedMetricModal({
                                     <Link
                                         target="_blank"
                                         className="font-semibold flex items-center"
-                                        to={urls.experimentsSavedMetric(metric.id)}
+                                        to={urls.experimentsSharedMetric(metric.id)}
                                     >
                                         <IconOpenInNew fontSize="18" />
                                     </Link>
