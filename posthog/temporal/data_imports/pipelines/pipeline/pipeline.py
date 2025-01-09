@@ -140,20 +140,25 @@ class PipelineNonDLT:
             return
 
         self._logger.debug("Spawning new process for deltatable compact and vacuuming")
-        process = subprocess.Popen(
-            [
-                "python",
-                f"{os.getcwd()}/posthog/temporal/data_imports/pipelines/pipeline/delta_table_subprocess.py",
-                "--table_uri",
-                self._delta_table_helper._get_delta_table_uri(),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        stdout, stderr = process.communicate()
+        try:
+            process = subprocess.Popen(
+                [
+                    "python",
+                    f"{os.getcwd()}/posthog/temporal/data_imports/pipelines/pipeline/delta_table_subprocess.py",
+                    "--table_uri",
+                    self._delta_table_helper._get_delta_table_uri(),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                close_fds=True,
+            )
+            stdout, stderr = process.communicate()
 
-        if process.returncode != 0:
-            raise Exception(f"Delta subprocess failed: {stderr.decode()}")
+            if process.returncode != 0:
+                raise Exception(f"Delta subprocess failed: {stderr.decode()}")
+        finally:
+            if process.poll() is not None:
+                process.kill()
 
         file_uris = delta_table.file_uris()
         self._logger.info(f"Preparing S3 files - total parquet files: {len(file_uris)}")
