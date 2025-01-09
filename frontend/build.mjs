@@ -1,30 +1,31 @@
 #!/usr/bin/env node
+import esbuild from 'esbuild'
 import * as path from 'path'
+import { dirname } from 'path'
 import { fileURLToPath } from 'url'
 
 import {
-    buildInParallel,
+    commonConfig,
     copyIndexHtml,
     copyPublicFolder,
     createHashlessEntrypoints,
+    initializeEsbuild,
     isDev,
     startDevServer,
 } from './utils.mjs'
 
-export const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
-startDevServer(__dirname)
-copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
-writeIndexHtml()
-writeExporterHtml()
+if (isDev) {
+    console.log('Starting development server with HMR...')
+    startDevServer(__dirname)
+    initializeEsbuild()
+    copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
+} else {
+    console.log('Building for production...')
 
-const common = {
-    absWorkingDir: __dirname,
-    bundle: true,
-}
-
-await buildInParallel(
-    [
+    const buildConfigs = [
         {
             name: 'PostHog App',
             globalName: 'posthogApp',
@@ -32,7 +33,7 @@ await buildInParallel(
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
-            ...common,
+            ...commonConfig,
         },
         {
             name: 'Exporter',
@@ -40,7 +41,7 @@ await buildInParallel(
             entryPoints: ['src/exporter/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
-            ...common,
+            ...commonConfig,
         },
         {
             name: 'Toolbar',
@@ -48,11 +49,8 @@ await buildInParallel(
             entryPoints: ['src/toolbar/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
-            // make sure we don't link to a global window.define
             banner: { js: 'var posthogToolbar = (function () { var define = undefined;' },
             footer: { js: 'return posthogToolbar })();' },
-            // This isn't great, but we load some static assets at runtime for the toolbar, and we can't sub in
-            // a variable at runtime it seems...
             publicPath: isDev ? '/static/' : 'https://us.posthog.com/static/',
             alias: {
                 'posthog-js': 'posthog-js-lite',
@@ -62,23 +60,13 @@ await buildInParallel(
                 {
                     name: 'no-side-effects',
                     setup(build) {
-                        // sideEffects in package.json lists files that _have_ side effects,
-                        // but we only want to mark lemon-ui as having no side effects,
-                        // so we'd have to list every other file and keep that up to date
-                        // no thanks!
-                        // a glob that negates the path doesn't seem to work
-                        // so based off a comment from the esbuild author here
-                        // https://github.com/evanw/esbuild/issues/1895#issuecomment-1003404929
-                        // we can add a plugin just for the toolbar build to mark lemon-ui as having no side effects
-                        // that will allow tree-shaking and reduce the toolbar bundle size
-                        // by over 40% at implementation time
                         build.onResolve({ filter: /^(lib|@posthog)\/lemon-ui/ }, async (args) => {
                             if (args.pluginData) {
                                 return
-                            } // Ignore this if we called ourselves
+                            } // Ignore if called recursively
 
                             const { path, ...rest } = args
-                            rest.pluginData = true // Avoid infinite recursion
+                            rest.pluginData = true
                             const result = await build.resolve(path, rest)
 
                             result.sideEffects = false
@@ -88,41 +76,26 @@ await buildInParallel(
                     },
                 },
             ],
-            ...common,
+            ...commonConfig,
         },
-    ],
-    {
-        async onBuildComplete(config, buildResponse) {
-            if (!buildResponse) {
-                return
-            }
+    ]
 
-            const { chunks, entrypoints } = buildResponse
+    ;(async () => {
+        for (const config of buildConfigs) {
+            console.log(`Building: ${config.name}`)
+            const result = await esbuild.build(config)
 
             if (config.name === 'PostHog App') {
-                if (Object.keys(chunks).length === 0) {
-                    throw new Error('Could not get chunk metadata for bundle "PostHog App."')
-                }
-                if (!isDev && Object.keys(entrypoints).length === 0) {
-                    throw new Error('Could not get entrypoint for bundle "PostHog App."')
-                }
-                writeIndexHtml(chunks, entrypoints)
+                createHashlessEntrypoints(__dirname, Object.keys(result.metafile.outputs))
+                copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index')
+            } else if (config.name === 'Exporter') {
+                copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter')
             }
 
-            if (config.name === 'Exporter') {
-                writeExporterHtml(chunks, entrypoints)
-            }
-
-            createHashlessEntrypoints(__dirname, entrypoints)
-        },
-    }
-)
-
-export function writeIndexHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
-    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
-}
-
-export function writeExporterHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+            console.log(`${config.name} build complete.`)
+        }
+    })().catch((error) => {
+        console.error('Build failed:', error)
+        process.exit(1)
+    })
 }
