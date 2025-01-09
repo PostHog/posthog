@@ -121,7 +121,7 @@ describe('mergeIssues', () => {
         expect(mergedIssue).toEqual({
             // retains values from primary group
             id: 'primaryId',
-            assignee: 400,
+            assignee: { type: 'user', id: 400 },
             description: 'This is the original description',
             earliest: '',
             name: 'TypeError',
