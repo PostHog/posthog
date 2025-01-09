@@ -2494,7 +2494,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             b"series,8-Jan-2012,9-Jan-2012,10-Jan-2012,11-Jan-2012,12-Jan-2012,13-Jan-2012,14-Jan-2012,15-Jan-2012",
             lines[0],
         )
-        self.assertEqual(lines[2], b"test custom,0.0,0.0,0.0,0.0,0.0,0.0,2.0,1.0")
+        self.assertEqual(lines[2], b"test custom,0,0,0,0,0,0,2,1")
+        self.assertEqual(len(lines), 3, response.content)
         self.assertEqual(len(lines), 3, response.content)
 
     # Extra permissioning tests here
