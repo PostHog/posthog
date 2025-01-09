@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { HogDebug } from 'scenes/debug/HogDebug'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { CoreWebVitals } from '~/queries/nodes/CoreWebVitals/CoreWebVitals'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -22,6 +23,7 @@ import { QueryContext } from '~/queries/types'
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import {
+    isCoreWebVitalsQuery,
     isDataTableNode,
     isDataVisualizationNode,
     isHogQuery,
@@ -135,6 +137,8 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         )
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else if (isCoreWebVitalsQuery(query)) {
+        return <CoreWebVitals query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {
         component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
     } else {

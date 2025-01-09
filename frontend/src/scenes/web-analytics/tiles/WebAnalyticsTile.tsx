@@ -20,12 +20,13 @@ import { GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyti
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
 import {
+    CoreWebVitalsQuery,
     DataTableNode,
     InsightVizNode,
     NodeKind,
     QuerySchema,
     WebStatsBreakdown,
-} from '~/queries/schema/schema-general'
+} from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { ChartDisplayType, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
@@ -70,33 +71,33 @@ const VariationCell = (
             previous === 0 && current === 0 // Special case, render as flatline
                 ? 0
                 : current === null || !compareFilter || compareFilter.compare === false
-                ? null
-                : previous === null || previous === 0
-                ? Infinity
-                : current / previous - 1
+                    ? null
+                    : previous === null || previous === 0
+                        ? Infinity
+                        : current / previous - 1
 
         const trend =
             pctChangeFromPrevious === null
                 ? null
                 : pctChangeFromPrevious === 0
-                ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
-                : pctChangeFromPrevious > 0
-                ? {
-                      Icon: IconTrending,
-                      color: reverseColors ? getColorVar('danger') : getColorVar('success'),
-                  }
-                : {
-                      Icon: IconTrendingDown,
-                      color: reverseColors ? getColorVar('success') : getColorVar('danger'),
-                  }
+                    ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
+                    : pctChangeFromPrevious > 0
+                        ? {
+                            Icon: IconTrending,
+                            color: reverseColors ? getColorVar('danger') : getColorVar('success'),
+                        }
+                        : {
+                            Icon: IconTrendingDown,
+                            color: reverseColors ? getColorVar('success') : getColorVar('danger'),
+                        }
 
         // If current === previous, say "increased by 0%"
         const tooltip =
             pctChangeFromPrevious !== null
                 ? `${current >= previous ? 'Increased' : 'Decreased'} by ${percentage(
-                      Math.abs(pctChangeFromPrevious),
-                      0
-                  )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
+                    Math.abs(pctChangeFromPrevious),
+                    0
+                )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
                 : null
 
         return (
@@ -617,6 +618,35 @@ export const WebExternalClicksTile = ({
     )
 }
 
+export const CoreWebVitalsQueryTile = ({ query }: { query: CoreWebVitalsQuery }): JSX.Element => {
+    const { setInterval } = useActions(webAnalyticsLogic)
+    const {
+        dateFilter: { interval },
+    } = useValues(webAnalyticsLogic)
+
+    return (
+        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+            <div className="flex flex-row items-center justify-end m-2 mr-4">
+                <div className="flex flex-row items-center">
+                    <span className="mr-2">Group by</span>
+                    <IntervalFilterStandalone
+                        interval={interval}
+                        onIntervalChange={setInterval}
+                        options={[
+                            { value: 'hour', label: 'Hour' },
+                            { value: 'day', label: 'Day' },
+                            { value: 'week', label: 'Week' },
+                            { value: 'month', label: 'Month' },
+                        ]}
+                    />
+                </div>
+            </div>
+
+            <Query query={query} readOnly={true} context={{}} />
+        </div>
+    )
+}
+
 export const WebQuery = ({
     query,
     showIntervalSelect,
@@ -649,6 +679,10 @@ export const WebQuery = ({
 
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebGoalsQuery) {
         return <WebGoalsTile query={query} insightProps={insightProps} />
+    }
+
+    if (query.kind === NodeKind.CoreWebVitalsQuery) {
+        return <CoreWebVitalsQueryTile query={query} />
     }
 
     return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />

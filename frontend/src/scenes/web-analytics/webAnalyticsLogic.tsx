@@ -715,20 +715,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         {
                             kind: 'query',
                             tileId: TileId.WEB_VITALS,
-
-                            // TODO: Do we need title and docs? Likely not
-                            title: 'Core Web Vitals',
-                            docs: {
-                                title: 'Core Web Vitals',
-                                description: 'TODO',
-                                url: 'https://posthog.com/docs/web-analytics/web-vitals',
-                            },
                             layout: {
                                 colSpanClassName: 'md:col-span-full',
                                 orderWhenLargeClassName: 'xxl:order-0',
                             },
                             query: {
-                                kind: NodeKind.InsightVizNode,
+                                kind: NodeKind.CoreWebVitalsQuery,
+                                properties: webAnalyticsFilters,
                                 source: {
                                     kind: NodeKind.TrendsQuery,
                                     dateRange,
@@ -773,8 +766,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     conversionGoal: undefined, // TODO: Should we support conversion goals for core web vitals?
                                     properties: webAnalyticsFilters,
                                 },
-                                hidePersonsModal: true,
-                                embedded: true,
                             },
                             insightProps: createInsightProps(TileId.OVERVIEW),
                             canOpenInsight: false,

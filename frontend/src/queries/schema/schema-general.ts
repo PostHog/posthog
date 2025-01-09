@@ -93,6 +93,7 @@ export enum NodeKind {
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
+    CoreWebVitalsQuery = 'CoreWebVitalsQuery',
 
     // Experiment queries
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
@@ -125,6 +126,7 @@ export type AnyDataNode =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
+    | CoreWebVitalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
@@ -153,6 +155,7 @@ export type QuerySchema =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
+    | CoreWebVitalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
@@ -626,6 +629,7 @@ export interface DataTableNode
                     | WebStatsTableQuery
                     | WebExternalClicksTableQuery
                     | WebGoalsQuery
+                    | CoreWebVitalsQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
@@ -646,6 +650,7 @@ export interface DataTableNode
         | WebStatsTableQuery
         | WebExternalClicksTableQuery
         | WebGoalsQuery
+        | CoreWebVitalsQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
@@ -1526,6 +1531,23 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase<unknow
     offset?: integer
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
+
+export interface CoreWebVitalsQuery<T = InsightQueryNode> extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
+    kind: NodeKind.CoreWebVitalsQuery
+    source: T
+}
+
+// TODO: Is this really all needed/returned?
+export interface CoreWebVitalsQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    samplingRate?: SamplingRate
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedCoreWebVitalsQueryResponse = CachedQueryResponse<CoreWebVitalsQueryResponse>
 
 export enum SessionAttributionGroupBy {
     ChannelType = 'ChannelType',
