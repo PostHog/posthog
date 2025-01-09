@@ -738,19 +738,6 @@ class EntityType(StrEnum):
     NEW_ENTITY = "new_entity"
 
 
-class Type5(StrEnum):
-    TEAM = "team"
-    USER = "user"
-
-
-class Assignee(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: Union[float, str]
-    type: Type5
-
-
 class Status(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
@@ -758,25 +745,12 @@ class Status(StrEnum):
     PENDING_RELEASE = "pending_release"
 
 
-class ErrorTrackingIssue(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    assignee: Optional[Assignee] = None
-    description: Optional[str] = None
-    earliest: str
-    first_seen: AwareDatetime
-    id: str
-    last_seen: AwareDatetime
-    name: Optional[str] = None
-    occurrences: float
-    sessions: float
-    status: Status
-    users: float
-    volume: Optional[Any] = None
+class Type5(StrEnum):
+    ERROR_TRACKING_TEAM = "error_tracking_team"
+    USER = "user"
 
 
-class Assignee1(BaseModel):
+class ErrorTrackingIssueAssignee(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2238,6 +2212,24 @@ class ElementPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["element"] = "element"
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
+
+
+class ErrorTrackingIssue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignee: Optional[ErrorTrackingIssueAssignee] = None
+    description: Optional[str] = None
+    earliest: str
+    first_seen: AwareDatetime
+    id: str
+    last_seen: AwareDatetime
+    name: Optional[str] = None
+    occurrences: float
+    sessions: float
+    status: Status
+    users: float
+    volume: Optional[Any] = None
 
 
 class EventPropertyFilter(BaseModel):
@@ -6065,7 +6057,7 @@ class ErrorTrackingQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    assignee: Optional[Assignee1] = None
+    assignee: Optional[ErrorTrackingIssueAssignee] = None
     dateRange: DateRange
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None

@@ -61,7 +61,7 @@ export interface ErrorTrackingSymbolSet {
 }
 
 export type ErrorTrackingTeam = {
-    id: number
+    id: string
     name: string
     members: UserBasicType[]
 }

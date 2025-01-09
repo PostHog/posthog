@@ -8,7 +8,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { OrganizationMemberType } from '~/types'
 
-import { ErrorTrackingIssue } from '../../queries/schema'
+import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '../../queries/schema'
 import { errorTrackingTeamsLogic } from './errorTrackingTeamsLogic'
 
 type AssigneeDisplayType = { id: string | number; icon: JSX.Element; displayName?: string }
@@ -52,7 +52,7 @@ export const AssigneeSelect = ({
 
     const displayAssignee: AssigneeDisplayType = useMemo(() => {
         if (assignee) {
-            if (assignee.type === 'team') {
+            if (assignee.type === 'error_tracking_team') {
                 const assignedTeam = teams.find((team) => team.id === assignee.id)
                 return assignedTeam ? teamDisplay(assignedTeam, 0) : unassignedUser
             }
@@ -94,7 +94,7 @@ export const AssigneeSelect = ({
                         <Section
                             loading={teamsLoading}
                             search={!!search}
-                            type="team"
+                            type="error_tracking_team"
                             items={teams.map(teamDisplay)}
                             onSelect={_onChange}
                             activeId={assignee?.id}
@@ -124,7 +124,7 @@ const Section = ({
 }: {
     loading: boolean
     search: boolean
-    type: 'user' | 'team'
+    type: ErrorTrackingIssueAssignee['type']
     items: AssigneeDisplayType[]
     onSelect: (value: ErrorTrackingIssue['assignee']) => void
     activeId?: string | number

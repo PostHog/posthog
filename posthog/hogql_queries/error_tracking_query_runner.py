@@ -221,19 +221,26 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         results = {}
         for issue in issues:
-            assignment_user_id = issue.pop("assignment__user_id")
-            assignment_error_tracking_team_id = issue.pop("assignment__error_tracking_team_id")
+            result = {
+                "id": issue["id"],
+                "name": issue["name"],
+                "status": issue["status"],
+                "description": issue["description"],
+            }
 
-            assignee = (
+            assignment_user_id = issue.get("assignment__user_id")
+            assignment_error_tracking_team_id = issue.get("assignment__error_tracking_team_id")
+
+            result["assignee"] = (
                 {
                     "id": assignment_user_id or assignment_error_tracking_team_id,
-                    "type": "user" if assignment_user_id else "team",
+                    "type": "user" if assignment_user_id else "error_tracking_team",
                 }
                 if assignment_user_id or assignment_error_tracking_team_id
                 else None
             )
 
-            results[issue["id"]] = issue | {"assignee": assignee}
+            results[issue["id"]] = result
 
         return results
 

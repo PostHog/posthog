@@ -1992,12 +1992,17 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     select?: HogQLExpression[]
     orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
-    assignee?: { type: 'team' | 'user'; id: integer | string } | null
+    assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
     limit?: integer
     offset?: integer
+}
+
+export interface ErrorTrackingIssueAssignee {
+    type: 'error_tracking_team' | 'user'
+    id: integer | string
 }
 
 export interface ErrorTrackingIssue {
@@ -2014,7 +2019,7 @@ export interface ErrorTrackingIssue {
     earliest: string
     // Sparkline data handled by the DataTable
     volume?: any
-    assignee: { type: 'team' | 'user'; id: number | string } | null
+    assignee: ErrorTrackingIssueAssignee | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
 }
 

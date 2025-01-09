@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
-import { Teams } from './configuration/Teams'
+import { ErrorTrackingTeams } from './configuration/ErrorTrackingTeams'
 import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 import { SymbolSetUploadModal } from './SymbolSetUploadModal'
 
@@ -33,7 +33,7 @@ export function ErrorTrackingConfigurationScene(): JSX.Element {
                 activeKey={activeTab}
                 onChange={setActiveTab}
                 tabs={[
-                    { key: 'teams', label: 'Teams', content: <Teams /> },
+                    { key: 'teams', label: 'Teams', content: <ErrorTrackingTeams /> },
                     {
                         key: 'symbol-sets',
                         label: 'Symbol sets',

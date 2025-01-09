@@ -9,7 +9,7 @@ import { UserBasicType } from '~/types'
 
 import { errorTrackingTeamsLogic } from '../errorTrackingTeamsLogic'
 
-export const Teams = (): JSX.Element => {
+export const ErrorTrackingTeams = (): JSX.Element => {
     const { teams, teamsLoading } = useValues(errorTrackingTeamsLogic)
     const { ensureAllTeamsLoaded, openTeamCreationForm } = useActions(errorTrackingTeamsLogic)
 

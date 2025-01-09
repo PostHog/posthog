@@ -25,7 +25,7 @@ export const errorTrackingTeamsLogic = kea<errorTrackingTeamsLogicType>([
                     const response = await api.errorTracking.teams()
                     return response.results
                 },
-                deleteTeam: async (id: number) => {
+                deleteTeam: async (id: string) => {
                     await api.errorTracking.deleteTeam(id)
                     const newValues = [...values.teams]
                     return newValues.filter((v) => v.id !== id)
@@ -34,7 +34,7 @@ export const errorTrackingTeamsLogic = kea<errorTrackingTeamsLogicType>([
                     const response = await api.errorTracking.createTeam(name)
                     return [...values.teams, response]
                 },
-                addTeamMember: async ({ teamId, user }: { teamId: number; user: UserBasicType }) => {
+                addTeamMember: async ({ teamId, user }: { teamId: string; user: UserBasicType }) => {
                     const team = values.teams.find((team) => team.id === teamId)
                     if (team) {
                         await api.errorTracking.addTeamMember(teamId, user.id)
@@ -43,7 +43,7 @@ export const errorTrackingTeamsLogic = kea<errorTrackingTeamsLogicType>([
                     }
                     return values.teams
                 },
-                removeTeamMember: async ({ teamId, user }: { teamId: number; user: UserBasicType }) => {
+                removeTeamMember: async ({ teamId, user }: { teamId: string; user: UserBasicType }) => {
                     const team = values.teams.find((team) => team.id === teamId)
                     if (team) {
                         await api.errorTracking.removeTeamMember(teamId, user.id)

@@ -5478,18 +5478,7 @@
                 "assignee": {
                     "anyOf": [
                         {
-                            "additionalProperties": false,
-                            "properties": {
-                                "id": {
-                                    "type": ["number", "string"]
-                                },
-                                "type": {
-                                    "enum": ["team", "user"],
-                                    "type": "string"
-                                }
-                            },
-                            "required": ["type", "id"],
-                            "type": "object"
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
                         },
                         {
                             "type": "null"
@@ -5546,36 +5535,32 @@
             ],
             "type": "object"
         },
+        "ErrorTrackingIssueAssignee": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "string"
+                        }
+                    ]
+                },
+                "type": {
+                    "enum": ["error_tracking_team", "user"],
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id"],
+            "type": "object"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
                 "assignee": {
-                    "anyOf": [
-                        {
-                            "additionalProperties": false,
-                            "properties": {
-                                "id": {
-                                    "anyOf": [
-                                        {
-                                            "type": "integer"
-                                        },
-                                        {
-                                            "type": "string"
-                                        }
-                                    ]
-                                },
-                                "type": {
-                                    "enum": ["team", "user"],
-                                    "type": "string"
-                                }
-                            },
-                            "required": ["type", "id"],
-                            "type": "object"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "$ref": "#/definitions/ErrorTrackingIssueAssignee"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"

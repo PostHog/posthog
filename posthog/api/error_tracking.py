@@ -65,7 +65,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             ErrorTrackingIssueAssignment.objects.update_or_create(
                 issue_id=self.get_object().id,
                 defaults={
-                    "user_id": None if assignee["type"] == "team" else assignee["id"],
+                    "user_id": None if assignee["type"] == "error_tracking_team" else assignee["id"],
                     "error_tracking_team_id": None if assignee["type"] == "user" else assignee["id"],
                 },
             )

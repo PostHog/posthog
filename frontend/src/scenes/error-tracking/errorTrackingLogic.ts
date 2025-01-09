@@ -2,7 +2,7 @@ import type { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { DateRange, ErrorTrackingIssue } from '~/queries/schema'
+import { DateRange, ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
@@ -58,7 +58,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             },
         ],
         assignee: [
-            null as ErrorTrackingIssue['assignee'],
+            null as ErrorTrackingIssueAssignee | null,
             {
                 setAssignee: (_, { assignee }) => assignee,
             },
