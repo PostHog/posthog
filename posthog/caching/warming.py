@@ -165,7 +165,10 @@ def schedule_warming_for_teams_task():
             capture_ph_event(
                 str(team.uuid),
                 "cache warming - insights to cache",
-                properties={"count": len(insight_tuples)},
+                properties={
+                    "count": len(insight_tuples),
+                    "team_id": team.id,
+                },
             )
 
             # We chain the task execution to prevent queries *for a single team* running at the same time
@@ -233,6 +236,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                         "insight_id": insight.pk,
                         "dashboard_id": dashboard_id,
                         "is_cached": is_cached,
+                        "team_id": insight.team_id,
                     },
                 )
 
