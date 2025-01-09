@@ -47,7 +47,7 @@ export function MetricSourceModal({
                     }}
                 >
                     <div className="font-semibold">
-                        <span>Custom</span>
+                        <span>Single-use</span>
                     </div>
                     <div className="text-muted text-sm leading-relaxed">
                         Create a new metric specific to this experiment.

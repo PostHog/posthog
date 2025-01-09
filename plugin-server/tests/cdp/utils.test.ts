@@ -56,8 +56,8 @@ describe('Utils', () => {
             const prepared = prepareLogEntriesForClickhouse(example)
 
             expect(prepared).toMatchInlineSnapshot(`
-                Array [
-                  Object {
+                [
+                  {
                     "instance_id": "inv-1",
                     "level": "info",
                     "log_source": "hog_function",
@@ -66,7 +66,7 @@ describe('Utils', () => {
                     "team_id": 1,
                     "timestamp": "2021-05-03 00:00:00.000",
                   },
-                  Object {
+                  {
                     "instance_id": "inv-1",
                     "level": "info",
                     "log_source": "hog_function",
@@ -75,7 +75,7 @@ describe('Utils', () => {
                     "team_id": 1,
                     "timestamp": "2021-05-03 00:00:00.001",
                   },
-                  Object {
+                  {
                     "instance_id": "inv-1",
                     "level": "info",
                     "log_source": "hog_function",
@@ -84,7 +84,7 @@ describe('Utils', () => {
                     "team_id": 1,
                     "timestamp": "2021-05-03 00:00:00.002",
                   },
-                  Object {
+                  {
                     "instance_id": "inv-1",
                     "level": "info",
                     "log_source": "hog_function",

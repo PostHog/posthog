@@ -14,9 +14,6 @@ patchedDependencies:
   heatmap.js@2.0.5:
     hash: gydrxrztd4ruyhouu6tu7zh43e
     path: patches/heatmap.js@2.0.5.patch
-  node-rdkafka@2.17.0:
-    hash: bugorwxdhlhl2utknko2c5ibqm
-    path: plugin-server/patches/node-rdkafka@2.17.0.patch
   rrweb@2.0.0-alpha.13:
     hash: e2gmypqces37eklplr5o3rvywa
     path: patches/rrweb@2.0.0-alpha.13.patch
@@ -317,8 +314,8 @@ importers:
         specifier: ^9.3.0
         version: 9.3.0(postcss@8.4.31)
       posthog-js:
-        specifier: 1.204.0
-        version: 1.204.0
+        specifier: 1.205.0
+        version: 1.205.0
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -9345,8 +9342,8 @@ packages:
   posthog-js-lite@3.0.0:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
 
-  posthog-js@1.204.0:
-    resolution: {integrity: sha512-wVt948wKPPztCZ3OeDq8y0dtaPbhbY8vFuEVBUNHOn7PohbTXr7HZ4CNhH8fXgFkx5COEzz/20wWJmEsSU5oCA==}
+  posthog-js@1.205.0:
+    resolution: {integrity: sha512-zP4SQ9Dg9JwqkEteoAOviAAAMdT/nJ4vk1jqfE6fVudziEa3szkQWd7czk5ehlEdrKFUE85MonCKW4L/uwtybA==}
 
   potpack@2.0.0:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
@@ -22186,7 +22183,7 @@ snapshots:
 
   posthog-js-lite@3.0.0: {}
 
-  posthog-js@1.204.0:
+  posthog-js@1.205.0:
     dependencies:
       core-js: 3.39.0
       fflate: 0.4.8

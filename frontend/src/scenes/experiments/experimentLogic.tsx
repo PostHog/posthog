@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -38,7 +37,6 @@ import {
     NodeKind,
 } from '~/queries/schema'
 import {
-    ActionFilter as ActionFilterType,
     Breadcrumb,
     BreakdownAttributionType,
     ChartDisplayType,
@@ -110,20 +108,6 @@ export interface TabularSecondaryMetricResults {
 export interface ExperimentResultCalculationError {
     detail: string
     statusCode: number
-}
-
-// :FLAG: CLEAN UP AFTER MIGRATION
-export interface CachedSecondaryMetricExperimentFunnelsQueryResponse extends CachedExperimentFunnelsQueryResponse {
-    filters?: {
-        insight?: InsightType
-    }
-}
-
-// :FLAG: CLEAN UP AFTER MIGRATION
-export interface CachedSecondaryMetricExperimentTrendsQueryResponse extends CachedExperimentTrendsQueryResponse {
-    filters?: {
-        insight?: InsightType
-    }
 }
 
 export const experimentLogic = kea<experimentLogicType>([
@@ -1162,27 +1146,13 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         experimentMathAggregationForTrends: [
-            (s) => [s.experiment, s.featureFlags],
-            (experiment, featureFlags) => (): PropertyMathType | CountPerActorMathType | undefined => {
-                let entities: { math?: string }[] = []
-
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    const query = experiment?.metrics?.[0] as ExperimentTrendsQuery
-                    if (!query) {
-                        return undefined
-                    }
-                    entities = query.count_query?.series || []
-                } else {
-                    const filters = experiment?.filters
-                    if (!filters) {
-                        return undefined
-                    }
-                    entities = [
-                        ...(filters?.events || []),
-                        ...(filters?.actions || []),
-                        ...(filters?.data_warehouse || []),
-                    ] as ActionFilterType[]
+            (s) => [s.experiment],
+            (experiment) => (): PropertyMathType | CountPerActorMathType | undefined => {
+                const query = experiment?.metrics?.[0] as ExperimentTrendsQuery
+                if (!query) {
+                    return undefined
                 }
+                const entities = query.count_query?.series || []
 
                 // Find out if we're using count per actor math aggregates averages per user
                 const userMathValue = entities.filter((entity) =>
@@ -1391,13 +1361,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         credibleIntervalForVariant: [
-            () => [],
-            () =>
+            (s) => [s.experimentStatsVersion],
+            (experimentStatsVersion) =>
                 (
                     metricResult:
                         | Partial<ExperimentResults['result']>
-                        | CachedSecondaryMetricExperimentFunnelsQueryResponse
-                        | CachedSecondaryMetricExperimentTrendsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
                         | null,
                     variantKey: string,
                     metricType: InsightType
@@ -1428,13 +1398,25 @@ export const experimentLogic = kea<experimentLogicType>([
                     const controlVariant = (metricResult.variants as TrendExperimentVariant[]).find(
                         ({ key }) => key === 'control'
                     ) as TrendExperimentVariant
+                    const variant = (metricResult.variants as TrendExperimentVariant[]).find(
+                        ({ key }) => key === variantKey
+                    ) as TrendExperimentVariant
 
                     const controlMean = controlVariant.count / controlVariant.absolute_exposure
 
+                    const meanLowerBound =
+                        experimentStatsVersion === 2
+                            ? credibleInterval[0] / variant.absolute_exposure
+                            : credibleInterval[0]
+                    const meanUpperBound =
+                        experimentStatsVersion === 2
+                            ? credibleInterval[1] / variant.absolute_exposure
+                            : credibleInterval[1]
+
                     // Calculate the percentage difference between the credible interval bounds of the variant and the control's mean.
                     // This represents the range in which the true percentage change relative to the control is likely to fall.
-                    const lowerBound = ((credibleInterval[0] - controlMean) / controlMean) * 100
-                    const upperBound = ((credibleInterval[1] - controlMean) / controlMean) * 100
+                    const lowerBound = ((meanLowerBound - controlMean) / controlMean) * 100
+                    const upperBound = ((meanUpperBound - controlMean) / controlMean) * 100
                     return [lowerBound, upperBound]
                 },
         ],
@@ -1743,19 +1725,15 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         hasGoalSet: [
-            (s) => [s.experiment, s.featureFlags],
-            (experiment, featureFlags): boolean => {
-                // :FLAG: CLEAN UP AFTER MIGRATION
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    return !!experiment.metrics[0]
-                }
-
-                const filters = experiment?.filters
-                return !!(
-                    (filters?.actions && filters.actions.length > 0) ||
-                    (filters?.events && filters.events.length > 0) ||
-                    (filters?.data_warehouse && filters.data_warehouse.length > 0)
-                )
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                return !!experiment.metrics[0]
+            },
+        ],
+        experimentStatsVersion: [
+            (s) => [s.experiment],
+            (experiment: Experiment): number => {
+                return experiment.stats_config?.version || 1
             },
         ],
     }),

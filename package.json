@@ -163,7 +163,7 @@
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
-        "posthog-js": "1.204.0",
+        "posthog-js": "1.205.0",
         "posthog-js-lite": "3.0.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -338,8 +338,7 @@
         "patchedDependencies": {
             "rrweb@2.0.0-alpha.13": "patches/rrweb@2.0.0-alpha.13.patch",
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
-            "dayjs@1.11.11": "patches/dayjs@1.11.11.patch",
-            "node-rdkafka@2.17.0": "plugin-server/patches/node-rdkafka@2.17.0.patch"
+            "dayjs@1.11.11": "patches/dayjs@1.11.11.patch"
         },
         "allowNonAppliedPatches": true
     },

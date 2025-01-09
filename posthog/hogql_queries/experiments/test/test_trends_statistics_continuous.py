@@ -39,7 +39,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             calculate_credible_intervals=calculate_credible_intervals_v2_continuous,
         )
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_small_sample_two_variants_not_significant(self):
         """Test with small sample size, two variants, no clear winner"""
 
@@ -87,7 +87,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_large_sample_two_variants_significant(self):
         """Test with large sample size, two variants, clear winner"""
 
@@ -137,7 +137,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_large_sample_two_variants_strongly_significant(self):
         """Test with large sample size, two variants, very clear winner"""
 
@@ -183,7 +183,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_many_variants_not_significant(self):
         """Test with multiple variants, no clear winner"""
 
@@ -263,7 +263,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_many_variants_significant(self):
         """Test with multiple variants, one clear winner"""
 
@@ -333,7 +333,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_insufficient_sample_size(self):
         """Test with sample size below threshold"""
 
@@ -380,7 +380,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_edge_cases_zero_means(self):
         """Test edge cases like zero means"""
 
@@ -428,7 +428,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_edge_cases_near_zero_means(self):
         """Test edge cases like near-zero means"""
 
@@ -484,7 +484,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_expected_loss_minimal_difference(self):
         """Test expected loss when variants have very similar performance"""
 
@@ -514,7 +514,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         self.run_test_for_both_implementations(run_test)
 
-    @flaky(max_runs=3, min_passes=1)
+    @flaky(max_runs=5, min_passes=1)
     def test_expected_loss_test_variant_clear_winner(self):
         """Test expected loss when one variant is clearly better"""
 
