@@ -883,7 +883,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             properties={"name": "test", "email": "test@posthog.com"},
         )
 
-        _make_event_sequence(self.team, "p1", 3, [1, 1, 1])
+        _make_event_sequence(self.team, "p1", 3, [1, 1, 1, 1])
         flush_persons_and_events()
         # Filter for:
         # Regularly completed [$pageview] [at least] [1] times per
@@ -902,6 +902,44 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "time_value": 3,
                             "total_periods": 3,
                             "min_periods": 3,
+                            "value": "performed_event_regularly",
+                            "type": "behavioral",
+                        }
+                    ],
+                }
+            }
+        )
+
+        res, q, params = execute(filter, self.team)
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    def test_performed_event_regularly_month(self):
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+
+        _make_event_sequence(self.team, "p1", 28, [1] * 20)
+        flush_persons_and_events()
+        # Filter for:
+        # Regularly completed [$pageview] [at least] [1] times per
+        # [3][day] period for at least [3] of the last [3] periods
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "operator": "gte",
+                            "operator_value": 2,
+                            "time_interval": "month",
+                            "time_value": 2,
+                            "total_periods": 3,
+                            "min_periods": 2,
                             "value": "performed_event_regularly",
                             "type": "behavioral",
                         }
@@ -969,7 +1007,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         cohort_query = CohortQuery(filter=filter, team=self.team)
         q, params = cohort_query.get_query()
         res = sync_execute(q, {**params, **filter.hogql_context.values})
-        # Old cohorts used now() and always looked at now() - interval
+        # Old cohorts uses now() and always looked at now() - interval
         self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
         # HogQL cohorts uses start of interval for more consistent cohorts regardless of cohort calculation time
         self.assertCountEqual([p2.uuid], [r[0] for r in cohort_query.hogql_result.results])

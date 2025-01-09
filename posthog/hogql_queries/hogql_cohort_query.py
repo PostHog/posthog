@@ -347,8 +347,9 @@ class HogQLCohortQuery:
 
         stickiness_query = StickinessQuery(
             series=series,
-            dateRange=DateRange(date_from=date_from, date_to=f"-1{date_interval[:1]}"),
-            intervalCount=time_value or 1,
+            dateRange=DateRange(date_from=date_from, date_to="-1d"),
+            interval=date_interval,
+            intervalCount=time_value,
             stickinessFilter=StickinessFilter(
                 stickinessCriteria=StickinessCriteria(operator=prop.operator, value=operator_value)
             ),
