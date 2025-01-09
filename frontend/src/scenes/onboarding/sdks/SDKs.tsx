@@ -88,6 +88,7 @@ export function SDKs({
                     }`}
                 >
                     {isUserInNonTechnicalTest && <InviteHelpCard />}
+                    {isUserInNonTechnicalTest && <InviteHelpCard />}
                     {showSourceOptionsSelect && (
                         <LemonSelect
                             allowClear
@@ -120,6 +121,7 @@ export function SDKs({
                             </LemonButton>
                         </React.Fragment>
                     ))}
+                    {!isUserInNonTechnicalTest && <InviteHelpCard />}
                     {!isUserInNonTechnicalTest && <InviteHelpCard />}
                 </div>
                 {selectedSDK && productKey && !!sdkInstructionMap[selectedSDK.key] && (
