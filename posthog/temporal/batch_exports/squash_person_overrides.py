@@ -4,7 +4,7 @@ import collections.abc
 import contextlib
 import json
 import typing
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, UTC
 
 from temporalio import activity, workflow
@@ -33,8 +33,6 @@ AS
         max(version) AS latest_version
     FROM
         {database}.person_distinct_id_overrides
-    WHERE
-        ((length(%(team_ids)s) = 0) OR (team_id IN %(team_ids)s))
     GROUP BY
         team_id, distinct_id
 SETTINGS
@@ -58,7 +56,6 @@ UPDATE
     person_id = joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id)
 WHERE
     (joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id) != defaultValueOfTypeName('UUID'))
-    AND ((length(%(team_ids)s) = 0) OR (team_id IN %(team_ids)s))
 SETTINGS
     max_execution_time = 0
 """
@@ -109,7 +106,6 @@ FROM
     {database}.sharded_events
 WHERE
     (joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id) != defaultValueOfTypeName('UUID'))
-    AND ((length(%(team_ids)s) = 0) OR (team_id IN %(team_ids)s))
 GROUP BY
     team_id, distinct_id
 HAVING
@@ -631,12 +627,10 @@ class SquashPersonOverridesInputs:
     """Inputs for the SquashPersonOverrides workflow.
 
     Attributes:
-        team_ids: List of team ids to squash. If `None`, will squash all.
         delete_grace_period_seconds: Number of seconds until an override can be deleted. Defaults to 24h.
         dry_run: If True, queries that mutate or delete data will not execute and instead will be logged.
     """
 
-    team_ids: list[int] = field(default_factory=list)
     delete_grace_period_seconds: int = 24 * 3600
     dry_run: bool = True
 
@@ -699,13 +693,9 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(minutes=1),
         )
 
-        table_query_parameters = {
-            "team_ids": list(inputs.team_ids),
-        }
+        table_query_parameters = {}
         async with manage_table("person_distinct_id_overrides_join", inputs.dry_run, table_query_parameters):
-            mutation_parameters: QueryParameters = {
-                "team_ids": list(inputs.team_ids),
-            }
+            mutation_parameters: QueryParameters = {}
             await submit_and_wait_for_mutation(
                 "update_events_with_person_overrides",
                 mutation_parameters,
