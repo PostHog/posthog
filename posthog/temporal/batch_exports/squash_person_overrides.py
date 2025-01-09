@@ -15,48 +15,7 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 
-CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
-CREATE OR REPLACE TABLE {database}.person_distinct_id_overrides_join ON CLUSTER {cluster} (
-    `team_id` Int64,
-    `distinct_id` String,
-    `person_id` UUID,
-    `latest_version` Int64
-)
-ENGINE = Join(ANY, left, team_id, distinct_id)
-AS
-    SELECT
-        team_id,
-        distinct_id,
-        argMax(person_id, version) AS person_id,
-        max(version) AS latest_version
-    FROM
-        {database}.person_distinct_id_overrides
-    GROUP BY
-        team_id, distinct_id
-SETTINGS
-    max_execution_time = 0,
-    max_memory_usage = 0,
-    distributed_ddl_task_timeout = 0
-"""
-
-DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
-DROP TABLE IF EXISTS {database}.person_distinct_id_overrides_join ON CLUSTER {cluster}
-SETTINGS
-    distributed_ddl_task_timeout = 0
-"""
-
-SUBMIT_UPDATE_EVENTS_WITH_PERSON_OVERRIDES = """
-ALTER TABLE
-    {database}.sharded_events
-ON CLUSTER
-    {cluster}
-UPDATE
-    person_id = joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id)
-WHERE
-    (joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id) != defaultValueOfTypeName('UUID'))
-SETTINGS
-    max_execution_time = 0
-"""
+# generic mutation management
 
 MUTATIONS_IN_PROGRESS_IN_CLUSTER = """
 SELECT mutation_id, is_done
@@ -92,6 +51,64 @@ AND database = '{database}'
 AND command LIKE %(query)s
 """
 
+
+# snapshot table lifecycle management
+
+CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
+CREATE OR REPLACE TABLE {database}.person_distinct_id_overrides_join ON CLUSTER {cluster} (
+    `team_id` Int64,
+    `distinct_id` String,
+    `person_id` UUID,
+    `latest_version` Int64
+)
+ENGINE = Join(ANY, left, team_id, distinct_id)
+AS
+    SELECT
+        team_id,
+        distinct_id,
+        argMax(person_id, version) AS person_id,
+        max(version) AS latest_version
+    FROM
+        {database}.person_distinct_id_overrides
+    GROUP BY
+        team_id, distinct_id
+SETTINGS
+    max_execution_time = 0,
+    max_memory_usage = 0,
+    distributed_ddl_task_timeout = 0
+"""
+
+DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
+DROP TABLE IF EXISTS {database}.person_distinct_id_overrides_join ON CLUSTER {cluster}
+SETTINGS
+    distributed_ddl_task_timeout = 0
+"""
+
+Table = collections.namedtuple("Table", ("name", "create_query", "drop_query"))
+TABLES = {
+    "person_distinct_id_overrides_join": Table(
+        name="person_distinct_id_overrides_join",
+        create_query=CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN,
+        drop_query=DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN,
+    ),
+}
+
+
+# mutation definitions
+
+SUBMIT_UPDATE_EVENTS_WITH_PERSON_OVERRIDES = """
+ALTER TABLE
+    {database}.sharded_events
+ON CLUSTER
+    {cluster}
+UPDATE
+    person_id = joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id)
+WHERE
+    (joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id) != defaultValueOfTypeName('UUID'))
+SETTINGS
+    max_execution_time = 0
+"""
+
 # The two first where predicates are redundant as the join table already excludes any rows that don't match.
 # However, there is no 'joinHas', and with 'joinGet' we are forced to grab a value.
 SUBMIT_DELETE_PERSON_OVERRIDES = """
@@ -104,15 +121,6 @@ DELETE WHERE
 SETTINGS
     max_execution_time = 0
 """
-
-Table = collections.namedtuple("Table", ("name", "create_query", "drop_query"))
-TABLES = {
-    "person_distinct_id_overrides_join": Table(
-        name="person_distinct_id_overrides_join",
-        create_query=CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN,
-        drop_query=DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN,
-    ),
-}
 
 Mutation = collections.namedtuple("Mutation", ("name", "table", "submit_query"))
 MUTATIONS = {
