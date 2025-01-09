@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Mapping
 from datetime import datetime, UTC
 from typing import NamedTuple, TypedDict
 from uuid import UUID, uuid4
@@ -53,6 +54,22 @@ class PersonOverrideTuple(NamedTuple):
     person_id: UUID
 
 
+async def _insert_overrides(clickhouse_client, person_overrides: Mapping[int, set[PersonOverrideTuple]], version: int):
+    rows = []
+
+    for team_id, overrides in person_overrides.items():
+        for override in overrides:
+            values = {
+                "team_id": team_id,
+                "distinct_id": override.distinct_id,
+                "person_id": override.person_id,
+                "version": version,
+            }
+            rows.append(values)
+
+    await clickhouse_client.execute_query("INSERT INTO person_distinct_id_overrides FORMAT JSONEachRow", *rows)
+
+
 @pytest_asyncio.fixture
 async def person_overrides_data(clickhouse_client):
     """Produce some fake person_overrides data for testing.
@@ -67,21 +84,7 @@ async def person_overrides_data(clickhouse_client):
         300: {PersonOverrideTuple(str(uuid4()), uuid4()) for _ in range(3)},
     }
 
-    all_test_values = []
-
-    for team_id, person_ids in person_overrides.items():
-        for distinct_id, person_id in person_ids:
-            values = {
-                "team_id": team_id,
-                "distinct_id": distinct_id,
-                "person_id": person_id,
-                "version": LATEST_VERSION,
-            }
-            all_test_values.append(values)
-
-    await clickhouse_client.execute_query(
-        "INSERT INTO person_distinct_id_overrides FORMAT JSONEachRow", *all_test_values
-    )
+    await _insert_overrides(clickhouse_client, person_overrides, version=LATEST_VERSION)
 
     yield person_overrides
 
@@ -89,53 +92,29 @@ async def person_overrides_data(clickhouse_client):
 
 
 @pytest_asyncio.fixture
-async def older_overrides(person_overrides_data, clickhouse_client):
-    """Generate extra test data that is in an older partition."""
+async def older_overrides(person_overrides_data: Mapping[int, set[PersonOverrideTuple]], clickhouse_client):
+    """Generate additional person overrides that have an older version than the test data."""
     older_overrides = defaultdict(set)
 
-    older_values_to_insert = []
-    for team_id, person_override in person_overrides_data.items():
-        for distinct_id, _ in person_override:
-            older_person_id = uuid4()
-            values = {
-                "team_id": team_id,
-                "distinct_id": distinct_id,
-                "person_id": older_person_id,
-                "version": LATEST_VERSION - 1,
-            }
+    for team_id, overrides in person_overrides_data.items():
+        for override in overrides:
+            older_overrides[team_id].add(override._replace(person_id=uuid4()))
 
-            older_overrides[team_id].add(PersonOverrideTuple(distinct_id, older_person_id))
-            older_values_to_insert.append(values)
-
-    await clickhouse_client.execute_query(
-        "INSERT INTO person_distinct_id_overrides FORMAT JSONEachRow", *older_values_to_insert
-    )
+    await _insert_overrides(clickhouse_client, older_overrides, version=LATEST_VERSION - 1)
 
     yield older_overrides
 
 
 @pytest_asyncio.fixture
-async def newer_overrides(person_overrides_data, clickhouse_client):
-    """Generate extra test data that is in a newer partition."""
+async def newer_overrides(person_overrides_data: Mapping[int, set[PersonOverrideTuple]], clickhouse_client):
+    """Generate additional person overrides that have a newer version than the test data."""
     newer_overrides = defaultdict(set)
 
-    newer_values_to_insert = []
-    for team_id, person_override in person_overrides_data.items():
-        for distinct_id, _ in person_override:
-            newer_person_id = uuid4()
-            values = {
-                "team_id": team_id,
-                "distinct_id": distinct_id,
-                "person_id": newer_person_id,
-                "version": LATEST_VERSION + 1,
-            }
+    for team_id, overrides in person_overrides_data.items():
+        for override in overrides:
+            newer_overrides[team_id].add(override._replace(person_id=uuid4()))
 
-            newer_overrides[team_id].add(PersonOverrideTuple(distinct_id, newer_person_id))
-            newer_values_to_insert.append(values)
-
-    await clickhouse_client.execute_query(
-        "INSERT INTO person_distinct_id_overrides FORMAT JSONEachRow", *newer_values_to_insert
-    )
+    await _insert_overrides(clickhouse_client, newer_overrides, version=LATEST_VERSION + 1)
 
     yield newer_overrides
 
