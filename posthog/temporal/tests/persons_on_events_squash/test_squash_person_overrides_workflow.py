@@ -132,18 +132,36 @@ async def test_parse_empty_mutation_counts(clickhouse_client):
     assert total_mutations == 0
 
 
-@pytest.mark.django_db
-async def test_create_person_distinct_id_overrides_join_table(
-    activity_environment, person_overrides_data, clickhouse_client
-):
-    """Test `person_distinct_id_overrides_join` table creation."""
+async def create_overrides_join_table_helper(activity_environment) -> TableActivityInputs:
+    """Helper function to create overrides join table in test functions."""
 
-    inputs = TableActivityInputs(
+    join_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
         query_parameters={},
     )
-    await activity_environment.run(create_table, inputs)
-    await activity_environment.run(wait_for_table, inputs)
+
+    await activity_environment.run(create_table, join_table_inputs)
+    await activity_environment.run(wait_for_table, join_table_inputs)
+
+    return join_table_inputs
+
+
+async def run_squash_mutation_helper(activity_environment) -> None:
+    """Helper function to run the Squash mutation in test functions."""
+    squash_mutation_activity_inputs = MutationActivityInputs(
+        name="update_events_with_person_overrides",
+        query_parameters={},
+    )
+    await activity_environment.run(submit_mutation, squash_mutation_activity_inputs)
+    await activity_environment.run(wait_for_mutation, squash_mutation_activity_inputs)
+
+
+@pytest.mark.django_db
+async def test_create_person_distinct_id_overrides_join_table(
+    activity_environment, person_overrides_data: Mapping[int, set[PersonOverrideTuple]], clickhouse_client
+):
+    """Test `person_distinct_id_overrides_join` table creation."""
+    inputs = await create_overrides_join_table_helper(activity_environment)
 
     for team_id, person_overrides in person_overrides_data.items():
         for person_override in person_overrides:
@@ -170,8 +188,8 @@ async def test_create_person_distinct_id_overrides_join_table(
 @pytest.mark.django_db
 async def test_create_person_distinct_id_overrides_join_with_older_overrides_present(
     activity_environment,
-    person_overrides_data,
-    older_overrides,
+    person_overrides_data: Mapping[int, set[PersonOverrideTuple]],
+    older_overrides: Mapping[int, set[PersonOverrideTuple]],
     clickhouse_client,
 ):
     """Test `person_distinct_id_overrides_join` table contains latest available mappings.
@@ -179,13 +197,7 @@ async def test_create_person_distinct_id_overrides_join_with_older_overrides_pre
     Since `person_distinct_id_overrides` is using a 'ReplacingMergeTree' engine, the latest version
     should be the only available in the dictionary.
     """
-    inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join",
-        query_parameters={},
-    )
-
-    await activity_environment.run(create_table, inputs)
-    await activity_environment.run(wait_for_table, inputs)
+    inputs = await create_overrides_join_table_helper(activity_environment)
 
     for team_id, person_overrides in person_overrides_data.items():
         for person_override in person_overrides:
@@ -325,15 +337,9 @@ async def overrides_join_table(person_overrides_data, activity_environment):
     we can keep the unit tests centered around only the activity they are testing. The tests that run the
     entire Workflow will already include these steps as part of the workflow, so the fixture is not needed.
     """
-    inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join",
-        query_parameters={},
-    )
+    inputs = await create_overrides_join_table_helper(activity_environment)
 
-    await activity_environment.run(create_table, inputs)
-    await activity_environment.run(wait_for_table, inputs)
-
-    yield "person_distinct_id_overrides_join"
+    yield inputs.name
 
     await activity_environment.run(drop_table, inputs)
 
@@ -396,46 +402,11 @@ async def test_update_events_with_person_overrides_mutation_with_older_overrides
     could be duplicate overrides present, either in the partition we are currently working
     with as well as older ones.
     """
-    inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join",
-        query_parameters={},
-    )
+    await create_overrides_join_table_helper(activity_environment)
 
-    await activity_environment.run(create_table, inputs)
-    await activity_environment.run(wait_for_table, inputs)
-
-    mutation_activity_inputs = MutationActivityInputs(
-        name="update_events_with_person_overrides",
-        query_parameters={},
-    )
-    await activity_environment.run(submit_mutation, mutation_activity_inputs)
-    await activity_environment.run(wait_for_mutation, mutation_activity_inputs)
+    await run_squash_mutation_helper(activity_environment)
 
     await assert_events_have_been_overriden(events_to_override, person_overrides_data)
-
-
-async def create_overrides_join_table_helper(activity_environment) -> TableActivityInputs:
-    """Helper function to create overrides join table in test functions."""
-
-    join_table_inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join",
-        query_parameters={},
-    )
-
-    await activity_environment.run(create_table, join_table_inputs)
-    await activity_environment.run(wait_for_table, join_table_inputs)
-
-    return join_table_inputs
-
-
-async def run_squash_mutation_helper(activity_environment) -> None:
-    """Helper function to run the Squash mutation in test functions."""
-    squash_mutation_activity_inputs = MutationActivityInputs(
-        name="update_events_with_person_overrides",
-        query_parameters={},
-    )
-    await activity_environment.run(submit_mutation, squash_mutation_activity_inputs)
-    await activity_environment.run(wait_for_mutation, squash_mutation_activity_inputs)
 
 
 @pytest.mark.django_db
