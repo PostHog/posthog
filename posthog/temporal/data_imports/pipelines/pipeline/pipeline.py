@@ -150,6 +150,7 @@ class PipelineNonDLT:
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                close_fds=True,
             )
             stdout, stderr = process.communicate()
 
