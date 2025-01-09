@@ -20,16 +20,16 @@ export function MetricSourceModal({
         closePrimaryMetricSourceModal,
         closeSecondaryMetricSourceModal,
         openPrimaryMetricModal,
-        openPrimarySavedMetricModal,
+        openPrimarySharedMetricModal,
         openSecondaryMetricModal,
-        openSecondarySavedMetricModal,
+        openSecondarySharedMetricModal,
     } = useActions(experimentLogic({ experimentId }))
 
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
     const isOpen = isSecondary ? isSecondaryMetricSourceModalOpen : isPrimaryMetricSourceModalOpen
     const closeCurrentModal = isSecondary ? closeSecondaryMetricSourceModal : closePrimaryMetricSourceModal
     const openMetricModal = isSecondary ? openSecondaryMetricModal : openPrimaryMetricModal
-    const openSavedMetricModal = isSecondary ? openSecondarySavedMetricModal : openPrimarySavedMetricModal
+    const openSharedMetricModal = isSecondary ? openSecondarySharedMetricModal : openPrimarySharedMetricModal
 
     return (
         <LemonModal isOpen={isOpen} onClose={closeCurrentModal} width={1000} title="Choose metric source">
@@ -57,7 +57,7 @@ export function MetricSourceModal({
                     className="flex-1 cursor-pointer p-4 rounded border hover:border-primary-3000"
                     onClick={() => {
                         closeCurrentModal()
-                        openSavedMetricModal(null)
+                        openSharedMetricModal(null)
                     }}
                 >
                     <div className="font-semibold">

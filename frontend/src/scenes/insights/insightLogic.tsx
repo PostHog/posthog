@@ -336,7 +336,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     : await insightsApi.create(insightRequest)
                 savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
                 // remove draft query from local storage
-                localStorage.removeItem('draft-query')
+                localStorage.removeItem(`draft-query-${values.currentTeamId}`)
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()

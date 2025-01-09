@@ -1,6 +1,6 @@
 import dataclasses
 import json
-from typing import Any, Optional, cast
+from typing import Any, Optional, cast, Self
 
 from django.db import connection
 from loginas.utils import is_impersonated_session
@@ -19,6 +19,7 @@ from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
+from posthog.taxonomy.taxonomy import PROPERTY_NAME_ALIASES
 
 
 class SeenTogetherQuerySerializer(serializers.Serializer):
@@ -126,7 +127,7 @@ class QueryContext:
 
     params: dict = dataclasses.field(default_factory=dict)
 
-    def with_properties_to_filter(self, properties_to_filter: Optional[str]) -> "QueryContext":
+    def with_properties_to_filter(self, properties_to_filter: Optional[str]) -> Self:
         if properties_to_filter:
             return dataclasses.replace(
                 self,
@@ -136,7 +137,7 @@ class QueryContext:
         else:
             return self
 
-    def with_is_numerical_flag(self, is_numerical: Optional[str]) -> "QueryContext":
+    def with_is_numerical_flag(self, is_numerical: Optional[str]) -> Self:
         if is_numerical:
             return dataclasses.replace(
                 self,
@@ -145,7 +146,7 @@ class QueryContext:
         else:
             return self
 
-    def with_feature_flags(self, is_feature_flag: Optional[bool]) -> "QueryContext":
+    def with_feature_flags(self, is_feature_flag: Optional[bool]) -> Self:
         if is_feature_flag is None:
             return self
         elif is_feature_flag:
@@ -202,9 +203,7 @@ class QueryContext:
                 },
             )
 
-    def with_event_property_filter(
-        self, event_names: Optional[str], filter_by_event_names: Optional[bool]
-    ) -> "QueryContext":
+    def with_event_property_filter(self, event_names: Optional[str], filter_by_event_names: Optional[bool]) -> Self:
         event_property_filter = ""
         event_name_filter = ""
         event_property_field = "NULL"
@@ -228,14 +227,14 @@ class QueryContext:
             params={**self.params, "event_names": list(map(str, event_names or []))},
         )
 
-    def with_search(self, search_query: str, search_kwargs: dict) -> "QueryContext":
+    def with_search(self, search_query: str, search_kwargs: dict) -> Self:
         return dataclasses.replace(
             self,
             search_query=search_query,
             params={**self.params, "team_id": self.team_id, **search_kwargs},
         )
 
-    def with_excluded_properties(self, excluded_properties: Optional[str], type: str) -> "QueryContext":
+    def with_excluded_properties(self, excluded_properties: Optional[str], type: str) -> Self:
         if excluded_properties:
             excluded_properties = json.loads(excluded_properties)
 
@@ -303,45 +302,6 @@ class QueryContext:
             if self.should_join_event_property
             else ""
         )
-
-
-# See frontend/src/lib/taxonomy.tsx for where this came from and see
-# frontend/scripts/print_property_name_aliases.ts for how to regenerate
-PROPERTY_NAME_ALIASES = {
-    "$autocapture_disabled_server_side": "Autocapture Disabled Server-Side",
-    "$client_session_initial_referring_host": "Referrer Host",
-    "$client_session_initial_utm_content": "Initial UTM Source",
-    "$client_session_initial_utm_term": "Initial UTM Source",
-    "$console_log_recording_enabled_server_side": "Console Log Recording Enabled Server-Side",
-    "$el_text": "Element Text",
-    "$exception_colno": "Exception source column number",
-    "$exception_handled": "Exception was handled",
-    "$exception_lineno": "Exception source line number",
-    "$geoip_disable": "GeoIP Disabled",
-    "$geoip_time_zone": "Timezone",
-    "$group_0": "Group 1",
-    "$group_1": "Group 2",
-    "$group_2": "Group 3",
-    "$group_3": "Group 4",
-    "$group_4": "Group 5",
-    "$ip": "IP Address",
-    "$lib": "Library",
-    "$lib_custom_api_host": "Library Custom API Host",
-    "$lib_version": "Library Version",
-    "$lib_version__major": "Library Version (Major)",
-    "$lib_version__minor": "Library Version (Minor)",
-    "$lib_version__patch": "Library Version (Patch)",
-    "$performance_raw": "Browser Performance",
-    "$referrer": "Referrer URL",
-    "$selected_content": "Copied content",
-    "$session_recording_recorder_version_server_side": "Session Recording Recorder Version Server-Side",
-    "$user_agent": "Raw User Agent",
-    "build": "App Build",
-    "previous_build": "App Previous Build",
-    "previous_version": "App Previous Version",
-    "referring_application": "Referrer Application",
-    "version": "App Version",
-}
 
 
 def add_name_alias_to_search_query(search_term: str):
@@ -504,6 +464,7 @@ class PropertyDefinitionViewSet(
         order_by_verified = False
         if use_enterprise_taxonomy:
             try:
+                # noinspection PyUnresolvedReferences
                 from ee.models.property_definition import EnterprisePropertyDefinition
 
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
@@ -591,6 +552,7 @@ class PropertyDefinitionViewSet(
         id = self.kwargs["id"]
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:
+                # noinspection PyUnresolvedReferences
                 from ee.models.property_definition import EnterprisePropertyDefinition
             except ImportError:
                 pass
