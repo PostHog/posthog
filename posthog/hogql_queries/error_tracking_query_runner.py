@@ -1,5 +1,6 @@
 import re
 import structlog
+from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -221,24 +222,22 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         results = {}
         for issue in issues:
-            result = {
+            result: dict[str, Any] = {
                 "id": str(issue["id"]),
                 "name": issue["name"],
                 "status": issue["status"],
                 "description": issue["description"],
+                "assignee": None,
             }
 
             assignment_user_id = issue.get("assignment__user_id")
             assignment_error_tracking_team_id = issue.get("assignment__error_tracking_team_id")
 
-            result["assignee"] = (
-                {
+            if assignment_user_id or assignment_error_tracking_team_id:
+                result["assignee"] = {
                     "id": assignment_user_id or str(assignment_error_tracking_team_id),
                     "type": "user" if assignment_user_id else "error_tracking_team",
                 }
-                if assignment_user_id or assignment_error_tracking_team_id
-                else None
-            )
 
             results[issue["id"]] = result
 
