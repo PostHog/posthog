@@ -188,6 +188,9 @@ const Header = (): JSX.Element => {
                             Send an exception
                         </LemonButton>
                     ) : null}
+                    <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
+                        Documentation
+                    </LemonButton>
                     <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
                         Configure
                     </LemonButton>
