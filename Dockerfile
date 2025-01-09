@@ -27,7 +27,7 @@ FROM node:18.19.1-bullseye-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json ./
 COPY eslint-rules/ eslint-rules/
 COPY patches/ patches/
 COPY plugin-server/patches/ plugin-server/patches/
@@ -55,11 +55,11 @@ RUN cd frontend && pnpm build
 #
 FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json ./
 COPY patches/ patches/
 COPY rust rust/
 COPY plugin-transpiler/ plugin-transpiler/
-COPY plugin-server/package.json plugin-server/tsconfig.json plugin-server/
+COPY plugin-server/package.json plugin-server/pnpm-lock.yaml plugin-server/
 COPY plugin-server/patches/ plugin-server/patches/
 COPY hogvm/typescript/package.json hogvm/typescript/pnpm-lock.yaml hogvm/typescript/
 COPY frontend/@posthog/apps-common/package.json frontend/@posthog/apps-common/pnpm-lock.yaml frontend/@posthog/apps-common/
@@ -92,8 +92,8 @@ RUN apt-get update && \
 #
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
-COPY ./plugin-server/src/ ./src/
-RUN pnpm build
+COPY ./plugin-server/src/ ./plugin-server/src/
+RUN cd plugin-server && pnpm build
 
 # As the plugin-server is now built, let’s keep
 # only prod dependencies in the node_module folder
