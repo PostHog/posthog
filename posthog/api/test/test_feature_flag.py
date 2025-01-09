@@ -792,6 +792,447 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ],
         )
 
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_key(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            # Assert that the insights were created properly.
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+            insights = feature_flag.usage_dashboard.insights
+            total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+            self.assertEqual(
+                total_volume_insight.description,
+                "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+            self.assertEqual(
+                unique_users_insight.description,
+                "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+
+            # Update the feature flag key
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "key": "a-new-feature-flag-key",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 65,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "@posthog.com",
+                                        "operator": "icontains",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(response.json()["key"], "a-new-feature-flag-key")
+        self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 65)
+
+        # Assert analytics are sent
+        mock_capture.assert_called_with(
+            self.user,
+            "feature flag updated",
+            {
+                "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
+                "has_rollout_percentage": True,
+                "has_filters": True,
+                "filter_count": 1,
+                "created_at": datetime.datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
+                "aggregating_by_groups": False,
+                "payload_count": 0,
+            },
+        )
+
+        self.assert_feature_flag_activity(
+            flag_id,
+            [
+                {
+                    "user": {
+                        "first_name": self.user.first_name,
+                        "email": self.user.email,
+                    },
+                    "activity": "updated",
+                    "created_at": "2021-08-25T22:19:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "FeatureFlag",
+                                "action": "changed",
+                                "field": "key",
+                                "before": "a-feature-flag-that-is-updated",
+                                "after": "a-new-feature-flag-key",
+                            },
+                            {
+                                "type": "FeatureFlag",
+                                "action": "created",
+                                "field": "filters",
+                                "before": None,
+                                "after": {
+                                    "groups": [
+                                        {
+                                            "properties": [
+                                                {
+                                                    "key": "email",
+                                                    "type": "person",
+                                                    "value": "@posthog.com",
+                                                    "operator": "icontains",
+                                                }
+                                            ],
+                                            "rollout_percentage": 65,
+                                        }
+                                    ]
+                                },
+                            },
+                        ],
+                        "trigger": None,
+                        "type": None,
+                        "name": "a-new-feature-flag-key",
+                        "short_id": None,
+                    },
+                },
+                {
+                    "user": {
+                        "first_name": self.user.first_name,
+                        "email": self.user.email,
+                    },
+                    "activity": "created",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "type": None,
+                        "name": "a-feature-flag-that-is-updated",
+                        "short_id": None,
+                    },
+                },
+            ],
+        )
+
+        feature_flag = FeatureFlag.objects.get(id=flag_id)
+        assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+        insights = feature_flag.usage_dashboard.insights
+        total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+        self.assertEqual(
+            total_volume_insight.description,
+            "Shows the number of total calls made on feature flag with key: a-new-feature-flag-key",
+        )
+        self.assertEqual(
+            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-new-feature-flag-key",
+        )
+        unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+        self.assertEqual(
+            unique_users_insight.description,
+            "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
+        )
+        self.assertEqual(
+            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-new-feature-flag-key",
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_key_does_not_update_insight_with_changed_description(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            # Assert that the insights were created properly.
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+            insights = feature_flag.usage_dashboard.insights
+            total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+            self.assertEqual(
+                total_volume_insight.description,
+                "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+            self.assertEqual(
+                unique_users_insight.description,
+                "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            total_volume_insight.name = "This is a changed description"
+            total_volume_insight.save()
+
+            # Update the feature flag key
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "key": "a-new-feature-flag-key",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 65,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "@posthog.com",
+                                        "operator": "icontains",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Total volume insight should not be updated because we changed its description
+        # unique users insight should still be updated
+        feature_flag = FeatureFlag.objects.get(id=flag_id)
+        assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+        insights = feature_flag.usage_dashboard.insights
+        self.assertIsNone(insights.filter(name="Feature Flag Called Total Volume").first())
+        total_volume_insight = insights.get(name="This is a changed description")
+        self.assertEqual(
+            total_volume_insight.description,
+            "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+        )
+        self.assertEqual(
+            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-feature-flag-that-is-updated",
+        )
+        unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+        self.assertEqual(
+            unique_users_insight.description,
+            "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
+        )
+        self.assertEqual(
+            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-new-feature-flag-key",
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_key_does_not_update_insight_with_changed_filter(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            # Assert that the insights were created properly.
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+            insights = feature_flag.usage_dashboard.insights
+            total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+            self.assertEqual(
+                total_volume_insight.description,
+                "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+            self.assertEqual(
+                unique_users_insight.description,
+                "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] = (
+                "something_unexpected"
+            )
+            total_volume_insight.save()
+
+            # Update the feature flag key
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "key": "a-new-feature-flag-key",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 65,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "@posthog.com",
+                                        "operator": "icontains",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Total volume insight should not be updated because we changed its description
+        # unique users insight should still be updated
+        feature_flag = FeatureFlag.objects.get(id=flag_id)
+        assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+        insights = feature_flag.usage_dashboard.insights
+        total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+        self.assertEqual(
+            total_volume_insight.description,
+            "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+        )
+        self.assertEqual(
+            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "something_unexpected",
+        )
+        unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+        self.assertEqual(
+            unique_users_insight.description,
+            "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
+        )
+        self.assertEqual(
+            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-new-feature-flag-key",
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_key_does_not_update_insight_with_removed_filter(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            # Assert that the insights were created properly.
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+            insights = feature_flag.usage_dashboard.insights
+            total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+            self.assertEqual(
+                total_volume_insight.description,
+                "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+            self.assertEqual(
+                unique_users_insight.description,
+                "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            # clear the values from total_volume_insight.query["source"]["properties"]["values"]
+            total_volume_insight.query["source"]["properties"]["values"] = []
+            total_volume_insight.save()
+
+            # Update the feature flag key
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "key": "a-new-feature-flag-key",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 65,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "@posthog.com",
+                                        "operator": "icontains",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Total volume insight should not be updated because we changed its description
+        # unique users insight should still be updated
+        feature_flag = FeatureFlag.objects.get(id=flag_id)
+        assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+        insights = feature_flag.usage_dashboard.insights
+        total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+        self.assertEqual(
+            total_volume_insight.description,
+            "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+        )
+        self.assertEqual(
+            total_volume_insight.query["source"]["properties"]["values"],
+            [],
+        )
+        unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+        self.assertEqual(
+            unique_users_insight.description,
+            "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
+        )
+        self.assertEqual(
+            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-new-feature-flag-key",
+        )
+
     def test_hard_deleting_feature_flag_is_forbidden(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
