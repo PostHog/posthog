@@ -577,7 +577,7 @@ async def test_update_events_with_person_overrides_mutation_with_older_overrides
 
     mutation_activity_inputs = MutationActivityInputs(
         name="update_events_with_person_overrides",
-        query_parameters={"partition_id": "202001", "team_ids": []},
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
     await activity_environment.run(submit_mutation, mutation_activity_inputs)
@@ -615,7 +615,7 @@ async def test_update_events_with_person_overrides_mutation_with_newer_overrides
 
     mutation_activity_inputs = MutationActivityInputs(
         name="update_events_with_person_overrides",
-        query_parameters={"partition_id": "202001", "team_ids": []},
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
     await activity_environment.run(submit_mutation, mutation_activity_inputs)
@@ -686,11 +686,11 @@ async def create_overrides_join_table_helper(activity_environment, team_ids: lis
     return join_table_inputs
 
 
-async def run_squash_mutation_helper(activity_environment, partition_id: str, team_ids: list[str]) -> None:
+async def run_squash_mutation_helper(activity_environment, team_ids: list[str]) -> None:
     """Helper function to run the Squash mutation in test functions."""
     squash_mutation_activity_inputs = MutationActivityInputs(
         name="update_events_with_person_overrides",
-        query_parameters={"partition_id": partition_id, "team_ids": team_ids},
+        query_parameters={"team_ids": team_ids},
         dry_run=False,
     )
     await activity_environment.run(submit_mutation, squash_mutation_activity_inputs)
@@ -722,7 +722,7 @@ async def test_delete_person_overrides_mutation(
     )
 
     await create_overrides_join_table_helper(activity_environment, [])
-    await run_squash_mutation_helper(activity_environment, "202001", [])
+    await run_squash_mutation_helper(activity_environment, [])
 
     delete_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join_to_delete",
@@ -735,7 +735,7 @@ async def test_delete_person_overrides_mutation(
 
     mutation_activity_inputs = MutationActivityInputs(
         name="delete_person_overrides",
-        query_parameters={"partition_ids": ["202001"], "grace_period": 111111},
+        query_parameters={"grace_period": 111111},
         dry_run=False,
     )
     mutation_query = await activity_environment.run(submit_mutation, mutation_activity_inputs)
@@ -803,7 +803,7 @@ async def test_delete_person_overrides_mutation_within_grace_period(
     )
 
     await create_overrides_join_table_helper(activity_environment, [])
-    await run_squash_mutation_helper(activity_environment, "202001", [])
+    await run_squash_mutation_helper(activity_environment, [])
 
     delete_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join_to_delete",
@@ -819,7 +819,7 @@ async def test_delete_person_overrides_mutation_within_grace_period(
     # was just computed from datetime.now.
     mutation_activity_inputs = MutationActivityInputs(
         name="delete_person_overrides",
-        query_parameters={"partition_ids": ["202001"], "grace_period": 120},
+        query_parameters={"grace_period": 120},
         dry_run=False,
     )
 
@@ -868,7 +868,7 @@ async def test_delete_squashed_person_overrides_from_clickhouse_dry_run(
     )
 
     await create_overrides_join_table_helper(activity_environment, [])
-    await run_squash_mutation_helper(activity_environment, "202001", [])
+    await run_squash_mutation_helper(activity_environment, [])
 
     delete_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join_to_delete",
@@ -881,7 +881,7 @@ async def test_delete_squashed_person_overrides_from_clickhouse_dry_run(
 
     mutation_activity_inputs = MutationActivityInputs(
         name="delete_person_overrides",
-        query_parameters={"partition_ids": ["202001"], "grace_period": 1},
+        query_parameters={"grace_period": 1},
         dry_run=True,
     )
 
