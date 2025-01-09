@@ -8,6 +8,7 @@ import {
     ActorsQuery,
     BreakdownFilter,
     CompareFilter,
+    CoreWebVitalsQuery,
     DatabaseSchemaQuery,
     DataTableNode,
     DataVisualizationNode,
@@ -136,6 +137,10 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
 
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
+}
+
+export function isCoreWebVitalsQuery(node?: Record<string, any> | null): node is CoreWebVitalsQuery {
+    return node?.kind === NodeKind.CoreWebVitalsQuery
 }
 
 export function isSessionAttributionExplorerQuery(
