@@ -603,6 +603,7 @@ class S3Consumer(Consumer):
         else:
             self.heartbeat_details.append_upload_state(self.s3_upload.to_state())
 
+        self.heartbeat_details.records_completed += records_since_last_flush
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
     async def close(self):
@@ -775,7 +776,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            return 0
+            return details.records_completed
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -795,7 +796,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             s3_upload=s3_upload,
             s3_inputs=inputs,
         )
-        records_completed = await run_consumer(
+        await run_consumer(
             consumer=consumer,
             queue=queue,
             producer_task=producer_task,
