@@ -241,7 +241,7 @@ function EmbeddedHeatmapBrowser({
                 {!loading && iframeBanner ? <IframeErrorOverlay /> : null}
                 <iframe
                     ref={iframeRef}
-                    className="w-full h-full bg-white"
+                    className="w-full h-full bg-light"
                     src={appEditorUrl(browserUrl, {
                         userIntent: 'heatmaps',
                     })}
