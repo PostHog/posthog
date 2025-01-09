@@ -118,34 +118,39 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
     activity.logger.info("Waiting for table %s in cluster to %s", inputs.name, goal)
 
     async with get_client() as clickhouse_client:
-        response = await clickhouse_client.read_query(
-            "SELECT count(*) FROM system.clusters WHERE cluster = %(cluster)s", {"cluster": settings.CLICKHOUSE_CLUSTER}
-        )
-        count_of_nodes = parse_count(response)
-
         try:
             while True:
                 activity.heartbeat()
 
                 response = await clickhouse_client.read_query(
-                    "SELECT count(*) FROM clusterAllReplicas(%(cluster)s, 'system', tables) WHERE name = %(name)s",
-                    {"cluster": settings.CLICKHOUSE_CLUSTER, "name": inputs.name},
+                    """
+                    SELECT
+                        hostname() as hostname,
+                        countIf(database = %(database)s and name = %(name)s) > 0 as has_table
+                    FROM clusterAllReplicas(%(cluster)s, 'system', tables)
+                    GROUP BY hostname
+                    FORMAT JSONCompact
+                    """,
+                    {
+                        "cluster": settings.CLICKHOUSE_CLUSTER,
+                        "database": settings.CLICKHOUSE_DATABASE,
+                        "name": inputs.name,
+                    },
                 )
-
-                count_of_tables = parse_count(response)
-
-                is_done = (inputs.exists and count_of_tables >= count_of_nodes) or (
-                    not inputs.exists and count_of_tables == 0
-                )
-                if is_done:
+                host_status_map = {
+                    hostname: has_table if inputs.exists else not has_table
+                    for hostname, has_table in json.loads(response)["data"]
+                }
+                if all(host_status_map.values()):
                     break
 
                 activity.logger.info(
-                    "Still waiting for table %s in cluster to %s: %s/%s",
+                    "Still waiting for table %s in cluster to %s on %r (%s/%s ready)",
                     inputs.name,
                     goal,
-                    count_of_tables,
-                    count_of_nodes,
+                    {host for host, is_ready in host_status_map.items() if not is_ready},
+                    sum(host_status_map.values()),
+                    len(host_status_map),
                 )
 
                 await asyncio.sleep(5)
