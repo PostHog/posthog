@@ -8,165 +8,104 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    atomic = False
     dependencies = [
         ("posthog", "0539_user_role_at_organization"),
     ]
 
     operations = [
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.CreateModel(
-                    name="ErrorTrackingTeam",
-                    fields=[
-                        (
-                            "id",
-                            models.UUIDField(
-                                default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
-                            ),
-                        ),
-                        ("name", models.TextField()),
-                        ("created_at", models.DateTimeField(auto_now_add=True)),
-                    ],
-                    options={
-                        "abstract": False,
-                    },
-                ),
-                migrations.CreateModel(
-                    name="ErrorTrackingTeamMembership",
-                    fields=[
-                        (
-                            "id",
-                            models.UUIDField(
-                                default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
-                            ),
-                        ),
-                        ("created_at", models.DateTimeField(auto_now_add=True)),
-                    ],
-                ),
-                migrations.RemoveConstraint(
-                    model_name="errortrackingissueassignment",
-                    name="unique_on_user_and_issue",
-                ),
-                migrations.AddField(
-                    model_name="errortrackingissueassignment",
-                    name="error_tracking_team",
-                    field=models.ForeignKey(
-                        null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.errortrackingteam"
+        migrations.CreateModel(
+            name="ErrorTrackingTeam",
+            fields=[
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
                     ),
                 ),
-                AddConstraintNotValid(
-                    model_name="errortrackingissueassignment",
-                    constraint=models.CheckConstraint(
-                        check=models.Q(
-                            ("user__isnull", False), ("error_tracking_team__isnull", False), _connector="OR"
-                        ),
-                        name="at_least_one_non_null",
-                    ),
-                ),
-                AddConstraintNotValid(
-                    model_name="errortrackingissueassignment",
-                    constraint=models.CheckConstraint(
-                        check=models.Q(("user__isnull", False), ("error_tracking_team__isnull", False), _negated=True),
-                        name="only_one_non_null",
-                    ),
-                ),
-                migrations.AddField(
-                    model_name="errortrackingteammembership",
-                    name="team",
-                    field=models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, to="posthog.errortrackingteam"
-                    ),
-                ),
-                migrations.AddField(
-                    model_name="errortrackingteammembership",
-                    name="user",
-                    field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL),
-                ),
-                migrations.AddField(
-                    model_name="errortrackingteam",
-                    name="members",
-                    field=models.ManyToManyField(
-                        through="posthog.ErrorTrackingTeamMembership", to=settings.AUTH_USER_MODEL
-                    ),
-                ),
-                migrations.AddField(
-                    model_name="errortrackingteam",
-                    name="team",
-                    field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
-                ),
-                migrations.AddConstraint(
-                    model_name="errortrackingteammembership",
-                    constraint=models.UniqueConstraint(fields=("team", "user"), name="unique_per_user_per_team"),
-                ),
+                ("name", models.TextField()),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
-            database_operations=[
-                # Alter field issue on errortrackingissueassignment
-                migrations.RunSQL(
-                    """
-                    SET CONSTRAINTS "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" IMMEDIATE;
-                    ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e";
-                    """,
-                    reverse_sql="""
-                        ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" FOREIGN KEY ("issue_id") REFERENCES "posthog_errortrackingissue" ("id") DEFERRABLE INITIALLY DEFERRED;
-                    """,
+            options={
+                "abstract": False,
+            },
+        ),
+        migrations.CreateModel(
+            name="ErrorTrackingTeamMembership",
+            fields=[
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                    ),
                 ),
-                migrations.RunSQL(
-                    """
-                    DROP INDEX IF EXISTS "posthog_errortrackingissueassignment_issue_id_d9cce9cb";
-                    """,
-                    reverse_sql="""
-                        CREATE INDEX CONCURRENTLY "posthog_errortrackingissueassignment_issue_id_d9cce9cb" ON "posthog_errortrackingissueassignment" ("issue_id");
-                    """,
-                ),
-                migrations.RunSQL(
-                    """
-                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackingissueassignment_issue_id_d9cce9cb_uniq" UNIQUE ("issue_id");  -- existing-table-constraint-ignore
-                    """
-                ),
-                migrations.RunSQL(
-                    """
-                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" FOREIGN KEY ("issue_id") REFERENCES "posthog_errortrackingissue" ("id") DEFERRABLE INITIALLY DEFERRED;  -- existing-table-constraint-ignore
-                    """,
-                    reverse_sql="""
-                        SET CONSTRAINTS "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" IMMEDIATE; ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e";
-                    """,
-                ),
-                # Alter field user on errortrackingissueassignment
-                migrations.RunSQL(
-                    """
-                    SET CONSTRAINTS "posthog_errortrackin_user_id_83f2e696_fk_posthog_u" IMMEDIATE;
-                    ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "posthog_errortrackin_user_id_83f2e696_fk_posthog_u";
-                    """,
-                    reverse_sql="""
-                        ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_user_id_83f2e696_fk_posthog_u" FOREIGN KEY ("user_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
-                    """,
-                ),
-                migrations.RunSQL(
-                    """
-                    ALTER TABLE "posthog_errortrackingissueassignment" ALTER COLUMN "user_id" DROP NOT NULL;
-                    """,
-                    reverse_sql="""
-                        ALTER TABLE "posthog_errortrackingissueassignment" ALTER COLUMN "user_id" SET NOT NULL;
-                    """,
-                ),
-                migrations.RunSQL(
-                    """
-                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_user_id_83f2e696_fk_posthog_u" FOREIGN KEY ("user_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
-                    """,
-                    reverse_sql="""
-                        SET CONSTRAINTS "posthog_errortrackin_user_id_83f2e696_fk_posthog_u" IMMEDIATE; ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "posthog_errortrackin_user_id_83f2e696_fk_posthog_u";
-                    """,
-                ),
-                # Create constraint unique_per_issue on model errortrackingissueassignment
-                migrations.RunSQL(
-                    """
-                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "unique_per_issue" UNIQUE ("issue_id"); -- existing-table-constraint-ignore
-                    """,
-                    reverse_sql="""
-                        ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "unique_on_user_and_issue" UNIQUE ("issue_id", "user_id");
-                    """,
-                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
+        ),
+        migrations.RemoveConstraint(
+            model_name="errortrackingissueassignment",
+            name="unique_on_user_and_issue",
+        ),
+        migrations.AlterField(
+            model_name="errortrackingissueassignment",
+            name="issue",
+            field=models.OneToOneField(
+                on_delete=django.db.models.deletion.CASCADE, related_name="assignment", to="posthog.errortrackingissue"
+            ),
+        ),
+        migrations.AlterField(
+            model_name="errortrackingissueassignment",
+            name="user",
+            field=models.ForeignKey(
+                null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
+            ),
+        ),
+        migrations.AddField(
+            model_name="errortrackingissueassignment",
+            name="error_tracking_team",
+            field=models.ForeignKey(
+                null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.errortrackingteam"
+            ),
+        ),
+        AddConstraintNotValid(
+            model_name="errortrackingissueassignment",
+            constraint=models.CheckConstraint(
+                check=models.Q(("user__isnull", False), ("error_tracking_team__isnull", False), _connector="OR"),
+                name="at_least_one_non_null",
+            ),
+        ),
+        AddConstraintNotValid(
+            model_name="errortrackingissueassignment",
+            constraint=models.CheckConstraint(
+                check=models.Q(("user__isnull", False), ("error_tracking_team__isnull", False), _negated=True),
+                name="only_one_non_null",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="errortrackingissueassignment",
+            constraint=models.UniqueConstraint(fields=("issue",), name="unique_per_issue"),
+        ),
+        migrations.AddField(
+            model_name="errortrackingteammembership",
+            name="team",
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.errortrackingteam"),
+        ),
+        migrations.AddField(
+            model_name="errortrackingteammembership",
+            name="user",
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL),
+        ),
+        migrations.AddField(
+            model_name="errortrackingteam",
+            name="members",
+            field=models.ManyToManyField(through="posthog.ErrorTrackingTeamMembership", to=settings.AUTH_USER_MODEL),
+        ),
+        migrations.AddField(
+            model_name="errortrackingteam",
+            name="team",
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+        ),
+        migrations.AddConstraint(
+            model_name="errortrackingteammembership",
+            constraint=models.UniqueConstraint(fields=("team", "user"), name="unique_per_user_per_team"),
         ),
     ]
