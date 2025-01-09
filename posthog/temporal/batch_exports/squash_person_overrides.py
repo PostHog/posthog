@@ -41,6 +41,26 @@ class TableActivityInputs:
     query_parameters: QueryParameters
     exists: bool = True
 
+    async def create_table(self, clickhouse_client):
+        from django.conf import settings
+
+        create_table_query = TABLES[self.name].create_query.format(
+            database=settings.CLICKHOUSE_DATABASE,
+            cluster=settings.CLICKHOUSE_CLUSTER,
+        )
+
+        return await clickhouse_client.execute_query(create_table_query, query_parameters=self.query_parameters)
+
+    async def drop_table(self, clickhouse_client):
+        from django.conf import settings
+
+        drop_table_query = TABLES[self.name].drop_query.format(
+            database=settings.CLICKHOUSE_DATABASE,
+            cluster=settings.CLICKHOUSE_CLUSTER,
+        )
+
+        return await clickhouse_client.execute_query(drop_table_query)
+
 
 @activity.defn
 async def create_table(inputs: TableActivityInputs) -> None:
@@ -50,18 +70,12 @@ async def create_table(inputs: TableActivityInputs) -> None:
     but it will be created asynchronously in all cluster's nodes. Execute `wait_for_table`
     after this to ensure a table is available in the cluster before continuing.
     """
-    from django.conf import settings
-
-    create_table_query = TABLES[inputs.name].create_query.format(
-        database=settings.CLICKHOUSE_DATABASE,
-        cluster=settings.CLICKHOUSE_CLUSTER,
-    )
 
     async with Heartbeater():
         async with get_client() as clickhouse_client:
-            await clickhouse_client.execute_query(create_table_query, query_parameters=inputs.query_parameters)
+            await inputs.create_table(clickhouse_client)
 
-    activity.logger.info("Created JOIN table person_distinct_id_overrides_join_table")
+    activity.logger.info("Created table %s", inputs.name)
 
 
 @activity.defn
@@ -72,16 +86,10 @@ async def drop_table(inputs: TableActivityInputs) -> None:
     that tables will be cleaned up. Execute `wait_for_table` after this to ensure
     a table is dropped in the cluster if ensuring clean-up is required.
     """
-    from django.conf import settings
-
-    drop_table_query = TABLES[inputs.name].drop_query.format(
-        database=settings.CLICKHOUSE_DATABASE,
-        cluster=settings.CLICKHOUSE_CLUSTER,
-    )
 
     async with Heartbeater():
         async with get_client() as clickhouse_client:
-            await clickhouse_client.execute_query(drop_table_query)
+            await inputs.drop_table(clickhouse_client)
 
     activity.logger.info("Dropped table %s", inputs.name)
 
@@ -161,7 +169,6 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
                     "Activity has been cancelled, could not wait for table %s to be dropped",
                     inputs.name,
                 )
-
                 raise
 
             activity.logger.warning(
@@ -169,12 +176,7 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
                 inputs.name,
             )
 
-            await clickhouse_client.execute_query(
-                TABLES[inputs.name].drop_query.format(
-                    database=settings.CLICKHOUSE_DATABASE,
-                    cluster=settings.CLICKHOUSE_CLUSTER,
-                ),
-            )
+            await inputs.drop_table(clickhouse_client)
             raise
 
     activity.logger.info("Waiting done, table %s in cluster does %s", inputs.name, goal)
