@@ -534,6 +534,7 @@ class PostgreSQLConsumer(Consumer):
         self.rows_exported_counter.add(records_since_last_flush)
         self.bytes_exported_counter.add(bytes_since_last_flush)
 
+        self.heartbeat_details.records_completed += records_since_last_flush
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
@@ -604,11 +605,10 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
         )
-        records_completed = 0
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            return records_completed
+            return details.records_completed
 
         record_batch_schema = pa.schema(
             [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
@@ -675,7 +675,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                     postgresql_table_schema=inputs.schema,
                     postgresql_table_fields=schema_columns,
                 )
-                records_completed = await run_consumer(
+                await run_consumer(
                     consumer=consumer,
                     queue=queue,
                     producer_task=producer_task,
@@ -705,7 +705,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                         merge_key=merge_key,
                     )
 
-                return records_completed
+                return details.records_completed
 
 
 @workflow.defn(name="postgres-export", failure_exception_types=[workflow.NondeterminismError])
