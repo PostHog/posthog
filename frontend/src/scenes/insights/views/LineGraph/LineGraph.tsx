@@ -23,7 +23,7 @@ import {
     TooltipModel,
     TooltipOptions,
 } from 'lib/Chart'
-import { getBarColorFromStatus, getGraphColors, getTrendLikeSeriesColor } from 'lib/colors'
+import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -36,6 +36,7 @@ import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtil
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -288,6 +289,7 @@ export function LineGraph_({
 
     const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
@@ -303,7 +305,7 @@ export function LineGraph_({
     }
 
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
-    const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
+    const isBackgroundBasedGraphType = [GraphType.Bar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
@@ -319,21 +321,20 @@ export function LineGraph_({
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
 
-        const mainColor = dataset?.status
+        const themeColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : getTrendLikeSeriesColor(
-                  // colorIndex is set for trends, seriesIndex is used for stickiness, index is used for retention
-                  dataset?.colorIndex ?? dataset.seriesIndex ?? dataset.index,
-                  isPrevious && !isArea
-              )
+            : isHorizontal
+            ? dataset.backgroundColor
+            : getTrendsColor(dataset) || '#000000' // Default to black if no color found
+        const mainColor = isPrevious ? `${themeColor}80` : themeColor
+
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
-        const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
-        const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
+
         let backgroundColor: string | undefined = undefined
         if (isBackgroundBasedGraphType) {
             backgroundColor = mainColor
         } else if (isArea) {
-            backgroundColor = areaBackgroundColor
+            backgroundColor = hexToRGBA(mainColor, 0.5)
         }
 
         let adjustedData = dataset.data
@@ -370,6 +371,8 @@ export function LineGraph_({
                     const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
                     const isActive = !dataset.compare || dataset.compare_label != 'previous'
                     // if last date is still active show dotted line
+                    const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
+                    const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
                     return isIncomplete && isActive ? areaIncompletePattern : undefined
                 },
             },
@@ -809,6 +812,7 @@ export function LineGraph_({
         showValuesOnSeries,
         showPercentStackView,
         alertLines,
+        theme,
     ])
 
     return (

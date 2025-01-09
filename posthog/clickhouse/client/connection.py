@@ -2,6 +2,8 @@ from contextlib import contextmanager
 from enum import Enum
 from functools import cache
 
+from clickhouse_connect import get_client
+from clickhouse_connect.driver import Client as HttpClient, httputil
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from django.conf import settings
@@ -19,7 +21,96 @@ class Workload(Enum):
 _default_workload = Workload.ONLINE
 
 
-def get_pool(workload: Workload, team_id=None, readonly=False):
+class ProxyClient:
+    def __init__(self, client: HttpClient):
+        self._client = client
+
+    def execute(
+        self,
+        query,
+        params=None,
+        with_column_types=False,
+        external_tables=None,
+        query_id=None,
+        settings=None,
+        types_check=False,
+        columnar=False,
+    ):
+        if query_id:
+            settings["query_id"] = query_id
+        result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
+
+        # we must play with result summary here
+        written_rows = int(result.summary.get("written_rows", 0))
+        if written_rows > 0:
+            return written_rows
+        if with_column_types:
+            column_types_driver_format = list(zip(result.column_names, result.column_types))
+            return result.result_set, column_types_driver_format
+        return result.result_set
+
+    # Implement methods for session managment: https://peps.python.org/pep-0343/ so ProxyClient can be used in all places a clickhouse_driver.Client is.
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+
+_clickhouse_http_pool_mgr = httputil.get_pool_manager(
+    maxsize=settings.CLICKHOUSE_CONN_POOL_MAX,  # max number of open connection per pool
+    block=True,  # makes the maxsize limit per pool, keeps connections
+    num_pools=12,  # number of pools
+)
+
+
+def get_http_client(**overrides):
+    kwargs = {
+        "host": settings.CLICKHOUSE_HOST,
+        "database": settings.CLICKHOUSE_DATABASE,
+        "secure": settings.CLICKHOUSE_SECURE,
+        "username": settings.CLICKHOUSE_USER,
+        "password": settings.CLICKHOUSE_PASSWORD,
+        "ca_cert": settings.CLICKHOUSE_CA,
+        "verify": settings.CLICKHOUSE_VERIFY,
+        "settings": {"mutations_sync": "1"} if settings.TEST else {},
+        # Without this, OPTIMIZE table and other queries will regularly run into timeouts
+        "send_receive_timeout": 30 if settings.TEST else 999_999_999,
+        "autogenerate_session_id": True,  # beware, this makes each query to run in a separate session - no temporary tables will work
+        "pool_mgr": _clickhouse_http_pool_mgr,
+        **overrides,
+    }
+    return ProxyClient(get_client(**kwargs))
+
+
+def get_client_from_pool(workload: Workload = Workload.DEFAULT, team_id=None, readonly=False):
+    """
+    Returns the client for a given workload.
+
+    The connection pool for HTTP is managed by a library.
+    """
+    if settings.CLICKHOUSE_USE_HTTP:
+        if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
+            return get_http_client(**settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)])
+
+        # Note that `readonly` does nothing if the relevant vars are not set!
+        if readonly and settings.READONLY_CLICKHOUSE_USER is not None and settings.READONLY_CLICKHOUSE_PASSWORD:
+            return get_http_client(
+                username=settings.READONLY_CLICKHOUSE_USER,
+                password=settings.READONLY_CLICKHOUSE_PASSWORD,
+            )
+
+        if (
+            workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
+        ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
+            return get_http_client(host=settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, verify=False)
+
+        return get_http_client()
+
+    return get_pool(workload=workload, team_id=team_id, readonly=readonly).get_client()
+
+
+def get_pool(workload: Workload = Workload.DEFAULT, team_id=None, readonly=False):
     """
     Returns the right connection pool given a workload.
 
@@ -43,13 +134,13 @@ def get_pool(workload: Workload, team_id=None, readonly=False):
     return make_ch_pool()
 
 
-def default_client():
+def default_client(host=settings.CLICKHOUSE_HOST):
     """
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
     DO NOT USE THIS FOR QUERYING DATA
     """
     return SyncClient(
-        host=settings.CLICKHOUSE_HOST,
+        host=host,
         # We set "system" here as we don't necessarily have a "default" database,
         # which is what the clickhouse_driver would use by default. We are
         # assuming that this exists and we have permissions to access it. This

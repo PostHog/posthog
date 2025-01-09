@@ -18,7 +18,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.errors import NodeInterrupt
 from pydantic import ValidationError
 
-from ee.hogai.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from ee.hogai.taxonomy_agent.parsers import (
     ReActParserException,
     ReActParserMissingActionException,
@@ -131,7 +131,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
     @property
     def _model(self) -> ChatOpenAI:
-        return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True)
+        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True)
 
     def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
         return cast(
@@ -226,7 +226,10 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     conversation.append(LangchainHumanMessage(content=message.content))
             elif isinstance(message, VisualizationMessage):
                 conversation.append(LangchainAssistantMessage(content=message.plan or ""))
-            elif isinstance(message, AssistantMessage):
+            elif isinstance(message, AssistantMessage) and (
+                # Filter out summarizer messages (which always follow viz), but leave clarification questions in
+                idx < 1 or not isinstance(filtered_messages[idx - 1], VisualizationMessage)
+            ):
                 conversation.append(LangchainAssistantMessage(content=message.content))
 
         return conversation
@@ -298,6 +301,6 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         )
 
     def router(self, state: AssistantState):
-        if state.plan is not None:
+        if state.plan:
             return "plan_found"
         return "continue"

@@ -37,6 +37,7 @@ import {
     DashboardTemplateListParams,
     DashboardTemplateType,
     DashboardType,
+    DataColorThemeModel,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -60,6 +61,7 @@ import {
     GroupListParams,
     HogFunctionIconResponse,
     HogFunctionStatus,
+    HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
@@ -943,6 +945,15 @@ class ApiRequest {
     public async delete(): Promise<any> {
         return await api.delete(this.assembleFullUrl())
     }
+
+    // Data color themes
+    public dataColorThemes(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_color_themes')
+    }
+
+    public dataColorTheme(id: DataColorThemeModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -1824,13 +1835,15 @@ const api = {
         ): Promise<AppMetricsTotalsV2Response> {
             return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
-        async listTemplates(
-            type?: HogFunctionTypeType | HogFunctionTypeType[]
-        ): Promise<PaginatedResponse<HogFunctionTemplateType>> {
-            return new ApiRequest()
-                .hogFunctionTemplates()
-                .withQueryString(Array.isArray(type) ? { types: type.join(',') } : { type: type ?? 'destination' })
-                .get()
+        async listTemplates(params: {
+            types: HogFunctionTypeType[]
+            sub_template_id?: HogFunctionSubTemplateIdType
+        }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
+            const finalParams = {
+                ...params,
+                types: params.types.join(','),
+            }
+            return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
         async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
             return await new ApiRequest().hogFunctionTemplate(id).get()
@@ -2514,6 +2527,18 @@ const api = {
         },
         async delete(alertId: AlertType['id']): Promise<void> {
             return await new ApiRequest().alert(alertId).delete()
+        },
+    },
+
+    dataColorThemes: {
+        async list(): Promise<DataColorThemeModel[]> {
+            return await new ApiRequest().dataColorThemes().get()
+        },
+        async create(data: Partial<DataColorThemeModel>): Promise<DataColorThemeModel> {
+            return await new ApiRequest().dataColorThemes().create({ data })
+        },
+        async update(id: DataColorThemeModel['id'], data: Partial<DataColorThemeModel>): Promise<DataColorThemeModel> {
+            return await new ApiRequest().dataColorTheme(id).update({ data })
         },
     },
 

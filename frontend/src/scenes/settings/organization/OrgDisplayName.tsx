@@ -29,13 +29,15 @@ export function OrganizationDisplayName(): JSX.Element {
                     updateOrganization({ name })
                 }}
                 disabledReason={
-                    !name
+                    restrictionReason
+                        ? restrictionReason
+                        : !name
                         ? 'You must provide a name'
                         : !currentOrganization
                         ? 'Organization not loaded'
                         : currentOrganization.name === name
                         ? 'Name unchanged'
-                        : restrictionReason
+                        : undefined
                 }
                 loading={currentOrganizationLoading}
             >

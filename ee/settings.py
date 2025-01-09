@@ -12,7 +12,7 @@ from posthog.utils import str_to_bool
 AUTHENTICATION_BACKENDS = [
     *AUTHENTICATION_BACKENDS,
     "ee.api.authentication.MultitenantSAMLAuth",
-    "social_core.backends.google.GoogleOAuth2",
+    "ee.api.authentication.CustomGoogleOAuth2",
 ]
 
 # SAML base attributes

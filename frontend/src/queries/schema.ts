@@ -1,3 +1,4 @@
+import { DataColorToken } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import {
@@ -42,6 +43,10 @@ export { ChartDisplayCategory }
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
 type integer = number
+
+// Type alias for a numerical key. Needs to be reflected as string in json-schema, as JSON only supports string keys.
+/** @asType string */
+export type numerical_key = number
 
 /**
  * PostHog Query Schema definition.
@@ -236,6 +241,7 @@ export interface HogQLQueryModifiers {
     s3TableUseInvalidColumns?: boolean
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
+    bounceRateDurationSeconds?: number
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
@@ -839,12 +845,19 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
     aggregation_group_type_index?: integer | null
     /** Sampling rate */
     samplingFactor?: number | null
+    /** Colors used in the insight's visualization */
+    dataColorTheme?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as` */
 export type TrendsFilterLegacy = Omit<TrendsFilterType, keyof FilterType | 'shown_as'>
+
+export enum ResultCustomizationBy {
+    Value = 'value',
+    Position = 'position',
+}
 
 export type TrendsFilter = {
     /** @default 1 */
@@ -869,6 +882,15 @@ export type TrendsFilter = {
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
     hiddenLegendIndexes?: integer[]
+    /**
+     * Wether result datasets are associated by their values or by their order.
+     * @default value
+     **/
+    resultCustomizationBy?: ResultCustomizationBy
+    /** Customizations for the appearance of result datasets. */
+    resultCustomizations?:
+        | Record<string, ResultCustomizationByValue>
+        | Record<numerical_key, ResultCustomizationByPosition>
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
@@ -894,6 +916,20 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<s
 }
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
+
+export type ResultCustomizationBase = {
+    color: DataColorToken
+}
+
+export interface ResultCustomizationByPosition extends ResultCustomizationBase {
+    assignmentBy: ResultCustomizationBy.Position
+}
+
+export interface ResultCustomizationByValue extends ResultCustomizationBase {
+    assignmentBy: ResultCustomizationBy.Value
+}
+
+export type ResultCustomization = ResultCustomizationByValue | ResultCustomizationByPosition
 
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
@@ -1322,6 +1358,43 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
     aggregation_group_type_index?: integer
 }
 
+export interface AssistantRetentionFilter {
+    /**
+     * Retention type: recurring or first time.
+     * Recurring retention counts a user as part of a cohort if they performed the cohort event during that time period, irrespective of it was their first time or not.
+     * First time retention only counts a user as part of the cohort if it was their first time performing the cohort event.
+     */
+    retentionType?: RetentionFilterLegacy['retention_type']
+    retentionReference?: RetentionFilterLegacy['retention_reference']
+    /**
+     * How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial cohort).
+     * @default 11
+     */
+    totalIntervals?: integer
+    /** Retention event (event marking the user coming back). */
+    returningEntity?: RetentionFilterLegacy['returning_entity']
+    /** Activation event (event putting the actor into the initial cohort). */
+    targetEntity?: RetentionFilterLegacy['target_entity']
+    /**
+     * Retention period, the interval to track cohorts by.
+     * @default Day
+     */
+    period?: RetentionFilterLegacy['period']
+    /** Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
+    showMean?: RetentionFilterLegacy['show_mean']
+    /**
+     * Whether retention should be rolling (aka unbounded, cumulative).
+     * Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.
+     */
+    cumulative?: RetentionFilterLegacy['cumulative']
+}
+
+export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
+    kind: NodeKind.RetentionQuery
+    /** Properties specific to the retention insight */
+    retentionFilter: AssistantRetentionFilter
+}
+
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
 export type FunnelsFilterLegacy = Omit<
     FunnelsFilterType,
@@ -1368,6 +1441,8 @@ export type FunnelsFilter = {
     /** @default total */
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
     useUdf?: boolean
+    /** Customizations for the appearance of result datasets. */
+    resultCustomizations?: Record<string, ResultCustomizationByValue>
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -1812,6 +1887,7 @@ export enum WebStatsBreakdown {
     InitialPage = 'InitialPage',
     ExitPage = 'ExitPage', // not supported in the legacy version
     ExitClick = 'ExitClick',
+    ScreenName = 'ScreenName',
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',
@@ -1822,6 +1898,7 @@ export enum WebStatsBreakdown {
     InitialUTMSourceMediumCampaign = 'InitialUTMSourceMediumCampaign',
     Browser = 'Browser',
     OS = 'OS',
+    Viewport = 'Viewport',
     DeviceType = 'DeviceType',
     Country = 'Country',
     Region = 'Region',
@@ -1934,6 +2011,7 @@ export interface ErrorTrackingIssue {
     first_seen: string
     /**  @format date-time */
     last_seen: string
+    earliest: string
     // Sparkline data handled by the DataTable
     volume?: any
     assignee: number | null
@@ -2013,7 +2091,6 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
     name?: string
     experiment_id?: integer
     funnels_query: FunnelsQuery
-    stats_version?: integer
 }
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
@@ -2024,7 +2101,6 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     // Defaults to $feature_flag_called if not specified
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
-    stats_version?: integer
 }
 
 /**
@@ -2479,7 +2555,7 @@ export interface ReasoningMessage extends BaseAssistantMessage {
 export interface VisualizationMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Visualization
     plan?: string
-    answer?: AssistantTrendsQuery | AssistantFunnelsQuery
+    answer?: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery
     initiator?: string
 }
 
@@ -2521,6 +2597,9 @@ export enum CustomChannelField {
     UTMMedium = 'utm_medium',
     UTMCampaign = 'utm_campaign',
     ReferringDomain = 'referring_domain',
+    URL = 'url',
+    Pathname = 'pathname',
+    Hostname = 'hostname',
 }
 
 export enum CustomChannelOperator {
