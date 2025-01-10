@@ -116,7 +116,7 @@ class QueryLogTable(LazyTable):
                 exprs=[
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Constant(value=context.team_id),
+                        left=ast.Constant(value=context.team.pk if context.team else None),
                         right=ast.Call(
                             name="JSONExtractInt",
                             args=[ast.Field(chain=["log_comment"]), ast.Constant(value="team_id")],
