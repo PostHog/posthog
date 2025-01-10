@@ -1,11 +1,13 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema'
+import { DataTableNode, ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema'
 
 import {
     DEFAULT_ERROR_TRACKING_DATE_RANGE,
@@ -49,6 +51,31 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             },
         ],
     }),
+    loaders(({ values }) => ({
+        issues: {
+            __default: [] as Partial<ErrorTrackingIssue>[],
+            loadIssues: async () => {
+                let orderByFilter = null
+                if (values.orderBy === 'last_seen') {
+                    orderByFilter = '-last_seen'
+                } else if (values.orderBy === 'first_seen') {
+                    orderByFilter = '-created_at'
+                } else if (values.orderBy === 'occurrences') {
+                    orderByFilter = '-occurrences'
+                }
+
+                if (orderByFilter === null) {
+                    return []
+                }
+
+                return await api.errorTracking.listIssues({
+                    orderBy: orderByFilter,
+                    searchQuery: values.searchQuery,
+                    dateRange: values.dateRange,
+                })
+            },
+        },
+    })),
 
     selectors({
         query: [

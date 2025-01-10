@@ -2000,6 +2000,14 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     offset?: integer
 }
 
+export interface ErrorTrackingIssueListParams {
+    dateRange: DateRange
+    searchQuery?: string
+    limit?: integer
+    offset?: integer
+    orderBy?: string
+}
+
 export interface ErrorTrackingIssue {
     id: string
     name: string | null

@@ -14,6 +14,7 @@ import {
     DashboardFilter,
     DatabaseSerializedFieldType,
     ErrorTrackingIssue,
+    ErrorTrackingIssueListParams,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
@@ -1899,6 +1900,12 @@ const api = {
     },
 
     errorTracking: {
+        async listIssues(
+            params: ErrorTrackingIssueListParams
+        ): Promise<PaginatedResponse<Partial<ErrorTrackingIssue>>> {
+            return await new ApiRequest().errorTracking().withQueryString(toParams(params)).get()
+        },
+
         async updateIssue(
             id: ErrorTrackingIssue['id'],
             data: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>

@@ -26,6 +26,7 @@ pub struct AppContext {
     pub kafka_consumer: SingleTopicConsumer,
     pub kafka_producer: FutureProducer<KafkaContext>,
     pub pool: PgPool,
+    pub redis: Arc<redis::Client>,
     pub catalog: Catalog,
     pub resolver: Resolver,
     pub config: Config,
@@ -50,6 +51,8 @@ impl AppContext {
 
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
+
+        let redis = Arc::new(redis::Client::open(config.redis_url.clone())?);
 
         let aws_credentials = aws_sdk_s3::config::Credentials::new(
             &config.object_storage_access_key_id,
@@ -100,6 +103,7 @@ impl AppContext {
             kafka_consumer,
             kafka_producer,
             pool,
+            redis,
             catalog,
             resolver,
             config: config.clone(),

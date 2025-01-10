@@ -24,6 +24,9 @@ class ErrorTrackingIssue(UUIDModel):
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
 
+    last_seen = models.DateTimeField(null=True, blank=True, auto_now_add=True)
+    occurrences = models.BigIntegerField(default=0)
+
     def merge(self, issue_ids: list[str]) -> None:
         fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
 
