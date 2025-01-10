@@ -211,15 +211,15 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
-    [Scene.ExperimentsSavedMetric]: {
+    [Scene.ExperimentsSharedMetric]: {
         projectBased: true,
-        name: 'Saved metric',
+        name: 'Shared metric',
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
-    [Scene.ExperimentsSavedMetrics]: {
+    [Scene.ExperimentsSharedMetrics]: {
         projectBased: true,
-        name: 'Saved metrics',
+        name: 'Shared metrics',
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
@@ -581,8 +581,8 @@ export const routes: Record<string, Scene> = {
     [urls.cohort(':id')]: Scene.Cohort,
     [urls.cohorts()]: Scene.PersonsManagement,
     [urls.experiments()]: Scene.Experiments,
-    [urls.experimentsSavedMetrics()]: Scene.ExperimentsSavedMetrics,
-    [urls.experimentsSavedMetric(':id')]: Scene.ExperimentsSavedMetric,
+    [urls.experimentsSharedMetrics()]: Scene.ExperimentsSharedMetrics,
+    [urls.experimentsSharedMetric(':id')]: Scene.ExperimentsSharedMetric,
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,

@@ -20,11 +20,11 @@ import {
     FunnelAttributionSelect,
     FunnelConversionWindowFilter,
 } from '../Metrics/Selectors'
-import { savedMetricLogic } from './savedMetricLogic'
+import { sharedMetricLogic } from './sharedMetricLogic'
 
-export function SavedFunnelsMetricForm(): JSX.Element {
-    const { savedMetric } = useValues(savedMetricLogic)
-    const { setSavedMetric } = useActions(savedMetricLogic)
+export function SharedFunnelsMetricForm(): JSX.Element {
+    const { sharedMetric } = useValues(sharedMetricLogic)
+    const { setSharedMetric } = useActions(sharedMetricLogic)
 
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
@@ -34,19 +34,19 @@ export function SavedFunnelsMetricForm(): JSX.Element {
         actionsTaxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     }
 
-    if (!savedMetric?.query) {
+    if (!sharedMetric?.query) {
         return <></>
     }
 
-    const savedMetricQuery = savedMetric.query as ExperimentFunnelsQuery
+    const sharedMetricQuery = sharedMetric.query as ExperimentFunnelsQuery
 
     return (
         <>
             <ActionFilter
                 bordered
-                filters={queryNodeToFilter(savedMetricQuery.funnels_query)}
+                filters={queryNodeToFilter(sharedMetricQuery.funnels_query)}
                 setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-                    if (!savedMetric?.query) {
+                    if (!sharedMetric?.query) {
                         return
                     }
 
@@ -55,11 +55,11 @@ export function SavedFunnelsMetricForm(): JSX.Element {
                         true,
                         MathAvailability.None
                     )
-                    setSavedMetric({
+                    setSharedMetric({
                         query: {
-                            ...savedMetricQuery,
+                            ...sharedMetricQuery,
                             funnels_query: {
-                                ...savedMetricQuery.funnels_query,
+                                ...sharedMetricQuery.funnels_query,
                                 series,
                             },
                         },
@@ -77,15 +77,15 @@ export function SavedFunnelsMetricForm(): JSX.Element {
             <div className="mt-4 space-y-4">
                 <FunnelAggregationSelect
                     value={getHogQLValue(
-                        savedMetricQuery.funnels_query.aggregation_group_type_index ?? undefined,
-                        savedMetricQuery.funnels_query.funnelsFilter?.funnelAggregateByHogQL ?? undefined
+                        sharedMetricQuery.funnels_query.aggregation_group_type_index ?? undefined,
+                        sharedMetricQuery.funnels_query.funnelsFilter?.funnelAggregateByHogQL ?? undefined
                     )}
                     onChange={(value) => {
-                        setSavedMetric({
+                        setSharedMetric({
                             query: {
-                                ...savedMetricQuery,
+                                ...sharedMetricQuery,
                                 funnels_query: {
-                                    ...savedMetricQuery.funnels_query,
+                                    ...sharedMetricQuery.funnels_query,
                                     aggregation_group_type_index: value,
                                 },
                             },
@@ -93,17 +93,17 @@ export function SavedFunnelsMetricForm(): JSX.Element {
                     }}
                 />
                 <FunnelConversionWindowFilter
-                    funnelWindowInterval={savedMetricQuery.funnels_query?.funnelsFilter?.funnelWindowInterval}
-                    funnelWindowIntervalUnit={savedMetricQuery.funnels_query?.funnelsFilter?.funnelWindowIntervalUnit}
+                    funnelWindowInterval={sharedMetricQuery.funnels_query?.funnelsFilter?.funnelWindowInterval}
+                    funnelWindowIntervalUnit={sharedMetricQuery.funnels_query?.funnelsFilter?.funnelWindowIntervalUnit}
                     onFunnelWindowIntervalChange={(funnelWindowInterval) => {
-                        setSavedMetric({
+                        setSharedMetric({
                             query: {
-                                ...savedMetricQuery,
+                                ...sharedMetricQuery,
                                 funnels_query: {
-                                    ...savedMetricQuery.funnels_query,
+                                    ...sharedMetricQuery.funnels_query,
                                     // funnelWindowInterval: funnelWindowInterval,
                                     funnelsFilter: {
-                                        ...savedMetricQuery.funnels_query.funnelsFilter,
+                                        ...sharedMetricQuery.funnels_query.funnelsFilter,
                                         funnelWindowInterval: funnelWindowInterval,
                                     },
                                 },
@@ -111,13 +111,13 @@ export function SavedFunnelsMetricForm(): JSX.Element {
                         })
                     }}
                     onFunnelWindowIntervalUnitChange={(funnelWindowIntervalUnit) => {
-                        setSavedMetric({
+                        setSharedMetric({
                             query: {
-                                ...savedMetricQuery,
+                                ...sharedMetricQuery,
                                 funnels_query: {
-                                    ...savedMetricQuery.funnels_query,
+                                    ...sharedMetricQuery.funnels_query,
                                     funnelsFilter: {
-                                        ...savedMetricQuery.funnels_query.funnelsFilter,
+                                        ...sharedMetricQuery.funnels_query.funnelsFilter,
                                         funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
                                     },
                                 },
@@ -128,9 +128,9 @@ export function SavedFunnelsMetricForm(): JSX.Element {
                 <FunnelAttributionSelect
                     value={(() => {
                         const breakdownAttributionType =
-                            savedMetricQuery.funnels_query?.funnelsFilter?.breakdownAttributionType
+                            sharedMetricQuery.funnels_query?.funnelsFilter?.breakdownAttributionType
                         const breakdownAttributionValue =
-                            savedMetricQuery.funnels_query?.funnelsFilter?.breakdownAttributionValue
+                            sharedMetricQuery.funnels_query?.funnelsFilter?.breakdownAttributionValue
 
                         const currentValue: BreakdownAttributionType | `${BreakdownAttributionType.Step}/${number}` =
                             !breakdownAttributionType
@@ -143,13 +143,13 @@ export function SavedFunnelsMetricForm(): JSX.Element {
                     })()}
                     onChange={(value) => {
                         const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
-                        setSavedMetric({
+                        setSharedMetric({
                             query: {
-                                ...savedMetricQuery,
+                                ...sharedMetricQuery,
                                 funnels_query: {
-                                    ...savedMetricQuery.funnels_query,
+                                    ...sharedMetricQuery.funnels_query,
                                     funnelsFilter: {
-                                        ...savedMetricQuery.funnels_query.funnelsFilter,
+                                        ...sharedMetricQuery.funnels_query.funnelsFilter,
                                         breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
                                         breakdownAttributionValue: breakdownAttributionValue
                                             ? parseInt(breakdownAttributionValue)
@@ -159,19 +159,19 @@ export function SavedFunnelsMetricForm(): JSX.Element {
                             },
                         })
                     }}
-                    stepsLength={savedMetricQuery.funnels_query?.series?.length}
+                    stepsLength={sharedMetricQuery.funnels_query?.series?.length}
                 />
                 <TestAccountFilterSwitch
                     checked={(() => {
-                        const val = savedMetricQuery.funnels_query?.filterTestAccounts
+                        const val = sharedMetricQuery.funnels_query?.filterTestAccounts
                         return hasFilters ? !!val : false
                     })()}
                     onChange={(checked: boolean) => {
-                        setSavedMetric({
+                        setSharedMetric({
                             query: {
-                                ...savedMetricQuery,
+                                ...sharedMetricQuery,
                                 funnels_query: {
-                                    ...savedMetricQuery.funnels_query,
+                                    ...sharedMetricQuery.funnels_query,
                                     filterTestAccounts: checked,
                                 },
                             },
@@ -190,7 +190,7 @@ export function SavedFunnelsMetricForm(): JSX.Element {
                 <Query
                     query={{
                         kind: NodeKind.InsightVizNode,
-                        source: savedMetricQuery.funnels_query,
+                        source: sharedMetricQuery.funnels_query,
                         showTable: false,
                         showLastComputation: true,
                         showLastComputationRefresh: false,
