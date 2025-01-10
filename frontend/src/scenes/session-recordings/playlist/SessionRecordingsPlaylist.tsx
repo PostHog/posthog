@@ -76,7 +76,7 @@ export function SessionRecordingsPlaylist({
 
     sections.push({
         key: 'filters',
-        title: 'Filtered by',
+        title: 'Query recordings',
         content: <FiltersPanel />,
         initiallyOpen: true,
     })
@@ -85,7 +85,7 @@ export function SessionRecordingsPlaylist({
         key: 'other',
         title: (
             <div className="flex flex-row space-x-1 items-center">
-                <span>Filtered recordings</span>
+                <span>Results</span>
                 <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
             </div>
         ),
