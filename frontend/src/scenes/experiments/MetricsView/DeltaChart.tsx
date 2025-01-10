@@ -130,7 +130,7 @@ export function DeltaChart({
         return 0
     }
 
-    const BAR_HEIGHT = 8 + getScaleAddition(variants.length)
+    const BAR_HEIGHT = 10 + getScaleAddition(variants.length)
     const FIRST_BAR_PADDING = 6
     const LAST_BAR_PADDING = 6
     const BAR_PADDING = 14 + getScaleAddition(variants.length)
@@ -401,7 +401,7 @@ export function DeltaChart({
                                             transform="translate(-90, 0)" // Move left to accommodate tag width
                                         >
                                             <VariantTag
-                                                className="justify-end"
+                                                className="justify-end mt-0.5"
                                                 experimentId={experimentId}
                                                 variantKey={variant.key}
                                                 fontSize={10}
