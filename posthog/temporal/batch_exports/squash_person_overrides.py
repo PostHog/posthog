@@ -39,6 +39,7 @@ class TableActivityInputs:
         create_table_query = TABLES[self.name].create_query.format(
             database=settings.CLICKHOUSE_DATABASE,
             cluster=settings.CLICKHOUSE_CLUSTER,
+            table=self.name,
         )
 
         return await clickhouse_client.execute_query(create_table_query)
@@ -47,6 +48,7 @@ class TableActivityInputs:
         drop_table_query = TABLES[self.name].drop_query.format(
             database=settings.CLICKHOUSE_DATABASE,
             cluster=settings.CLICKHOUSE_CLUSTER,
+            table=self.name,
         )
 
         return await clickhouse_client.execute_query(drop_table_query)
@@ -417,7 +419,7 @@ async def submit_and_wait_for_mutation(
 # core workflow logic
 
 CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
-CREATE OR REPLACE TABLE {database}.person_distinct_id_overrides_join ON CLUSTER {cluster} (
+CREATE OR REPLACE TABLE {database}.{table} ON CLUSTER {cluster} (
     `team_id` Int64,
     `distinct_id` String,
     `person_id` UUID,
@@ -441,7 +443,7 @@ SETTINGS
 """
 
 DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
-DROP TABLE IF EXISTS {database}.person_distinct_id_overrides_join ON CLUSTER {cluster}
+DROP TABLE IF EXISTS {database}.{table} ON CLUSTER {cluster}
 SETTINGS
     distributed_ddl_task_timeout = 0
 """
