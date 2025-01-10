@@ -302,13 +302,18 @@ export function DeltaChart({
                 {/* Chart */}
                 {result ? (
                     <div className="relative">
-                        <SignificanceHighlight
-                            className="absolute top-2 left-2"
-                            metricIndex={metricIndex}
-                            isSecondary={isSecondary}
-                        />
+                        {/* Chart is z-index 100, so we need to be above it */}
+                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                        <div className="absolute top-2 left-2" style={{ zIndex: 102 }}>
+                            <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
+                        </div>
                         {(isSecondary || (!isSecondary && experiment.metrics.length > 1)) && (
-                            <div className="absolute bottom-2 left-2 flex justify-center">
+                            <div
+                                className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)]"
+                                // Chart is z-index 100, so we need to be above it
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ zIndex: 101 }}
+                            >
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
@@ -856,7 +861,7 @@ function SignificanceHighlight({
             <div
                 className={clsx({
                     'cursor-default': true,
-                    'bg-white': true,
+                    'bg-[var(--bg-table)]': true,
                     [className]: true,
                 })}
             >
@@ -864,6 +869,6 @@ function SignificanceHighlight({
             </div>
         </Tooltip>
     ) : (
-        <div className={clsx({ 'bg-white': true, [className]: true })}>{inner}</div>
+        <div className={clsx({ 'bg-[var(--bg-table)]': true, [className]: true })}>{inner}</div>
     )
 }
