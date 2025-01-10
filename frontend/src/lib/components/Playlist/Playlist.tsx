@@ -276,36 +276,34 @@ function List({
                 </div>
             </DraggableToNotebook>
             <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
-                {sections.filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s).flatMap((s) => s.items)
-                    .length ? (
-                    <>
-                        <LemonCollapse
-                            defaultActiveKeys={initiallyOpenSections}
-                            panels={sections.map((s) => {
-                                const content =
-                                    'items' in s ? (
-                                        <ListSection {...s} activeItemId={activeItemId} onClick={setActiveItemId} />
-                                    ) : (
-                                        s.content
-                                    )
-                                return {
-                                    key: s.key,
-                                    header: s.title ?? '',
-                                    content,
-                                    className: 'p-0',
-                                }
-                            })}
-                            onChange={onChangeSections}
-                            multiple
-                            embedded
-                            size="small"
-                        />
-                    </>
-                ) : loading ? (
-                    <LoadingState />
-                ) : (
-                    emptyState
-                )}
+                <LemonCollapse
+                    defaultActiveKeys={initiallyOpenSections}
+                    panels={sections.map((s) => {
+                        let content: any
+                        if ('content' in s) {
+                            content = s.content
+                        } else {
+                            content = loading ? (
+                                <LoadingState />
+                            ) : 'items' in s && !!s.items.length ? (
+                                <ListSection {...s} onClick={setActiveItemId} activeItemId={activeItemId} />
+                            ) : (
+                                emptyState
+                            )
+                        }
+
+                        return {
+                            key: s.key,
+                            header: s.title ?? '',
+                            content,
+                            className: 'p-0',
+                        }
+                    })}
+                    onChange={onChangeSections}
+                    multiple
+                    embedded
+                    size="small"
+                />
             </div>
             <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-t">
                 {footerActions}
@@ -341,7 +339,7 @@ export function ListSection({
 const LoadingState = (): JSX.Element => {
     return (
         <>
-            {range(20).map((i) => (
+            {range(5).map((i) => (
                 <div key={i} className="p-4 space-y-2">
                     <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton className="w-1/3 h-4" />
