@@ -10,7 +10,10 @@ NEVER use "Title Case", even in headings. Our style is "Sentence case" EVERYWHER
 You can use Markdown for emphasis. Bullets can improve clarity of action points.
 
 The product being analyzed is described as follows:
-{{product_description}}"""
+<product_description>
+{{core_memory}}
+</product_description>
+"""
 
 SUMMARIZER_INSTRUCTION_PROMPT = """
 Here are results of the {{query_kind}} you created to answer my latest question:

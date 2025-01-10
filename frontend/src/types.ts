@@ -292,6 +292,7 @@ export interface UserType extends UserBaseType {
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: Partial<HedgehogConfig>
+    role_at_organization?: string
 }
 
 export type HedgehogColorOptions =
@@ -4873,4 +4874,15 @@ export enum CookielessServerHashMode {
  */
 export interface Conversation {
     id: string
+}
+
+export enum UserRole {
+    Engineering = 'engineering',
+    Data = 'data',
+    Product = 'product',
+    Founder = 'founder',
+    Leadership = 'leadership',
+    Marketing = 'marketing',
+    Sales = 'sales',
+    Other = 'other',
 }

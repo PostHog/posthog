@@ -244,6 +244,35 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     event_properties: {
         distinct_id: {} as CoreFilterDefinition, // Copied from `metadata` down below
         $session_duration: {} as CoreFilterDefinition, // Copied from `sessions` down below
+        $session_is_sampled: {
+            label: 'Whether the session is sampled',
+            description: 'Whether the session is sampled for session recording.',
+            examples: ['true', 'false'],
+            system: true,
+        },
+        $geoip_postal_code_confidence: {
+            label: 'Postal Code identification confidence score',
+            description: 'If provided by the licensed geoip database',
+            examples: ['null', '0.1'],
+            system: true,
+        },
+        $geoip_subdivision_2_confidence: {
+            label: 'Subdivision 2 identification confidence score',
+            description: 'If provided by the licensed geoip database',
+            examples: ['null', '0.1'],
+            system: true,
+        },
+        $browser_language_prefix: {
+            label: 'Browser Language Prefix',
+            description: 'Language prefix.',
+            examples: ['en', 'ja'],
+        },
+        $prev_pageview_id: {
+            label: 'Previous pageview ID',
+            description: 'posthog-js adds these to the page leave event, they are used in web analytics calculations',
+            examples: ['1'],
+            system: true,
+        },
         $copy_type: {
             label: 'Copy Type',
             description: 'Type of copy event.',
