@@ -12,7 +12,7 @@ export function delay(ms: number): Promise<void> {
 
 const map = (obj: Record<string, any>): Map<any, any> => new Map(Object.entries(obj))
 const tuple = (array: any[]): any[] => {
-    ;(array as any).__isHogTuple = true
+    ; (array as any).__isHogTuple = true
     return array
 }
 
@@ -1867,7 +1867,7 @@ describe('hogvm execute', () => {
     test('ternary', () => {
         const values: any[] = []
         const functions = {
-            noisy_print: (e) => {
+            noisy_print: (e: any) => {
                 values.push(e)
                 return e
             },
@@ -1909,7 +1909,7 @@ describe('hogvm execute', () => {
     test('ifNull', () => {
         const values: any[] = []
         const functions = {
-            noisy_print: (e) => {
+            noisy_print: (e: any) => {
                 values.push(e)
                 return e
             },
@@ -2572,12 +2572,12 @@ describe('hogvm execute', () => {
         })
         const res = exec(call('code2').bytecode, {
             importBytecode: (chunk: string) =>
-                ({
-                    code2: call('code3'),
-                    code3: call('code4'),
-                    code4: call('code5'),
-                    code5: ret('tomato'),
-                }[chunk]),
+            ({
+                code2: call('code3'),
+                code3: call('code4'),
+                code4: call('code5'),
+                code5: ret('tomato'),
+            }[chunk]),
         })
         expect(res.result).toEqual('tomato')
     })
