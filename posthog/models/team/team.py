@@ -120,7 +120,6 @@ class TeamManager(models.Manager):
                 description=str(playlist.get("description", "")),
             )
         team.save()
-
         return team
 
     def create(self, **kwargs):

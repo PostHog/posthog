@@ -31,7 +31,6 @@ class ProjectManager(models.Manager):
                 initiating_user=initiating_user,
                 **team_fields,
             )
-
             return project, team
 
 
