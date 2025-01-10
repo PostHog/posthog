@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="externaldatajob",
             name="billable",
-            field=models.BooleanField(blank=True, default=True),
+            field=models.BooleanField(null=True, blank=True, default=True),
         ),
         migrations.RunSQL(
             """
