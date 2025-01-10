@@ -63,6 +63,7 @@ export type SettingId =
     | 'person-display-name'
     | 'path-cleaning'
     | 'datacapture'
+    | 'human-friendly-comparison-periods'
     | 'group-analytics'
     | 'persons-on-events'
     | 'replay'
