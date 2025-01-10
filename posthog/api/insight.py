@@ -1143,6 +1143,7 @@ When set, the specified dashboard's filters and date range override will be appl
     def calculate_funnel_hogql(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=team)
+        filter = filter.shallow_clone(overrides={"insight": "FUNNELS"})
         query = filter_to_query(filter.to_dict())
         query_runner = get_query_runner(query, team, limit_context=None)
 
