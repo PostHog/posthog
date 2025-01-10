@@ -84,7 +84,7 @@ class SummarizerNode(AssistantNode):
         message = chain.invoke(
             {
                 "query_kind": viz_message.answer.kind,
-                "product_description": self.product_core_memory,
+                "core_memory": self.core_memory_text,
                 "results": json.dumps(results_response["results"], cls=DjangoJSONEncoder),
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),

@@ -302,7 +302,7 @@ class MemoryCollectorNode(AssistantNode):
         try:
             response = chain.invoke(
                 {
-                    "core_memory": self.product_core_memory,
+                    "core_memory": self.core_memory_text,
                     "date": timezone.now().strftime("%Y-%m-%d"),
                 },
                 config=config,

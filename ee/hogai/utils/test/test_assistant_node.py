@@ -25,7 +25,7 @@ class TestAssistantNode(BaseTest):
 
     def test_product_core_memory_when_exists(self):
         CoreMemory.objects.create(team=self.team, text="Test memory")
-        self.assertEqual(self.node.product_core_memory, "Test memory")
+        self.assertEqual(self.node.core_memory_text, "Test memory")
 
     def test_product_core_memory_when_does_not_exist(self):
-        self.assertEqual(self.node.product_core_memory, "")
+        self.assertEqual(self.node.core_memory_text, "")

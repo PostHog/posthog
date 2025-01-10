@@ -26,7 +26,7 @@ class AssistantNode(ABC):
             return None
 
     @property
-    def product_core_memory(self) -> str:
+    def core_memory_text(self) -> str:
         if not self.core_memory:
             return ""
         return self.core_memory.formatted_text
