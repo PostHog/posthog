@@ -139,6 +139,7 @@ export function DeltaChart({
     const HORIZONTAL_PADDING = 20
     const CONVERSION_RATE_RECT_WIDTH = 2
     const TICK_FONT_SIZE = 9
+    const CHART_MAX_WIDTH = 1000
 
     const { isDarkModeOn } = useValues(themeLogic)
     const COLORS = {
@@ -271,32 +272,34 @@ export function DeltaChart({
             >
                 {/* Ticks */}
                 {isFirstMetric && (
-                    <svg
-                        ref={ticksSvgRef}
-                        viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT}`}
-                        preserveAspectRatio="xMidYMid meet"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ minHeight: `${TICK_PANEL_HEIGHT}px` }}
-                    >
-                        {tickValues.map((value, index) => {
-                            const x = valueToX(value)
-                            return (
-                                <g key={index}>
-                                    <text
-                                        x={x}
-                                        y={TICK_PANEL_HEIGHT / 2}
-                                        textAnchor="middle"
-                                        dominantBaseline="middle"
-                                        fontSize={TICK_FONT_SIZE}
-                                        fill={COLORS.TICK_TEXT_COLOR}
-                                        fontWeight="600"
-                                    >
-                                        {formatTickValue(value)}
-                                    </text>
-                                </g>
-                            )
-                        })}
-                    </svg>
+                    <div className="flex justify-center">
+                        <svg
+                            ref={ticksSvgRef}
+                            viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT}`}
+                            preserveAspectRatio="xMidYMid meet"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ minHeight: `${TICK_PANEL_HEIGHT}px`, maxWidth: `${CHART_MAX_WIDTH}px` }}
+                        >
+                            {tickValues.map((value, index) => {
+                                const x = valueToX(value)
+                                return (
+                                    <g key={index}>
+                                        <text
+                                            x={x}
+                                            y={TICK_PANEL_HEIGHT / 2}
+                                            textAnchor="middle"
+                                            dominantBaseline="middle"
+                                            fontSize={TICK_FONT_SIZE}
+                                            fill={COLORS.TICK_TEXT_COLOR}
+                                            fontWeight="600"
+                                        >
+                                            {formatTickValue(value)}
+                                        </text>
+                                    </g>
+                                )
+                            })}
+                        </svg>
+                    </div>
                 )}
                 {isFirstMetric && <div className="w-full border-t border-border" />}
                 {/* Chart */}
@@ -319,134 +322,136 @@ export function DeltaChart({
                                 </LemonButton>
                             </div>
                         )}
-                        <svg
-                            ref={chartSvgRef}
-                            viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
-                            preserveAspectRatio="xMidYMid meet"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ minHeight: `${chartHeight}px` }}
-                        >
-                            {/* Vertical grid lines */}
-                            {tickValues.map((value, index) => {
-                                const x = valueToX(value)
-                                return (
-                                    <line
-                                        key={index}
-                                        x1={x}
-                                        y1={0}
-                                        x2={x}
-                                        y2={chartSvgHeight + 20}
-                                        stroke={value === 0 ? COLORS.ZERO_LINE : COLORS.BOUNDARY_LINES}
-                                        strokeWidth={value === 0 ? 1 : 0.5}
-                                    />
-                                )
-                            })}
+                        <div className="flex justify-center">
+                            <svg
+                                ref={chartSvgRef}
+                                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
+                                preserveAspectRatio="xMidYMid meet"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ minHeight: `${chartHeight}px`, maxWidth: `${CHART_MAX_WIDTH}px` }}
+                            >
+                                {/* Vertical grid lines */}
+                                {tickValues.map((value, index) => {
+                                    const x = valueToX(value)
+                                    return (
+                                        <line
+                                            key={index}
+                                            x1={x}
+                                            y1={0}
+                                            x2={x}
+                                            y2={chartSvgHeight + 20}
+                                            stroke={value === 0 ? COLORS.ZERO_LINE : COLORS.BOUNDARY_LINES}
+                                            strokeWidth={value === 0 ? 1 : 0.5}
+                                        />
+                                    )
+                                })}
 
-                            {variants.map((variant, index) => {
-                                const interval = credibleIntervalForVariant(result, variant.key, metricType)
-                                const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
+                                {variants.map((variant, index) => {
+                                    const interval = credibleIntervalForVariant(result, variant.key, metricType)
+                                    const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
 
-                                let delta: number
-                                if (metricType === InsightType.TRENDS) {
-                                    const controlVariant = result.variants.find(
-                                        (v: TrendExperimentVariant) => v.key === 'control'
-                                    ) as TrendExperimentVariant
+                                    let delta: number
+                                    if (metricType === InsightType.TRENDS) {
+                                        const controlVariant = result.variants.find(
+                                            (v: TrendExperimentVariant) => v.key === 'control'
+                                        ) as TrendExperimentVariant
 
-                                    const variantData = result.variants.find(
-                                        (v: TrendExperimentVariant) => v.key === variant.key
-                                    ) as TrendExperimentVariant
+                                        const variantData = result.variants.find(
+                                            (v: TrendExperimentVariant) => v.key === variant.key
+                                        ) as TrendExperimentVariant
 
-                                    if (
-                                        !variantData?.count ||
-                                        !variantData?.absolute_exposure ||
-                                        !controlVariant?.count ||
-                                        !controlVariant?.absolute_exposure
-                                    ) {
-                                        delta = 0
+                                        if (
+                                            !variantData?.count ||
+                                            !variantData?.absolute_exposure ||
+                                            !controlVariant?.count ||
+                                            !controlVariant?.absolute_exposure
+                                        ) {
+                                            delta = 0
+                                        } else {
+                                            const controlMean = controlVariant.count / controlVariant.absolute_exposure
+                                            const variantMean = variantData.count / variantData.absolute_exposure
+                                            delta = (variantMean - controlMean) / controlMean
+                                        }
                                     } else {
-                                        const controlMean = controlVariant.count / controlVariant.absolute_exposure
-                                        const variantMean = variantData.count / variantData.absolute_exposure
-                                        delta = (variantMean - controlMean) / controlMean
+                                        const variantRate = conversionRateForVariant(result, variant.key)
+                                        const controlRate = conversionRateForVariant(result, 'control')
+                                        delta =
+                                            variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
                                     }
-                                } else {
-                                    const variantRate = conversionRateForVariant(result, variant.key)
-                                    const controlRate = conversionRateForVariant(result, 'control')
-                                    delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
-                                }
 
-                                const y = FIRST_BAR_PADDING + BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * index
-                                const x1 = valueToX(lower)
-                                const x2 = valueToX(upper)
-                                const deltaX = valueToX(delta)
+                                    const y = FIRST_BAR_PADDING + BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * index
+                                    const x1 = valueToX(lower)
+                                    const x2 = valueToX(upper)
+                                    const deltaX = valueToX(delta)
 
-                                return (
-                                    <g
-                                        key={variant.key}
-                                        onMouseEnter={(e) => {
-                                            const rect = e.currentTarget.getBoundingClientRect()
-                                            setTooltipData({
-                                                x: rect.left + rect.width / 2,
-                                                y: rect.top - 10,
-                                                variant: variant.key,
-                                            })
-                                        }}
-                                        onMouseLeave={() => setTooltipData(null)}
-                                    >
-                                        {/* Add variant name using VariantTag */}
-                                        <foreignObject
-                                            x={x1 - 8} // Keep same positioning as the text element
-                                            y={y + BAR_HEIGHT / 2 - 10}
-                                            width="90"
-                                            height="16"
-                                            transform="translate(-90, 0)" // Move left to accommodate tag width
+                                    return (
+                                        <g
+                                            key={variant.key}
+                                            onMouseEnter={(e) => {
+                                                const rect = e.currentTarget.getBoundingClientRect()
+                                                setTooltipData({
+                                                    x: rect.left + rect.width / 2,
+                                                    y: rect.top - 10,
+                                                    variant: variant.key,
+                                                })
+                                            }}
+                                            onMouseLeave={() => setTooltipData(null)}
                                         >
-                                            <VariantTag
-                                                className="justify-end mt-0.5"
-                                                experimentId={experimentId}
-                                                variantKey={variant.key}
-                                                fontSize={10}
-                                                muted
-                                            />
-                                        </foreignObject>
+                                            {/* Add variant name using VariantTag */}
+                                            <foreignObject
+                                                x={x1 - 8} // Keep same positioning as the text element
+                                                y={y + BAR_HEIGHT / 2 - 10}
+                                                width="90"
+                                                height="16"
+                                                transform="translate(-90, 0)" // Move left to accommodate tag width
+                                            >
+                                                <VariantTag
+                                                    className="justify-end mt-0.5"
+                                                    experimentId={experimentId}
+                                                    variantKey={variant.key}
+                                                    fontSize={10}
+                                                    muted
+                                                />
+                                            </foreignObject>
 
-                                        {variant.key === 'control' ? (
-                                            // Control variant - single gray bar
-                                            <>
-                                                <rect
-                                                    x={x1}
-                                                    y={y}
-                                                    width={x2 - x1}
-                                                    height={BAR_HEIGHT}
-                                                    fill="transparent"
-                                                />
-                                                <rect
-                                                    x={x1}
-                                                    y={y}
-                                                    width={x2 - x1}
-                                                    height={BAR_HEIGHT}
-                                                    fill={COLORS.BAR_CONTROL}
-                                                    stroke={COLORS.BOUNDARY_LINES}
-                                                    strokeWidth={1}
-                                                    strokeDasharray="2,2"
-                                                    rx={4}
-                                                    ry={4}
-                                                />
-                                            </>
-                                        ) : (
-                                            // Test variants - split into positive and negative sections if needed
-                                            <>
-                                                <rect
-                                                    x={x1}
-                                                    y={y}
-                                                    width={x2 - x1}
-                                                    height={BAR_HEIGHT}
-                                                    fill="transparent"
-                                                />
-                                                {lower < 0 && upper > 0 ? (
-                                                    // Bar spans across zero - need to split
-                                                    <>
-                                                        <path
-                                                            d={`
+                                            {variant.key === 'control' ? (
+                                                // Control variant - single gray bar
+                                                <>
+                                                    <rect
+                                                        x={x1}
+                                                        y={y}
+                                                        width={x2 - x1}
+                                                        height={BAR_HEIGHT}
+                                                        fill="transparent"
+                                                    />
+                                                    <rect
+                                                        x={x1}
+                                                        y={y}
+                                                        width={x2 - x1}
+                                                        height={BAR_HEIGHT}
+                                                        fill={COLORS.BAR_CONTROL}
+                                                        stroke={COLORS.BOUNDARY_LINES}
+                                                        strokeWidth={1}
+                                                        strokeDasharray="2,2"
+                                                        rx={4}
+                                                        ry={4}
+                                                    />
+                                                </>
+                                            ) : (
+                                                // Test variants - split into positive and negative sections if needed
+                                                <>
+                                                    <rect
+                                                        x={x1}
+                                                        y={y}
+                                                        width={x2 - x1}
+                                                        height={BAR_HEIGHT}
+                                                        fill="transparent"
+                                                    />
+                                                    {lower < 0 && upper > 0 ? (
+                                                        // Bar spans across zero - need to split
+                                                        <>
+                                                            <path
+                                                                d={`
                                                                 M ${x1 + 4} ${y}
                                                                 H ${valueToX(0)}
                                                                 V ${y + BAR_HEIGHT}
@@ -455,10 +460,10 @@ export function DeltaChart({
                                                                 V ${y + 4}
                                                                 Q ${x1} ${y} ${x1 + 4} ${y}
                                                             `}
-                                                            fill={COLORS.BAR_NEGATIVE}
-                                                        />
-                                                        <path
-                                                            d={`
+                                                                fill={COLORS.BAR_NEGATIVE}
+                                                            />
+                                                            <path
+                                                                d={`
                                                                 M ${valueToX(0)} ${y}
                                                                 H ${x2 - 4}
                                                                 Q ${x2} ${y} ${x2} ${y + 4}
@@ -467,39 +472,42 @@ export function DeltaChart({
                                                                 H ${valueToX(0)}
                                                                 V ${y}
                                                             `}
-                                                            fill={COLORS.BAR_POSITIVE}
+                                                                fill={COLORS.BAR_POSITIVE}
+                                                            />
+                                                        </>
+                                                    ) : (
+                                                        // Bar is entirely positive or negative
+                                                        <rect
+                                                            x={x1}
+                                                            y={y}
+                                                            width={x2 - x1}
+                                                            height={BAR_HEIGHT}
+                                                            fill={
+                                                                upper <= 0 ? COLORS.BAR_NEGATIVE : COLORS.BAR_POSITIVE
+                                                            }
+                                                            rx={4}
+                                                            ry={4}
                                                         />
-                                                    </>
-                                                ) : (
-                                                    // Bar is entirely positive or negative
-                                                    <rect
-                                                        x={x1}
-                                                        y={y}
-                                                        width={x2 - x1}
-                                                        height={BAR_HEIGHT}
-                                                        fill={upper <= 0 ? COLORS.BAR_NEGATIVE : COLORS.BAR_POSITIVE}
-                                                        rx={4}
-                                                        ry={4}
-                                                    />
-                                                )}
-                                            </>
-                                        )}
-                                        {/* Delta marker */}
-                                        <rect
-                                            x={deltaX - CONVERSION_RATE_RECT_WIDTH / 2}
-                                            y={y}
-                                            width={CONVERSION_RATE_RECT_WIDTH}
-                                            height={BAR_HEIGHT}
-                                            fill={
-                                                variant.key === 'control'
-                                                    ? COLORS.BAR_MIDDLE_POINT_CONTROL
-                                                    : COLORS.BAR_MIDDLE_POINT
-                                            }
-                                        />
-                                    </g>
-                                )
-                            })}
-                        </svg>
+                                                    )}
+                                                </>
+                                            )}
+                                            {/* Delta marker */}
+                                            <rect
+                                                x={deltaX - CONVERSION_RATE_RECT_WIDTH / 2}
+                                                y={y}
+                                                width={CONVERSION_RATE_RECT_WIDTH}
+                                                height={BAR_HEIGHT}
+                                                fill={
+                                                    variant.key === 'control'
+                                                        ? COLORS.BAR_MIDDLE_POINT_CONTROL
+                                                        : COLORS.BAR_MIDDLE_POINT
+                                                }
+                                            />
+                                        </g>
+                                    )
+                                })}
+                            </svg>
+                        </div>
                     </div>
                 ) : metricResultsLoading ? (
                     <svg
