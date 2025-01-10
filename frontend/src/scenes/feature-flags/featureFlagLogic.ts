@@ -382,7 +382,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         ...state,
                         filters: {
                             ...state.filters,
-                            payloads: { true: ' .' },
+                            payloads: { true: '' },
                         },
                         has_encrypted_payloads: false,
                     }
@@ -986,6 +986,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     ? 'multivariate'
                     : 'boolean',
         ],
+        flagTypeString: [
+            (s) => [s.featureFlag],
+            (featureFlag) =>
+                featureFlag?.is_remote_configuration
+                    ? 'Remote configuration (single payload)'
+                    : featureFlag?.filters.multivariate
+                    ? 'Multiple variants with rollout percentages (A/B/n test)'
+                    : 'Release toggle (boolean)',
+        ],
         roleBasedAccessEnabled: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS),
@@ -1090,6 +1099,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag) => {
                 return featureFlag?.surveys && featureFlag.surveys.length > 0
+            },
+        ],
+        hasEncryptedPayloadBeenSaved: [
+            (s) => [s.featureFlag, s.props],
+            (featureFlag, props) => {
+                if (!featureFlag.has_encrypted_payloads) {
+                    return false
+                }
+                const savedFlag = featureFlagsLogic
+                    .findMounted()
+                    ?.values.featureFlags.results.find((flag) => flag.id === props.id)
+                return savedFlag?.has_encrypted_payloads
             },
         ],
     }),

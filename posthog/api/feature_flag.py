@@ -35,6 +35,7 @@ from posthog.event_usage import report_user_action
 from posthog.helpers.dashboard_templates import (
     add_enriched_insights_to_feature_flag_dashboard,
 )
+from posthog.helpers.encrypted_flag_payloads import encrypt_flag_payloads, get_decrypted_flag_payloads
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import (
     Detail,
@@ -96,7 +97,8 @@ class FeatureFlagSerializer(
 ):
     created_by = UserBasicSerializer(read_only=True)
 
-    filters = serializers.SerializerMethodField()
+    # :TRICKY: Needed for backwards compatibility
+    filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
 
@@ -164,28 +166,6 @@ class FeatureFlagSerializer(
             can_user_edit_feature_flag(self.context["request"], feature_flag)
             and self.get_user_access_level(feature_flag) == "editor"
         )
-
-    def get_filters(self, feature_flag: FeatureFlag) -> dict:
-        # :TRICKY: Needed for backwards compatibility
-        filters = feature_flag.get_filters()
-        request = self.context.get("request")
-        is_personal_api_request = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
-
-        # Only decode encrypted flag payloads if the request is made with a personal API key
-        if feature_flag.has_encrypted_payloads:
-            from posthog.temporal.common.codec import EncryptionCodec
-            from django.conf import settings
-
-            codec = EncryptionCodec(settings)
-
-            for key, value in filters.get("payloads", {}).items():
-                filters["payloads"][key] = (
-                    codec.decrypt(value.encode("utf-8")).decode("utf-8")
-                    if is_personal_api_request
-                    else "********* (encrypted)"
-                )
-
-        return filters
 
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
@@ -414,9 +394,7 @@ class FeatureFlagSerializer(
                 key=validated_key, team__project_id=instance.team.project_id, deleted=True
             ).delete()
         self._update_filters(validated_data)
-        # TOMORROW: Unable to update encrypted payload for some reason
-        # Are we calling something else? No filters in validated_data
-        # self._encrypt_payloads_if_needed(instance, validated_data)
+        encrypt_flag_payloads(validated_data)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
@@ -450,6 +428,11 @@ class FeatureFlagSerializer(
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
 
+        # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
+        # if the request was made with a personal API key
+        if instance.has_encrypted_payloads:
+            instance.filters = get_decrypted_flag_payloads(request, instance.filters)
+
         return instance
 
     def _update_filters(self, validated_data):
@@ -459,25 +442,6 @@ class FeatureFlagSerializer(
         active = validated_data.get("active", None)
         if active:
             validated_data["performed_rollback"] = False
-
-    def _encrypt_payloads_if_needed(self, instance: FeatureFlag, validated_data: dict):
-        if not validated_data.get("has_encrypted_payloads", False):
-            return
-
-        if "filters" not in validated_data:
-            return
-
-        if "payloads" not in validated_data["filters"]:
-            return
-
-        payloads = validated_data["filters"]["payloads"]
-        from posthog.temporal.common.codec import EncryptionCodec
-        from django.conf import settings
-
-        codec = EncryptionCodec(settings)
-
-        for key, value in payloads.items():
-            payloads[key] = codec.encrypt(value.encode("utf-8")).decode("utf-8")
 
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):
@@ -569,6 +533,8 @@ class FeatureFlagViewSet(
                     )
                 elif type == "experiment":
                     queryset = queryset.filter(~Q(experiment__isnull=True))
+                elif type == "config":
+                    queryset = queryset.filter(is_remote_configuration=True)
 
         return queryset
 
@@ -641,6 +607,15 @@ class FeatureFlagViewSet(
             increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
         return super().list(request, args, kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        response = super().retrieve(request, *args, **kwargs)
+        feature_flag_data = response.data
+
+        if feature_flag_data.get("has_encrypted_payloads", False):
+            feature_flag_data["filters"] = get_decrypted_flag_payloads(request, feature_flag_data["filters"])
+
+        return response
 
     @action(methods=["POST"], detail=True)
     def dashboard(self, request: request.Request, **kwargs):

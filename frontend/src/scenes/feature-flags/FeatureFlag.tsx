@@ -708,6 +708,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         recordingFilterForFlag,
         flagStatus,
         flagType,
+        flagTypeString,
+        hasEncryptedPayloadBeenSaved,
     } = useValues(featureFlagLogic)
     const {
         distributeVariantsEqually,
@@ -822,11 +824,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 )}
                             </div>
                             <div className="col-span-6">
-                                <span className="mt-1">
-                                    {featureFlag.filters.multivariate
-                                        ? 'Multiple variants with rollout percentages (A/B/n test)'
-                                        : 'Release toggle (boolean)'}
-                                </span>
+                                <span className="mt-1">{flagTypeString}</span>
                             </div>
                         </div>
 
@@ -1003,8 +1001,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     checked={value}
                                                     dataAttr="feature-flag-payload-encrypted-checkbox"
                                                     disabledReason={
-                                                        featureFlag.has_encrypted_payloads &&
-                                                        Boolean(featureFlag.filters?.payloads?.['true']) &&
+                                                        hasEncryptedPayloadBeenSaved &&
                                                         'An encrypted payload has already been saved for this flag. Reset the payload or create a new flag to create an unencrypted configuration payload.'
                                                     }
                                                 />
