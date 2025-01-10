@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import pytz
-import tiktoken
 
 from posthog.demo.matrix.models import EVENT_PAGELEAVE, SimPerson, SimSessionIntent
 from posthog.demo.products.spikegpt.data import FAKE_CHATS
@@ -12,9 +11,6 @@ from .taxonomy import URL_HOME
 
 if TYPE_CHECKING:
     from .matrix import SpikeGPTCluster
-
-
-llm_encoding = tiktoken.encoding_for_model("gpt-4o")
 
 
 class SpikeGPTSessionIntent(SimSessionIntent):
@@ -145,22 +141,21 @@ class SpikeGPTPerson(SimPerson):
 
     def start_chat(self):
         random_chat = self.cluster.random.choice(FAKE_CHATS)
-        tokens_in_conversation_so_far = 0
+        conversation_so_far: list[dict] = []
         for message in random_chat:
             # Human messages must naturally take longer to type, while AI ones are quick
-            message_token_count = len(llm_encoding.encode(message["content"]))
             if message["type"] == "human":
                 self.advance_timer(2 + len(message["content"]) / 10)
                 self.active_client.capture("sent chat message", {"content": message["content"]})
             else:
-                generation_time = len(message["content"]) / 20
+                generation_time = len(message["content"]) / 25
                 self.advance_timer(1 + generation_time)
                 self.active_client.capture_ai_generation(
-                    input_tokens=tokens_in_conversation_so_far,
-                    output_tokens=message_token_count,
+                    input=conversation_so_far,
+                    output_content=message["content"],
                     latency=generation_time,
                 )
-            tokens_in_conversation_so_far += message_token_count
+            conversation_so_far.append(message)
 
 
 def add_params_to_url(url, query_params):
