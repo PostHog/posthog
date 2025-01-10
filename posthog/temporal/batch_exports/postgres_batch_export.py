@@ -54,7 +54,10 @@ from posthog.temporal.batch_exports.utils import (
 )
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.common.logger import (
+    bind_temporal_worker_logger,
+    get_internal_logger,
+)
 
 PostgreSQLField = tuple[str, typing.LiteralString]
 Fields = collections.abc.Iterable[PostgreSQLField]
@@ -571,6 +574,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
         inputs.schema,
         inputs.table_name,
     )
+    internal_logger = get_internal_logger()
 
     async with (
         Heartbeater() as heartbeater,
@@ -675,7 +679,14 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             try:
                 columns = await pg_client.aget_table_columns(inputs.schema, inputs.table_name)
                 table_fields = [field for field in table_fields if field[0] in columns]
+            except psycopg.errors.InsufficientPrivilege:
+                await internal_logger.awarning(
+                    "Insufficient privileges to get table columns for table '%s.%s'; will assume all columns are present",
+                    schema=inputs.schema,
+                    table_name=inputs.table_name,
+                )
             except psycopg.errors.UndefinedTable:
+                # this can happen if the table doesn't exist yet
                 pass
 
             schema_columns = [field[0] for field in table_fields]
