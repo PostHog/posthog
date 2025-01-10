@@ -206,8 +206,6 @@ posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "group_by"  [union-attr]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "None" of "list[Expr] | Any | None" has no attribute "append"  [union-attr]
 posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible types in assignment (expression has type "dict[Never, Never]", variable has type "list[ConstraintOverride]")  [assignment]
-posthog/hogql/transforms/lazy_tables.py:0: error: Non-overlapping equality check (left operand type: "TableType", right operand type: "LazyTableType")  [comparison-overlap]
-posthog/hogql/transforms/lazy_tables.py:0: error: Non-overlapping equality check (left operand type: "TableType", right operand type: "LazyTableType")  [comparison-overlap]
 posthog/hogql/transforms/lazy_tables.py:0: error: Name "chain" already defined on line 0  [no-redef]
 posthog/hogql/transforms/lazy_tables.py:0: error: Subclass of "TableType" and "LazyTableType" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/hogql/transforms/lazy_tables.py:0: error: Statement is unreachable  [unreachable]
