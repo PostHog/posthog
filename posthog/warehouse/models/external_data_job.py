@@ -30,6 +30,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
 
     pipeline_version = models.CharField(max_length=400, choices=PipelineVersion.choices, null=True, blank=True)
+    billable = models.BooleanField(default=True, blank=True)
 
     __repr__ = sane_repr("id")
 
