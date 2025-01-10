@@ -19,6 +19,8 @@ import {
     ReplayTabs,
 } from '~/types'
 
+import { BillingSectionId } from './billing/types'
+
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
 export const preloadedScenes: Record<string, LoadedScene> = {
@@ -92,6 +94,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Web analytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
+    },
+    [Scene.WebAnalyticsCoreWebVitals]: {
+        projectBased: true,
+        name: 'Core Web Vitals',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/core-web-vitals', // TODO: Add docs
     },
     [Scene.Cohort]: {
         projectBased: true,
@@ -211,6 +219,18 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
+    [Scene.ExperimentsSharedMetric]: {
+        projectBased: true,
+        name: 'Shared metric',
+        defaultDocsPath: '/docs/experiments/creating-an-experiment',
+        activityScope: ActivityScope.EXPERIMENT,
+    },
+    [Scene.ExperimentsSharedMetrics]: {
+        projectBased: true,
+        name: 'Shared metrics',
+        defaultDocsPath: '/docs/experiments/creating-an-experiment',
+        activityScope: ActivityScope.EXPERIMENT,
+    },
     [Scene.FeatureFlags]: {
         projectBased: true,
         name: 'Feature flags',
@@ -243,12 +263,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
-    },
-    [Scene.DataModel]: {
-        projectBased: true,
-        name: 'Visualize person schema',
-        defaultDocsPath: '/docs/data-datawarehouse',
-        layout: 'app-canvas',
     },
     [Scene.DataWarehouse]: {
         projectBased: true,
@@ -306,6 +320,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Products]: {
         projectBased: true,
         hideProjectNotice: true,
+        layout: 'app-raw',
     },
     [Scene.Onboarding]: {
         projectBased: true,
@@ -376,6 +391,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         hideProjectNotice: true,
         organizationBased: true,
         defaultDocsPath: '/pricing',
+    },
+    [Scene.BillingSection]: {
+        name: 'Billing',
+        hideProjectNotice: true,
+        organizationBased: true,
     },
     [Scene.BillingAuthorizationStatus]: {
         hideProjectNotice: true,
@@ -534,6 +554,7 @@ export const routes: Record<string, Scene> = {
     [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.webAnalytics()]: Scene.WebAnalytics,
+    [urls.webAnalyticsCoreWebVitals()]: Scene.WebAnalytics,
     [urls.actions()]: Scene.DataManagement,
     [urls.eventDefinitions()]: Scene.DataManagement,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
@@ -568,6 +589,8 @@ export const routes: Record<string, Scene> = {
     [urls.cohort(':id')]: Scene.Cohort,
     [urls.cohorts()]: Scene.PersonsManagement,
     [urls.experiments()]: Scene.Experiments,
+    [urls.experimentsSharedMetrics()]: Scene.ExperimentsSharedMetrics,
+    [urls.experimentsSharedMetric(':id')]: Scene.ExperimentsSharedMetric,
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
@@ -579,7 +602,6 @@ export const routes: Record<string, Scene> = {
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,
-    [urls.dataModel()]: Scene.DataModel,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
     [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
@@ -595,12 +617,14 @@ export const routes: Record<string, Scene> = {
     [urls.max()]: Scene.Max,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationBilling()]: Scene.Billing,
+    [urls.organizationBillingSection(':section' as BillingSectionId)]: Scene.BillingSection,
     [urls.billingAuthorizationStatus()]: Scene.BillingAuthorizationStatus,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
     [urls.instanceStatus()]: Scene.SystemStatus,
     [urls.instanceSettings()]: Scene.SystemStatus,
     [urls.instanceStaffUsers()]: Scene.SystemStatus,
+    [urls.instanceKafkaInspector()]: Scene.SystemStatus,
     [urls.instanceMetrics()]: Scene.SystemStatus,
     [urls.asyncMigrations()]: Scene.AsyncMigrations,
     [urls.asyncMigrationsFuture()]: Scene.AsyncMigrations,

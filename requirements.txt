@@ -80,6 +80,7 @@ celery-redbeat==2.1.1
     # via -r requirements.in
 certifi==2019.11.28
     # via
+    #   clickhouse-connect
     #   httpcore
     #   httpx
     #   requests
@@ -110,6 +111,8 @@ click-plugins==1.1.1
     # via celery
 click-repl==0.3.0
     # via celery
+clickhouse-connect==0.8.11
+    # via -r requirements.in
 clickhouse-driver==0.2.7
     # via
     #   -r requirements.in
@@ -138,7 +141,7 @@ defusedxml==0.6.0
     # via
     #   python3-openid
     #   social-auth-core
-deltalake==0.22.3
+deltalake==0.23.2
     # via -r requirements.in
 distro==1.9.0
     # via openai
@@ -378,6 +381,8 @@ lxml==4.9.4
     #   toronado
     #   xmlsec
     #   zeep
+lz4==4.3.3
+    # via clickhouse-connect
 lzstring==1.0.4
     # via -r requirements.in
 makefun==1.15.2
@@ -562,6 +567,7 @@ python3-saml==1.12.0
 pytz==2023.3
     # via
     #   -r requirements.in
+    #   clickhouse-connect
     #   clickhouse-driver
     #   dlt
     #   infi-clickhouse-orm
@@ -776,6 +782,7 @@ uritemplate==4.1.1
 urllib3==1.26.18
     # via
     #   botocore
+    #   clickhouse-connect
     #   geoip2
     #   google-auth
     #   pdpyras
@@ -811,6 +818,8 @@ yarl==1.18.3
     # via aiohttp
 zeep==4.2.1
     # via simple-salesforce
+zstandard==0.23.0
+    # via clickhouse-connect
 zstd==1.5.5.1
     # via -r requirements.in
 zxcvbn==4.4.28

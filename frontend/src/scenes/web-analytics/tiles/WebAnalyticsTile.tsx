@@ -1,5 +1,5 @@
-import { IconGear, IconTrending } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { IconTrending } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
@@ -127,6 +127,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>End Path</>
         case WebStatsBreakdown.ExitClick:
             return <>Exit Click</>
+        case WebStatsBreakdown.ScreenName:
+            return <>Screen Name</>
         case WebStatsBreakdown.InitialChannelType:
             return <>Initial Channel Type</>
         case WebStatsBreakdown.InitialReferringDomain:
@@ -258,6 +260,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$end_pathname', type: PropertyFilterType.Session }
         case WebStatsBreakdown.ExitClick:
             return { key: '$last_external_click_url', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ScreenName:
+            return { key: '$screen_name', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialChannelType:
             return { key: '$channel_type', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialReferringDomain:
@@ -481,14 +485,14 @@ export const WebStatsTableTile = ({
     query,
     breakdownBy,
     insightProps,
-    showPathCleaningControls,
+    control,
 }: {
     query: DataTableNode
     breakdownBy: WebStatsBreakdown
     insightProps: InsightLogicProps
-    showPathCleaningControls?: boolean
+    control?: JSX.Element
 }): JSX.Element => {
-    const { togglePropertyFilter, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
+    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
     const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
@@ -536,47 +540,9 @@ export const WebStatsTableTile = ({
         }
     }, [onClick, insightProps])
 
-    const pathCleaningSettingsUrl = urls.settings('project-product-analytics', 'path-cleaning')
     return (
         <div className="border rounded bg-bg-light flex-1 flex flex-col">
-            {showPathCleaningControls && (
-                <div className="flex flex-row items-center justify-end m-2 mr-4">
-                    <div className="flex flex-row items-center space-x-2">
-                        <LemonSwitch
-                            label={
-                                <div className="flex flex-row space-x-2">
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                Check{' '}
-                                                <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
-                                                    our path cleaning rules documentation
-                                                </Link>{' '}
-                                                to learn more about path cleaning
-                                            </>
-                                        }
-                                        interactive
-                                    >
-                                        <span>Enable path cleaning</span>
-                                    </Tooltip>
-                                    <LemonButton
-                                        icon={<IconGear />}
-                                        type="tertiary"
-                                        status="alt"
-                                        size="small"
-                                        noPadding={true}
-                                        tooltip="Edit path cleaning settings"
-                                        to={pathCleaningSettingsUrl}
-                                    />
-                                </div>
-                            }
-                            checked={!!isPathCleaningEnabled}
-                            onChange={setIsPathCleaningEnabled}
-                            className="h-full"
-                        />
-                    </div>
-                </div>
-            )}
+            {control != null && <div className="flex flex-row items-center justify-end m-2 mr-4">{control}</div>}
             <Query query={query} readOnly={true} context={context} />
         </div>
     )
@@ -692,12 +658,12 @@ export const WebExternalClicksTile = ({
 export const WebQuery = ({
     query,
     showIntervalSelect,
-    showPathCleaningControls,
+    control,
     insightProps,
 }: {
     query: QuerySchema
     showIntervalSelect?: boolean
-    showPathCleaningControls?: boolean
+    control?: JSX.Element
     insightProps: InsightLogicProps
 }): JSX.Element => {
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
@@ -706,7 +672,7 @@ export const WebQuery = ({
                 query={query}
                 breakdownBy={query.source.breakdownBy}
                 insightProps={insightProps}
-                showPathCleaningControls={showPathCleaningControls}
+                control={control}
             />
         )
     }

@@ -1,13 +1,6 @@
 import { TZLabel } from '@posthog/apps-common'
-import { IconEllipsis, IconGear } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonDivider,
-    LemonMenu,
-    LemonMenuItems,
-    LemonSegmentedButton,
-} from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonMenuItems, LemonSegmentedButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
@@ -64,7 +57,9 @@ export function ErrorTrackingScene(): JSX.Element {
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
                 <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
-                <ErrorTrackingFilters.FilterGroup />
+                <ErrorTrackingFilters.FilterGroup>
+                    <ErrorTrackingFilters.UniversalSearch />
+                </ErrorTrackingFilters.FilterGroup>
                 <LemonDivider className="mt-2" />
                 {selectedIssueIds.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
                 <Query query={query} context={context} />
@@ -108,7 +103,7 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
     }
 
     return (
-        <div className="flex justify-between items-center min-w-64">
+        <div className="flex items-center justify-between min-w-64">
             <div>{columnName}</div>
             <LemonSegmentedButton
                 size="xsmall"
@@ -121,7 +116,6 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const { hasGroupActions } = useValues(errorTrackingLogic)
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
 
@@ -131,28 +125,26 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 
     return (
         <div className="flex items-start space-x-1.5 group">
-            {hasGroupActions && (
-                <LemonCheckbox
-                    className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
-                    checked={checked}
-                    onChange={(newValue) => {
-                        setSelectedIssueIds(
-                            newValue
-                                ? [...new Set([...selectedIssueIds, record.id])]
-                                : selectedIssueIds.filter((id) => id != record.id)
-                        )
-                    }}
-                />
-            )}
+            <LemonCheckbox
+                className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
+                checked={checked}
+                onChange={(newValue) => {
+                    setSelectedIssueIds(
+                        newValue
+                            ? [...new Set([...selectedIssueIds, record.id])]
+                            : selectedIssueIds.filter((id) => id != record.id)
+                    )
+                }}
+            />
             <LemonTableLink
                 title={record.name || 'Unknown Type'}
                 description={
                     <div className="space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
                         <div className="space-x-1">
-                            <TZLabel time={record.first_seen} className="border-dotted border-b" />
+                            <TZLabel time={record.first_seen} className="border-b border-dotted" />
                             <span>|</span>
-                            <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                            <TZLabel time={record.last_seen} className="border-b border-dotted" />
                         </div>
                     </div>
                 }
@@ -198,11 +190,23 @@ const Header = (): JSX.Element => {
         <PageHeader
             buttons={
                 <>
-                    <LemonMenu items={items}>
-                        <LemonButton icon={<IconEllipsis />} />
-                    </LemonMenu>
+                    {user?.is_staff ? (
+                        <LemonButton
+                            onClick={() => {
+                                throw Error('Oh my!')
+                            }}
+                        >
+                            Send an exception
+                        </LemonButton>
+                    ) : null}
+                    <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
+                        Documentation
+                    </LemonButton>
                     <LemonButton to={urls.errorTrackingAlerts()} type="secondary" icon={<IconGear />}>
                         Configure alerts
+                    </LemonButton>
+                    <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
+                        Configure
                     </LemonButton>
                 </>
             }

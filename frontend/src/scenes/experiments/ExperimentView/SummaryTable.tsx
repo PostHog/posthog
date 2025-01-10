@@ -8,6 +8,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
 import {
     FilterLogicalOperator,
     InsightType,
@@ -23,9 +24,11 @@ import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
 export function SummaryTable({
+    metric,
     metricIndex = 0,
     isSecondary = false,
 }: {
+    metric: ExperimentTrendsQuery | ExperimentFunnelsQuery
     metricIndex?: number
     isSecondary?: boolean
 }): JSX.Element {
@@ -35,8 +38,7 @@ export function SummaryTable({
         metricResults,
         secondaryMetricResults,
         tabularExperimentResults,
-        getMetricType,
-        getSecondaryMetricType,
+        _getMetricType,
         exposureCountDataForVariant,
         conversionRateForVariant,
         experimentMathAggregationForTrends,
@@ -44,7 +46,7 @@ export function SummaryTable({
         getHighestProbabilityVariant,
         credibleIntervalForVariant,
     } = useValues(experimentLogic)
-    const metricType = isSecondary ? getSecondaryMetricType(metricIndex) : getMetricType(metricIndex)
+    const metricType = _getMetricType(metric)
     const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
     if (!result) {
         return <></>

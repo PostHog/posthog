@@ -112,7 +112,9 @@ export default function SurveyEdit(): JSX.Element {
         },
     ]
 
-    if (featureFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_LIMITS]) {
+    const adaptiveLimitFFEnabled = featureFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_LIMITS]
+
+    if (adaptiveLimitFFEnabled) {
         surveyLimitOptions.push({
             value: 'until_adaptive_limit',
             label: 'Collect a certain number of surveys per day, week or month',
@@ -120,15 +122,16 @@ export default function SurveyEdit(): JSX.Element {
             disabledReason: surveysAdaptiveLimitsDisabledReason,
         } as unknown as LemonRadioOption<'until_stopped' | 'until_limit' | 'until_adaptive_limit'>)
     }
+
     useMemo(() => {
         if (surveyUsesLimit) {
             setDataCollectionType('until_limit')
-        } else if (surveyUsesAdaptiveLimit) {
+        } else if (surveyUsesAdaptiveLimit && adaptiveLimitFFEnabled) {
             setDataCollectionType('until_adaptive_limit')
         } else {
             setDataCollectionType('until_stopped')
         }
-    }, [surveyUsesLimit, surveyUsesAdaptiveLimit, setDataCollectionType])
+    }, [surveyUsesLimit, surveyUsesAdaptiveLimit, adaptiveLimitFFEnabled, setDataCollectionType])
 
     if (survey.iteration_count && survey.iteration_count > 0) {
         setSchedule('recurring')
@@ -145,6 +148,13 @@ export default function SurveyEdit(): JSX.Element {
         }
         setSurveyValue('questions', move(survey.questions, oldIndex, newIndex))
         setSelectedPageIndex(newIndex)
+    }
+
+    function removeTargetingFlagFilters(): void {
+        setSurveyValue('targeting_flag_filters', null)
+        setSurveyValue('targeting_flag', null)
+        setSurveyValue('remove_targeting_flag', true)
+        setFlagPropertyErrors(null)
     }
 
     return (
@@ -732,7 +742,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                     groups: [
                                                                         {
                                                                             properties: [],
-                                                                            rollout_percentage: undefined,
+                                                                            rollout_percentage: 100,
                                                                             variant: null,
                                                                         },
                                                                     ],
@@ -759,17 +769,17 @@ export default function SurveyEdit(): JSX.Element {
                                                                             filters
                                                                         )
                                                                     }}
+                                                                    showTrashIconWithOneCondition
+                                                                    removedLastConditionCallback={
+                                                                        removeTargetingFlagFilters
+                                                                    }
                                                                 />
                                                             </div>
                                                             <LemonButton
                                                                 type="secondary"
                                                                 status="danger"
                                                                 className="w-max"
-                                                                onClick={() => {
-                                                                    setSurveyValue('targeting_flag_filters', null)
-                                                                    setSurveyValue('targeting_flag', null)
-                                                                    setSurveyValue('remove_targeting_flag', true)
-                                                                }}
+                                                                onClick={removeTargetingFlagFilters}
                                                             >
                                                                 Remove all property targeting
                                                             </LemonButton>

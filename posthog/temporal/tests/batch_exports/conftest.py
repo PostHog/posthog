@@ -5,8 +5,10 @@ import uuid
 import psycopg
 import pytest
 import pytest_asyncio
+import temporalio.worker
 from psycopg import sql
 
+from posthog import constants
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -147,6 +149,24 @@ async def setup_postgres_test_db(postgres_config):
     await connection.close()
 
 
+@pytest_asyncio.fixture
+async def temporal_worker(temporal_client, workflows, activities):
+    worker = temporalio.worker.Worker(
+        temporal_client,
+        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+        workflows=workflows,
+        activities=activities,
+        workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+    )
+
+    worker_run = asyncio.create_task(worker.run())
+
+    yield worker
+
+    worker_run.cancel()
+    await asyncio.wait([worker_run])
+
+
 @pytest_asyncio.fixture(scope="module", autouse=True)
 async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup):
     from posthog.batch_exports.sql import (
@@ -220,9 +240,19 @@ def data_interval_end(request, interval):
     return dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
 
 
+@pytest.fixture
+def test_properties(request):
+    """Set test data properties."""
+    try:
+        return request.param
+    except AttributeError:
+        pass
+    return {"$browser": "Chrome", "$os": "Mac OS X"}
+
+
 @pytest_asyncio.fixture
 async def generate_test_data(
-    ateam, clickhouse_client, exclude_events, data_interval_start, data_interval_end, interval
+    ateam, clickhouse_client, exclude_events, data_interval_start, data_interval_end, interval, test_properties
 ):
     """Generate test data in ClickHouse."""
     if interval != "every 5 minutes":
@@ -239,7 +269,7 @@ async def generate_test_data(
         count_outside_range=10,
         count_other_team=10,
         duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        properties=test_properties,
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
         table=table,
     )

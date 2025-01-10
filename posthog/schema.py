@@ -223,6 +223,11 @@ class AssistantMessageType(StrEnum):
     AI_ROUTER = "ai/router"
 
 
+class RetentionReference(StrEnum):
+    TOTAL = "total"
+    PREVIOUS = "previous"
+
+
 class AssistantSetPropertyFilterOperator(StrEnum):
     IS_SET = "is_set"
     IS_NOT_SET = "is_not_set"
@@ -538,6 +543,7 @@ class CountPerActorMathType(StrEnum):
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
     MAX_COUNT_PER_ACTOR = "max_count_per_actor"
     MEDIAN_COUNT_PER_ACTOR = "median_count_per_actor"
+    P75_COUNT_PER_ACTOR = "p75_count_per_actor"
     P90_COUNT_PER_ACTOR = "p90_count_per_actor"
     P95_COUNT_PER_ACTOR = "p95_count_per_actor"
     P99_COUNT_PER_ACTOR = "p99_count_per_actor"
@@ -548,6 +554,9 @@ class CustomChannelField(StrEnum):
     UTM_MEDIUM = "utm_medium"
     UTM_CAMPAIGN = "utm_campaign"
     REFERRING_DOMAIN = "referring_domain"
+    URL = "url"
+    PATHNAME = "pathname"
+    HOSTNAME = "hostname"
 
 
 class CustomChannelOperator(StrEnum):
@@ -566,6 +575,24 @@ class CustomEventConversionGoal(BaseModel):
         extra="forbid",
     )
     customEventName: str
+
+
+class DataColorToken(StrEnum):
+    PRESET_1 = "preset-1"
+    PRESET_2 = "preset-2"
+    PRESET_3 = "preset-3"
+    PRESET_4 = "preset-4"
+    PRESET_5 = "preset-5"
+    PRESET_6 = "preset-6"
+    PRESET_7 = "preset-7"
+    PRESET_8 = "preset-8"
+    PRESET_9 = "preset-9"
+    PRESET_10 = "preset-10"
+    PRESET_11 = "preset-11"
+    PRESET_12 = "preset-12"
+    PRESET_13 = "preset-13"
+    PRESET_14 = "preset-14"
+    PRESET_15 = "preset-15"
 
 
 class DataWarehouseEventsModifier(BaseModel):
@@ -725,6 +752,7 @@ class ErrorTrackingIssue(BaseModel):
     )
     assignee: Optional[float] = None
     description: Optional[str] = None
+    earliest: str
     first_seen: AwareDatetime
     id: str
     last_seen: AwareDatetime
@@ -1263,6 +1291,7 @@ class PropertyMathType(StrEnum):
     MIN = "min"
     MAX = "max"
     MEDIAN = "median"
+    P75 = "p75"
     P90 = "p90"
     P95 = "p95"
     P99 = "p99"
@@ -1408,14 +1437,37 @@ class RecordingPropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
+class ResultCustomizationBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: DataColorToken
+
+
+class ResultCustomizationBy(StrEnum):
+    VALUE = "value"
+    POSITION = "position"
+
+
+class ResultCustomizationByPosition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignmentBy: Literal["position"] = "position"
+    color: DataColorToken
+
+
+class ResultCustomizationByValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignmentBy: Literal["value"] = "value"
+    color: DataColorToken
+
+
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
-
-
-class RetentionReference(StrEnum):
-    TOTAL = "total"
-    PREVIOUS = "previous"
 
 
 class RetentionPeriod(StrEnum):
@@ -1588,6 +1640,13 @@ class TrendsFilter(BaseModel):
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
     hiddenLegendIndexes: Optional[list[int]] = None
+    resultCustomizationBy: Optional[ResultCustomizationBy] = Field(
+        default=ResultCustomizationBy.VALUE,
+        description="Wether result datasets are associated by their values or by their order.",
+    )
+    resultCustomizations: Optional[
+        Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]]
+    ] = Field(default=None, description="Customizations for the appearance of result datasets.")
     showAlertThresholdLines: Optional[bool] = False
     showLabelsOnSeries: Optional[bool] = None
     showLegend: Optional[bool] = False
@@ -1664,6 +1723,7 @@ class WebStatsBreakdown(StrEnum):
     INITIAL_PAGE = "InitialPage"
     EXIT_PAGE = "ExitPage"
     EXIT_CLICK = "ExitClick"
+    SCREEN_NAME = "ScreenName"
     INITIAL_CHANNEL_TYPE = "InitialChannelType"
     INITIAL_REFERRING_DOMAIN = "InitialReferringDomain"
     INITIAL_UTM_SOURCE = "InitialUTMSource"
@@ -1694,6 +1754,10 @@ class YAxisSettings(BaseModel):
     )
     scale: Optional[Scale] = None
     startAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
+
+
+class NumericalKey(RootModel[str]):
+    root: str
 
 
 class AlertCondition(BaseModel):
@@ -2950,6 +3014,10 @@ class QueryResponseAlternative39(BaseModel):
     )
 
 
+class ResultCustomization(RootModel[Union[ResultCustomizationByValue, ResultCustomizationByPosition]]):
+    root: Union[ResultCustomizationByValue, ResultCustomizationByPosition]
+
+
 class RetentionEntity(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2969,7 +3037,10 @@ class RetentionFilter(BaseModel):
     )
     cumulative: Optional[bool] = None
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
-    retentionReference: Optional[RetentionReference] = None
+    retentionReference: Optional[RetentionReference] = Field(
+        default=None,
+        description="Whether retention is with regard to initial cohort size, or that of the previous period.",
+    )
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
     showMean: Optional[bool] = None
@@ -2983,7 +3054,10 @@ class RetentionFilterLegacy(BaseModel):
     )
     cumulative: Optional[bool] = None
     period: Optional[RetentionPeriod] = None
-    retention_reference: Optional[RetentionReference] = None
+    retention_reference: Optional[RetentionReference] = Field(
+        default=None,
+        description="Whether retention is with regard to initial cohort size, or that of the previous period.",
+    )
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[RetentionEntity] = None
     show_mean: Optional[bool] = None
@@ -3598,6 +3672,87 @@ class AssistantInsightsQueryBase(BaseModel):
             ]
         ]
     ] = Field(default=[], description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(
+        default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
+    )
+
+
+class AssistantRetentionFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cumulative: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user"
+            " coming back in period 5 makes them count towards all the previous periods."
+        ),
+    )
+    period: Optional[RetentionPeriod] = Field(
+        default=RetentionPeriod.DAY, description="Retention period, the interval to track cohorts by."
+    )
+    retentionReference: Optional[RetentionReference] = Field(
+        default=None,
+        description="Whether retention is with regard to initial cohort size, or that of the previous period.",
+    )
+    retentionType: Optional[RetentionType] = Field(
+        default=None,
+        description=(
+            "Retention type: recurring or first time. Recurring retention counts a user as part of a cohort if they"
+            " performed the cohort event during that time period, irrespective of it was their first time or not. First"
+            " time retention only counts a user as part of the cohort if it was their first time performing the cohort"
+            " event."
+        ),
+    )
+    returningEntity: Optional[RetentionEntity] = Field(
+        default=None, description="Retention event (event marking the user coming back)."
+    )
+    showMean: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
+        ),
+    )
+    targetEntity: Optional[RetentionEntity] = Field(
+        default=None, description="Activation event (event putting the actor into the initial cohort)."
+    )
+    totalIntervals: Optional[int] = Field(
+        default=11,
+        description=(
+            "How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial"
+            " cohort)."
+        ),
+    )
+
+
+class AssistantRetentionQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    kind: Literal["RetentionQuery"] = "RetentionQuery"
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    retentionFilter: AssistantRetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
     )
@@ -5348,7 +5503,7 @@ class VisualizationMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
+    answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery]] = None
     id: Optional[str] = None
     initiator: Optional[str] = None
     plan: Optional[str] = None
@@ -5607,6 +5762,9 @@ class FunnelsFilter(BaseModel):
     funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = FunnelConversionWindowTimeUnit.DAY
     hiddenLegendBreakdowns: Optional[list[str]] = None
     layout: Optional[FunnelLayout] = FunnelLayout.VERTICAL
+    resultCustomizations: Optional[dict[str, ResultCustomizationByValue]] = Field(
+        default=None, description="Customizations for the appearance of result datasets."
+    )
     useUdf: Optional[bool] = None
 
 
@@ -5691,6 +5849,7 @@ class RetentionQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -5739,6 +5898,7 @@ class StickinessQuery(BaseModel):
         extra="forbid",
     )
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -5793,6 +5953,7 @@ class TrendsQuery(BaseModel):
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = Field(
         default=None, description="Whether we should be comparing against a specific conversion goal"
     )
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -5992,6 +6153,7 @@ class FunnelsQuery(BaseModel):
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -6044,6 +6206,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -6083,6 +6246,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -6122,6 +6286,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -6161,6 +6326,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -6200,6 +6366,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -6239,6 +6406,7 @@ class LifecycleQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -6532,7 +6700,6 @@ class ExperimentTrendsQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentTrendsQueryResponse] = None
-    stats_version: Optional[int] = None
 
 
 class FunnelPathsFilter(BaseModel):
@@ -6587,6 +6754,7 @@ class PathsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
@@ -6648,7 +6816,6 @@ class ExperimentFunnelsQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentFunnelsQueryResponse] = None
-    stats_version: Optional[int] = None
 
 
 class FunnelCorrelationQuery(BaseModel):

@@ -71,7 +71,6 @@ export function Overview({ metricIndex = 0 }: { metricIndex?: number }): JSX.Ele
 
     return (
         <div>
-            <h2 className="font-semibold text-lg">Summary</h2>
             <div className="items-center inline-flex flex-wrap">
                 <WinningVariantText result={result} experimentId={experimentId} />
                 <SignificanceText metricIndex={metricIndex} />

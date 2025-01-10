@@ -70,9 +70,7 @@ export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
     'rdt_cid',
 ])
 
-// If adding event properties with labels, check whether they should be added to
-// PROPERTY_NAME_ALIASES in posthog/api/property_definition.py
-// see code to output JSON below this
+// changing values in here you need to sync to python posthog/posthog/taxonomy/taxonomy.py
 export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     events: {
         '': {
@@ -184,11 +182,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         'Application Updated': {
             label: 'Application Updated',
-            description: 'When a user upgrades mobile the app.',
+            description: 'When a user upgrades the mobile app.',
         },
         'Application Installed': {
             label: 'Application Installed',
-            description: 'When a user installs mobile the app.',
+            description: 'When a user installs the mobile app.',
         },
         'Application Became Active': {
             label: 'Application Became Active',

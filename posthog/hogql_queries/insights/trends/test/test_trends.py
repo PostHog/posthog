@@ -4095,6 +4095,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._test_math_property_aggregation("median", values=range(101, 201), expected_value=150)
 
     @also_test_with_materialized_columns(["some_number"])
+    def test_p75_filtering(self):
+        self._test_math_property_aggregation("p75", values=range(101, 201), expected_value=175)
+
+    @also_test_with_materialized_columns(["some_number"])
     def test_p90_filtering(self):
         self._test_math_property_aggregation("p90", values=range(101, 201), expected_value=190)
 

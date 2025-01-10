@@ -45,6 +45,7 @@ from posthog.schema import (
 )
 from typing import Any, Optional
 import threading
+from datetime import datetime, timedelta, UTC
 
 
 class ExperimentTrendsQueryRunner(QueryRunner):
@@ -65,7 +66,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
         self.breakdown_key = f"$feature/{self.feature_flag.key}"
 
-        self.stats_version = self.query.stats_version or 1
+        self.stats_version = self.experiment.get_stats_config("version") or 1
 
         self.prepared_count_query = self._prepare_count_query()
         self.prepared_exposure_query = self._prepare_exposure_query()
@@ -306,7 +307,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         if count_result is None or exposure_result is None:
             raise ValueError("One or both query runners failed to produce a response")
 
-        self._validate_event_variants(count_result)
+        self._validate_event_variants(count_result, exposure_result)
 
         # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
@@ -368,21 +369,21 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             count = result.get("count", 0)
             breakdown_value = result.get("breakdown_value")
             if breakdown_value == CONTROL_VARIANT_KEY:
+                absolute_exposure = exposure_counts.get(breakdown_value, 0)
                 control_variant = ExperimentVariantTrendsBaseStats(
                     key=breakdown_value,
                     count=count,
                     exposure=1,
-                    # TODO: in the absence of exposure data, we should throw rather than default to 1
-                    absolute_exposure=exposure_counts.get(breakdown_value, 1),
+                    absolute_exposure=absolute_exposure,
                 )
             else:
+                absolute_exposure = exposure_counts.get(breakdown_value, 0)
                 test_variants.append(
                     ExperimentVariantTrendsBaseStats(
                         key=breakdown_value,
                         count=count,
-                        # TODO: in the absence of exposure data, we should throw rather than default to 1
-                        exposure=exposure_ratios.get(breakdown_value, 1),
-                        absolute_exposure=exposure_counts.get(breakdown_value, 1),
+                        exposure=exposure_ratios.get(breakdown_value, 0),
+                        absolute_exposure=absolute_exposure,
                     )
                 )
 
@@ -391,13 +392,19 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         return control_variant, test_variants
 
-    def _validate_event_variants(self, count_result: TrendsQueryResponse):
+    def _validate_event_variants(self, count_result: TrendsQueryResponse, exposure_result: TrendsQueryResponse):
         errors = {
+            ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
             ExperimentNoResultsErrorKeys.NO_EVENTS: True,
             ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
             ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
             ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
         }
+
+        # Don't throw right away because we want to validate metric events too
+        # If metric events pass, the end of the function will still throw an error
+        if exposure_result.results:
+            errors[ExperimentNoResultsErrorKeys.NO_EXPOSURES] = False
 
         if not count_result.results or not count_result.results[0]:
             raise ValidationError(code="no-results", detail=json.dumps(errors))
@@ -430,3 +437,14 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.count_query.kind} to query")
+
+    # Cache results for 24 hours
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        if last_refresh is None:
+            return None
+        return last_refresh + timedelta(hours=24)
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        if not last_refresh:
+            return True
+        return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)
