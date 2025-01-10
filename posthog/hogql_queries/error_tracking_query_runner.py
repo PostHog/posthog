@@ -174,16 +174,19 @@ class ErrorTrackingQueryRunner(QueryRunner):
         with self.timings.measure("issue_fetching_execute"):
             issues = self.error_tracking_issues(issue_ids)
 
-        for result_dict in mapped_results:
-            issue = issues.get(result_dict["id"])
-            if issue:
-                results.append(issue | result_dict | {"assignee": self.query.assignee, "id": str(result_dict["id"])})
-            else:
-                logger.error(
-                    "error tracking issue not found",
-                    issue_id=result_dict["id"],
-                    exc_info=True,
-                )
+        with self.timings.measure("issue_resolution"):
+            for result_dict in mapped_results:
+                issue = issues.get(result_dict["id"])
+                if issue:
+                    results.append(
+                        issue | result_dict | {"assignee": self.query.assignee, "id": str(result_dict["id"])}
+                    )
+                else:
+                    logger.error(
+                        "error tracking issue not found",
+                        issue_id=result_dict["id"],
+                        exc_info=True,
+                    )
 
         return results
 
