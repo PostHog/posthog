@@ -31,11 +31,9 @@ class TableActivityInputs:
 
     Attributes:
         name: The table name which we are working with.
-        exists: Whether we expect the table to exist or not.
     """
 
     name: str
-    exists: bool = True
 
     async def create_table(self, clickhouse_client):
         create_table_query = TABLES[self.name].create_query.format(
@@ -179,10 +177,7 @@ async def wait_for_table(inputs: WaitForTableInputs) -> None:
 @contextlib.asynccontextmanager
 async def manage_table(table_name: str) -> collections.abc.AsyncGenerator[None, None]:
     """A context manager to create ans subsequently drop a table."""
-    table_activity_inputs = TableActivityInputs(
-        name=table_name,
-        exists=True,
-    )
+    table_activity_inputs = TableActivityInputs(name=table_name)
     await workflow.execute_activity(
         create_table,
         table_activity_inputs,
