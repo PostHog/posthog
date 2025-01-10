@@ -202,10 +202,10 @@ export function DeltaChart({
     }, [])
 
     return (
-        <div className="rounded bg-[var(--bg-table)] flex">
+        <div className="rounded bg-[var(--bg-table)]">
             {/* Metric title panel */}
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div style={{ width: metricTitlePanelWidth, verticalAlign: 'top' }}>
+            <div style={{ width: metricTitlePanelWidth, verticalAlign: 'top', display: 'inline-block' }}>
                 {isFirstMetric && (
                     <svg
                         // eslint-disable-next-line react/forbid-dom-props
@@ -265,6 +265,8 @@ export function DeltaChart({
                 style={{
                     width: `calc(100% - ${metricTitlePanelWidth})`,
                     verticalAlign: 'top',
+                    display: 'inline-block',
+                    minWidth: '900px',
                 }}
             >
                 {/* Ticks */}
