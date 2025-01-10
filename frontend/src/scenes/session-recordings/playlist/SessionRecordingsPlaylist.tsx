@@ -80,6 +80,7 @@ export function SessionRecordingsPlaylist({
         key: 'other',
         title: 'Filtered recordings',
         items: otherRecordings,
+        initiallyOpen: !pinnedRecordings.length,
         render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />,
         footer: (
             <div className="p-4">

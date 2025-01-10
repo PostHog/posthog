@@ -2,7 +2,7 @@ import './LemonCollapse.scss'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import clsx from 'clsx'
-import React, { ReactNode, useState } from 'react'
+import React, { ReactNode, useEffect, useState } from 'react'
 import { Transition } from 'react-transition-group'
 import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import useResizeObserver from 'use-resize-observer'
@@ -53,6 +53,10 @@ export function LemonCollapse<K extends React.Key>({
     if (props.multiple) {
         // eslint-disable-next-line react-hooks/rules-of-hooks
         const [localActiveKeys, setLocalActiveKeys] = useState<Set<K>>(new Set(props.defaultActiveKeys ?? []))
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        useEffect(() => {
+            setLocalActiveKeys(new Set(props.defaultActiveKeys ?? []))
+        }, [props.defaultActiveKeys])
         const effectiveActiveKeys = props.activeKeys ? new Set(props.activeKeys) : localActiveKeys
         isPanelExpanded = (key: K) => effectiveActiveKeys.has(key)
         onPanelChange = (key: K, isExpanded: boolean): void => {

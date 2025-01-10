@@ -279,18 +279,16 @@ function List({
                 <LemonCollapse
                     defaultActiveKeys={initiallyOpenSections}
                     panels={sections.map((s) => {
-                        let content: any
-                        if ('content' in s) {
-                            content = s.content
-                        } else {
-                            content = loading ? (
+                        const content =
+                            'content' in s ? (
+                                s.content
+                            ) : loading ? (
                                 <LoadingState />
                             ) : 'items' in s && !!s.items.length ? (
                                 <ListSection {...s} onClick={setActiveItemId} activeItemId={activeItemId} />
                             ) : (
                                 emptyState
                             )
-                        }
 
                         return {
                             key: s.key,
