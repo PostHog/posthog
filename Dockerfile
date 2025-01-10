@@ -59,9 +59,9 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json ./
 COPY patches/ patches/
 COPY rust rust/
 COPY plugin-transpiler/ plugin-transpiler/
-COPY plugin-server/package.json plugin-server/pnpm-lock.yaml plugin-server/
+COPY plugin-server/package.json plugin-server/pnpm-lock.yaml plugin-server/tsconfig.json plugin-server/
 COPY plugin-server/patches/ plugin-server/patches/
-COPY hogvm/typescript/package.json hogvm/typescript/pnpm-lock.yaml hogvm/typescript/
+COPY hogvm/typescript/ hogvm/typescript/
 COPY frontend/@posthog/apps-common/package.json frontend/@posthog/apps-common/pnpm-lock.yaml frontend/@posthog/apps-common/
 COPY frontend/@posthog/lemon-ui/package.json frontend/@posthog/lemon-ui/pnpm-lock.yaml frontend/@posthog/lemon-ui/
 
@@ -84,6 +84,12 @@ RUN apt-get update && \
     cd plugin-server && \
     pnpm install --no-frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
     cd ../plugin-transpiler && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
+    pnpm build && \
+    cd ../hogvm/typescript && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
+    pnpm compile && \
+    cd ../../rust/cyclotron-node && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
     pnpm build && \
     rm -rf /tmp/pnpm-store

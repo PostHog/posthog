@@ -84,7 +84,11 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --filter .
+
+            - name: Install @posthog/hogvm
+              if: needs.changes.outputs.frontend == 'true'
+              run: cd hogvm/typescript && pnpm run compile
 
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
@@ -154,6 +158,10 @@ jobs:
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm install --frozen-lockfile
+
+            - name: Install @posthog/hogvm
+              if: needs.changes.outputs.frontend == 'true'
+              run: cd hogvm/typescript && pnpm run compile
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions

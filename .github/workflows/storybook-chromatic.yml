@@ -117,6 +117,9 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: pnpm install --frozen-lockfile
 
+            - name: Install @posthog/hogvm
+              run: cd hogvm/typescript && pnpm run compile
+
             - name: Install CI utilities with pnpm
               run: pnpm install http-server wait-on
 
