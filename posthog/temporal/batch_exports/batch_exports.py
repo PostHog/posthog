@@ -1142,7 +1142,7 @@ async def execute_batch_export_insert_activity(
     non_retryable_error_types: list[str],
     finish_inputs: FinishBatchExportRunInputs,
     interval: str,
-    heartbeat_timeout_seconds: int | None = None,
+    heartbeat_timeout_seconds: int | None = 120,
     maximum_attempts: int = 0,
     initial_retry_interval_seconds: int = 30,
     maximum_retry_interval_seconds: int = 120,
@@ -1169,7 +1169,7 @@ async def execute_batch_export_insert_activity(
     if TEST:
         maximum_attempts = 1
 
-    if heartbeat_timeout_seconds is None and isinstance(settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS, int):
+    if isinstance(settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS, int):
         heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
 
     if interval == "hour":
@@ -1180,7 +1180,7 @@ async def execute_batch_export_insert_activity(
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
         # TODO: Consider removing this 20 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
-        start_to_close_timeout = max(dt.timedelta(hours=12), dt.timedelta(**kwargs))
+        start_to_close_timeout = max(dt.timedelta(minutes=20), dt.timedelta(**kwargs))
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 
