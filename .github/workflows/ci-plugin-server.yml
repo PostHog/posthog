@@ -169,7 +169,13 @@ jobs:
 
             - name: Build npm dependencies
               if: needs.changes.outputs.plugin-server == 'true'
-              run: cd hogvm/typescript && pnpm i --filter . && pnpm compile
+              run: |
+                  cd hogvm/typescript
+                  pnpm i --filter .
+                  pnpm compile
+                  cd ../../rust/cyclotron-node
+                  pnpm i --filter .
+                  pnpm build
 
             - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'
@@ -261,7 +267,13 @@ jobs:
 
             - name: Build npm dependencies
               if: needs.changes.outputs.plugin-server == 'true'
-              run: cd hogvm/typescript && pnpm i --filter . && pnpm compile
+              run: |
+                  cd hogvm/typescript
+                  pnpm i --filter .
+                  pnpm compile
+                  cd ../../rust/cyclotron-node
+                  pnpm i --filter .
+                  pnpm build
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'

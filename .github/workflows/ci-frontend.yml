@@ -88,7 +88,7 @@ jobs:
 
             - name: Install @posthog/hogvm
               if: needs.changes.outputs.frontend == 'true'
-              run: cd hogvm/typescript && pnpm run compile
+              run: cd hogvm/typescript && pnpm install --frozen-lockfile --filter . && pnpm run compile
 
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
