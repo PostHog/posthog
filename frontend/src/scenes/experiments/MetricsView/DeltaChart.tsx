@@ -131,7 +131,9 @@ export function DeltaChart({
     }
 
     const BAR_HEIGHT = 8 + getScaleAddition(variants.length)
-    const BAR_PADDING = 10 + getScaleAddition(variants.length)
+    const FIRST_BAR_PADDING = 6
+    const LAST_BAR_PADDING = 6
+    const BAR_PADDING = 14 + getScaleAddition(variants.length)
     const TICK_PANEL_HEIGHT = 20
     const VIEW_BOX_WIDTH = 800
     const HORIZONTAL_PADDING = 20
@@ -152,7 +154,8 @@ export function DeltaChart({
     }
 
     // Update chart height calculation to include only one BAR_PADDING for each space between bars
-    const chartHeight = BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * variants.length
+    const chartHeight =
+        FIRST_BAR_PADDING + LAST_BAR_PADDING + BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * variants.length
 
     const valueToX = (value: number): number => {
         // Scale the value to fit within the padded area
@@ -160,9 +163,7 @@ export function DeltaChart({
         return HORIZONTAL_PADDING + percentage * (VIEW_BOX_WIDTH - 2 * HORIZONTAL_PADDING)
     }
 
-    const metricTitlePanelWidth = '20%'
-    const variantsPanelWidth = '10%'
-    const detailedResultsPanelWidth = '125px'
+    const metricTitlePanelWidth = '25%'
 
     const ticksSvgRef = useRef<SVGSVGElement>(null)
     const chartSvgRef = useRef<SVGSVGElement>(null)
@@ -201,10 +202,10 @@ export function DeltaChart({
     }, [])
 
     return (
-        <div className="w-full rounded bg-[var(--bg-table)]">
+        <div className="rounded bg-[var(--bg-table)] flex">
             {/* Metric title panel */}
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div style={{ display: 'inline-block', width: metricTitlePanelWidth, verticalAlign: 'top' }}>
+            <div style={{ width: metricTitlePanelWidth, verticalAlign: 'top' }}>
                 {isFirstMetric && (
                     <svg
                         // eslint-disable-next-line react/forbid-dom-props
@@ -215,7 +216,7 @@ export function DeltaChart({
                 <div
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: `${chartSvgHeight}px`, borderRight: `1px solid ${COLORS.BOUNDARY_LINES}` }}
-                    className="p-1 overflow-auto"
+                    className="p-2 overflow-auto"
                 >
                     <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
                         <div className="space-y-1 pl-1">
@@ -258,102 +259,11 @@ export function DeltaChart({
                     </div>
                 </div>
             </div>
-            {/* Detailed results panel */}
-            <div
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    display: 'inline-block',
-                    width: detailedResultsPanelWidth,
-                    verticalAlign: 'top',
-                }}
-            >
-                {isFirstMetric && (
-                    <svg
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: `${ticksSvgHeight}px`, width: '100%' }}
-                    />
-                )}
-                {isFirstMetric && <div className="w-full border-t border-border" />}
-                {result && (
-                    <div
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            height: `${chartSvgHeight}px`,
-                            borderRight: result ? `1px solid ${COLORS.BOUNDARY_LINES}` : 'none',
-                            display: 'flex',
-                            flexDirection: 'column',
-                        }}
-                    >
-                        {experiment.metrics.length > 1 && (
-                            <div className="flex justify-center">
-                                <LemonButton
-                                    className="mt-1"
-                                    type="secondary"
-                                    size="xsmall"
-                                    icon={<IconGraph />}
-                                    onClick={() => setIsModalOpen(true)}
-                                >
-                                    Detailed results
-                                </LemonButton>
-                            </div>
-                        )}
-                    </div>
-                )}
-            </div>
-            {/* Variants panel */}
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div style={{ display: 'inline-block', width: variantsPanelWidth, verticalAlign: 'top' }}>
-                {isFirstMetric && (
-                    <svg
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: `${ticksSvgHeight}px`, width: '100%' }}
-                    />
-                )}
-                {isFirstMetric && <div className="w-full border-t border-border" />}
-                {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div style={{ height: `${chartSvgHeight}px` }}>
-                    {result &&
-                        variants.map((variant) => (
-                            <div
-                                key={variant.key}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    height: `${100 / variants.length}%`,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    paddingLeft: '10px',
-                                    position: 'relative',
-                                    minWidth: 0,
-                                    overflow: 'hidden',
-                                }}
-                            >
-                                <div
-                                    className="absolute inset-0"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{
-                                        backgroundColor: 'var(--bg-light)',
-                                        opacity: 0.4,
-                                        pointerEvents: 'none',
-                                    }}
-                                />
-                                <div className="w-full overflow-hidden whitespace-nowrap">
-                                    <VariantTag
-                                        experimentId={experimentId}
-                                        variantKey={variant.key}
-                                        fontSize={11}
-                                        muted
-                                    />
-                                </div>
-                            </div>
-                        ))}
-                </div>
-            </div>
             {/* SVGs container */}
             <div
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    display: 'inline-block',
-                    width: `calc(100% - ${metricTitlePanelWidth} - ${variantsPanelWidth} - ${detailedResultsPanelWidth})`,
+                    width: `calc(100% - ${metricTitlePanelWidth})`,
                     verticalAlign: 'top',
                 }}
             >
@@ -363,6 +273,9 @@ export function DeltaChart({
                         ref={ticksSvgRef}
                         viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT}`}
                         preserveAspectRatio="xMidYMid meet"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ minHeight: `${TICK_PANEL_HEIGHT}px` }}
+                        className="pl-14"
                     >
                         {tickValues.map((value, index) => {
                             const x = valueToX(value)
@@ -387,16 +300,31 @@ export function DeltaChart({
                 {isFirstMetric && <div className="w-full border-t border-border" />}
                 {/* Chart */}
                 {result ? (
-                    <div className="relative">
+                    <div className="relative pl-14">
                         <SignificanceHighlight
                             className="absolute top-2 left-2"
                             metricIndex={metricIndex}
                             isSecondary={isSecondary}
                         />
+                        {isSecondary ||
+                            (!isSecondary && experiment.metrics.length > 1 && (
+                                <div className="absolute bottom-2 left-2 flex justify-center">
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={<IconGraph />}
+                                        onClick={() => setIsModalOpen(true)}
+                                    >
+                                        Details
+                                    </LemonButton>
+                                </div>
+                            ))}
                         <svg
                             ref={chartSvgRef}
                             viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
                             preserveAspectRatio="xMidYMid meet"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ minHeight: `${chartHeight}px` }}
                         >
                             {/* Vertical grid lines */}
                             {tickValues.map((value, index) => {
@@ -446,7 +374,7 @@ export function DeltaChart({
                                     delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
                                 }
 
-                                const y = BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * index
+                                const y = FIRST_BAR_PADDING + BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * index
                                 const x1 = valueToX(lower)
                                 const x2 = valueToX(upper)
                                 const deltaX = valueToX(delta)
@@ -464,6 +392,23 @@ export function DeltaChart({
                                         }}
                                         onMouseLeave={() => setTooltipData(null)}
                                     >
+                                        {/* Add variant name using VariantTag */}
+                                        <foreignObject
+                                            x={x1 - 8} // Keep same positioning as the text element
+                                            y={y + BAR_HEIGHT / 2 - 10}
+                                            width="90"
+                                            height="16"
+                                            transform="translate(-90, 0)" // Move left to accommodate tag width
+                                        >
+                                            <VariantTag
+                                                className="justify-end"
+                                                experimentId={experimentId}
+                                                variantKey={variant.key}
+                                                fontSize={10}
+                                                muted
+                                            />
+                                        </foreignObject>
+
                                         {variant.key === 'control' ? (
                                             // Control variant - single gray bar
                                             <>
@@ -888,14 +833,14 @@ function SignificanceHighlight({
         : { color: 'primary', label: 'Not significant' }
 
     const inner = isSignificant ? (
-        <div className="bg-success-highlight text-success px-1 xl:py-0.5 xl:px-1.5 flex items-center gap-1 rounded border border-success">
+        <div className="bg-success-highlight text-success-dark px-1 py-0.5 flex items-center gap-1 rounded border border-success">
             <IconTrending fontSize={20} fontWeight={600} />
-            <span className="text-xxs xl:text-xs font-semibold">{result.label}</span>
+            <span className="text-xs font-semibold">{result.label}</span>
         </div>
     ) : (
-        <div className="bg-warning-highlight text-warning px-1 xl:py-0.5 xl:px-1.5 flex items-center gap-1 rounded border border-warning">
+        <div className="bg-warning-highlight text-warning-dark px-1 py-0.5 flex items-center gap-1 rounded border border-warning">
             <IconMinus fontSize={20} fontWeight={600} />
-            <span className="text-xxs xl:text-xs font-semibold">{result.label}</span>
+            <span className="text-xs font-semibold">{result.label}</span>
         </div>
     )
 
