@@ -17,6 +17,7 @@ from posthog.temporal.batch_exports.squash_person_overrides import (
     SquashPersonOverridesInputs,
     SquashPersonOverridesWorkflow,
     TableActivityInputs,
+    WaitForTableInputs,
     create_table,
     drop_table,
     parse_mutation_counts,
@@ -140,7 +141,7 @@ async def create_overrides_join_table_helper(activity_environment) -> TableActiv
     )
 
     await activity_environment.run(create_table, join_table_inputs)
-    await activity_environment.run(wait_for_table, join_table_inputs)
+    await activity_environment.run(wait_for_table, WaitForTableInputs(name=join_table_inputs.name, should_exist=True))
 
     return join_table_inputs
 
@@ -231,15 +232,14 @@ async def test_create_wait_and_drop_table(activity_environment, person_overrides
     assert before == 0
 
     await activity_environment.run(create_table, inputs)
-    await activity_environment.run(wait_for_table, inputs)
+    await activity_environment.run(wait_for_table, WaitForTableInputs(name=inputs.name, should_exist=True))
 
     response = await clickhouse_client.read_query(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{inputs.name}")
     during = int(response.splitlines()[0])
     assert during == 1
 
     await activity_environment.run(drop_table, inputs)
-    inputs.exists = False
-    await activity_environment.run(wait_for_table, inputs)
+    await activity_environment.run(wait_for_table, WaitForTableInputs(name=inputs.name, should_exist=False))
 
     response = await clickhouse_client.read_query(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{inputs.name}")
     after = int(response.splitlines()[0])

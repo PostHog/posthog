@@ -92,8 +92,14 @@ def parse_count(response: bytes) -> int:
     return int(count_str)
 
 
+@dataclass
+class WaitForTableInputs:
+    name: str
+    should_exist: bool
+
+
 @activity.defn
-async def wait_for_table(inputs: TableActivityInputs) -> None:
+async def wait_for_table(inputs: WaitForTableInputs) -> None:
     """Wait for a table to be created or dropped on cluster.
 
     When running a 'CREATE TABLE ON CLUSTER', we have to ensure the table is created on all
@@ -110,7 +116,7 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
     'DROP TABLE ON CLUSTER' query is submitted. Although less critical from the Squash Workflow's
     perspective, it is important we clean-up after ourselves.
     """
-    goal = "exist" if inputs.exists else "not exist"
+    goal = "exist" if inputs.should_exist else "not exist"
     activity.logger.info("Waiting for table %s in cluster to %s", inputs.name, goal)
 
     async with get_client() as clickhouse_client:
@@ -134,7 +140,7 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
                     },
                 )
                 host_status_map = {
-                    hostname: has_table if inputs.exists else not has_table
+                    hostname: has_table if inputs.should_exist else not has_table
                     for hostname, has_table in json.loads(response)["data"]
                 }
                 if all(host_status_map.values()):
@@ -152,7 +158,7 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
                 await asyncio.sleep(5)
 
         except asyncio.CancelledError:
-            if inputs.exists is False:
+            if inputs.should_exist is False:
                 activity.logger.warning(
                     "Activity has been cancelled, could not wait for table %s to be dropped",
                     inputs.name,
@@ -187,7 +193,7 @@ async def manage_table(table_name: str) -> collections.abc.AsyncGenerator[None, 
 
     await workflow.execute_activity(
         wait_for_table,
-        table_activity_inputs,
+        WaitForTableInputs(name=table_name, should_exist=True),
         start_to_close_timeout=timedelta(hours=6),
         retry_policy=RetryPolicy(
             maximum_attempts=0, initial_interval=timedelta(seconds=20), maximum_interval=timedelta(minutes=2)
@@ -207,11 +213,9 @@ async def manage_table(table_name: str) -> collections.abc.AsyncGenerator[None, 
             ),
             heartbeat_timeout=timedelta(minutes=1),
         )
-
-        table_activity_inputs.exists = False
         await workflow.execute_activity(
             wait_for_table,
-            table_activity_inputs,
+            WaitForTableInputs(name=table_name, should_exist=False),
             # Assuming clean-up should be relatively fast.
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(
