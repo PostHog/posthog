@@ -126,7 +126,10 @@ class BytecodeCompiler(Visitor):
         if args is not None:
             for arg in args:
                 self._declare_local(arg)
-        self.context = context or HogQLContext(team_id=None)
+
+        if not context:
+            raise Exception("Needs context")
+        self.context = context
 
     def _start_scope(self):
         self.scope_depth += 1
@@ -870,7 +873,7 @@ class BytecodeCompiler(Visitor):
 
 def execute_hog(
     source_code: str,
-    team: Optional["Team"] = None,
+    team: "Team",
     globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
     timeout=timedelta(seconds=10),
@@ -885,6 +888,6 @@ def execute_hog(
     bytecode = create_bytecode(
         program,
         supported_functions=set(functions.keys()) if functions is not None else set(),
-        context=HogQLContext(team_id=team.id if team else None),
+        context=HogQLContext(team=team),
     ).bytecode
     return execute_bytecode(bytecode, globals=globals, functions=functions, timeout=timeout, team=team)

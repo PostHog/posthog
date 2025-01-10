@@ -33,7 +33,7 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
     def _print_query(self, query: SelectQuery) -> str:
         return print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             "clickhouse",
             pretty=True,
         )

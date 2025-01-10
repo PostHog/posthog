@@ -23,7 +23,7 @@ class MockEvent:
 
 
 def _get_events_for_action(action: Action) -> list[MockEvent]:
-    hogql_context = HogQLContext(team_id=action.team_id)
+    hogql_context = HogQLContext(team=action.team)
     formatted_query, params = format_action_filter(
         team_id=action.team_id, action=action, prepend="", hogql_context=hogql_context
     )

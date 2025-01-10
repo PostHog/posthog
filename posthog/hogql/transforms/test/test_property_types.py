@@ -160,7 +160,7 @@ class TestPropertyTypes(BaseTest):
         )
         query = print_ast(
             expr,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             "clickhouse",
         )
         query = re.sub(r"hogql_val_\d+", "hogql_val", query)
@@ -207,7 +207,7 @@ class TestPropertyTypes(BaseTest):
         expr = parse_select(select)
         query = print_ast(
             expr,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             "clickhouse",
         )
         return pretty_print_in_tests(query, self.team.pk)

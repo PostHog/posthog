@@ -18,7 +18,7 @@ class TestS3Table(BaseTest):
             aapl_stock=create_aapl_stock_s3_table(), aapl_stock_2=create_aapl_stock_s3_table(name="aapl_stock_2")
         )
         self.context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=self.database,
             modifiers=create_default_modifiers_for_team(self.team),

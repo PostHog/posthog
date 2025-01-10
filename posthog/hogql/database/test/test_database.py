@@ -34,7 +34,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_serialize_database_no_person_on_events(self):
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
             serialized_database = serialize_database(
-                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
+                HogQLContext(team=self.team, database=create_hogql_database(team_id=self.team.pk))
             )
             assert (
                 json.dumps(
@@ -47,7 +47,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_serialize_database_with_person_on_events_enabled(self):
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
             serialized_database = serialize_database(
-                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
+                HogQLContext(team=self.team, database=create_hogql_database(team_id=self.team.pk))
             )
             assert (
                 json.dumps(
@@ -60,7 +60,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_can_select_from_each_table_at_all(self, poe_enabled: bool) -> None:
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=poe_enabled):
             serialized_database = serialize_database(
-                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
+                HogQLContext(team=self.team, database=create_hogql_database(team_id=self.team.pk))
             )
             for table_name, table in serialized_database.items():
                 columns = [
@@ -78,7 +78,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_serialize_database_posthog_table(self):
         database = create_hogql_database(team_id=self.team.pk)
 
-        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+        serialized_database = serialize_database(HogQLContext(team=self.team, database=database))
 
         tables = database.get_posthog_tables()
         for table_name in tables:
@@ -97,7 +97,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = create_hogql_database(team_id=self.team.pk)
 
-        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+        serialized_database = serialize_database(HogQLContext(team=self.team, database=database))
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
@@ -124,7 +124,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         db = create_hogql_database(team_id=self.team.pk)
 
-        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=db))
+        serialized_database = serialize_database(HogQLContext(team=self.team, database=db))
 
         events_table = serialized_database.get("events")
         assert events_table is not None
@@ -147,7 +147,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = create_hogql_database(team_id=self.team.pk)
 
-        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+        serialized_database = serialize_database(HogQLContext(team=self.team, database=database))
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
@@ -188,7 +188,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = create_hogql_database(team_id=self.team.pk)
 
-        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+        serialized_database = serialize_database(HogQLContext(team=self.team, database=database))
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
@@ -261,7 +261,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         db.numbers.fields["expression"] = ExpressionField(name="expression", expr=parse_expr("1 + 1"))
         db.numbers.fields["double"] = ExpressionField(name="double", expr=parse_expr("number * 2"))
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=db,
             modifiers=create_default_modifiers_for_team(self.team),
@@ -301,7 +301,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         db = create_hogql_database(team_id=self.team.pk)
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=db,
         )
@@ -322,7 +322,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         db = create_hogql_database(team_id=self.team.pk)
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=db,
         )
@@ -346,7 +346,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         db = create_hogql_database(team_id=self.team.pk)
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=db,
         )
@@ -378,9 +378,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             field_name="some_field",
         )
 
-        db = create_hogql_database(team_id=self.team.pk)
+        with self.assertNumQueries(1):
+            db = create_hogql_database(team_id=self.team.pk)
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=db,
         )
@@ -406,7 +407,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         db = create_hogql_database(team_id=self.team.pk)
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=db,
         )
@@ -431,7 +432,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         db = create_hogql_database(team_id=self.team.pk)
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=db,
         )
@@ -462,7 +463,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         db = create_hogql_database(team_id=self.team.pk)
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=db,
         )
@@ -479,7 +480,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_selecting_from_persons_ignores_future_persons(self):
         db = create_hogql_database(team_id=self.team.pk)
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=db,
             modifiers=create_default_modifiers_for_team(self.team),
@@ -494,7 +495,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_selecting_persons_from_events_ignores_future_persons(self):
         db = create_hogql_database(team_id=self.team.pk)
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=db,
             # disable PoE
@@ -580,7 +581,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         db = create_hogql_database(team_id=self.team.pk)
 
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=db,
         )

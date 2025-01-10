@@ -60,13 +60,11 @@ from posthog.schema import (
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
-    if not context.team_id:
-        raise InternalHogQLError("context.team_id not found")
 
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
-        right=ast.Constant(value=context.team_id),
+        right=ast.Constant(value=context.team.pk),
         type=ast.BooleanType(),
     )
 
@@ -77,7 +75,7 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: Optional[HogQLQuery
         clone_expr(query),
         dialect="hogql",
         context=HogQLContext(
-            team_id=team.pk,
+            team=team,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(team, modifiers),
         ),
@@ -114,7 +112,7 @@ def prepare_ast_for_printing(
     settings: Optional[HogQLGlobalSettings] = None,
 ) -> _T_AST | None:
     with context.timings.measure("create_hogql_database"):
-        context.database = context.database or create_hogql_database(context.team_id, context.modifiers, context.team)
+        context.database = context.database or create_hogql_database(context.team.pk, context.modifiers, context.team)
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
@@ -307,8 +305,6 @@ class _Printer(Visitor):
         if self.dialect == "clickhouse":
             if not self.context.enable_select_queries:
                 raise InternalHogQLError("Full SELECT queries are disabled if context.enable_select_queries is False")
-            if not self.context.team_id:
-                raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
         # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)

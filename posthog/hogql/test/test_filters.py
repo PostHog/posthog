@@ -29,7 +29,7 @@ class TestFilters(BaseTest):
         return print_ast(
             node,
             dialect="hogql",
-            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            context=HogQLContext(team=self.team, enable_select_queries=True),
         )
 
     def test_replace_filters_empty(self):

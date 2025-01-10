@@ -123,7 +123,7 @@ def process_query_model(
             result = metadata_response
         elif isinstance(query, DatabaseSchemaQuery):
             database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
-            context = HogQLContext(team_id=team.pk, team=team, database=database)
+            context = HogQLContext(team=team, database=database)
             result = DatabaseSchemaQueryResponse(tables=serialize_database(context))
         else:
             raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")

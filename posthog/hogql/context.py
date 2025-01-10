@@ -23,10 +23,8 @@ class HogQLFieldAccess:
 class HogQLContext:
     """Context given to a HogQL expression printer"""
 
-    # Team making the queries
-    team_id: Optional[int] = None
+    team: "Team"
     # Team making the queries - if team is passed in, then the team isn't queried when creating the database
-    team: Optional["Team"] = None
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
     # If set, will save string constants to this dict. Inlines strings into the query if None.
@@ -98,9 +96,7 @@ class HogQLContext:
 
     @cached_property
     def project_id(self) -> int:
-        from posthog.models import Team
-
-        if not self.team and not self.team_id:
+        if not self.team:
             raise ValueError("Either team or team_id must be set to determine project_id")
-        team = self.team or Team.objects.only("project_id").get(id=self.team_id)
+        team = self.team
         return team.project_id

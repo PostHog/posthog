@@ -17,7 +17,7 @@ class TestQueryLogTable(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.database = create_hogql_database(self.team.pk)
-        self.context = HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True)
+        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_simple_query(self, mock_sync_execute: MagicMock):

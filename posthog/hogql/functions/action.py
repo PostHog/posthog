@@ -8,8 +8,6 @@ def matches_action(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) 
     arg = args[0]
     if not isinstance(arg, ast.Constant):
         raise QueryError("action() takes only constant arguments", node=arg)
-    if context.team_id is None:
-        raise QueryError("action() can only be used in a query with a team_id", node=arg)
 
     from posthog.models import Action
     from posthog.hogql.property import action_to_expr

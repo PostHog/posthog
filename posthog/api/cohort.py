@@ -528,7 +528,7 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
 
 
 def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
-    context = HogQLContext(enable_select_queries=True, team_id=team.id)
+    context = HogQLContext(team=team, enable_select_queries=True)
     query = print_cohort_hogql_query(cohort, context, team=team)
     insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
 

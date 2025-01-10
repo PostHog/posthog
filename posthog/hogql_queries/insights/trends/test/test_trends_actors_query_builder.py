@@ -58,7 +58,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         query.where = ast.And(exprs=conditions)
         sql = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             "hogql",
         )
         return sql[sql.find("WHERE and(") + 10 : sql.find(f") LIMIT {MAX_SELECT_RETURNED_ROWS}")]

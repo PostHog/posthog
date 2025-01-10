@@ -223,13 +223,13 @@ class TestBytecode(BaseTest):
         assert "Can't use cohorts in real-time filters." in str(e.exception)
 
         with self.assertRaises(QueryError) as e:
-            execute_hog("globalVar := 1;")
+            execute_hog("globalVar := 1;", self.team)
         self.assertEqual(
             str(e.exception), 'Variable "globalVar" not declared in this scope. Can not assign to globals.'
         )
 
         with self.assertRaises(QueryError) as e:
-            execute_hog("globalVar.properties.bla := 1;")
+            execute_hog("globalVar.properties.bla := 1;", self.team)
         self.assertEqual(
             str(e.exception), 'Variable "globalVar" not declared in this scope. Can not assign to globals.'
         )

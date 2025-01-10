@@ -40,13 +40,13 @@ class TestResolver(BaseTest):
         expr = self._select(select)
         return print_ast(
             expr,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             "hogql",
         )
 
     def setUp(self):
         self.database = create_hogql_database(self.team.pk)
-        self.context = HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True)
+        self.context = HogQLContext(database=self.database, team=self.team, enable_select_queries=True)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table(self):
@@ -443,7 +443,7 @@ class TestResolver(BaseTest):
             )
         """
         node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect="hogql"))
-        hogql = print_prepared_ast(node, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "hogql")
+        hogql = print_prepared_ast(node, HogQLContext(team=self.team, enable_select_queries=True), "hogql")
         expected = (
             "SELECT id, email FROM "
             "(SELECT id, properties.email AS email FROM "
@@ -637,7 +637,7 @@ class TestResolver(BaseTest):
 
     def test_globals(self):
         context = HogQLContext(
-            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+            team=self.team, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
         )
         node: ast.SelectQuery = self._select("select globalVar from events")
         node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
@@ -649,7 +649,7 @@ class TestResolver(BaseTest):
 
     def test_globals_nested(self):
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             database=self.database,
             globals={"globalVar": {"nestedVar": "banana"}},
             enable_select_queries=True,
@@ -664,7 +664,7 @@ class TestResolver(BaseTest):
 
     def test_globals_nested_error(self):
         context = HogQLContext(
-            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+            team=self.team, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
         )
         node: ast.SelectQuery = self._select("select globalVar.nested from events")
         with self.assertRaises(QueryError) as ctx:
@@ -674,7 +674,7 @@ class TestResolver(BaseTest):
     def test_property_access_with_arrays_zero_index_error(self):
         query = f"SELECT properties.something[0] FROM events"
         context = HogQLContext(
-            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+            team=self.team, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
         )
         with self.assertRaisesMessage(
             QueryError,
@@ -686,7 +686,7 @@ class TestResolver(BaseTest):
     def test_property_access_with_tuples_zero_index_error(self):
         query = f"SELECT properties.something.0 FROM events"
         context = HogQLContext(
-            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+            team=self.team, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
         )
         with self.assertRaisesMessage(
             QueryError,

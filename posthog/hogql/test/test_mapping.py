@@ -84,7 +84,7 @@ class TestMappings(BaseTest):
         )
         ast = print_ast(
             parse_expr("overloadedFunction(dateEmittingFunction('123123'))"),
-            HogQLContext(self.team.pk, enable_select_queries=True),
+            HogQLContext(self.team, enable_select_queries=True),
             "clickhouse",
         )
         assert "overloadSuccess" in ast

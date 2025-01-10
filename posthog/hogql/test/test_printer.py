@@ -53,7 +53,7 @@ class TestPrinter(BaseTest):
         dialect: Literal["hogql", "clickhouse"] = "clickhouse",
     ) -> str:
         node = parse_expr(query)
-        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        context = context or HogQLContext(team=self.team, enable_select_queries=True)
         select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
         prepared_select_query: ast.SelectQuery = cast(
             ast.SelectQuery,
@@ -75,7 +75,7 @@ class TestPrinter(BaseTest):
     ) -> str:
         return print_ast(
             parse_select(query, placeholders=placeholders),
-            context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            context or HogQLContext(team=self.team, enable_select_queries=True),
             "clickhouse",
         )
 
@@ -101,7 +101,7 @@ class TestPrinter(BaseTest):
     def _pretty(self, query: str):
         printed = print_ast(
             parse_select(query),
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             "hogql",
             pretty=True,
         )
@@ -325,7 +325,7 @@ class TestPrinter(BaseTest):
             self._expr("properties['bla']['bla']"),
             "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
         )
-        context = HogQLContext(team_id=self.team.pk)
+        context = HogQLContext(team=self.team)
         self.assertEqual(
             self._expr("properties.$bla", context),
             "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
@@ -333,7 +333,7 @@ class TestPrinter(BaseTest):
 
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
             context = HogQLContext(
-                team_id=self.team.pk,
+                team=self.team,
                 within_non_hogql_query=True,
                 modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
             )
@@ -341,7 +341,7 @@ class TestPrinter(BaseTest):
                 self._expr("person.properties.bla", context),
                 "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
             )
-            context = HogQLContext(team_id=self.team.pk)
+            context = HogQLContext(team=self.team)
             self.assertEqual(
                 self._expr("person.properties.bla", context),
                 "events__person.properties___bla",
@@ -349,7 +349,7 @@ class TestPrinter(BaseTest):
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
             context = HogQLContext(
-                team_id=self.team.pk,
+                team=self.team,
                 within_non_hogql_query=True,
                 modifiers=HogQLQueryModifiers(
                     personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
@@ -359,7 +359,7 @@ class TestPrinter(BaseTest):
                 self._expr("person.properties.bla", context),
                 "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
             )
-            context = HogQLContext(team_id=self.team.pk)
+            context = HogQLContext(team=self.team)
             self.assertEqual(
                 self._expr("person.properties.bla", context),
                 "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
@@ -367,29 +367,29 @@ class TestPrinter(BaseTest):
 
     def test_hogql_properties(self):
         self.assertEqual(
-            self._expr("event", HogQLContext(team_id=self.team.pk), "hogql"),
+            self._expr("event", HogQLContext(team=self.team), "hogql"),
             "event",
         )
         self.assertEqual(
-            self._expr("person", HogQLContext(team_id=self.team.pk), "hogql"),
+            self._expr("person", HogQLContext(team=self.team), "hogql"),
             "person",
         )
         self.assertEqual(
             self._expr(
                 "person.properties.$browser",
-                HogQLContext(team_id=self.team.pk),
+                HogQLContext(team=self.team),
                 "hogql",
             ),
             "person.properties.$browser",
         )
         self.assertEqual(
-            self._expr("properties.$browser", HogQLContext(team_id=self.team.pk), "hogql"),
+            self._expr("properties.$browser", HogQLContext(team=self.team), "hogql"),
             "properties.$browser",
         )
         self.assertEqual(
             self._expr(
                 "properties.`$browser with a space`",
-                HogQLContext(team_id=self.team.pk),
+                HogQLContext(team=self.team),
                 "hogql",
             ),
             "properties.`$browser with a space`",
@@ -397,7 +397,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr(
                 'properties."$browser with a space"',
-                HogQLContext(team_id=self.team.pk),
+                HogQLContext(team=self.team),
                 "hogql",
             ),
             "properties.`$browser with a space`",
@@ -405,7 +405,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr(
                 "properties['$browser with a space']",
-                HogQLContext(team_id=self.team.pk),
+                HogQLContext(team=self.team),
                 "hogql",
             ),
             "properties.`$browser with a space`",
@@ -413,7 +413,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr(
                 "properties['$browser with a ` tick']",
-                HogQLContext(team_id=self.team.pk),
+                HogQLContext(team=self.team),
                 "hogql",
             ),
             "properties.`$browser with a \\` tick`",
@@ -421,18 +421,18 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr(
                 "properties['$browser \\\\with a \\n` tick']",
-                HogQLContext(team_id=self.team.pk),
+                HogQLContext(team=self.team),
                 "hogql",
             ),
             "properties.`$browser \\\\with a \\n\\` tick`",
         )
         # "dot NUMBER" means "tuple access" in clickhouse. To access strings properties, wrap them in `backquotes`
         self.assertEqual(
-            self._expr("properties.1", HogQLContext(team_id=self.team.pk), "hogql"),
+            self._expr("properties.1", HogQLContext(team=self.team), "hogql"),
             "properties.1",
         )
         self.assertEqual(
-            self._expr("properties.`1`", HogQLContext(team_id=self.team.pk), "hogql"),
+            self._expr("properties.`1`", HogQLContext(team=self.team), "hogql"),
             "properties.`1`",
         )
         self._assert_expr_error(
@@ -442,7 +442,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_hogql_properties_json(self):
-        context = HogQLContext(team_id=self.team.pk)
+        context = HogQLContext(team=self.team)
         self.assertEqual(
             self._expr("properties.nomat.json.yet", context),
             "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', '')",
@@ -460,7 +460,7 @@ class TestPrinter(BaseTest):
             self.assertEqual(1 + 2, 3)
             return
 
-        context = HogQLContext(team_id=self.team.pk)
+        context = HogQLContext(team=self.team)
         materialize("events", "withmat")
         self.assertEqual(
             self._expr("properties.withmat.json.yet", context),
@@ -468,7 +468,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
 
-        context = HogQLContext(team_id=self.team.pk)
+        context = HogQLContext(team=self.team)
         materialize("events", "withmat_nullable", is_nullable=True)
         self.assertEqual(
             self._expr("properties.withmat_nullable.json.yet", context),
@@ -515,7 +515,7 @@ class TestPrinter(BaseTest):
 
     def test_property_groups(self):
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             modifiers=HogQLQueryModifiers(
                 materializationMode=MaterializationMode.AUTO,
                 propertyGroupsMode=PropertyGroupsMode.ENABLED,
@@ -545,7 +545,7 @@ class TestPrinter(BaseTest):
     ) -> None:
         def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
             return HogQLContext(
-                team_id=self.team.pk,
+                team=self.team,
                 modifiers=HogQLQueryModifiers(
                     materializationMode=MaterializationMode.AUTO,
                     propertyGroupsMode=property_groups_mode,
@@ -801,7 +801,7 @@ class TestPrinter(BaseTest):
     def test_property_groups_select_with_aliases(self):
         def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
             return HogQLContext(
-                team_id=self.team.pk,
+                team=self.team,
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(
                     materializationMode=MaterializationMode.AUTO,
@@ -837,7 +837,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("sumIf(1, 1 == 2)"), "sumIf(1, 0)")
 
     def test_functions(self):
-        context = HogQLContext(team_id=self.team.pk)  # inline values
+        context = HogQLContext(team=self.team)  # inline values
         self.assertEqual(self._expr("abs(1)"), "abs(1)")
         self.assertEqual(self._expr("max2(1,2)"), "max2(1, 2)")
         self.assertEqual(self._expr("toInt('1')", context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
@@ -938,7 +938,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_comparisons(self):
-        context = HogQLContext(team_id=self.team.pk)
+        context = HogQLContext(team=self.team)
         self.assertEqual(self._expr("event == 'E'", context), "equals(events.event, %(hogql_val_0)s)")
         self.assertEqual(
             self._expr("event != 'E'", context),
@@ -992,11 +992,11 @@ class TestPrinter(BaseTest):
         )
 
     def test_comments(self):
-        context = HogQLContext(team_id=self.team.pk)
+        context = HogQLContext(team=self.team)
         self.assertEqual(self._expr("event -- something", context), "events.event")
 
     def test_values(self):
-        context = HogQLContext(team_id=self.team.pk)
+        context = HogQLContext(team=self.team)
         self.assertEqual(self._expr("event == 'E'", context), "equals(events.event, %(hogql_val_0)s)")
         self.assertEqual(context.values, {"hogql_val_0": "E"})
         self.assertEqual(
@@ -1263,7 +1263,7 @@ class TestPrinter(BaseTest):
 
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
             context = HogQLContext(
-                team_id=self.team.pk,
+                team=self.team,
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
@@ -1290,7 +1290,7 @@ class TestPrinter(BaseTest):
             )
 
             context = HogQLContext(
-                team_id=self.team.pk,
+                team=self.team,
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
@@ -1317,7 +1317,7 @@ class TestPrinter(BaseTest):
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False):
             context = HogQLContext(
-                team_id=self.team.pk,
+                team=self.team,
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
@@ -1336,7 +1336,7 @@ class TestPrinter(BaseTest):
             )
 
             context = HogQLContext(
-                team_id=self.team.pk,
+                team=self.team,
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
@@ -1374,7 +1374,7 @@ class TestPrinter(BaseTest):
 
     def test_print_timezone(self):
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=Database(None, WeekStartDay.SUNDAY),
         )
@@ -1401,7 +1401,7 @@ class TestPrinter(BaseTest):
     def test_print_timezone_custom(self):
         self.team.timezone = "Europe/Brussels"
         self.team.save()
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        context = HogQLContext(team=self.team, enable_select_queries=True)
         self.assertEqual(
             self._select(
                 "SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events",
@@ -1424,7 +1424,7 @@ class TestPrinter(BaseTest):
         self.team.timezone = "Europe/PostHogLandia"
         self.team.save()
 
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        context = HogQLContext(team=self.team, enable_select_queries=True)
         with self.assertRaises(ValueError) as error_context:
             self._select(
                 "SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events",
@@ -1470,9 +1470,9 @@ class TestPrinter(BaseTest):
 
     def test_to_start_of_week_gets_mode(self):
         # It's important we use ints and not WeekStartDay here, because it's the former that's actually in the DB
-        default_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, None))
-        sunday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, 0))  # 0 == WeekStartDay.SUNDAY
-        monday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, 1))  # 1 == WeekStartDay.MONDAY
+        default_week_context = HogQLContext(team=self.team, database=Database(None, None))
+        sunday_week_context = HogQLContext(team=self.team, database=Database(None, 0))  # 0 == WeekStartDay.SUNDAY
+        monday_week_context = HogQLContext(team=self.team, database=Database(None, 1))  # 1 == WeekStartDay.MONDAY
 
         self.assertEqual(
             self._expr("toStartOfWeek(timestamp)", default_week_context),  # Sunday is the default
@@ -1604,7 +1604,7 @@ class TestPrinter(BaseTest):
             self.assertEqual(1 + 2, 3)
             return
         materialize("events", "is_boolean")
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        context = HogQLContext(team=self.team, enable_select_queries=True)
         generated_sql_statements1 = self._select(
             "SELECT "
             "properties.is_boolean = true,"
@@ -1630,7 +1630,7 @@ class TestPrinter(BaseTest):
         }
 
     def test_field_nullable_like(self):
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        context = HogQLContext(team=self.team, enable_select_queries=True, database=Database())
         context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
         generated_sql_statements1 = self._select(
             "SELECT "
@@ -1644,7 +1644,7 @@ class TestPrinter(BaseTest):
             context,
         )
 
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        context = HogQLContext(team=self.team, enable_select_queries=True, database=Database())
         context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
         generated_sql_statements2 = self._select(
             "SELECT "
@@ -1676,7 +1676,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_field_nullable_not_like(self):
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        context = HogQLContext(team=self.team, enable_select_queries=True, database=Database())
         context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
         generated_sql_statements1 = self._select(
             "SELECT "
@@ -1690,7 +1690,7 @@ class TestPrinter(BaseTest):
             context,
         )
 
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        context = HogQLContext(team=self.team, enable_select_queries=True, database=Database())
         context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
         generated_sql_statements2 = self._select(
             "SELECT "
@@ -1725,7 +1725,7 @@ class TestPrinter(BaseTest):
         query = parse_select("SELECT 1 FROM events")
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -1739,7 +1739,7 @@ class TestPrinter(BaseTest):
         query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             "clickhouse",
         )
         self.assertEqual(
@@ -1752,7 +1752,7 @@ class TestPrinter(BaseTest):
         query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             "clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -1853,7 +1853,7 @@ class TestPrinter(BaseTest):
         query = parse_select("select * from (SELECT timestamp, timestamp FROM events)")
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -1868,7 +1868,7 @@ class TestPrinter(BaseTest):
         query = parse_select("select * from (SELECT timestamp as event, event FROM events)")
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -1891,7 +1891,7 @@ class TestPrinter(BaseTest):
         query = parse_select("select * from (SELECT properties.$browser FROM events)")
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -1914,7 +1914,7 @@ class TestPrinter(BaseTest):
         query = parse_select("select * from (SELECT properties.$browser, properties.$browser FROM events)")
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -1930,7 +1930,7 @@ class TestPrinter(BaseTest):
         query = parse_select("select hogql_lookupDomainType('www.google.com') from events")
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -1952,7 +1952,7 @@ class TestPrinter(BaseTest):
         query = parse_select("select hogql_lookupPaidSourceType('google') from events")
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -1974,7 +1974,7 @@ class TestPrinter(BaseTest):
         query = parse_select("select hogql_lookupPaidMediumType('social') from events")
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -1992,7 +1992,7 @@ class TestPrinter(BaseTest):
         query = parse_select("select hogql_lookupOrganicSourceType('google') from events")
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -2014,7 +2014,7 @@ class TestPrinter(BaseTest):
         query = parse_select("select hogql_lookupOrganicMediumType('social') from events")
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -2030,7 +2030,7 @@ class TestPrinter(BaseTest):
 
     def test_override_timezone(self):
         context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=Database(None, WeekStartDay.SUNDAY),
         )
@@ -2068,7 +2068,7 @@ class TestPrinter(BaseTest):
         )
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -2079,14 +2079,14 @@ class TestPrinter(BaseTest):
         query2 = parse_select("select trimLeft('media', 'xy'), trimRight('media', 'xy'), trim('media', 'xy')")
         printed2 = print_ast(
             query2,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert printed2 == printed
 
     def test_case_insensitive_functions(self):
-        context = HogQLContext(team_id=self.team.pk)
+        context = HogQLContext(team=self.team)
         self.assertEqual(
             self._expr("CoALESce(1)", context),
             "coalesce(1)",
@@ -2102,7 +2102,7 @@ class TestPrinter(BaseTest):
         )
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -2114,7 +2114,7 @@ class TestPrinter(BaseTest):
         )
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -2129,7 +2129,7 @@ class TestPrinter(BaseTest):
         )
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -2145,7 +2145,7 @@ class TestPrinter(BaseTest):
         )
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -2162,7 +2162,7 @@ class TestPrinter(BaseTest):
         )
         printed = print_ast(
             query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(team=self.team, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )

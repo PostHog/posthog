@@ -47,7 +47,7 @@ def get_hogql_metadata(
 
     try:
         context = HogQLContext(
-            team_id=team.pk,
+            team=team,
             modifiers=query_modifiers,
             enable_select_queries=True,
             debug=query.debug or False,

@@ -21,7 +21,7 @@ from posthog.hogql.database.s3_table import S3Table
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     from posthog.models import PropertyDefinition
 
-    if not context or not context.team_id:
+    if not context or not context.team:
         return
 
     # find all properties
@@ -32,7 +32,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     event_property_values = (
         PropertyDefinition.objects.filter(
             name__in=property_finder.event_properties,
-            team_id=context.team_id,
+            team_id=context.team.pk,
             type__in=[None, PropertyDefinition.Type.EVENT],
         ).values_list("name", "property_type")
         if property_finder.event_properties
@@ -43,7 +43,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     person_property_values = (
         PropertyDefinition.objects.filter(
             name__in=property_finder.person_properties,
-            team_id=context.team_id,
+            team_id=context.team.pk,
             type=PropertyDefinition.Type.PERSON,
         ).values_list("name", "property_type")
         if property_finder.person_properties
@@ -57,7 +57,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
             continue
         group_property_values = PropertyDefinition.objects.filter(
             name__in=properties,
-            team_id=context.team_id,
+            team_id=context.team.pk,
             type=PropertyDefinition.Type.GROUP,
             group_type_index=group_id,
         ).values_list("name", "property_type")

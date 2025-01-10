@@ -320,7 +320,7 @@ def recalculate_cohortpeople(
 def _recalculate_cohortpeople_for_team(
     cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
 ) -> Optional[int]:
-    hogql_context = HogQLContext(within_non_hogql_query=True, team_id=team.id)
+    hogql_context = HogQLContext(within_non_hogql_query=True, team=team)
     cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context)
 
     before_count = get_cohort_size(cohort, team_id=team.id)

@@ -24,7 +24,7 @@ class TestView(BaseTest):
             aapl_stock=create_aapl_stock_s3_table(), aapl_stock_self=create_aapl_stock_table_self_referencing()
         )
         self.context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             database=self.database,
             modifiers=create_default_modifiers_for_team(self.team),

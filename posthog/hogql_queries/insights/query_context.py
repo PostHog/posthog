@@ -37,7 +37,7 @@ class QueryContext(ABC):
         self.limit_context = limit_context or LimitContext.QUERY
         self.modifiers = create_default_modifiers_for_team(team, modifiers)
         self.hogql_context = HogQLContext(
-            team_id=self.team.pk,
+            team=self.team,
             enable_select_queries=True,
             timings=self.timings,
             modifiers=self.modifiers,

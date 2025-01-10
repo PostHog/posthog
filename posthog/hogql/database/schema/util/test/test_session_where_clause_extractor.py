@@ -38,7 +38,6 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
         modifiers = create_default_modifiers_for_team(team)
         modifiers.sessionTableVersion = SessionTableVersion.V1
         context = HogQLContext(
-            team_id=team.pk,
             team=team,
             enable_select_queries=True,
             modifiers=modifiers,
@@ -320,7 +319,6 @@ class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
         modifiers = create_default_modifiers_for_team(team)
         modifiers.sessionTableVersion = SessionTableVersion.V1
         context = HogQLContext(
-            team_id=team.pk,
             team=team,
             enable_select_queries=True,
             modifiers=modifiers,

@@ -133,7 +133,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                     if isinstance(expr, ast.CompareOperation):
                         if expr.op == ast.CompareOperationOp.GtEq or expr.op == ast.CompareOperationOp.LtEq:
                             # Match within hogql string because it could be 'toDateTime(timestamp)'
-                            if isinstance(expr.left, ast.Alias) and timestamp_key in expr.left.expr.to_hogql():
+                            if isinstance(expr.left, ast.Alias) and timestamp_key in expr.left.expr.to_hogql(self.team):
                                 whereExpr.append(
                                     ast.CompareOperation(
                                         op=expr.op, left=ast.Field(chain=["timestamp"]), right=expr.right

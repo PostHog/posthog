@@ -7,7 +7,7 @@ from django.db import transaction
 from django.db.models import Q
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-
+from posthog.models.team import Team
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
@@ -57,7 +57,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         if not database:
             database = create_hogql_database(team_id=team_id)
 
-        context = HogQLContext(team_id=team_id, database=database)
+        context = HogQLContext(team=view.team, database=database)
 
         fields = serialize_fields(view.hogql_definition().fields, context, view.name, table_type="external")
         return [
@@ -137,7 +137,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     def validate_query(self, query):
         team_id = self.context["team_id"]
 
-        context = HogQLContext(team_id=team_id, enable_select_queries=True)
+        context = HogQLContext(team=Team.objects.get(pk=team_id), enable_select_queries=True)
         select_ast = parse_select(query["query"])
         _is_valid_view = is_valid_view(select_ast)
         if not _is_valid_view:

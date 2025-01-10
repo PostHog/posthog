@@ -55,7 +55,7 @@ class PromptUnclear(Exception):
 def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User") -> str:
     database = create_hogql_database(team.pk)
     context = HogQLContext(
-        team_id=team.pk,
+        team=team,
         enable_select_queries=True,
         database=database,
         modifiers=create_default_modifiers_for_team(team),

@@ -469,14 +469,12 @@ def create_hogql_database(
                     table_or_field: ast.FieldOrTable = database.events
                     for chain in person_field.chain:
                         if isinstance(table_or_field, ast.LazyJoin):
-                            table_or_field = table_or_field.resolve_table(
-                                HogQLContext(team_id=team_id, database=database)
-                            )
+                            table_or_field = table_or_field.resolve_table(HogQLContext(team=team, database=database))
                             if table_or_field.has_field(chain):
                                 table_or_field = table_or_field.get_field(chain)
                                 if isinstance(table_or_field, ast.LazyJoin):
                                     table_or_field = table_or_field.resolve_table(
-                                        HogQLContext(team_id=team_id, database=database)
+                                        HogQLContext(team=team, database=database)
                                     )
                         elif isinstance(table_or_field, ast.Table):
                             table_or_field = table_or_field.get_field(chain)
@@ -539,9 +537,6 @@ def serialize_database(
     if context.database is None:
         raise ResolutionError("Must provide database to serialize_database")
 
-    if context.team_id is None:
-        raise ResolutionError("Must provide team_id to serialize_database")
-
     # PostHog Tables
     posthog_tables = context.database.get_posthog_tables()
     for table_key in posthog_tables:
@@ -561,7 +556,7 @@ def serialize_database(
     warehouse_tables = (
         list(
             DataWarehouseTable.objects.select_related("credential", "external_data_source")
-            .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
+            .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team.pk, name__in=warehouse_table_names)
             .all()
         )
         if len(warehouse_table_names) > 0
@@ -610,7 +605,7 @@ def serialize_database(
         else:
             db_source: ExternalDataSource = warehouse_table.external_data_source
             latest_completed_run = (
-                ExternalDataJob.objects.filter(pipeline_id=db_source.pk, status="Completed", team_id=context.team_id)
+                ExternalDataJob.objects.filter(pipeline_id=db_source.pk, status="Completed", team_id=context.team.pk)
                 .order_by("-created_at")
                 .first()
             )
@@ -634,7 +629,7 @@ def serialize_database(
 
     # Views
     views = context.database.get_views()
-    all_views = list(DataWarehouseSavedQuery.objects.filter(team_id=context.team_id).exclude(deleted=True))
+    all_views = list(DataWarehouseSavedQuery.objects.filter(team_id=context.team.pk).exclude(deleted=True))
     for view_name in views:
         view: SavedQuery | None = getattr(context.database, view_name, None)
         if view is None:

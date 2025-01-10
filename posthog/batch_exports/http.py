@@ -197,7 +197,7 @@ class HogQLSelectQueryField(serializers.Field):
                 ast.SelectQuery,
                 prepare_ast_for_printing(
                     parsed_query,
-                    context=HogQLContext(team_id=self.context["team_id"], enable_select_queries=True),
+                    context=HogQLContext(team=Team.objects.get(pk=self.context["team_id"]), enable_select_queries=True),
                     dialect="hogql",
                 ),
             )
@@ -303,7 +303,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         try:
             # Print the query in ClickHouse dialect to catch unresolved field errors, and discard the result
             context = HogQLContext(
-                team_id=self.context["team_id"],
+                team=Team.objects.get(pk=self.context["team_id"]),
                 enable_select_queries=True,
                 limit_top_select=False,
             )
@@ -311,7 +311,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
             # Recreate the context
             context = HogQLContext(
-                team_id=self.context["team_id"],
+                team=Team.objects.get(pk=self.context["team_id"]),
                 enable_select_queries=True,
                 limit_top_select=False,
             )

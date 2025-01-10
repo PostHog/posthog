@@ -709,7 +709,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return print_ast(
                 self.to_query(),
                 HogQLContext(
-                    team_id=self.team.pk,
+                    team=self.team,
                     enable_select_queries=True,
                     timings=self.timings,
                     modifiers=self.modifiers,

@@ -85,7 +85,7 @@ class TestLazyJoins(BaseTest):
         query = print_ast(
             expr,
             HogQLContext(
-                team_id=self.team.pk,
+                team=self.team,
                 enable_select_queries=True,
                 modifiers=modifiers if modifiers is not None else HogQLQueryModifiers(),
             ),
