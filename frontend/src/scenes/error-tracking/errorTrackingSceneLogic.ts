@@ -3,10 +3,11 @@ import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema'
+import { DataTableNode, ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema'
 
 import {
     DEFAULT_ERROR_TRACKING_DATE_RANGE,
@@ -52,7 +53,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     }),
     loaders(({ values }) => ({
         issues: {
-            __default: [] as ErrorTrackingIssue[],
+            __default: [] as Partial<ErrorTrackingIssue>[],
             loadIssues: async () => {
                 let orderByFilter = null
                 if (values.orderBy === 'last_seen') {
@@ -67,10 +68,10 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     return []
                 }
 
-                return await api.error_tracking.listIssues({
+                return await api.errorTracking.listIssues({
                     orderBy: orderByFilter,
-                    search: values.searchQuery,
-                    ...values.dateRange,
+                    searchQuery: values.searchQuery,
+                    dateRange: values.dateRange,
                 })
             },
         },

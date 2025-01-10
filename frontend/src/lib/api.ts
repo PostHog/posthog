@@ -1900,7 +1900,9 @@ const api = {
     },
 
     errorTracking: {
-        async listIssues(params: ErrorTrackingIssueListParams): Promise<PaginatedResponse<ErrorTrackingIssue>> {
+        async listIssues(
+            params: ErrorTrackingIssueListParams
+        ): Promise<PaginatedResponse<Partial<ErrorTrackingIssue>>> {
             return await new ApiRequest().errorTracking().withQueryString(toParams(params)).get()
         },
 

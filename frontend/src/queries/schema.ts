@@ -1968,7 +1968,7 @@ export interface ErrorTrackingIssueListParams {
     searchQuery?: string
     limit?: integer
     offset?: integer
-    orderBy?: ErrorTrackingQuery['orderBy']
+    orderBy?: string
 }
 
 export interface ErrorTrackingIssue {
