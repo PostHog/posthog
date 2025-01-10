@@ -217,7 +217,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
             </div>
             {metrics.length > 0 ? (
                 <div className="w-full overflow-x-auto">
-                    <div className="min-w-[1300px]">
+                    <div className="min-w-[1000px]">
                         {metrics.map((metric, metricIndex) => {
                             const result = results?.[metricIndex]
                             const isFirstMetric = metricIndex === 0

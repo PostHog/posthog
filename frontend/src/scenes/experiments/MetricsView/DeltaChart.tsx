@@ -163,7 +163,7 @@ export function DeltaChart({
         return HORIZONTAL_PADDING + percentage * (VIEW_BOX_WIDTH - 2 * HORIZONTAL_PADDING)
     }
 
-    const metricTitlePanelWidth = '25%'
+    const metricTitlePanelWidth = '20%'
 
     const ticksSvgRef = useRef<SVGSVGElement>(null)
     const chartSvgRef = useRef<SVGSVGElement>(null)
@@ -266,7 +266,7 @@ export function DeltaChart({
                     width: `calc(100% - ${metricTitlePanelWidth})`,
                     verticalAlign: 'top',
                     display: 'inline-block',
-                    minWidth: '900px',
+                    minWidth: '780px',
                 }}
             >
                 {/* Ticks */}
@@ -277,7 +277,6 @@ export function DeltaChart({
                         preserveAspectRatio="xMidYMid meet"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ minHeight: `${TICK_PANEL_HEIGHT}px` }}
-                        className="pl-14"
                     >
                         {tickValues.map((value, index) => {
                             const x = valueToX(value)
@@ -302,7 +301,7 @@ export function DeltaChart({
                 {isFirstMetric && <div className="w-full border-t border-border" />}
                 {/* Chart */}
                 {result ? (
-                    <div className="relative pl-14">
+                    <div className="relative">
                         <SignificanceHighlight
                             className="absolute top-2 left-2"
                             metricIndex={metricIndex}
