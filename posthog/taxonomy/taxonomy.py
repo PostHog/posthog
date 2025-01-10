@@ -519,6 +519,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Postal Code identification confidence score",
             "description": "If provided by the licensed geoip database",
             "examples": ["null", "0.1"],
+            "system": True,
             "ignored_in_assistant": True,
         },
         "$geoip_latitude": {
