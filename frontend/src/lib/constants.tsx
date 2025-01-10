@@ -233,11 +233,12 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_CONVERSION_GOAL_FILTERS: 'web-analytics-conversion-goal-filters', // owner: @rafaeelaudibert #team-web-analytics
     CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-cdp
     COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: @robbie-c #team-web-analytics
-    INSIGHT_COLORS: 'insight-colors', // owner @thmsobrmlr #team-product-analytics
-    WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner @robbie-c #team-web-analytics
-    REPLAY_FLAGS_FILTERS: 'replay-flags-filters', // owner @pauldambra #team-replay
-    REPLAY_LANDING_PAGE: 'replay-landing-page', // owner #team-replay
-    CORE_WEB_VITALS: 'core-web-vitals', // owner @rafaeelaudibert #team-web-analytics
+    INSIGHT_COLORS: 'insight-colors', // owner: @thmsobrmlr #team-product-analytics
+    WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner: @robbie-c #team-web-analytics
+    REPLAY_FLAGS_FILTERS: 'replay-flags-filters', // owner: @pauldambra #team-replay
+    REPLAY_LANDING_PAGE: 'replay-landing-page', // owner :#team-replay
+    CORE_WEB_VITALS: 'core-web-vitals', // owner: @rafaeelaudibert #team-web-analytics
+    LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
