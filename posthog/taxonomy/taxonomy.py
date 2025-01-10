@@ -295,6 +295,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
             "ignored_in_assistant": True,
         },
+        "$session_is_sampled": {
+            "label": "Whether the session is sampled",
+            "description": "Whether the session is sampled for session recording.",
+            "examples": ["true", "false"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
         "$feature_flag_payloads": {
             "label": "Feature Flag Payloads",
             "description": "Feature flag payloads active in the environment.",
@@ -508,6 +515,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Approximated postal code matched to this event's IP address.",
             "examples": ["2000", "600004", "11211"],
         },
+        "$geoip_postal_code_confidence": {
+            "label": "Postal Code identification confidence score",
+            "description": "If provided by the licensed geoip database",
+            "examples": ["null", "0.1"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
         "$geoip_latitude": {
             "label": "Latitude",
             "description": "Approximated latitude matched to this event's IP address.",
@@ -540,6 +554,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$geoip_subdivision_2_code": {
             "label": "Subdivision 2 Code",
             "description": "Code of the second subdivision matched to this event's IP address.",
+        },
+        "$geoip_subdivision_2_confidence": {
+            "label": "Subdivision 2 identification confidence score",
+            "description": "If provided by the licensed geoip database",
+            "examples": ["null", "0.1"],
+            "ignored_in_assistant": True,
         },
         "$geoip_subdivision_3_name": {
             "label": "Subdivision 3 Name",
@@ -759,6 +779,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Browser Language",
             "description": "Language.",
             "examples": ["en", "en-US", "cn", "pl-PL"],
+        },
+        "$browser_language_prefix": {
+            "label": "Browser Language Prefix",
+            "description": "Language prefix.",
+            "examples": [
+                "en",
+                "ja",
+            ],
         },
         "$current_url": {
             "label": "Current URL",
@@ -1137,6 +1165,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Previous pageview last scroll",
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
             "examples": [0],
+        },
+        "$prev_pageview_id": {
+            "label": "Previous pageview ID",
+            "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
+            "examples": ["1"],
+            "system": True,
         },
         "$prev_pageview_last_scroll_percentage": {
             "label": "Previous pageview last scroll percentage",
