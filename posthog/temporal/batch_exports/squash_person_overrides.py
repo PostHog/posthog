@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import NamedTuple
 
+from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -37,8 +38,6 @@ class TableActivityInputs:
     exists: bool = True
 
     async def create_table(self, clickhouse_client):
-        from django.conf import settings
-
         create_table_query = TABLES[self.name].create_query.format(
             database=settings.CLICKHOUSE_DATABASE,
             cluster=settings.CLICKHOUSE_CLUSTER,
@@ -47,8 +46,6 @@ class TableActivityInputs:
         return await clickhouse_client.execute_query(create_table_query)
 
     async def drop_table(self, clickhouse_client):
-        from django.conf import settings
-
         drop_table_query = TABLES[self.name].drop_query.format(
             database=settings.CLICKHOUSE_DATABASE,
             cluster=settings.CLICKHOUSE_CLUSTER,
@@ -115,8 +112,6 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
     'DROP TABLE ON CLUSTER' query is submitted. Although less critical from the Squash Workflow's
     perspective, it is important we clean-up after ourselves.
     """
-    from django.conf import settings
-
     goal = "exist" if inputs.exists else "not exist"
     activity.logger.info("Waiting for table %s in cluster to %s", inputs.name, goal)
 
@@ -255,8 +250,6 @@ async def submit_mutation(inputs: MutationActivityInputs) -> str:
     This activity will submit only submit the mutation to be executed asynchronously on the
     whole cluster. We will not wait for it (use `wait_for_mutation` for that).
     """
-    from django.conf import settings
-
     activity.logger.info("Submitting mutation %s", inputs.name)
 
     query = MUTATIONS[inputs.name].submit_query.format(
@@ -334,8 +327,6 @@ async def wait_for_mutation(inputs: MutationActivityInputs) -> None:
     running 'EXPLAIN SYNTAX' to get the formatted 'ALTER TABLE' query and then copying that as the
     mutation query at the top of this file, replacing any placeholders that we fill in here.
     """
-    from django.conf import settings
-
     activity.logger.info("Waiting for mutation  %s", inputs.name)
 
     mutation = MUTATIONS[inputs.name]
