@@ -137,6 +137,7 @@ function LemonCollapsePanel({
                         onHeaderClick && onHeaderClick()
                         onChange(!isExpanded)
                         headerProps.onClick?.(e)
+                        e.stopPropagation()
                     }}
                     icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                     {...(dataAttr ? { 'data-attr': dataAttr } : {})}
