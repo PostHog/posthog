@@ -2,7 +2,6 @@ import re
 from datetime import datetime, date
 from typing import Optional, Any, Literal
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 import math
 
@@ -120,7 +119,7 @@ class SQLValueEscaper:
         return self.visit_datetime(value)
 
     def visit_datetime(self, value: datetime):
-        datetime_string = value.astimezone(ZoneInfo(self._timezone)).strftime("%Y-%m-%d %H:%M:%S.%f")
+        datetime_string = value.astimezone(None).strftime("%Y-%m-%d %H:%M:%S.%f")
         if self._dialect == "hogql":
             return f"toDateTime({self.visit(datetime_string)})"  # no timezone for hogql
         return f"toDateTime64({self.visit(datetime_string)}, 6, {self.visit(self._timezone)})"
