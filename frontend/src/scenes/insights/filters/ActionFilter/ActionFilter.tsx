@@ -86,8 +86,6 @@ export interface ActionFilterProps {
         deleteButton,
         orLabel,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element
-    /** Only show these property math definitions */
-    onlyPropertyMathDefinitions?: Array<string>
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -118,7 +116,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         buttonType = 'tertiary',
         readOnly = false,
         bordered = false,
-        onlyPropertyMathDefinitions,
     },
     ref
 ): JSX.Element {
@@ -177,7 +174,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         onRenameClick: showModal,
         sortable,
         showNumericalPropsOnly,
-        onlyPropertyMathDefinitions,
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
