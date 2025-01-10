@@ -81,7 +81,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     showSeriesIndicator={true}
                                     entitiesLimit={1}
                                     showNumericalPropsOnly={true}
-                                    onlyPropertyMathDefinitions={[PropertyMathType.Average]}
+                                    onlyPropertyMathDefinitions={[PropertyMathType.Sum, PropertyMathType.Average]}
                                     {...commonActionFilterProps}
                                 />
                                 <div className="mt-4 space-y-4">
