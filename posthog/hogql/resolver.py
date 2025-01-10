@@ -293,7 +293,7 @@ class Resolver(CloningVisitor):
         scope = self.scopes[-1]
 
         if isinstance(node.table, ast.HogQLXTag):
-            node.table = expand_hogqlx_query(node.table, self.context.team_id)
+            node.table = expand_hogqlx_query(node.table, self.context.team.pk if self.context.team else None)
 
         # If selecting from a CTE, expand and visit the new node
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
