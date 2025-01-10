@@ -56,7 +56,16 @@ export interface QueryProps<Q extends Node> {
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly, context, ...otherProps } = props
+    const {
+        query: propsQuery,
+        setQuery: propsSetQuery,
+        readOnly,
+        embedded,
+        filtersOverride,
+        variablesOverride,
+        cachedResults,
+        inSharedMode,
+    } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
@@ -68,54 +77,24 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     const query = readOnly ? propsQuery : localQuery
     const setQuery = propsSetQuery ?? localSetQuery
 
+    const queryContext = useMemo(() => props.context || {}, [props.context])
+
     const uniqueKey =
         props.uniqueKey ?? (props.context?.insightProps && insightVizDataNodeKey(props.context.insightProps))
 
-    if (query === null) {
-        return null
-    }
-
-    if (typeof query === 'string') {
-        try {
-            return <Query {...props} query={JSON.parse(query)} />
-        } catch (e: any) {
-            return <div className="border border-danger p-4 text-danger">Error parsing JSON: {e.message}</div>
-        }
-    }
-
-    return <DoQuery {...otherProps} query={query} setQuery={setQuery} uniqueKey={uniqueKey} context={context || {}} />
-}
-
-// This interface is slightly optimized by removing some of the nullable options
-interface RefinedQueryProps<Q extends Node> extends QueryProps<Q> {
-    /** The query to render */
-    query: Q
-
-    /** Custom components passed down to a few query nodes (e.g. custom table columns) */
-    context: QueryContext<any>
-}
-
-function DoQuery<Q extends Node>(props: RefinedQueryProps<Q>): JSX.Element | null {
-    const {
-        query,
-        setQuery,
-        readOnly,
-        embedded,
-        cachedResults,
-        filtersOverride,
-        variablesOverride,
-        inSharedMode,
-        uniqueKey,
-        context,
-    } = props
-
     const component = useMemo(() => {
+        // If the query is null or a string, we don't need to render anything
+        // this will be handled below, but `useMemo` must be called unconditionally - React things
+        if (query === null || typeof query === 'string') {
+            return null
+        }
+
         if (isDataTableNode(query)) {
             return (
                 <DataTable
                     query={query}
                     setQuery={setQuery as unknown as (query: DataTableNode) => void}
-                    context={context}
+                    context={queryContext}
                     cachedResults={cachedResults}
                     uniqueKey={uniqueKey}
                     readOnly={readOnly}
@@ -130,7 +109,7 @@ function DoQuery<Q extends Node>(props: RefinedQueryProps<Q>): JSX.Element | nul
                     setQuery={setQuery as unknown as (query: DataVisualizationNode) => void}
                     cachedResults={cachedResults}
                     uniqueKey={uniqueKey}
-                    context={context}
+                    context={queryContext}
                     readOnly={readOnly}
                     variablesOverride={variablesOverride}
                 />
@@ -138,7 +117,7 @@ function DoQuery<Q extends Node>(props: RefinedQueryProps<Q>): JSX.Element | nul
         }
 
         if (isSavedInsightNode(query)) {
-            return <SavedInsight query={query} context={context} readOnly={readOnly} embedded={embedded} />
+            return <SavedInsight query={query} context={queryContext} readOnly={readOnly} embedded={embedded} />
         }
 
         if (isInsightVizNode(query)) {
@@ -146,7 +125,7 @@ function DoQuery<Q extends Node>(props: RefinedQueryProps<Q>): JSX.Element | nul
                 <InsightViz
                     query={query}
                     setQuery={setQuery as unknown as (query: InsightVizNode) => void}
-                    context={context}
+                    context={queryContext}
                     readOnly={readOnly}
                     uniqueKey={uniqueKey}
                     embedded={embedded}
@@ -158,7 +137,7 @@ function DoQuery<Q extends Node>(props: RefinedQueryProps<Q>): JSX.Element | nul
         }
 
         if (isWebOverviewQuery(query)) {
-            return <WebOverview query={query} cachedResults={cachedResults} context={context} />
+            return <WebOverview query={query} cachedResults={cachedResults} context={queryContext} />
         }
 
         if (isHogQuery(query)) {
@@ -168,7 +147,7 @@ function DoQuery<Q extends Node>(props: RefinedQueryProps<Q>): JSX.Element | nul
         return <DataNode query={query} cachedResults={cachedResults} />
     }, [
         query,
-        context,
+        queryContext,
         embedded,
         filtersOverride,
         variablesOverride,
@@ -179,24 +158,43 @@ function DoQuery<Q extends Node>(props: RefinedQueryProps<Q>): JSX.Element | nul
         uniqueKey,
     ])
 
-    return (
-        <ErrorBoundary>
-            <>
-                {!!context.showQueryEditor && (
-                    <>
-                        <QueryEditor
-                            query={JSON.stringify(query)}
-                            setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
-                            context={context}
-                        />
-                        <div className="my-4">
-                            <LemonDivider />
-                        </div>
-                    </>
-                )}
+    if (query === null) {
+        return null
+    }
 
-                {component}
-            </>
-        </ErrorBoundary>
+    if (typeof query === 'string') {
+        try {
+            return <Query {...props} query={JSON.parse(query)} />
+        } catch (e: any) {
+            return <div className="border border-danger p-4 text-danger">Error parsing JSON: {e.message}</div>
+        }
+    }
+
+    if (component) {
+        return (
+            <ErrorBoundary>
+                <>
+                    {props.context?.showQueryEditor ? (
+                        <>
+                            <QueryEditor
+                                query={JSON.stringify(query)}
+                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
+                                context={queryContext}
+                            />
+                            <div className="my-4">
+                                <LemonDivider />
+                            </div>
+                        </>
+                    ) : null}
+                    {component}
+                </>
+            </ErrorBoundary>
+        )
+    }
+
+    return (
+        <div className="text-danger border border-danger p-2">
+            <strong>PostHoqQuery error:</strong> {query?.kind ? `Invalid node type "${query.kind}"` : 'Invalid query'}
+        </div>
     )
 }
