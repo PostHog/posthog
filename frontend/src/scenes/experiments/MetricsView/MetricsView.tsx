@@ -99,6 +99,9 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
     } = useValues(experimentLogic)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
+    if (!variants) {
+        return <></>
+    }
     const results = isSecondary ? secondaryMetricResults : metricResults
     const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
     const hasSomeResults = results?.some((result) => result?.insight)
