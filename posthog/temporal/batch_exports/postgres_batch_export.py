@@ -680,9 +680,9 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                     "Insufficient privileges to get table columns for table '%s.%s'; "
                     "will assume all columns are present. If this results in an error, please grant SELECT "
                     "permissions on this table or ensure the destination table is using the latest schema "
-                    "as described in the docs.",
-                    schema=inputs.schema,
-                    table_name=inputs.table_name,
+                    "as described in the docs: https://posthog.com/docs/cdp/batch-exports/postgres",
+                    inputs.schema,
+                    inputs.table_name,
                 )
             except psycopg.errors.UndefinedTable:
                 # this can happen if the table doesn't exist yet
