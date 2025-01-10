@@ -1,7 +1,12 @@
 import { DateTime } from 'luxon'
 
-import { HogFunctionInvocationResult } from '../../src/cdp/types'
-import { gzipObject, prepareLogEntriesForClickhouse, unGzipObject } from '../../src/cdp/utils'
+import { HogFunctionInvocationGlobals, HogFunctionInvocationResult } from '../../src/cdp/types'
+import {
+    convertToHogFunctionFilterGlobal,
+    gzipObject,
+    prepareLogEntriesForClickhouse,
+    unGzipObject,
+} from '../../src/cdp/utils'
 import { createHogFunction, createInvocation, insertHogFunction as _insertHogFunction } from './fixtures'
 
 describe('Utils', () => {
@@ -51,8 +56,8 @@ describe('Utils', () => {
             const prepared = prepareLogEntriesForClickhouse(example)
 
             expect(prepared).toMatchInlineSnapshot(`
-                Array [
-                  Object {
+                [
+                  {
                     "instance_id": "inv-1",
                     "level": "info",
                     "log_source": "hog_function",
@@ -61,7 +66,7 @@ describe('Utils', () => {
                     "team_id": 1,
                     "timestamp": "2021-05-03 00:00:00.000",
                   },
-                  Object {
+                  {
                     "instance_id": "inv-1",
                     "level": "info",
                     "log_source": "hog_function",
@@ -70,7 +75,7 @@ describe('Utils', () => {
                     "team_id": 1,
                     "timestamp": "2021-05-03 00:00:00.001",
                   },
-                  Object {
+                  {
                     "instance_id": "inv-1",
                     "level": "info",
                     "log_source": "hog_function",
@@ -79,7 +84,7 @@ describe('Utils', () => {
                     "team_id": 1,
                     "timestamp": "2021-05-03 00:00:00.002",
                   },
-                  Object {
+                  {
                     "instance_id": "inv-1",
                     "level": "info",
                     "log_source": "hog_function",
@@ -90,6 +95,67 @@ describe('Utils', () => {
                   },
                 ]
             `)
+        })
+    })
+
+    describe('convertToHogFunctionFilterGlobal', () => {
+        it('should correctly map groups to response', () => {
+            const globals: HogFunctionInvocationGlobals = {
+                project: {
+                    id: 1,
+                    name: 'Test Project',
+                    url: 'http://example.com',
+                },
+                event: {
+                    uuid: 'event_uuid',
+                    event: 'test_event',
+                    distinct_id: 'user_123',
+                    properties: {},
+                    elements_chain: '',
+                    timestamp: DateTime.now().toISO(),
+                    url: 'http://example.com/event',
+                },
+                person: {
+                    id: 'person_123',
+                    properties: {},
+                    name: 'Test User',
+                    url: 'http://example.com/person',
+                },
+                groups: {
+                    organization: {
+                        id: 'org_123',
+                        type: 'organization',
+                        index: 0,
+                        properties: { name: 'Acme Corp' },
+                        url: 'http://example.com/org',
+                    },
+                    project: {
+                        id: 'proj_456',
+                        type: 'project',
+                        index: 1,
+                        properties: { name: 'Project X' },
+                        url: 'http://example.com/project',
+                    },
+                },
+            }
+
+            const response = convertToHogFunctionFilterGlobal(globals)
+
+            // Verify that group_0 and organization are set correctly
+            expect(response['group_0']).toEqual({
+                key: 'org_123',
+                index: 0,
+                properties: { name: 'Acme Corp' },
+            })
+            expect(response['organization']).toBe(response['group_0'])
+
+            // Verify that group_1 and project are set correctly
+            expect(response['group_1']).toEqual({
+                key: 'proj_456',
+                index: 1,
+                properties: { name: 'Project X' },
+            })
+            expect(response['project']).toBe(response['group_1'])
         })
     })
 })

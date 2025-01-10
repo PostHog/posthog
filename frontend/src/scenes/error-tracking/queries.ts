@@ -4,7 +4,7 @@ import { range } from 'lib/utils'
 import {
     DataTableNode,
     DateRange,
-    ErrorTrackingGroup,
+    ErrorTrackingIssue,
     ErrorTrackingQuery,
     EventsQuery,
     InsightVizNode,
@@ -40,7 +40,7 @@ const toStartOfIntervalFn = {
 }
 
 export const errorTrackingQuery = ({
-    order,
+    orderBy,
     dateRange,
     assignee,
     filterTestAccounts,
@@ -49,7 +49,7 @@ export const errorTrackingQuery = ({
     sparklineSelectedPeriod,
     columns,
     limit = 50,
-}: Pick<ErrorTrackingQuery, 'order' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery'> & {
+}: Pick<ErrorTrackingQuery, 'orderBy' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery'> & {
     filterGroup: UniversalFiltersGroup
     sparklineSelectedPeriod: string | null
     columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
@@ -69,7 +69,7 @@ export const errorTrackingQuery = ({
         source: {
             kind: NodeKind.ErrorTrackingQuery,
             select: select,
-            order: order,
+            orderBy: orderBy,
             dateRange: dateRange,
             assignee: assignee,
             filterGroup: filterGroup as PropertyGroupFilter,
@@ -117,82 +117,75 @@ export const generateSparklineProps = ({
     return { labels, data }
 }
 
-export const errorTrackingGroupQuery = ({
-    fingerprint,
+export const errorTrackingIssueQuery = ({
+    issueId,
     dateRange,
     filterTestAccounts,
     filterGroup,
 }: {
-    fingerprint: string[]
+    issueId: string
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
-        fingerprint: fingerprint,
+        issueId: issueId,
         dateRange: dateRange,
         filterGroup: filterGroup as PropertyGroupFilter,
         filterTestAccounts: filterTestAccounts,
     }
 }
 
-export const errorTrackingGroupEventsQuery = ({
-    select,
-    fingerprints,
+export const errorTrackingIssueEventsQuery = ({
+    issueId,
     dateRange,
     filterTestAccounts,
     filterGroup,
-    offset,
 }: {
-    select: string[]
-    fingerprints: ErrorTrackingGroup['fingerprint'][]
+    issueId: ErrorTrackingIssue['id']
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
-    offset: number
-}): EventsQuery => {
+}): DataTableNode => {
+    // const select = ['person', 'timestamp', 'recording_button(properties.$session_id)']
+    // row expansion only works when you fetch the entire event with '*'
+    const columns = ['*', 'person', 'timestamp', 'recording_button(properties.$session_id)']
+
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = group.values as AnyPropertyFilter[]
 
-    const where = [
-        `has(${stringifyFingerprints(
-            fingerprints
-        )}, JSONExtract(ifNull(properties.$exception_fingerprint,'[]'),'Array(String)'))`,
-    ]
+    // TODO: fix this where clause. It does not take into account the events
+    // associated with issues that have been merged into this primary issue
+    const where = [`'${issueId}' == properties.$exception_issue_id`]
 
-    const query: EventsQuery = {
+    const eventsQuery: EventsQuery = {
         kind: NodeKind.EventsQuery,
         event: '$exception',
-        select,
+        select: columns,
         where,
         properties,
         filterTestAccounts: filterTestAccounts,
-        offset: offset,
-        limit: 50,
     }
 
     if (dateRange.date_from) {
-        query.after = dateRange.date_from
+        eventsQuery.after = dateRange.date_from
     }
     if (dateRange.date_to) {
-        query.before = dateRange.date_to
+        eventsQuery.before = dateRange.date_to
     }
 
-    return query
+    return {
+        kind: NodeKind.DataTableNode,
+        source: eventsQuery,
+        showActions: false,
+        showTimings: false,
+        columns: columns,
+        expandable: true,
+    }
 }
 
-// JSON.stringify wraps strings in double quotes and HogQL only supports single quote strings
-export const stringifyFingerprints = (fingerprints: ErrorTrackingGroup['fingerprint'][]): string => {
-    // so we escape all single quoted strings and replace double quotes with single quotes, unless they're already escaped.
-    // Also replace escaped double quotes with regular double quotes - this isn't valid JSON, but we aren't trying to generate JSON so its ok.
-    return JSON.stringify(fingerprints)
-        .replace(/'/g, "\\'")
-        .replace(/(?<!\\)"/g, "'")
-        .replace(/\\"/g, '"')
-}
-
-export const errorTrackingGroupBreakdownQuery = ({
+export const errorTrackingIssueBreakdownQuery = ({
     breakdownProperty,
     dateRange,
     filterTestAccounts,

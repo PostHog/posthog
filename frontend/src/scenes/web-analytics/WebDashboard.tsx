@@ -1,9 +1,11 @@
 import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
@@ -17,6 +19,7 @@ import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyt
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import {
+    ProductTab,
     QueryTile,
     TabsTile,
     TileId,
@@ -38,31 +41,36 @@ const Filters = (): JSX.Element => {
     const {
         webAnalyticsFilters,
         dateFilter: { dateTo, dateFrom },
+        compareFilter,
     } = useValues(webAnalyticsLogic)
-    const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
+    const { setWebAnalyticsFilters, setDates, setCompareFilter } = useActions(webAnalyticsLogic)
     const { mobileLayout } = useValues(navigationLogic)
-    const { conversionGoal } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div
             className={clsx(
-                'sticky z-20 pt-2 bg-bg-3000',
+                'sticky z-20 bg-bg-3000',
                 mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
             )}
         >
-            <div className="flex flex-row flex-wrap gap-2">
+            <div className="border-b py-2 flex flex-row flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+
+                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PERIOD_COMPARISON] ? (
+                    <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+                ) : null}
+
+                <WebConversionGoal />
+                <ReloadAll />
+            </div>
+
+            <div className="border-b py-2 flex flex-row flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
                 <WebPropertyFilters
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
                 />
-                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS] || conversionGoal ? (
-                    <WebConversionGoal />
-                ) : null}
-                <ReloadAll />
             </div>
-            <div className="bg-border h-px w-full mt-2" />
         </div>
     )
 }
@@ -89,7 +97,7 @@ const Tiles = (): JSX.Element => {
 }
 
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
-    const { query, title, layout, insightProps, showPathCleaningControls, showIntervalSelect, docs } = tile
+    const { query, title, layout, insightProps, control, showIntervalSelect, docs } = tile
 
     const { openModal } = useActions(webAnalyticsLogic)
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
@@ -129,12 +137,17 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 layout.className
             )}
         >
-            {title && <h2 className="m-0 mb-3">{title}</h2>}
-            {docs && <LearnMorePopover docsURL={docs.docsUrl} title={docs.title} description={docs.description} />}
+            {title && (
+                <h2 className="flex-1 m-0 flex flex-row ml-1">
+                    {title}
+                    {docs && <LearnMorePopover url={docs.url} title={docs.title} description={docs.description} />}
+                </h2>
+            )}
+
             <WebQuery
                 query={query}
                 insightProps={insightProps}
-                showPathCleaningControls={showPathCleaningControls}
+                control={control}
                 showIntervalSelect={showIntervalSelect}
             />
             {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
@@ -166,7 +179,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                         key={tab.id}
                         query={tab.query}
                         showIntervalSelect={tab.showIntervalSelect}
-                        showPathCleaningControls={tab.showPathCleaningControls}
+                        control={tab.control}
                         insightProps={tab.insightProps}
                     />
                 ),
@@ -205,7 +218,7 @@ export const WebTabs = ({
         query: QuerySchema
         docs:
             | {
-                  docsUrl: PostHogComDocsURL
+                  url?: PostHogComDocsURL
                   title: string
                   description: string | JSX.Element
               }
@@ -247,11 +260,11 @@ export const WebTabs = ({
     return (
         <div className={clsx(className, 'flex flex-col')}>
             <div className="flex flex-row items-center self-stretch mb-3">
-                <h2 className="flex-1 m-0 flex flex-row">
+                <h2 className="flex-1 m-0 flex flex-row ml-1">
                     {activeTab?.title}
                     {activeTab?.docs && (
                         <LearnMorePopover
-                            docsURL={activeTab.docs.docsUrl}
+                            url={activeTab.docs.url}
                             title={activeTab.docs.title}
                             description={activeTab.docs.description}
                         />
@@ -275,12 +288,12 @@ export const WebTabs = ({
 }
 
 export interface LearnMorePopoverProps {
-    docsURL: PostHogComDocsURL
+    url?: PostHogComDocsURL
     title: string
     description: string | JSX.Element
 }
 
-export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopoverProps): JSX.Element => {
+export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverProps): JSX.Element => {
     const [isOpen, setIsOpen] = useState(false)
 
     return (
@@ -295,39 +308,68 @@ export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopov
                             targetBlank
                             type="tertiary"
                             onClick={() => setIsOpen(false)}
-                            size="xsmall"
+                            size="small"
                             icon={<IconX />}
                         />
                     </div>
                     <div className="text-sm text-gray-700">{description}</div>
-                    <div className="flex justify-end mt-4">
-                        <LemonButton
-                            to={docsURL}
-                            onClick={() => setIsOpen(false)}
-                            targetBlank={true}
-                            sideIcon={<IconOpenSidebar />}
-                        >
-                            Learn more
-                        </LemonButton>
-                    </div>
+                    {url && (
+                        <div className="flex justify-end mt-4">
+                            <LemonButton
+                                to={url}
+                                onClick={() => setIsOpen(false)}
+                                targetBlank={true}
+                                sideIcon={<IconOpenSidebar />}
+                            >
+                                Learn more
+                            </LemonButton>
+                        </div>
+                    )}
                 </div>
             }
         >
-            <LemonButton onClick={() => setIsOpen(!isOpen)} size="small" icon={<IconInfo />} />
+            <LemonButton onClick={() => setIsOpen(!isOpen)} size="small" icon={<IconInfo />} className="ml-1 mb-1" />
         </Popover>
     )
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
+    const { isWindowLessThan } = useWindowSize()
+    const isMobile = isWindowLessThan('sm')
+
+    const { productTab } = useValues(webAnalyticsLogic)
+    const { setProductTab } = useActions(webAnalyticsLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
-                    <WebAnalyticsLiveUserCount />
+                    <div className="flex flex-col sm:flex-row gap-2 justify-between items-center sm:items-start w-full border-b pb-2 mb-2 sm:mb-0">
+                        <WebAnalyticsLiveUserCount />
+
+                        {featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && (
+                            <LemonSegmentedSelect
+                                shrinkOn={3}
+                                size="small"
+                                value={productTab}
+                                fullWidth={isMobile}
+                                dropdownMatchSelectWidth={false}
+                                onChange={setProductTab}
+                                options={[
+                                    { value: ProductTab.ANALYTICS, label: 'Web Analytics' },
+                                    { value: ProductTab.CORE_WEB_VITALS, label: 'Core Web Vitals' },
+                                ]}
+                            />
+                        )}
+                    </div>
+
                     <Filters />
                     <WebAnalyticsHealthCheck />
+
                     <Tiles />
                 </div>
             </BindLogic>

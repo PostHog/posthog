@@ -25,6 +25,10 @@ pub struct KafkaConfig {
 pub struct ConsumerConfig {
     pub kafka_consumer_group: String,
     pub kafka_consumer_topic: String,
+
+    // We default to "earliest" for this, but if you're bringing up a new service, you probably want "latest"
+    #[envconfig(default = "earliest")]
+    pub kafka_consumer_offset_reset: String, // earliest, latest
 }
 
 impl ConsumerConfig {

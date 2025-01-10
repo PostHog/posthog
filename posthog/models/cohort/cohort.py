@@ -250,11 +250,16 @@ class Cohort(models.Model):
 
         clear_stale_cohort.delay(self.pk, before_version=pending_version)
 
-    def insert_users_by_list(self, items: list[str]) -> None:
+    def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
         """
-        Items is a list of distinct_ids
-        """
+        Insert a list of users identified by their distinct ID into the cohort, for the given team.
 
+        Args:
+            items: List of distinct IDs of users to be inserted into the cohort.
+            team_id: ID of the team for which to insert the users. Defaults to `self.team`, because of a lot of existing usage in tests.
+        """
+        if team_id is None:
+            team_id = self.team_id
         batchsize = 1000
         from posthog.models.cohort.util import (
             insert_static_cohort,
@@ -272,10 +277,10 @@ class Cohort(models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=self.team_id)
+                    Person.objects.filter(team_id=team_id)
                     .filter(
                         Q(
-                            persondistinctid__team_id=self.team_id,
+                            persondistinctid__team_id=team_id,
                             persondistinctid__distinct_id__in=batch,
                         )
                     )
@@ -284,7 +289,7 @@ class Cohort(models.Model):
                 insert_static_cohort(
                     list(persons_query.values_list("uuid", flat=True)),
                     self.pk,
-                    self.team,
+                    team_id=team_id,
                 )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
@@ -297,7 +302,7 @@ class Cohort(models.Model):
                 )
                 cursor.execute(query, params)
 
-            count = get_static_cohort_size(self)
+            count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id)
             self.count = count
 
             self.is_calculating = False
@@ -313,7 +318,18 @@ class Cohort(models.Model):
             self.save()
             capture_exception(err)
 
-    def insert_users_list_by_uuid(self, items: list[str], insert_in_clickhouse: bool = False, batchsize=1000) -> None:
+    def insert_users_list_by_uuid(
+        self, items: list[str], insert_in_clickhouse: bool = False, batchsize=1000, *, team_id: int
+    ) -> None:
+        """
+        Insert a list of users identified by their UUID into the cohort, for the given team.
+
+        Args:
+            items: List of user UUIDs to be inserted into the cohort.
+            insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
+            batchsize: Number of UUIDs to process in each batch.
+            team_id: The ID of the team to which the cohort belongs.
+        """
         from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
 
         try:
@@ -321,13 +337,13 @@ class Cohort(models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=self.team_id).filter(uuid__in=batch).exclude(cohort__id=self.id)
+                    Person.objects.filter(team_id=team_id).filter(uuid__in=batch).exclude(cohort__id=self.id)
                 )
                 if insert_in_clickhouse:
                     insert_static_cohort(
                         list(persons_query.values_list("uuid", flat=True)),
                         self.pk,
-                        self.team,
+                        team_id=team_id,
                     )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
@@ -340,7 +356,7 @@ class Cohort(models.Model):
                 )
                 cursor.execute(query, params)
 
-            count = get_static_cohort_size(self)
+            count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id)
             self.count = count
 
             self.is_calculating = False
@@ -356,12 +372,6 @@ class Cohort(models.Model):
 
             self.save()
             capture_exception(err)
-
-    def _clickhouse_persons_query(self, batch_size=10000, offset=0):
-        from posthog.models.cohort.util import get_person_ids_by_cohort_id
-
-        uuids = get_person_ids_by_cohort_id(team=self.team, cohort_id=self.pk, limit=batch_size, offset=offset)
-        return Person.objects.filter(uuid__in=uuids, team=self.team)
 
     __repr__ = sane_repr("id", "name", "last_calculation")
 

@@ -10,7 +10,11 @@ use crate::{
     api::errors::FlagError,
     client::{database::Client as DatabaseClient, redis::Client as RedisClient},
     flags::flag_models::FeatureFlagList,
-    metrics::metrics_consts::FLAG_CACHE_HIT_COUNTER,
+    metrics::metrics_consts::{
+        DB_FLAG_READS_COUNTER, DB_TEAM_READS_COUNTER, FLAG_CACHE_ERRORS_COUNTER,
+        FLAG_CACHE_HIT_COUNTER, TEAM_CACHE_ERRORS_COUNTER, TEAM_CACHE_HIT_COUNTER,
+        TOKEN_VALIDATION_ERRORS_COUNTER,
+    },
     team::team_models::Team,
 };
 
@@ -83,23 +87,50 @@ impl FlagRequest {
             _ => return Err(FlagError::NoTokenError),
         };
 
-        match Team::from_redis(redis_client.clone(), token.clone()).await {
-            Ok(_) => Ok(token),
+        let (result, cache_hit) = match Team::from_redis(redis_client.clone(), token.clone()).await
+        {
+            Ok(_) => (Ok(token.clone()), true),
             Err(_) => {
-                // Fallback: Check PostgreSQL if not found in Redis
                 match Team::from_pg(pg_client, token.clone()).await {
                     Ok(team) => {
+                        inc(
+                            DB_TEAM_READS_COUNTER,
+                            &[("token".to_string(), token.clone())],
+                            1,
+                        );
                         // Token found in PostgreSQL, update Redis cache so that we can verify it from Redis next time
                         if let Err(e) = Team::update_redis_cache(redis_client, &team).await {
                             tracing::warn!("Failed to update Redis cache: {}", e);
+                            inc(
+                                TEAM_CACHE_ERRORS_COUNTER,
+                                &[("reason".to_string(), "redis_update_failed".to_string())],
+                                1,
+                            );
                         }
-                        Ok(token)
+                        (Ok(token.clone()), false)
                     }
-                    // TODO do we need a custom error here to track the fallback
-                    Err(_) => Err(FlagError::TokenValidationError),
+                    Err(_) => {
+                        inc(
+                            TOKEN_VALIDATION_ERRORS_COUNTER,
+                            &[("reason".to_string(), "token_not_found".to_string())],
+                            1,
+                        );
+                        (Err(FlagError::TokenValidationError), false)
+                    }
                 }
             }
-        }
+        };
+
+        inc(
+            TEAM_CACHE_HIT_COUNTER,
+            &[
+                ("token".to_string(), token.clone()),
+                ("cache_hit".to_string(), cache_hit.to_string()),
+            ],
+            1,
+        );
+
+        result
     }
 
     /// Fetches the team from the cache or the database.
@@ -111,22 +142,42 @@ impl FlagRequest {
         redis_client: Arc<dyn RedisClient + Send + Sync>,
         pg_client: Arc<dyn DatabaseClient + Send + Sync>,
     ) -> Result<Team, FlagError> {
-        match Team::from_redis(redis_client.clone(), token.to_owned()).await {
-            Ok(team) => Ok(team),
-            Err(_) => match Team::from_pg(pg_client, token.to_owned()).await {
-                Ok(team) => {
-                    // If we have the team in postgres, but not redis, update redis so we're faster next time
-                    // TODO: we have some counters in django for tracking these cache misses
-                    // we should probably do the same here
-                    if let Err(e) = Team::update_redis_cache(redis_client, &team).await {
-                        tracing::warn!("Failed to update Redis cache: {}", e);
+        let (team_result, cache_hit) =
+            match Team::from_redis(redis_client.clone(), token.to_owned()).await {
+                Ok(team) => (Ok(team), true),
+                Err(_) => match Team::from_pg(pg_client, token.to_owned()).await {
+                    Ok(team) => {
+                        inc(
+                            DB_TEAM_READS_COUNTER,
+                            &[("token".to_string(), token.to_string())],
+                            1,
+                        );
+                        // If we have the team in postgres, but not redis, update redis so we're faster next time
+                        if let Err(e) = Team::update_redis_cache(redis_client, &team).await {
+                            tracing::warn!("Failed to update Redis cache: {}", e);
+                            inc(
+                                TEAM_CACHE_ERRORS_COUNTER,
+                                &[("reason".to_string(), "redis_update_failed".to_string())],
+                                1,
+                            );
+                        }
+                        (Ok(team), false)
                     }
-                    Ok(team)
-                }
-                // TODO what kind of error should we return here?
-                Err(e) => Err(e),
-            },
-        }
+                    // TODO what kind of error should we return here?
+                    Err(e) => (Err(e), false),
+                },
+            };
+
+        inc(
+            TEAM_CACHE_HIT_COUNTER,
+            &[
+                ("token".to_string(), token.to_string()),
+                ("cache_hit".to_string(), cache_hit.to_string()),
+            ],
+            1,
+        );
+
+        team_result
     }
 
     /// Extracts the distinct_id from the request.
@@ -164,31 +215,37 @@ impl FlagRequest {
         redis_client: &Arc<dyn RedisClient + Send + Sync>,
         pg_client: &Arc<dyn DatabaseClient + Send + Sync>,
     ) -> Result<FeatureFlagList, FlagError> {
-        let mut cache_hit = false;
-        let flags = match FeatureFlagList::from_redis(redis_client.clone(), team_id).await {
-            Ok(flags) => {
-                cache_hit = true;
-                Ok(flags)
-            }
-            Err(_) => match FeatureFlagList::from_pg(pg_client.clone(), team_id).await {
-                Ok(flags) => {
-                    if let Err(e) = FeatureFlagList::update_flags_in_redis(
-                        redis_client.clone(),
-                        team_id,
-                        &flags,
-                    )
-                    .await
-                    {
-                        tracing::warn!("Failed to update Redis cache: {}", e);
-                        // TODO add new metric category for this
+        let (flags_result, cache_hit) =
+            match FeatureFlagList::from_redis(redis_client.clone(), team_id).await {
+                Ok(flags) => (Ok(flags), true),
+                Err(_) => match FeatureFlagList::from_pg(pg_client.clone(), team_id).await {
+                    Ok(flags) => {
+                        inc(
+                            DB_FLAG_READS_COUNTER,
+                            &[("team_id".to_string(), team_id.to_string())],
+                            1,
+                        );
+                        if let Err(e) = FeatureFlagList::update_flags_in_redis(
+                            redis_client.clone(),
+                            team_id,
+                            &flags,
+                        )
+                        .await
+                        {
+                            tracing::warn!("Failed to update Redis cache: {}", e);
+                            inc(
+                                FLAG_CACHE_ERRORS_COUNTER,
+                                &[("reason".to_string(), "redis_update_failed".to_string())],
+                                1,
+                            );
+                        }
+                        (Ok(flags), false)
                     }
-                    Ok(flags)
-                }
-                // TODO what kind of error should we return here?  This should be postgres
-                // I guess it can be whatever the FlagError is
-                Err(e) => Err(e),
-            },
-        };
+                    // TODO what kind of error should we return here?  This should be postgres
+                    // I guess it can be whatever the FlagError is
+                    Err(e) => (Err(e), false),
+                },
+            };
 
         inc(
             FLAG_CACHE_HIT_COUNTER,
@@ -199,7 +256,7 @@ impl FlagRequest {
             1,
         );
 
-        flags
+        flags_result
     }
 }
 

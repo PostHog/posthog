@@ -365,7 +365,7 @@ export function FlutterSnippet({ flagKey, multivariant, payload }: FeatureFlagSn
     return (
         <CodeSnippet language={Language.Dart} wrap>
             {`if (${clientSuffix}${flagFunction}('${flagKey}')${variantSuffix}) {
-    // do something
+  // do something
 }
             `}
         </CodeSnippet>

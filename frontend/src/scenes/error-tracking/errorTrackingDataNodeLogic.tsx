@@ -2,10 +2,10 @@ import { actions, connect, kea, listeners, path, props } from 'kea'
 import api from 'lib/api'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ErrorTrackingGroup } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema'
 
 import type { errorTrackingDataNodeLogicType } from './errorTrackingDataNodeLogicType'
-import { mergeGroups } from './utils'
+import { mergeIssues } from './utils'
 
 export interface ErrorTrackingDataNodeLogicProps {
     query: DataNodeLogicProps['query']
@@ -18,52 +18,54 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
 
     connect(({ key, query }: ErrorTrackingDataNodeLogicProps) => ({
         values: [dataNodeLogic({ key, query }), ['response']],
-        actions: [dataNodeLogic({ key, query }), ['setResponse']],
+        actions: [dataNodeLogic({ key, query }), ['setResponse', 'loadData']],
     })),
 
     actions({
-        mergeGroups: (indexes: number[]) => ({ indexes }),
-        assignGroup: (recordIndex: number, assigneeId: number | null) => ({
-            recordIndex,
-            assigneeId,
-        }),
+        mergeIssues: (ids: string[]) => ({ ids }),
+        assignIssue: (id: string, assigneeId: number | null) => ({ id, assigneeId }),
     }),
 
     listeners(({ values, actions }) => ({
-        mergeGroups: async ({ indexes }) => {
-            const results = values.response?.results as ErrorTrackingGroup[]
+        mergeIssues: async ({ ids }) => {
+            const results = values.response?.results as ErrorTrackingIssue[]
 
-            const groups = results.filter((_, id) => indexes.includes(id))
-            const primaryGroup = groups.shift()
+            const issues = results.filter(({ id }) => ids.includes(id))
+            const primaryIssue = issues.shift()
 
-            if (primaryGroup && groups.length > 0) {
-                const mergingFingerprints = groups.map((g) => g.fingerprint)
-                const mergedGroup = mergeGroups(primaryGroup, groups)
+            if (primaryIssue && issues.length > 0) {
+                const mergingIds = issues.map((g) => g.id)
+                const mergedIssue = mergeIssues(primaryIssue, issues)
 
                 // optimistically update local results
                 actions.setResponse({
                     ...values.response,
                     results: results
-                        // remove merged groups
-                        .filter((_, id) => !indexes.includes(id))
-                        .map((group) =>
-                            // replace primary group
-                            mergedGroup.fingerprint === group.fingerprint ? mergedGroup : group
+                        // remove merged issues
+                        .filter(({ id }) => !mergingIds.includes(id))
+                        .map((issue) =>
+                            // replace primary issue
+                            mergedIssue.id === issue.id ? mergedIssue : issue
                         ),
                 })
-                await api.errorTracking.merge(primaryGroup?.fingerprint, mergingFingerprints)
+                await api.errorTracking.mergeInto(primaryIssue.id, mergingIds)
+                actions.loadData(true)
             }
         },
-        assignGroup: async ({ recordIndex, assigneeId }) => {
+        assignIssue: async ({ id, assigneeId }) => {
             const response = values.response
             if (response) {
                 const params = { assignee: assigneeId }
-                const results = response.results as ErrorTrackingGroup[]
-                const group = { ...results[recordIndex], ...params }
-                results.splice(recordIndex, 1, group)
-                // optimistically update local results
-                actions.setResponse({ ...response, results: results })
-                await api.errorTracking.updateIssue(group.fingerprint, params)
+                const results = response.results as ErrorTrackingIssue[]
+                const recordIndex = results.findIndex((r) => r.id === id)
+                if (recordIndex > -1) {
+                    const issue = { ...results[recordIndex], ...params }
+                    results.splice(recordIndex, 1, issue)
+                    // optimistically update local results
+                    actions.setResponse({ ...response, results: results })
+                    await api.errorTracking.updateIssue(issue.id, params)
+                    actions.loadData(true)
+                }
             }
         },
     })),

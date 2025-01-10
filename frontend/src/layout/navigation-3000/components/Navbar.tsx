@@ -59,7 +59,7 @@ export function Navbar(): JSX.Element {
                                                     ? () => {
                                                           if (
                                                               activeNavbarItemId === item.identifier &&
-                                                              isSidebarShown
+                                                              !isSidebarShown
                                                           ) {
                                                               hideSidebar()
                                                           } else {
@@ -112,7 +112,7 @@ export function Navbar(): JSX.Element {
                             {!systemStatusHealthy ? (
                                 <NavbarButton
                                     icon={<IconWarning />}
-                                    identifier={Scene.Settings}
+                                    identifier={Scene.SystemStatus}
                                     title="System issue!"
                                     to={urls.instanceStatus()}
                                 />

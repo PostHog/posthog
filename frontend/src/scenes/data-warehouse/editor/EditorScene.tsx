@@ -8,6 +8,7 @@ import { useRef } from 'react'
 import { Sidebar } from '~/layout/navigation-3000/components/Sidebar'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 
+import { ViewLinkModal } from '../ViewLinkModal'
 import { editorSceneLogic } from './editorSceneLogic'
 import { editorSizingLogic } from './editorSizingLogic'
 import { QueryWindow } from './QueryWindow'
@@ -47,6 +48,7 @@ export function EditorScene(): JSX.Element {
                 )}
                 <QueryWindow />
             </div>
+            <ViewLinkModal />
         </BindLogic>
     )
 }

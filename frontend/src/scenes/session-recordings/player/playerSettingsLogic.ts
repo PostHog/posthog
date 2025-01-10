@@ -1,4 +1,5 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AutoplayDirection, SessionRecordingSidebarStacking } from '~/types'
@@ -32,6 +33,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
         setPlaybackMode: (mode: PlaybackMode) => ({ mode }),
         setSidebarOpen: (open: boolean) => ({ open }),
+        setPlaylistOpen: (open: boolean) => ({ open }),
         setShowMouseTail: (showMouseTail: boolean) => ({ showMouseTail }),
     }),
     connect({
@@ -40,6 +42,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     reducers(({ values }) => ({
         showFilters: [true, { persist: true }, { setShowFilters: (_, { showFilters }) => showFilters }],
         sidebarOpen: [false, { persist: true }, { setSidebarOpen: (_, { open }) => open }],
+        playlistOpen: [true, { setPlaylistOpen: (_, { open }) => open }],
         preferredSidebarStacking: [
             SessionRecordingSidebarStacking.Horizontal as SessionRecordingSidebarStacking,
             { persist: true },
@@ -119,5 +122,14 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             (s) => [s.preferredSidebarStacking],
             (preferredSidebarStacking) => preferredSidebarStacking === SessionRecordingSidebarStacking.Vertical,
         ],
+    }),
+
+    listeners({
+        setSpeed: ({ speed }) => {
+            posthog.capture('recording player speed changed', { new_speed: speed })
+        },
+        setSkipInactivitySetting: ({ skipInactivitySetting }) => {
+            posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivitySetting })
+        },
     }),
 ])

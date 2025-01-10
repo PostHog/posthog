@@ -6,6 +6,7 @@ use sqlx::PgPool;
 use crate::{
     config::Config,
     error::UnhandledError,
+    metric_consts::{FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS},
     symbol_store::{saving::SymbolSetRecord, Catalog},
 };
 
@@ -13,6 +14,7 @@ use super::{records::ErrorTrackingStackFrame, Frame, RawFrame};
 
 pub struct Resolver {
     cache: Cache<String, ErrorTrackingStackFrame>,
+    result_ttl: chrono::Duration,
 }
 
 impl Resolver {
@@ -21,7 +23,9 @@ impl Resolver {
             .time_to_live(Duration::from_secs(config.frame_cache_ttl_seconds))
             .build();
 
-        Self { cache }
+        let result_ttl = chrono::Duration::minutes(config.frame_result_ttl_minutes as i64);
+
+        Self { cache, result_ttl }
     }
 
     pub async fn resolve(
@@ -32,13 +36,16 @@ impl Resolver {
         catalog: &Catalog,
     ) -> Result<Frame, UnhandledError> {
         if let Some(result) = self.cache.get(&frame.frame_id()) {
+            metrics::counter!(FRAME_CACHE_HITS).increment(1);
             return Ok(result.contents);
         }
+        metrics::counter!(FRAME_CACHE_MISSES).increment(1);
 
         if let Some(result) =
-            ErrorTrackingStackFrame::load(pool, team_id, &frame.frame_id()).await?
+            ErrorTrackingStackFrame::load(pool, team_id, &frame.frame_id(), self.result_ttl).await?
         {
             self.cache.insert(frame.frame_id(), result.clone());
+            metrics::counter!(FRAME_DB_HITS).increment(1);
             return Ok(result.contents);
         }
 
@@ -237,10 +244,11 @@ mod test {
 
         // get the frame
         let frame_id = frame.frame_id();
-        let frame = ErrorTrackingStackFrame::load(&pool, 0, &frame_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let frame =
+            ErrorTrackingStackFrame::load(&pool, 0, &frame_id, chrono::Duration::minutes(30))
+                .await
+                .unwrap()
+                .unwrap();
 
         assert_eq!(frame.symbol_set_id.unwrap(), set.id);
 

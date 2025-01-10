@@ -50,7 +50,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -120,7 +123,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -190,7 +196,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -260,7 +269,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -330,7 +342,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -445,6 +460,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -508,7 +524,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -605,7 +624,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -640,12 +662,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '447'
+          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '447'
+             AND "ee_accesscontrol"."resource_id" = '99999'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -738,7 +760,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings.24
@@ -797,6 +819,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -847,7 +870,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -864,7 +888,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings.28
@@ -923,6 +947,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -1012,7 +1037,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1043,7 +1071,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -1161,7 +1190,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1231,7 +1263,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1301,7 +1336,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1371,7 +1409,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1441,7 +1482,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1511,7 +1555,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1550,6 +1597,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -1613,7 +1661,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1635,7 +1686,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.100
@@ -1688,12 +1739,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '454'
+          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '454'
+             AND "ee_accesscontrol"."resource_id" = '99999'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -1786,7 +1837,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.105
@@ -1845,6 +1896,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -1895,7 +1947,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -1912,7 +1965,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.109
@@ -1992,6 +2045,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -2042,7 +2096,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -2166,7 +2221,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -2243,6 +2301,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -2306,7 +2365,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -2353,6 +2415,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -2441,12 +2504,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '454'
+          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '454'
+             AND "ee_accesscontrol"."resource_id" = '99999'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -2539,7 +2602,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.125
@@ -2598,6 +2661,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -2648,7 +2712,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -2665,7 +2730,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.129
@@ -2701,7 +2766,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -2743,6 +2809,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -2793,7 +2860,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -2919,7 +2987,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -2996,6 +3067,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -3059,7 +3131,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -3129,12 +3204,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '454'
+          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '454'
+             AND "ee_accesscontrol"."resource_id" = '99999'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -3227,7 +3302,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.145
@@ -3286,6 +3361,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -3336,7 +3412,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -3353,7 +3430,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.149
@@ -3428,7 +3505,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -3482,6 +3562,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -3532,7 +3613,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -3660,7 +3742,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -3737,6 +3822,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -3800,7 +3886,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -3881,12 +3970,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '454'
+          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '454'
+             AND "ee_accesscontrol"."resource_id" = '99999'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -3979,7 +4068,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.165
@@ -4038,6 +4127,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -4088,7 +4178,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -4105,7 +4196,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.169
@@ -4183,6 +4274,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -4233,7 +4325,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -4363,7 +4456,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -4440,6 +4536,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -4503,7 +4600,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -4535,6 +4635,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -4597,12 +4698,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '454'
+          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '454'
+             AND "ee_accesscontrol"."resource_id" = '99999'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -4695,7 +4796,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.185
@@ -4754,6 +4855,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -4804,7 +4906,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -4821,7 +4924,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.189
@@ -4896,7 +4999,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -4943,6 +5049,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -4993,7 +5100,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -5125,7 +5233,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -5202,6 +5313,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -5265,7 +5377,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -5395,12 +5510,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '454'
+          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '454'
+             AND "ee_accesscontrol"."resource_id" = '99999'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -5493,7 +5608,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.205
@@ -5552,6 +5667,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -5602,7 +5718,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -5619,7 +5736,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.209
@@ -5659,12 +5776,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '454'
+          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '454'
+             AND "ee_accesscontrol"."resource_id" = '99999'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -5724,6 +5841,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -5774,7 +5892,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -5925,7 +6044,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.25
@@ -5984,6 +6103,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -6034,7 +6154,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -6051,7 +6172,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.29
@@ -6091,12 +6212,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '454'
+          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '454'
+             AND "ee_accesscontrol"."resource_id" = '99999'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -6156,6 +6277,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -6206,7 +6328,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -6322,7 +6445,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -6399,6 +6525,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -6462,7 +6589,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -6556,12 +6686,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '454'
+          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '454'
+             AND "ee_accesscontrol"."resource_id" = '99999'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -6654,7 +6784,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.45
@@ -6713,6 +6843,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -6763,7 +6894,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -6780,7 +6912,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.49
@@ -6865,6 +6997,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -6915,7 +7048,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -7033,7 +7167,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -7110,6 +7247,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -7173,7 +7311,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -7195,7 +7336,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.60
@@ -7248,12 +7389,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '454'
+          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '454'
+             AND "ee_accesscontrol"."resource_id" = '99999'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -7346,7 +7487,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.65
@@ -7405,6 +7546,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -7455,7 +7597,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -7472,7 +7615,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.69
@@ -7552,6 +7695,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -7602,7 +7746,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -7722,7 +7867,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -7799,6 +7947,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -7862,7 +8011,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -7909,6 +8061,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -7997,12 +8150,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '454'
+          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '454'
+             AND "ee_accesscontrol"."resource_id" = '99999'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -8095,7 +8248,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.85
@@ -8154,6 +8307,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -8204,7 +8358,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -8221,7 +8376,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.89
@@ -8257,7 +8412,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -8299,6 +8455,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -8349,7 +8506,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -8471,7 +8629,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -8548,6 +8709,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -8611,7 +8773,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",

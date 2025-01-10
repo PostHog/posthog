@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
@@ -38,9 +39,18 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
 
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$session_id as session_id, any(properties) as properties
+                        query: hogql`SELECT 
+                                    $session_id as session_id, 
+                                    any(properties.$geoip_country_code) as $geoip_country_code, 
+                                    any(properties.$browser) as $browser, 
+                                    any(properties.$device_type) as $device_type, 
+                                    any(properties.$os) as $os, 
+                                    any(properties.$os_name) as $os_name,
+                                    argMin(properties.$referring_domain, timestamp) as $referring_domain,
+                                    any(properties.$geoip_subdivision_1_name) as $geoip_subdivision_1_name,
+                                    any(properties.$geoip_city_name) as $geoip_city_name
                                 FROM events
-                                WHERE event IN ['$pageview', '$autocapture']
+                                WHERE event IN ${Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP['events'])}
                                 AND session_id IN ${sessionIds}
                                 -- the timestamp range here is only to avoid querying too much of the events table
                                 -- we don't really care about the absolute value, 
@@ -57,12 +67,21 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                     actions.reportRecordingsListPropertiesFetched(loadTimeMs)
 
                     breakpoint()
-                    return (response.results || []).map(
-                        (x: any): SessionRecordingPropertiesType => ({
+                    return (response.results || []).map((x: any): SessionRecordingPropertiesType => {
+                        return {
                             id: x[0],
-                            properties: JSON.parse(x[1] || '{}'),
-                        })
-                    )
+                            properties: {
+                                $geoip_country_code: x[1],
+                                $browser: x[2],
+                                $device_type: x[3],
+                                $os: x[4],
+                                $os_name: x[5],
+                                $referring_domain: x[6],
+                                $geoip_subdivision_1_name: x[7],
+                                $geoip_city_name: x[8],
+                            },
+                        }
+                    })
                 },
             },
         ],

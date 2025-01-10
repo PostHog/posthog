@@ -10,7 +10,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import {
-    activemodelStateKey,
+    activeModelStateKey,
     codeEditorLogic,
     CodeEditorLogicProps,
     editorModelsStateKey,
@@ -30,6 +30,7 @@ export interface HogQLQueryEditorProps {
     onChange?: (query: string) => void
     embedded?: boolean
     editorFooter?: (hasErrors: boolean, errors: string | null, isValidView: boolean) => JSX.Element
+    queryResponse?: Record<string, any>
 }
 
 let uniqueNode = 0
@@ -60,6 +61,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         key,
         editor,
         monaco,
+        queryResponse: props.queryResponse,
     }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
     const { queryInput, prompt, aiAvailable, promptError, promptLoading, multitab } = useValues(logic)
@@ -188,7 +190,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 setMonacoAndEditor([monaco, editor])
 
                                 const allModelQueries = localStorage.getItem(editorModelsStateKey(codeEditorKey))
-                                const activeModelUri = localStorage.getItem(activemodelStateKey(codeEditorKey))
+                                const activeModelUri = localStorage.getItem(activeModelStateKey(codeEditorKey))
 
                                 if (allModelQueries && multitab) {
                                     // clear existing models

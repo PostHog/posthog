@@ -2,8 +2,8 @@ import datetime as dt
 import json
 import operator
 import os
-import warnings
 import uuid
+import warnings
 
 import psycopg
 import pytest
@@ -17,6 +17,7 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog import constants
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
@@ -29,8 +30,8 @@ from posthog.temporal.batch_exports.redshift_batch_export import (
     RedshiftInsertInputs,
     insert_into_redshift_activity,
     redshift_default_fields,
-    remove_escaped_whitespace_recursive,
 )
+from posthog.temporal.batch_exports.temporary_file import remove_escaped_whitespace_recursive
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
@@ -675,7 +676,7 @@ async def test_redshift_export_workflow(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[RedshiftBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -689,7 +690,7 @@ async def test_redshift_export_workflow(
                     RedshiftBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(seconds=10),
                 )
@@ -756,7 +757,7 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[RedshiftBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -770,7 +771,7 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(
                     RedshiftBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(seconds=20),
                 )
@@ -809,7 +810,7 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[RedshiftBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -823,7 +824,7 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
                     RedshiftBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 

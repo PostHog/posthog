@@ -1,5 +1,6 @@
 import { EntityType, FeatureFlagFilters, InsightType } from '~/types'
 
+import { getNiceTickValues } from './MetricsView/MetricsView'
 import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from './utils'
 
 describe('utils', () => {
@@ -213,5 +214,24 @@ describe('utils', () => {
 
         newFilters = transformFiltersForWinningVariant(currentFilters, 'control')
         expect(newFilters).toEqual(expectedFilters)
+    })
+})
+
+describe('getNiceTickValues', () => {
+    it('generates appropriate tick values for different ranges', () => {
+        // Small values (< 0.1)
+        expect(getNiceTickValues(0.08)).toEqual([-0.1, -0.08, -0.06, -0.04, -0.02, 0, 0.02, 0.04, 0.06, 0.08, 0.1])
+
+        // Medium small values (0.1 - 1)
+        expect(getNiceTickValues(0.45)).toEqual([-0.5, -0.4, -0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5])
+
+        // Values around 1
+        expect(getNiceTickValues(1.2)).toEqual([-1.5, -1.0, -0.5, 0, 0.5, 1.0, 1.5])
+
+        // Values around 5
+        expect(getNiceTickValues(4.7)).toEqual([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5])
+
+        // Larger values
+        expect(getNiceTickValues(8.5)).toEqual([-10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10])
     })
 })

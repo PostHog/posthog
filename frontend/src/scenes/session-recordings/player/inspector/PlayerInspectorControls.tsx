@@ -15,7 +15,7 @@ import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
-import { SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -91,70 +91,66 @@ export function PlayerInspectorControls(): JSX.Element {
     const hasNetworkItems = allItemsByItemType[FilterableInspectorListItemTypes.NETWORK]?.length > 0
 
     return (
-        <div className="bg-bg-3000 border-b">
-            <div className="flex flex-nowrap">
-                <div className="flex flex-1 border-b shrink-0 mr-2 items-center justify-end font-light">
-                    {mode !== SessionRecordingPlayerMode.Sharing && (
-                        <SettingsMenu
-                            items={eventsFilters}
-                            label={capitalizeFirstLetter(FilterableInspectorListItemTypes.EVENTS)}
-                            icon={<IconUnverifiedEvent />}
-                            closeOnClickInside={false}
+        <div className="flex">
+            <SettingsBar border="bottom" className="justify-end">
+                {mode !== SessionRecordingPlayerMode.Sharing && (
+                    <SettingsMenu
+                        items={eventsFilters}
+                        label={capitalizeFirstLetter(FilterableInspectorListItemTypes.EVENTS)}
+                        icon={<IconUnverifiedEvent />}
+                        closeOnClickInside={false}
+                    />
+                )}
+                <SettingsMenu
+                    items={consoleFilters}
+                    label={capitalizeFirstLetter(FilterableInspectorListItemTypes.CONSOLE)}
+                    icon={<IconTerminal />}
+                    isAvailable={hasConsoleItems || !!currentTeam?.capture_console_log_opt_in}
+                    whenUnavailable={{
+                        label: <p className="text-muted text-center">Configure console log capture in settings.</p>,
+                        onClick: () => openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay' }),
+                        icon: <IconGear />,
+                    }}
+                    closeOnClickInside={false}
+                />
+                <SettingsMenu
+                    items={networkFilters}
+                    label={capitalizeFirstLetter(FilterableInspectorListItemTypes.NETWORK)}
+                    icon={<IconDashboard />}
+                    isAvailable={hasNetworkItems || !!currentTeam?.capture_performance_opt_in}
+                    whenUnavailable={{
+                        label: <p className="text-muted text-center">Configure network capture in settings.</p>,
+                        onClick: () => openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay-network' }),
+                        icon: <IconGear />,
+                    }}
+                    closeOnClickInside={false}
+                />
+                {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
+                    mode !== SessionRecordingPlayerMode.Sharing && (
+                        <SettingsToggle
+                            title="Doctor events help diagnose the health of a recording, and are used by PostHog support"
+                            icon={<IconBug />}
+                            label="Doctor"
+                            active={!!miniFiltersByKey['doctor']?.enabled}
+                            onClick={() => setMiniFilter('doctor', !miniFiltersByKey['doctor']?.enabled)}
                         />
                     )}
-                    <SettingsMenu
-                        items={consoleFilters}
-                        label={capitalizeFirstLetter(FilterableInspectorListItemTypes.CONSOLE)}
-                        icon={<IconTerminal />}
-                        isAvailable={hasConsoleItems || !!currentTeam?.capture_console_log_opt_in}
-                        whenUnavailable={{
-                            label: <p className="text-muted text-center">Configure console log capture in settings.</p>,
-                            onClick: () => openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay' }),
-                            icon: <IconGear />,
-                        }}
-                        closeOnClickInside={false}
-                    />
-                    <SettingsMenu
-                        items={networkFilters}
-                        label={capitalizeFirstLetter(FilterableInspectorListItemTypes.NETWORK)}
-                        icon={<IconDashboard />}
-                        isAvailable={hasNetworkItems || !!currentTeam?.capture_performance_opt_in}
-                        whenUnavailable={{
-                            label: <p className="text-muted text-center">Configure network capture in settings.</p>,
-                            onClick: () =>
-                                openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay-network' }),
-                            icon: <IconGear />,
-                        }}
-                        closeOnClickInside={false}
-                    />
-                    {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
-                        mode !== SessionRecordingPlayerMode.Sharing && (
-                            <SettingsToggle
-                                title="Doctor events help diagnose the health of a recording, and are used by PostHog support"
-                                icon={<IconBug />}
-                                label="Doctor"
-                                active={!!miniFiltersByKey['doctor']?.enabled}
-                                onClick={() => setMiniFilter('doctor', !miniFiltersByKey['doctor']?.enabled)}
-                            />
-                        )}
-                    <LemonButton
-                        icon={<IconSearch />}
-                        size="xsmall"
-                        onClick={() => {
-                            const newState = !showSearch
-                            setShowSearch(newState)
-                            if (!newState) {
-                                // clear the search when we're hiding the search bar
-                                setSearchQuery('')
-                            }
-                        }}
-                        status={showSearch ? 'danger' : 'default'}
-                        title="Search"
-                        className="rounded-[0px]"
-                    />
-                </div>
-            </div>
-
+                <LemonButton
+                    icon={<IconSearch />}
+                    size="xsmall"
+                    onClick={() => {
+                        const newState = !showSearch
+                        setShowSearch(newState)
+                        if (!newState) {
+                            // clear the search when we're hiding the search bar
+                            setSearchQuery('')
+                        }
+                    }}
+                    status={showSearch ? 'danger' : 'default'}
+                    title="Search"
+                    className="rounded-[0px]"
+                />
+            </SettingsBar>
             {showSearch && (
                 <div className="flex px-2 py-1">
                     <LemonInput

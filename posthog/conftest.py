@@ -14,6 +14,7 @@ def create_clickhouse_tables(num_tables: int):
         CREATE_DATA_QUERIES,
         CREATE_DICTIONARY_QUERIES,
         CREATE_DISTRIBUTED_TABLE_QUERIES,
+        CREATE_KAFKA_TABLE_QUERIES,
         CREATE_MERGETREE_TABLE_QUERIES,
         CREATE_MV_TABLE_QUERIES,
         CREATE_VIEW_QUERIES,
@@ -28,9 +29,17 @@ def create_clickhouse_tables(num_tables: int):
         + len(CREATE_DICTIONARY_QUERIES)
     )
 
+    # Evaluation tests use Kafka for faster data ingestion.
+    if settings.IN_EVAL_TESTING:
+        total_tables += len(CREATE_KAFKA_TABLE_QUERIES)
+
     # Check if all the tables have already been created. Views, materialized views, and dictionaries also count
     if num_tables == total_tables:
         return
+
+    if settings.IN_EVAL_TESTING:
+        kafka_table_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
+        run_clickhouse_statement_in_parallel(kafka_table_queries)
 
     table_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES))
     run_clickhouse_statement_in_parallel(table_queries)
@@ -62,7 +71,7 @@ def reset_clickhouse_tables():
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
     from posthog.models.error_tracking.sql import TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL
-    from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
+    from posthog.models.event.sql import TRUNCATE_EVENTS_RECENT_TABLE_SQL, TRUNCATE_EVENTS_TABLE_SQL
     from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
     from posthog.models.performance.sql import TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL
     from posthog.models.person.sql import (
@@ -80,6 +89,7 @@ def reset_clickhouse_tables():
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP = [
         TRUNCATE_EVENTS_TABLE_SQL(),
+        TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
         TRUNCATE_PERSON_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
@@ -98,6 +108,18 @@ def reset_clickhouse_tables():
         TRUNCATE_RAW_SESSIONS_TABLE_SQL(),
         TRUNCATE_HEATMAPS_TABLE_SQL(),
     ]
+
+    # Drop created Kafka tables because some tests don't expect it.
+    if settings.IN_EVAL_TESTING:
+        kafka_tables = sync_execute(
+            f"""
+            SELECT name
+            FROM system.tables
+            WHERE database = '{settings.CLICKHOUSE_DATABASE}' AND name LIKE 'kafka_%'
+            """,
+        )
+        # Using `ON CLUSTER` takes x20 more time to drop the tables: https://github.com/ClickHouse/ClickHouse/issues/15473.
+        TABLES_TO_CREATE_DROP += [f"DROP TABLE {table[0]}" for table in kafka_tables]
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)
 

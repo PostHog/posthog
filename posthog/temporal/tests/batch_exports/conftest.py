@@ -5,8 +5,10 @@ import uuid
 import psycopg
 import pytest
 import pytest_asyncio
+import temporalio.worker
 from psycopg import sql
 
+from posthog import constants
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -52,6 +54,7 @@ async def truncate_events(clickhouse_client):
     """
     yield
     await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `sharded_events`")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `events_recent`")
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -146,11 +149,30 @@ async def setup_postgres_test_db(postgres_config):
     await connection.close()
 
 
+@pytest_asyncio.fixture
+async def temporal_worker(temporal_client, workflows, activities):
+    worker = temporalio.worker.Worker(
+        temporal_client,
+        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+        workflows=workflows,
+        activities=activities,
+        workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+    )
+
+    worker_run = asyncio.create_task(worker.run())
+
+    yield worker
+
+    worker_run.cancel()
+    await asyncio.wait([worker_run])
+
+
 @pytest_asyncio.fixture(scope="module", autouse=True)
 async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup):
     from posthog.batch_exports.sql import (
         CREATE_EVENTS_BATCH_EXPORT_VIEW,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_RECENT,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
         CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
@@ -161,6 +183,7 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
         CREATE_EVENTS_BATCH_EXPORT_VIEW,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_RECENT,
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
         CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
     )
@@ -208,14 +231,35 @@ def data_interval_start(request, data_interval_end, interval):
 
 
 @pytest.fixture
-def data_interval_end(interval):
+def data_interval_end(request, interval):
     """Set a test data interval end."""
+    try:
+        return request.param
+    except AttributeError:
+        pass
     return dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
 
 
+@pytest.fixture
+def test_properties(request):
+    """Set test data properties."""
+    try:
+        return request.param
+    except AttributeError:
+        pass
+    return {"$browser": "Chrome", "$os": "Mac OS X"}
+
+
 @pytest_asyncio.fixture
-async def generate_test_data(ateam, clickhouse_client, exclude_events, data_interval_start, data_interval_end):
+async def generate_test_data(
+    ateam, clickhouse_client, exclude_events, data_interval_start, data_interval_end, interval, test_properties
+):
     """Generate test data in ClickHouse."""
+    if interval != "every 5 minutes":
+        table = "sharded_events"
+    else:
+        table = "events_recent"
+
     events_to_export_created, _, _ = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=ateam.pk,
@@ -225,8 +269,9 @@ async def generate_test_data(ateam, clickhouse_client, exclude_events, data_inte
         count_outside_range=10,
         count_other_team=10,
         duplicate=True,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        properties=test_properties,
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+        table=table,
     )
 
     more_events_to_export_created, _, _ = await generate_test_events_in_clickhouse(
@@ -240,6 +285,7 @@ async def generate_test_data(ateam, clickhouse_client, exclude_events, data_inte
         properties=None,
         person_properties=None,
         event_name="test-no-prop-{i}",
+        table=table,
     )
     events_to_export_created.extend(more_events_to_export_created)
 
@@ -254,6 +300,7 @@ async def generate_test_data(ateam, clickhouse_client, exclude_events, data_inte
                 count_outside_range=0,
                 count_other_team=0,
                 event_name=event_name,
+                table=table,
             )
 
     persons, _ = await generate_test_persons_in_clickhouse(

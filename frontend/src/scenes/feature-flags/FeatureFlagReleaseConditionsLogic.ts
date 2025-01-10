@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual, range } from 'lib/utils'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
@@ -16,7 +17,6 @@ import {
     UserBlastRadiusType,
 } from '~/types'
 
-import { teamLogic } from '../teamLogic'
 import type { featureFlagReleaseConditionsLogicType } from './FeatureFlagReleaseConditionsLogicType'
 
 // TODO: Type onChange errors properly
@@ -33,7 +33,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     props({} as FeatureFlagReleaseConditionsLogicProps),
     key(({ id }) => id ?? 'unknown'),
     connect({
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'aggregationLabel']],
+        values: [projectLogic, ['currentProjectId'], groupsModel, ['groupTypes', 'aggregationLabel']],
     }),
     actions({
         setFilters: (filters: FeatureFlagFilters) => ({ filters }),
@@ -156,10 +156,13 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
 
             await breakpoint(1000) // in ms
-            const response = await api.create(`api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`, {
-                condition: { properties: newProperties },
-                group_type_index: values.filters?.aggregation_group_type_index ?? null,
-            })
+            const response = await api.create(
+                `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
+                {
+                    condition: { properties: newProperties },
+                    group_type_index: values.filters?.aggregation_group_type_index ?? null,
+                }
+            )
             actions.setAffectedUsers(index, response.users_affected)
             actions.setTotalUsers(response.total_users)
         },
@@ -189,7 +192,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 } else if (properties.length === 0) {
                     // Request total users for empty condition sets
                     const responsePromise = api.create(
-                        `api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`,
+                        `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
                         {
                             condition: { properties: [] },
                             group_type_index: values.filters?.aggregation_group_type_index ?? null,
@@ -199,7 +202,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     usersAffected.push(responsePromise)
                 } else {
                     const responsePromise = api.create(
-                        `api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`,
+                        `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
                         {
                             condition,
                             group_type_index: values.filters?.aggregation_group_type_index ?? null,

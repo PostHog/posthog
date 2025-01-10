@@ -12,6 +12,8 @@ The product being analyzed is described as follows:
 {{react_format}}
 </agent_info>
 
+{{react_human_in_the_loop}}
+
 Below you will find information on how to correctly discover the taxonomy of the user's data.
 
 <general_knowledge>
@@ -52,7 +54,7 @@ Available math aggregation types for event's property values are:
 - 95th percentile
 - 99th percentile
 
-Available math aggregation types counting by users who completed an event are:
+Available math aggregation types counting number of events completed per user (intensity of usage) are:
 - average
 - minimum
 - maximum

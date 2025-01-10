@@ -1,6 +1,9 @@
 from unittest import TestCase
 from freezegun import freeze_time
 
+from dateutil.relativedelta import relativedelta
+from django.utils.timezone import now
+
 from posthog.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner, search_tokenizer
 from posthog.schema import (
     ErrorTrackingQuery,
@@ -11,6 +14,13 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
 )
+from posthog.models.error_tracking import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueAssignment,
+    update_error_tracking_issue_fingerprints,
+    override_error_tracking_issue_fingerprint,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -19,6 +29,7 @@ from posthog.test.base import (
     _create_event,
     flush_persons_and_events,
 )
+
 
 SAMPLE_STACK_TRACE = [
     {
@@ -182,6 +193,33 @@ SAMPLE_STACK_TRACE = [
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     distinct_id_one = "user_1"
     distinct_id_two = "user_2"
+    issue_id_one = "01936e7f-d7ff-7314-b2d4-7627981e34f0"
+    issue_id_two = "01936e80-5e69-7e70-b837-871f5cdad28b"
+    issue_id_three = "01936e80-aa51-746f-aec4-cdf16a5c5332"
+    issue_three_fingerprint = "issue_three_fingerprint"
+
+    def override_fingerprint(self, fingerprint, issue_id, version=1):
+        update_error_tracking_issue_fingerprints(team_id=self.team.pk, issue_id=issue_id, fingerprints=[fingerprint])
+        override_error_tracking_issue_fingerprint(
+            team_id=self.team.pk, fingerprint=fingerprint, issue_id=issue_id, version=version
+        )
+
+    def create_events_and_issue(self, issue_id, fingerprint, distinct_ids, timestamp=None, exception_list=None):
+        issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team)
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+
+        event_properties = {"$exception_issue_id": issue_id, "$exception_fingerprint": fingerprint}
+        if exception_list:
+            event_properties["$exception_list"] = exception_list
+
+        for distinct_id in distinct_ids:
+            _create_event(
+                distinct_id=distinct_id,
+                event="$exception",
+                team=self.team,
+                properties=event_properties,
+                timestamp=timestamp,
+            )
 
     def setUp(self):
         super().setUp()
@@ -202,43 +240,23 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 is_identified=True,
             )
 
-            _create_event(
-                distinct_id=self.distinct_id_one,
-                event="$exception",
-                team=self.team,
-                properties={
-                    "$exception_fingerprint": ["SyntaxError"],
-                    "$exception_list": [
-                        {
-                            "type": "SyntaxError",
-                            "value": "this is the same error message",
-                        }
-                    ],
-                },
+            self.issue_one = self.create_events_and_issue(
+                issue_id=self.issue_id_one,
+                fingerprint="issue_one_fingerprint",
+                distinct_ids=[self.distinct_id_one, self.distinct_id_two],
+                timestamp=now() - relativedelta(hours=3),
             )
-            _create_event(
-                distinct_id=self.distinct_id_one,
-                event="$exception",
-                team=self.team,
-                properties={"$exception_fingerprint": ["TypeError"], "$exception_list": [{"type": "TypeError"}]},
+            self.create_events_and_issue(
+                issue_id=self.issue_id_two,
+                fingerprint="issue_two_fingerprint",
+                distinct_ids=[self.distinct_id_one],
+                timestamp=now() - relativedelta(hours=2),
             )
-            _create_event(
-                distinct_id=self.distinct_id_two,
-                event="$exception",
-                team=self.team,
-                properties={
-                    "$exception_fingerprint": ["SyntaxError"],
-                    "$exception_list": [{"type": "SyntaxError", "value": "this is the same error message"}],
-                },
-            )
-            _create_event(
-                distinct_id=self.distinct_id_two,
-                event="$exception",
-                team=self.team,
-                properties={
-                    "$exception_fingerprint": ["custom_fingerprint"],
-                    "$exception_list": [{"type": "SyntaxError", "value": "this is the same error message"}],
-                },
+            self.create_events_and_issue(
+                issue_id=self.issue_id_three,
+                fingerprint=self.issue_three_fingerprint,
+                distinct_ids=[self.distinct_id_two],
+                timestamp=now() - relativedelta(hours=1),
             )
 
         flush_persons_and_events()
@@ -252,7 +270,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                fingerprint=None,
+                issueId=None,
                 dateRange=DateRange(),
                 filterTestAccounts=True,
             ),
@@ -267,9 +285,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "users",
                 "last_seen",
                 "first_seen",
-                "description",
-                "exception_type",
-                "fingerprint",
+                "earliest",
+                "id",
             ],
         )
 
@@ -277,7 +294,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                fingerprint=["SyntaxError"],
+                issueId=self.issue_id_one,
                 dateRange=DateRange(),
                 filterTestAccounts=True,
             ),
@@ -292,40 +309,48 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "users",
                 "last_seen",
                 "first_seen",
-                "description",
-                "exception_type",
+                "earliest",
+                "id",
             ],
         )
 
     @snapshot_clickhouse_queries
+    def test_issue_grouping(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                issueId=self.issue_id_one,
+                dateRange=DateRange(),
+            ),
+        )
+
+        results = self._calculate(runner)["results"]
+        # returns a single group with multiple errors
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], self.issue_id_one)
+        self.assertEqual(results[0]["occurrences"], 2)
+
+    @snapshot_clickhouse_queries
     def test_search_query(self):
         with freeze_time("2022-01-10 12:11:00"):
-            _create_event(
-                distinct_id=self.distinct_id_one,
-                event="$exception",
-                team=self.team,
-                properties={
-                    "$exception_fingerprint": ["DatabaseNotFoundX"],
-                    "$exception_list": [{"type": "DatabaseNotFoundX", "value": "this is the same error message"}],
-                },
+            self.create_events_and_issue(
+                issue_id="01936e81-b0ce-7b56-8497-791e505b0d0c",
+                fingerprint="fingerprint_DatabaseNotFoundX",
+                distinct_ids=[self.distinct_id_one],
+                exception_list=[{"type": "DatabaseNotFoundX", "value": "this is the same error message"}],
             )
-            _create_event(
-                distinct_id=self.distinct_id_one,
-                event="$exception",
-                team=self.team,
-                properties={
-                    "$exception_fingerprint": ["DatabaseNotFoundY"],
-                    "$exception_list": [{"type": "DatabaseNotFoundY", "value": "this is the same error message"}],
-                },
+            self.create_events_and_issue(
+                issue_id="01936e81-f5ce-79b1-99f1-f0e9675fcfef",
+                fingerprint="fingerprint_DatabaseNotFoundY",
+                distinct_ids=[self.distinct_id_one],
+                exception_list=[{"type": "DatabaseNotFoundY", "value": "this is the same error message"}],
             )
-            _create_event(
-                distinct_id=self.distinct_id_two,
-                event="$exception",
-                team=self.team,
-                properties={
-                    "$exception_fingerprint": ["xyz"],
-                    "$exception_list": [{"type": "xyz", "value": "this is the same error message"}],
-                },
+            self.create_events_and_issue(
+                issue_id="01936e82-241e-7e27-b47d-6659c54eb0be",
+                fingerprint="fingerprint_xyz",
+                distinct_ids=[self.distinct_id_two],
+                exception_list=[{"type": "xyz", "value": "this is the same error message"}],
             )
             flush_persons_and_events()
 
@@ -333,22 +358,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                fingerprint=None,
+                issueId=None,
                 dateRange=DateRange(date_from="2022-01-10", date_to="2022-01-11"),
                 filterTestAccounts=True,
                 searchQuery="databasenot",
             ),
         )
 
-        results = sorted(self._calculate(runner)["results"], key=lambda x: x["fingerprint"])
+        results = sorted(self._calculate(runner)["results"], key=lambda x: x["id"])
 
         self.assertEqual(len(results), 2)
-        self.assertEqual(results[0]["fingerprint"], ["DatabaseNotFoundX"])
+        self.assertEqual(results[0]["id"], "01936e81-b0ce-7b56-8497-791e505b0d0c")
         self.assertEqual(results[0]["occurrences"], 1)
         self.assertEqual(results[0]["sessions"], 1)
         self.assertEqual(results[0]["users"], 1)
 
-        self.assertEqual(results[1]["fingerprint"], ["DatabaseNotFoundY"])
+        self.assertEqual(results[1]["id"], "01936e81-f5ce-79b1-99f1-f0e9675fcfef")
         self.assertEqual(results[1]["occurrences"], 1)
         self.assertEqual(results[1]["sessions"], 1)
         self.assertEqual(results[1]["users"], 1)
@@ -358,7 +383,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                fingerprint=None,
+                issueId=None,
                 dateRange=DateRange(),
                 filterTestAccounts=False,
                 searchQuery="probs not found",
@@ -372,36 +397,30 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_search_query_with_multiple_search_items(self):
         with freeze_time("2022-01-10 12:11:00"):
-            _create_event(
-                distinct_id=self.distinct_id_one,
-                event="$exception",
-                team=self.team,
-                properties={
-                    "$exception_fingerprint": ["DatabaseNotFoundX"],
-                    "$exception_list": [
-                        {
-                            "type": "DatabaseNotFoundX",
-                            "value": "this is the same error message",
-                            "stack_trace": {"frames": SAMPLE_STACK_TRACE},
-                        }
-                    ],
-                },
+            self.create_events_and_issue(
+                issue_id="01936e81-b0ce-7b56-8497-791e505b0d0c",
+                fingerprint="fingerprint_DatabaseNotFoundX",
+                distinct_ids=[self.distinct_id_one],
+                exception_list=[
+                    {
+                        "type": "DatabaseNotFoundX",
+                        "value": "this is the same error message",
+                        "stack_trace": {"frames": SAMPLE_STACK_TRACE},
+                    }
+                ],
             )
 
-            _create_event(
-                distinct_id=self.distinct_id_two,
-                event="$exception",
-                team=self.team,
-                properties={
-                    "$exception_fingerprint": ["DatabaseNotFoundY"],
-                    "$exception_list": [
-                        {
-                            "type": "DatabaseNotFoundY",
-                            "value": "this is the same error message",
-                            "stack_trace": {"frames": SAMPLE_STACK_TRACE},
-                        }
-                    ],
-                },
+            self.create_events_and_issue(
+                issue_id="01936e81-f5ce-79b1-99f1-f0e9675fcfef",
+                fingerprint="fingerprint_DatabaseNotFoundY",
+                distinct_ids=[self.distinct_id_two],
+                exception_list=[
+                    {
+                        "type": "DatabaseNotFoundY",
+                        "value": "this is the same error message",
+                        "stack_trace": {"frames": SAMPLE_STACK_TRACE},
+                    }
+                ],
             )
             flush_persons_and_events()
 
@@ -409,7 +428,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                fingerprint=None,
+                issueId=None,
                 dateRange=DateRange(),
                 filterTestAccounts=True,
                 searchQuery="databasenotfoundX clickhouse/client/execute.py",
@@ -419,133 +438,10 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._calculate(runner)["results"]
 
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["fingerprint"], ["DatabaseNotFoundX"])
+        self.assertEqual(results[0]["id"], "01936e81-b0ce-7b56-8497-791e505b0d0c")
         self.assertEqual(results[0]["occurrences"], 1)
         self.assertEqual(results[0]["sessions"], 1)
         self.assertEqual(results[0]["users"], 1)
-
-    @snapshot_clickhouse_queries
-    def test_search_query_with_null_characters(self):
-        fingerprint_with_null_bytes = [
-            "SyntaxError",
-            "Cannot use 'in' operator to search for 'wireframes' in \x1f\x8b\x08\x00\x94\x0cýf\x00\x03ì½é\x96\"¹\x920ø*Lö¹SY\x1dA\x00Î\x9e÷Ô\x9df\r\x88\x00Ø",
-        ]
-        exception_type_with_null_bytes = "SyntaxError\x00"
-        exception_message_with_null_bytes = "this is the same error message\x00"
-        exception_stack_trace_with_null_bytes = {
-            "frames": [
-                {
-                    "filename": "file.py\x00",
-                    "lineno": 1,
-                    "colno": 1,
-                    "function": "function\x00",
-                    "extra": "Cannot use 'in' operator to search for 'wireframes' in \x1f\x8b\x08\x00\x94\x0cýf\x00\x03ì½é\x96\"¹\x920ø*Lö¹SY\x1dA\x00Î\x9e÷Ô\x9df\r\x88\x00Ø",
-                }
-            ]
-        }
-        with freeze_time("2021-01-10 12:11:00"):
-            _create_event(
-                distinct_id=self.distinct_id_one,
-                event="$exception",
-                team=self.team,
-                properties={
-                    "$exception_fingerprint": fingerprint_with_null_bytes,
-                    "$exception_list": [
-                        {
-                            "type": exception_type_with_null_bytes,
-                            "value": exception_message_with_null_bytes,
-                            "stack_trace": exception_stack_trace_with_null_bytes,
-                        }
-                    ],
-                },
-            )
-        flush_persons_and_events()
-
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                searchQuery="wireframe",
-                dateRange=DateRange(date_from="2021-01-10", date_to="2021-01-11"),
-            ),
-        )
-
-        results = self._calculate(runner)["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["fingerprint"], fingerprint_with_null_bytes)
-        self.assertEqual(results[0]["occurrences"], 1)
-
-        # TODO: Searching for null characters doesn't work, probs because of how clickhouse handles this. Should it work???
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                searchQuery="f\x00\x03ì½é",
-                dateRange=DateRange(date_from="2021-01-10", date_to="2021-01-11"),
-            ),
-        )
-        results = self._calculate(runner)["results"]
-        self.assertEqual(len(results), 0)
-
-    @snapshot_clickhouse_queries
-    def test_fingerprints(self):
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                fingerprint=["SyntaxError"],
-                dateRange=DateRange(),
-            ),
-        )
-
-        results = self._calculate(runner)["results"]
-        # returns a single group with multiple errors
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["fingerprint"], ["SyntaxError"])
-        self.assertEqual(results[0]["occurrences"], 2)
-
-    @snapshot_clickhouse_queries
-    def test_fingerprints_with_null_characters(self):
-        fingerprint_with_null_bytes = [
-            "SyntaxError",
-            "Cannot use 'in' operator to search for 'wireframes' in \x1f\x8b\x08\x00\x94\x0cýf\x00\x03ì½é\x96\"\x00Ø",
-        ]
-        exception_type_with_null_bytes = "SyntaxError\x00"
-        exception_message_with_null_bytes = "this is the same error message\x00"
-        exception_stack_trace_with_null_bytes = {
-            "frames": [{"filename": "file.py\x00", "lineno": 1, "colno": 1, "function": "function\x00"}]
-        }
-        with freeze_time("2020-01-10 12:11:00"):
-            _create_event(
-                distinct_id=self.distinct_id_one,
-                event="$exception",
-                team=self.team,
-                properties={
-                    "$exception_fingerprint": fingerprint_with_null_bytes,
-                    "$exception_list": [
-                        {
-                            "type": exception_type_with_null_bytes,
-                            "value": exception_message_with_null_bytes,
-                            "stack_trace": exception_stack_trace_with_null_bytes,
-                        }
-                    ],
-                },
-            )
-        flush_persons_and_events()
-
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                fingerprint=fingerprint_with_null_bytes,
-                dateRange=DateRange(),
-            ),
-        )
-
-        results = self._calculate(runner)["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["fingerprint"], fingerprint_with_null_bytes)
-        self.assertEqual(results[0]["occurrences"], 1)
 
     def test_only_returns_exception_events(self):
         with freeze_time("2020-01-10 12:11:00"):
@@ -553,9 +449,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 distinct_id=self.distinct_id_one,
                 event="$pageview",
                 team=self.team,
-                properties={
-                    "$exception_fingerprint": ["SyntaxError"],
-                },
+                properties={"$exception_issue_id": self.issue_id_one},
             )
         flush_persons_and_events()
 
@@ -597,86 +491,65 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # two errors exist for person with distinct_id_two
         self.assertEqual(len(results), 2)
 
-    # def test_merges_and_defaults_groups(self):
-    #     ErrorTrackingGroup.objects.create(
-    #         team=self.team,
-    #         fingerprint=["SyntaxError"],
-    #         merged_fingerprints=[["custom_fingerprint"]],
-    #         assignee=self.user,
-    #     )
+    @snapshot_clickhouse_queries
+    def test_ordering(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(kind="ErrorTrackingQuery", dateRange=DateRange(), orderBy="last_seen"),
+        )
 
-    #     runner = ErrorTrackingQueryRunner(
-    #         team=self.team,
-    #         query=ErrorTrackingQuery(
-    #             kind="ErrorTrackingQuery", fingerprint=None, dateRange=DateRange(), order="occurrences"
-    #         ),
-    #     )
+        results = self._calculate(runner)["results"]
+        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
 
-    #     results = self._calculate(runner)["results"]
-    #     self.assertEqual(
-    #         results,
-    #         [
-    #             {
-    #                 "assignee": self.user.id,
-    #                 "description": "this is the same error message",
-    #                 "exception_type": "SyntaxError",
-    #                 "fingerprint": ["SyntaxError"],
-    #                 "first_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
-    #                 "last_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
-    #                 "merged_fingerprints": [["custom_fingerprint"]],
-    #                 # count is (2 x SyntaxError) + (1 x custom_fingerprint)
-    #                 "occurrences": 3,
-    #                 "sessions": 1,
-    #                 "users": 2,
-    #                 "volume": None,
-    #                 "status": ErrorTrackingGroup.Status.ACTIVE,
-    #             },
-    #             {
-    #                 "assignee": None,
-    #                 "description": None,
-    #                 "exception_type": "TypeError",
-    #                 "fingerprint": ["TypeError"],
-    #                 "first_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
-    #                 "last_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
-    #                 "merged_fingerprints": [],
-    #                 "occurrences": 1,
-    #                 "sessions": 1,
-    #                 "users": 1,
-    #                 "volume": None,
-    #                 "status": ErrorTrackingGroup.Status.ACTIVE,
-    #             },
-    #         ],
-    #     )
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(kind="ErrorTrackingQuery", dateRange=DateRange(), orderBy="first_seen"),
+        )
 
-    # @snapshot_clickhouse_queries
-    # def test_assignee_groups(self):
-    #     ErrorTrackingGroup.objects.create(
-    #         team=self.team,
-    #         fingerprint=["SyntaxError"],
-    #         assignee=self.user,
-    #     )
-    #     ErrorTrackingGroup.objects.create(
-    #         team=self.team,
-    #         fingerprint=["custom_fingerprint"],
-    #         assignee=self.user,
-    #     )
-    #     ErrorTrackingGroup.objects.create(
-    #         team=self.team,
-    #         fingerprint=["TypeError"],
-    #     )
+        results = self._calculate(runner)["results"]
+        self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
 
-    #     runner = ErrorTrackingQueryRunner(
-    #         team=self.team,
-    #         query=ErrorTrackingQuery(
-    #             kind="ErrorTrackingQuery",
-    #             dateRange=DateRange(),
-    #             assignee=self.user.pk,
-    #         ),
-    #     )
+    def test_overrides_aggregation(self):
+        self.override_fingerprint(self.issue_three_fingerprint, self.issue_id_one)
 
-    #     results = self._calculate(runner)["results"]
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(kind="ErrorTrackingQuery", dateRange=DateRange(), orderBy="occurrences"),
+        )
 
-    #     self.assertEqual(sorted([x["fingerprint"] for x in results]), [["SyntaxError"], ["custom_fingerprint"]])
+        results = self._calculate(runner)["results"]
+
+        self.assertEqual(len(results), 2)
+
+        # count is (2 x issue_one) + (1 x issue_three)
+        self.assertEqual(results[0]["id"], self.issue_id_one)
+        self.assertEqual(results[0]["occurrences"], 3)
+
+        self.assertEqual(results[1]["id"], self.issue_id_two)
+        self.assertEqual(results[1]["occurrences"], 1)
+
+    @snapshot_clickhouse_queries
+    def test_assignee_groups(self):
+        issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
+        self.create_events_and_issue(
+            issue_id=issue_id,
+            fingerprint="assigned_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+        )
+        flush_persons_and_events()
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user)
+
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(),
+                assignee=self.user.pk,
+            ),
+        )
+
+        results = self._calculate(runner)["results"]
+        self.assertEqual([x["id"] for x in results], [issue_id])
 
 
 class TestSearchTokenizer(TestCase):

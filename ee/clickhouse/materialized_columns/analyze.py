@@ -8,6 +8,7 @@ import structlog
 
 from ee.clickhouse.materialized_columns.columns import (
     DEFAULT_TABLE_COLUMN,
+    MaterializedColumn,
     backfill_materialized_columns,
     get_materialized_columns,
     materialize,
@@ -28,6 +29,7 @@ from posthog.models.person.sql import (
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team
+from posthog.settings import CLICKHOUSE_CLUSTER
 
 Suggestion = tuple[TableWithProperties, TableColumn, PropertyName]
 
@@ -129,7 +131,7 @@ SELECT
     --formatReadableSize(avg(read_bytes)),
     --formatReadableSize(max(read_bytes))
 FROM
-    clusterAllReplicas(posthog, system, query_log)
+    clusterAllReplicas({cluster}, system, query_log)
 WHERE
     query_start_time > now() - toIntervalHour({since})
     and query LIKE '%JSONExtract%'
@@ -157,6 +159,7 @@ LIMIT 100 -- Make sure we don't add 100s of columns in one run
             since=since_hours_ago,
             min_query_time=min_query_time,
             team_id_filter=f"and JSONExtractInt(log_comment, 'team_id') = {team_id}" if team_id else "",
+            cluster=CLICKHOUSE_CLUSTER,
         ),
     )
 
@@ -164,30 +167,31 @@ LIMIT 100 -- Make sure we don't add 100s of columns in one run
 
 
 def materialize_properties_task(
-    columns_to_materialize: Optional[list[Suggestion]] = None,
+    properties_to_materialize: Optional[list[Suggestion]] = None,
     time_to_analyze_hours: int = MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     maximum: int = MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     min_query_time: int = MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
     backfill_period_days: int = MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     dry_run: bool = False,
     team_id_to_analyze: Optional[int] = None,
+    is_nullable: bool = False,
 ) -> None:
     """
     Creates materialized columns for event and person properties based off of slow queries
     """
 
-    if columns_to_materialize is None:
-        columns_to_materialize = _analyze(time_to_analyze_hours, min_query_time, team_id_to_analyze)
+    if properties_to_materialize is None:
+        properties_to_materialize = _analyze(time_to_analyze_hours, min_query_time, team_id_to_analyze)
 
-    columns_by_table: dict[TableWithProperties, list[tuple[TableColumn, PropertyName]]] = defaultdict(list)
-    for table, table_column, property_name in columns_to_materialize:
-        columns_by_table[table].append((table_column, property_name))
+    properties_by_table: dict[TableWithProperties, list[tuple[TableColumn, PropertyName]]] = defaultdict(list)
+    for table, table_column, property_name in properties_to_materialize:
+        properties_by_table[table].append((table_column, property_name))
 
     result: list[Suggestion] = []
-    for table, columns in columns_by_table.items():
-        existing_materialized_columns = get_materialized_columns(table)
-        for table_column, property_name in columns:
-            if (property_name, table_column) not in existing_materialized_columns:
+    for table, properties in properties_by_table.items():
+        existing_materialized_properties = get_materialized_columns(table).keys()
+        for table_column, property_name in properties:
+            if (property_name, table_column) not in existing_materialized_properties:
                 result.append((table, table_column, property_name))
 
     if len(result) > 0:
@@ -195,18 +199,15 @@ def materialize_properties_task(
     else:
         logger.info("Found no columns to materialize.")
 
-    properties: dict[TableWithProperties, list[tuple[PropertyName, TableColumn]]] = {
-        "events": [],
-        "person": [],
-    }
+    materialized_columns: dict[TableWithProperties, list[MaterializedColumn]] = defaultdict(list)
     for table, table_column, property_name in result[:maximum]:
         logger.info(f"Materializing column. table={table}, property_name={property_name}")
-
         if not dry_run:
-            materialize(table, property_name, table_column=table_column)
-        properties[table].append((property_name, table_column))
+            materialized_columns[table].append(
+                materialize(table, property_name, table_column=table_column, is_nullable=is_nullable)
+            )
 
     if backfill_period_days > 0 and not dry_run:
         logger.info(f"Starting backfill for new materialized columns. period_days={backfill_period_days}")
-        backfill_materialized_columns("events", properties["events"], timedelta(days=backfill_period_days))
-        backfill_materialized_columns("person", properties["person"], timedelta(days=backfill_period_days))
+        for table, columns in materialized_columns.items():
+            backfill_materialized_columns(table, columns, timedelta(days=backfill_period_days))

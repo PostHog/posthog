@@ -1,6 +1,7 @@
 use axum::async_trait;
 use chrono::{DateTime, Utc};
 
+use sha2::{Digest, Sha512};
 use sqlx::PgPool;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -9,7 +10,8 @@ use crate::{
     error::{Error, FrameError, UnhandledError},
     metric_consts::{
         SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED, SAVE_SYMBOL_SET,
-        SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
+        SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES, SYMBOL_SET_FETCH_RETRY,
+        SYMBOL_SET_SAVED,
     },
 };
 
@@ -35,6 +37,7 @@ pub struct SymbolSetRecord {
     pub storage_ptr: Option<String>,
     pub failure_reason: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub content_hash: Option<String>,
 }
 
 // This is the "intermediate" symbol set data. Rather than a simple `Vec<u8>`, the saving layer
@@ -75,6 +78,8 @@ impl<F> Saving<F> {
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "true");
         // Generate a new opaque key, appending our prefix.
         let key = self.add_prefix(Uuid::now_v7().to_string());
+        let mut content_hasher = Sha512::new();
+        content_hasher.update(&data);
 
         let record = SymbolSetRecord {
             id: Uuid::now_v7(),
@@ -83,6 +88,7 @@ impl<F> Saving<F> {
             storage_ptr: Some(key.clone()),
             failure_reason: None,
             created_at: Utc::now(),
+            content_hash: Some(format!("{:x}", content_hasher.finalize())),
         };
 
         self.s3_client.put(&self.bucket, &key, data).await?;
@@ -106,6 +112,7 @@ impl<F> Saving<F> {
             storage_ptr: None,
             failure_reason: Some(serde_json::to_string(&reason)?),
             created_at: Utc::now(),
+            content_hash: None,
         }
         .save(&self.pool)
         .await?;
@@ -130,9 +137,12 @@ where
     async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Error> {
         let set_ref = r.to_string();
         info!("Fetching symbol set data for {}", set_ref);
+        metrics::counter!(SYMBOL_SET_DB_FETCHES).increment(1);
+
         if let Some(record) = SymbolSetRecord::load(&self.pool, team_id, &set_ref).await? {
+            metrics::counter!(SYMBOL_SET_DB_HITS).increment(1);
             if let Some(storage_ptr) = record.storage_ptr {
-                info!("Found symbol set data for {}", set_ref);
+                info!("Found s3 saved symbol set data for {}", set_ref);
                 let data = self.s3_client.get(&self.bucket, &storage_ptr).await?;
                 metrics::counter!(SAVED_SYMBOL_SET_LOADED).increment(1);
                 return Ok(Saveable {
@@ -164,6 +174,8 @@ where
             // We last tried to get the symbol set more than a day ago, so we should try again
             metrics::counter!(SYMBOL_SET_FETCH_RETRY).increment(1);
         }
+
+        metrics::counter!(SYMBOL_SET_DB_MISSES).increment(1);
 
         match self.inner.fetch(team_id, r).await {
             // NOTE: We don't save the data here, because we want to save it only after parsing
@@ -227,7 +239,7 @@ impl SymbolSetRecord {
     {
         let record = sqlx::query_as!(
             SymbolSetRecord,
-            r#"SELECT id, team_id, ref as set_ref, storage_ptr, created_at, failure_reason
+            r#"SELECT id, team_id, ref as set_ref, storage_ptr, created_at, failure_reason, content_hash
             FROM posthog_errortrackingsymbolset
             WHERE team_id = $1 AND ref = $2"#,
             team_id,
@@ -244,15 +256,16 @@ impl SymbolSetRecord {
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         sqlx::query!(
-            r#"INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (team_id, ref) DO UPDATE SET storage_ptr = $4"#,
+            r#"INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (team_id, ref) DO UPDATE SET storage_ptr = $4, content_hash = $7"#,
             self.id,
             self.team_id,
             self.set_ref,
             self.storage_ptr,
             self.failure_reason,
-            self.created_at
+            self.created_at,
+            self.content_hash
         )
         .execute(e)
         .await?;

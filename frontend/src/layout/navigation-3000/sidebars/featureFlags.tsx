@@ -2,14 +2,15 @@ import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -35,8 +36,8 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
         values: [
             featureFlagsLogic,
             ['featureFlags', 'featureFlagsLoading'],
-            teamLogic,
-            ['currentTeamId'],
+            projectLogic,
+            ['currentProjectId'],
             sceneLogic,
             ['activeScene', 'sceneParams'],
             groupsModel,
@@ -46,8 +47,8 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
     }),
     selectors(({ actions }) => ({
         contents: [
-            (s) => [s.relevantFeatureFlags, s.featureFlagsLoading, s.currentTeamId, s.aggregationLabel],
-            (relevantFeatureFlags, featureFlagsLoading, currentTeamId, aggregationLabel) => [
+            (s) => [s.relevantFeatureFlags, s.featureFlagsLoading, s.currentProjectId, s.aggregationLabel],
+            (relevantFeatureFlags, featureFlagsLoading, currentProjectId, aggregationLabel) => [
                 {
                     key: 'feature-flags',
                     noun: 'feature flag',
@@ -147,11 +148,13 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                             label: 'Delete feature flag',
                                             onClick: () => {
                                                 void deleteWithUndo({
-                                                    endpoint: `projects/${currentTeamId}/feature_flags`,
+                                                    endpoint: `projects/${currentProjectId}/feature_flags`,
                                                     object: { name: featureFlag.key, id: featureFlag.id },
                                                     callback: () => {
                                                         actions.loadFeatureFlags()
                                                     },
+                                                }).catch((e: any) => {
+                                                    lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
                                                 })
                                             },
                                             disabledReason: !featureFlag.can_edit

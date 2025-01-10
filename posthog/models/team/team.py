@@ -177,6 +177,12 @@ class WeekStartDay(models.IntegerChoices):
         return "3" if self == WeekStartDay.MONDAY else "0"
 
 
+class CookielessServerHashMode(models.IntegerChoices):
+    DISABLED = 0, "Disabled"
+    STATELESS = 1, "Stateless"
+    STATEFUL = 2, "Stateful"
+
+
 class Team(UUIDClassicModel):
     """Team means "environment" (historically it meant "project", but now we have the Project model for that)."""
 
@@ -276,6 +282,10 @@ class Team(UUIDClassicModel):
     person_display_name_properties: ArrayField = ArrayField(models.CharField(max_length=400), null=True, blank=True)
     live_events_columns: ArrayField = ArrayField(models.TextField(), null=True, blank=True)
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
+    human_friendly_comparison_periods = models.BooleanField(default=False, null=True, blank=True)
+    cookieless_server_hash_mode = models.SmallIntegerField(
+        default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
+    )
 
     primary_dashboard = models.ForeignKey(
         "posthog.Dashboard",
@@ -284,6 +294,8 @@ class Team(UUIDClassicModel):
         related_name="primary_dashboard_teams",
         blank=True,
     )  # Dashboard shown on project homepage
+
+    default_data_theme = models.IntegerField(null=True, blank=True)
 
     # Generic field for storing any team-specific context that is more temporary in nature and thus
     # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
@@ -519,7 +531,7 @@ class Team(UUIDClassicModel):
             return ", ".join(self.app_urls)
         return str(self.pk)
 
-    __repr__ = sane_repr("uuid", "name", "api_token")
+    __repr__ = sane_repr("id", "uuid", "project_id", "name", "api_token")
 
 
 @mutable_receiver(post_save, sender=Team)

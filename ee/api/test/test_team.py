@@ -184,61 +184,6 @@ def team_enterprise_api_test_factory():  # type: ignore
 
         # Updating projects
 
-        def test_rename_team_as_org_member_allowed(self):
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-
-            response = self.client.patch(f"/api/environments/@current/", {"name": "Erinaceus europaeus"})
-            self.team.refresh_from_db()
-
-            self.assertEqual(response.status_code, HTTP_200_OK)
-            self.assertEqual(self.team.name, "Erinaceus europaeus")
-
-        def test_rename_private_team_as_org_member_forbidden(self):
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-            self.team.access_control = True
-            self.team.save()
-
-            response = self.client.patch(f"/api/environments/@current/", {"name": "Acherontia atropos"})
-            self.team.refresh_from_db()
-
-            self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
-            self.assertEqual(self.team.name, "Default project")
-
-        def test_rename_private_team_current_as_org_outsider_forbidden(self):
-            self.organization_membership.delete()
-
-            response = self.client.patch(f"/api/environments/@current/", {"name": "Acherontia atropos"})
-            self.team.refresh_from_db()
-
-            self.assertEqual(response.status_code, HTTP_404_NOT_FOUND)
-
-        def test_rename_private_team_id_as_org_outsider_forbidden(self):
-            self.organization_membership.delete()
-
-            response = self.client.patch(f"/api/environments/{self.team.id}/", {"name": "Acherontia atropos"})
-            self.team.refresh_from_db()
-
-            self.assertEqual(response.status_code, HTTP_404_NOT_FOUND)
-
-        def test_rename_private_team_as_org_member_and_team_member_allowed(self):
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-            self.team.access_control = True
-            self.team.save()
-            ExplicitTeamMembership.objects.create(
-                team=self.team,
-                parent_membership=self.organization_membership,
-                level=ExplicitTeamMembership.Level.MEMBER,
-            )
-
-            response = self.client.patch(f"/api/environments/@current/", {"name": "Acherontia atropos"})
-            self.team.refresh_from_db()
-
-            self.assertEqual(response.status_code, HTTP_200_OK)
-            self.assertEqual(self.team.name, "Acherontia atropos")
-
         def test_enable_access_control_as_org_member_forbidden(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
@@ -607,6 +552,61 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
             response.json(),
             self.not_found_response("Organization not found."),
         )
+
+    def test_rename_team_as_org_member_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.patch(f"/api/environments/@current/", {"name": "Erinaceus europaeus"})
+        self.team.refresh_from_db()
+
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        self.assertEqual(self.team.name, "Erinaceus europaeus")
+
+    def test_rename_private_team_as_org_member_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.team.access_control = True
+        self.team.save()
+
+        response = self.client.patch(f"/api/environments/@current/", {"name": "Acherontia atropos"})
+        self.team.refresh_from_db()
+
+        self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
+        self.assertEqual(self.team.name, "Default project")
+
+    def test_rename_private_team_current_as_org_outsider_forbidden(self):
+        self.organization_membership.delete()
+
+        response = self.client.patch(f"/api/environments/@current/", {"name": "Acherontia atropos"})
+        self.team.refresh_from_db()
+
+        self.assertEqual(response.status_code, HTTP_404_NOT_FOUND)
+
+    def test_rename_private_team_id_as_org_outsider_forbidden(self):
+        self.organization_membership.delete()
+
+        response = self.client.patch(f"/api/environments/{self.team.id}/", {"name": "Acherontia atropos"})
+        self.team.refresh_from_db()
+
+        self.assertEqual(response.status_code, HTTP_404_NOT_FOUND)
+
+    def test_rename_private_team_as_org_member_and_team_member_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.team.access_control = True
+        self.team.save()
+        ExplicitTeamMembership.objects.create(
+            team=self.team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.MEMBER,
+        )
+
+        response = self.client.patch(f"/api/environments/@current/", {"name": "Acherontia atropos"})
+        self.team.refresh_from_db()
+
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        self.assertEqual(self.team.name, "Acherontia atropos")
 
     def test_list_teams_restricted_ones_hidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

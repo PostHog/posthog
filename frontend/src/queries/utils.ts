@@ -13,6 +13,7 @@ import {
     DataVisualizationNode,
     DataWarehouseNode,
     DateRange,
+    ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
@@ -32,6 +33,7 @@ import {
     PersonsNode,
     QuerySchema,
     QueryStatusResponse,
+    ResultCustomizationBy,
     RetentionQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
@@ -40,7 +42,6 @@ import {
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTopClicksQuery,
 } from '~/queries/schema'
 import { ChartDisplayType, IntervalType } from '~/types'
 
@@ -133,10 +134,6 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
     return node?.kind === NodeKind.WebExternalClicksTableQuery
 }
 
-export function isWebTopClicksQuery(node?: Record<string, any> | null): node is WebTopClicksQuery {
-    return node?.kind === NodeKind.WebTopClicksQuery
-}
-
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
 }
@@ -145,6 +142,10 @@ export function isSessionAttributionExplorerQuery(
     node?: Record<string, any> | null
 ): node is SessionAttributionExplorerQuery {
     return node?.kind === NodeKind.SessionAttributionExplorerQuery
+}
+
+export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
+    return node?.kind === NodeKind.ErrorTrackingQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
@@ -329,6 +330,13 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
 export const getYAxisScaleType = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.yAxisScaleType
+    }
+    return undefined
+}
+
+export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.resultCustomizationBy
     }
     return undefined
 }

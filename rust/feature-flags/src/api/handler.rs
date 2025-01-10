@@ -58,7 +58,6 @@ pub struct FlagsQueryParams {
 pub struct RequestContext {
     pub state: State<router::State>,
     pub ip: IpAddr,
-    pub meta: FlagsQueryParams,
     pub headers: HeaderMap,
     pub body: Bytes,
 }
@@ -69,8 +68,8 @@ pub struct FeatureFlagEvaluationContext {
     team_id: i32,
     distinct_id: String,
     feature_flags: FeatureFlagList,
-    postgres_reader: Arc<dyn Client + Send + Sync>,
-    postgres_writer: Arc<dyn Client + Send + Sync>,
+    reader: Arc<dyn Client + Send + Sync>,
+    writer: Arc<dyn Client + Send + Sync>,
     cohort_cache: Arc<CohortCacheManager>,
     #[builder(default)]
     person_property_overrides: Option<HashMap<String, Value>>,
@@ -82,25 +81,38 @@ pub struct FeatureFlagEvaluationContext {
     hash_key_override: Option<String>,
 }
 
+/// Process a feature flag request and return the evaluated flags
+///
+/// ## Flow
+/// 1. Decodes and validates the request
+/// 2. Extracts and verifies the authentication token
+/// 3. Retrieves team information
+/// 4. Processes person and group properties
+/// 5. Retrieves feature flags
+/// 6. Evaluates flags based on the context
+///
+/// ## Error Handling
+/// - Returns early if any step fails
+/// - Maintains error context through the FlagError enum
+/// - Individual flag evaluation failures don't fail the entire request
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     let RequestContext {
         state,
         ip,
-        meta: _, // TODO use this
         headers,
         body,
     } = context;
 
     let request = decode_request(&headers, body)?;
     let token = request
-        .extract_and_verify_token(state.redis.clone(), state.postgres_reader.clone())
+        .extract_and_verify_token(state.redis.clone(), state.reader.clone())
         .await?;
+
     let team = request
-        .get_team_from_cache_or_pg(&token, state.redis.clone(), state.postgres_reader.clone())
+        .get_team_from_cache_or_pg(&token, state.redis.clone(), state.reader.clone())
         .await?;
 
     let distinct_id = request.extract_distinct_id()?;
-    let groups = request.groups.clone();
     let team_id = team.id;
     let person_property_overrides = get_person_property_overrides(
         !request.geoip_disable.unwrap_or(false),
@@ -108,20 +120,24 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         &ip,
         &state.geoip,
     );
-    let group_property_overrides = request.group_properties.clone();
+
+    let groups = request.groups.clone();
+    let group_property_overrides =
+        process_group_property_overrides(groups.clone(), request.group_properties.clone());
+
     let hash_key_override = request.anon_distinct_id.clone();
 
     let feature_flags_from_cache_or_pg = request
-        .get_flags_from_cache_or_pg(team_id, &state.redis, &state.postgres_reader)
+        .get_flags_from_cache_or_pg(team_id, &state.redis, &state.reader)
         .await?;
 
     let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
         .team_id(team_id)
         .distinct_id(distinct_id)
         .feature_flags(feature_flags_from_cache_or_pg)
-        .postgres_reader(state.postgres_reader.clone())
-        .postgres_writer(state.postgres_writer.clone())
-        .cohort_cache(state.cohort_cache.clone())
+        .reader(state.reader.clone())
+        .writer(state.writer.clone())
+        .cohort_cache(state.cohort_cache_manager.clone())
         .person_property_overrides(person_property_overrides)
         .group_property_overrides(group_property_overrides)
         .groups(groups)
@@ -167,6 +183,39 @@ pub fn get_person_property_overrides(
         }
         (false, Some(props)) => Some(props),
         (false, None) => None,
+    }
+}
+
+/// Processes group property overrides by combining existing overrides with group key overrides
+///
+/// When groups are provided in the format {"group_type": "group_key"}, we need to ensure these
+/// are included in the group property overrides with the special "$group_key" property.
+fn process_group_property_overrides(
+    groups: Option<HashMap<String, Value>>,
+    existing_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+) -> Option<HashMap<String, HashMap<String, Value>>> {
+    match groups {
+        Some(groups) => {
+            let group_key_overrides: HashMap<String, HashMap<String, Value>> = groups
+                .into_iter()
+                .map(|(group_type, group_key)| {
+                    let mut properties = existing_overrides
+                        .as_ref()
+                        .and_then(|g| g.get(&group_type))
+                        .cloned()
+                        .unwrap_or_default();
+
+                    properties.insert("$group_key".to_string(), group_key);
+
+                    (group_type, properties)
+                })
+                .collect();
+
+            let mut result = existing_overrides.unwrap_or_default();
+            result.extend(group_key_overrides);
+            Some(result)
+        }
+        None => existing_overrides,
     }
 }
 
@@ -220,12 +269,12 @@ fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagE
 // which flags failed to evaluate
 pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> FlagsResponse {
     let group_type_mapping_cache =
-        GroupTypeMappingCache::new(context.team_id, context.postgres_reader.clone());
+        GroupTypeMappingCache::new(context.team_id, context.reader.clone());
     let mut feature_flag_matcher = FeatureFlagMatcher::new(
         context.distinct_id,
         context.team_id,
-        context.postgres_reader,
-        context.postgres_writer,
+        context.reader,
+        context.writer,
         context.cohort_cache,
         Some(group_type_mapping_cache),
         context.groups,
@@ -362,9 +411,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_feature_flags() {
-        let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-        let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
@@ -402,8 +451,8 @@ mod tests {
             .team_id(1)
             .distinct_id("user123".to_string())
             .feature_flags(feature_flag_list)
-            .postgres_reader(postgres_reader)
-            .postgres_writer(postgres_writer)
+            .reader(reader)
+            .writer(writer)
             .cohort_cache(cohort_cache)
             .person_property_overrides(Some(person_properties))
             .build()
@@ -511,9 +560,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_feature_flags_multiple_flags() {
-        let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-        let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
         let flags = vec![
             FeatureFlag {
                 name: Some("Flag 1".to_string()),
@@ -563,8 +612,8 @@ mod tests {
             .team_id(1)
             .distinct_id("user123".to_string())
             .feature_flags(feature_flag_list)
-            .postgres_reader(postgres_reader)
-            .postgres_writer(postgres_writer)
+            .reader(reader)
+            .writer(writer)
             .cohort_cache(cohort_cache)
             .build()
             .expect("Failed to build FeatureFlagEvaluationContext");
@@ -616,12 +665,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_feature_flags_with_overrides() {
-        let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-        let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
@@ -665,8 +712,8 @@ mod tests {
             .team_id(team.id)
             .distinct_id("user123".to_string())
             .feature_flags(feature_flag_list)
-            .postgres_reader(postgres_reader)
-            .postgres_writer(postgres_writer)
+            .reader(reader)
+            .writer(writer)
             .cohort_cache(cohort_cache)
             .group_property_overrides(Some(group_property_overrides))
             .groups(Some(groups))
@@ -699,9 +746,9 @@ mod tests {
     #[tokio::test]
     async fn test_long_distinct_id() {
         let long_id = "a".repeat(1000);
-        let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-        let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
@@ -729,8 +776,8 @@ mod tests {
             .team_id(1)
             .distinct_id(long_id)
             .feature_flags(feature_flag_list)
-            .postgres_reader(postgres_reader)
-            .postgres_writer(postgres_writer)
+            .reader(reader)
+            .writer(writer)
             .cohort_cache(cohort_cache)
             .build()
             .expect("Failed to build FeatureFlagEvaluationContext");
@@ -739,5 +786,62 @@ mod tests {
 
         assert!(!result.error_while_computing_flags);
         assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
+    }
+
+    #[test]
+    fn test_process_group_property_overrides() {
+        // Test case 1: Both groups and existing overrides
+        let groups = HashMap::from([
+            ("project".to_string(), json!("project_123")),
+            ("organization".to_string(), json!("org_456")),
+        ]);
+
+        let mut existing_overrides = HashMap::new();
+        let mut project_props = HashMap::new();
+        project_props.insert("industry".to_string(), json!("tech"));
+        existing_overrides.insert("project".to_string(), project_props);
+
+        let result =
+            process_group_property_overrides(Some(groups.clone()), Some(existing_overrides));
+
+        assert!(result.is_some());
+        let result = result.unwrap();
+
+        // Check project properties
+        let project_props = result.get("project").expect("Project properties missing");
+        assert_eq!(project_props.get("industry"), Some(&json!("tech")));
+        assert_eq!(project_props.get("$group_key"), Some(&json!("project_123")));
+
+        // Check organization properties
+        let org_props = result
+            .get("organization")
+            .expect("Organization properties missing");
+        assert_eq!(org_props.get("$group_key"), Some(&json!("org_456")));
+
+        // Test case 2: Only groups, no existing overrides
+        let result = process_group_property_overrides(Some(groups.clone()), None);
+
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result.get("project").unwrap().get("$group_key"),
+            Some(&json!("project_123"))
+        );
+
+        // Test case 3: No groups, only existing overrides
+        let mut existing_overrides = HashMap::new();
+        let mut project_props = HashMap::new();
+        project_props.insert("industry".to_string(), json!("tech"));
+        existing_overrides.insert("project".to_string(), project_props);
+
+        let result = process_group_property_overrides(None, Some(existing_overrides.clone()));
+
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), existing_overrides);
+
+        // Test case 4: Neither groups nor existing overrides
+        let result = process_group_property_overrides(None, None);
+        assert!(result.is_none());
     }
 }

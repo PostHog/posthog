@@ -9,7 +9,6 @@ import {
     isWebGoalsQuery,
     isWebOverviewQuery,
     isWebStatsTableQuery,
-    isWebTopClicksQuery,
 } from '~/queries/utils'
 
 export enum QueryFeature {
@@ -27,6 +26,7 @@ export enum QueryFeature {
     displayResponseError,
     hideLoadNextButton,
     testAccountFilters,
+    highlightExceptionEventRows,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
@@ -62,7 +62,6 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
 
     if (
         isWebOverviewQuery(query) ||
-        isWebTopClicksQuery(query) ||
         isWebExternalClicksQuery(query) ||
         isWebStatsTableQuery(query) ||
         isWebGoalsQuery(query)

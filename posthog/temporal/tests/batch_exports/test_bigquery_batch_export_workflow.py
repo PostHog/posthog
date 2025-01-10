@@ -4,12 +4,14 @@ import json
 import operator
 import os
 import typing
+import unittest.mock
 import uuid
 import warnings
 
 import pyarrow as pa
 import pytest
 import pytest_asyncio
+from django.test import override_settings
 from freezegun.api import freeze_time
 from google.cloud import bigquery
 from temporalio import activity
@@ -18,8 +20,12 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.batch_exports.service import (
+    BatchExportModel,
+    BatchExportSchema,
+    BigQueryBatchExportInputs,
+)
 from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema, BigQueryBatchExportInputs
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
     iter_model_records,
@@ -54,6 +60,17 @@ pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS, pytest.mark.asynci
 
 TEST_TIME = dt.datetime.now(dt.UTC)
 
+EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
+    "team_id",
+    "distinct_id",
+    "person_id",
+    "properties",
+    "person_version",
+    "person_distinct_id_version",
+    "created_at",
+    "_inserted_at",
+]
+
 
 @pytest.fixture
 def activity_environment(activity_environment):
@@ -76,6 +93,7 @@ async def assert_clickhouse_records_in_bigquery(
     sort_key: str = "event",
     is_backfill: bool = False,
     expect_duplicates: bool = False,
+    expected_fields: list[str] | None = None,
 ) -> None:
     """Assert ClickHouse records are written to a given BigQuery table.
 
@@ -92,6 +110,7 @@ async def assert_clickhouse_records_in_bigquery(
         batch_export_schema: Custom schema used in the batch export.
         use_json_type: Whether to use JSON type for known fields.
         expect_duplicates: Whether duplicates are expected (e.g. when testing retrying logic).
+        expected_fields: The expected fields to be exported.
     """
     if use_json_type is True:
         json_columns = ["properties", "set", "set_once", "person_properties"]
@@ -121,25 +140,20 @@ async def assert_clickhouse_records_in_bigquery(
 
         inserted_records.append(inserted_record)
 
-    schema_column_names = [field["alias"] for field in bigquery_default_fields()]
-    if batch_export_model is not None:
-        if isinstance(batch_export_model, BatchExportModel):
-            batch_export_schema = batch_export_model.schema
-        else:
-            batch_export_schema = batch_export_model
+    if expected_fields is not None:
+        schema_column_names = expected_fields
+    else:
+        schema_column_names = [field["alias"] for field in bigquery_default_fields()]
+        if batch_export_model is not None:
+            if isinstance(batch_export_model, BatchExportModel):
+                batch_export_schema = batch_export_model.schema
+            else:
+                batch_export_schema = batch_export_model
 
-        if batch_export_schema is not None:
-            schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
-        elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
-            schema_column_names = [
-                "team_id",
-                "distinct_id",
-                "person_id",
-                "properties",
-                "person_version",
-                "person_distinct_id_version",
-                "_inserted_at",
-            ]
+            if batch_export_schema is not None:
+                schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
+            elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
+                schema_column_names = EXPECTED_PERSONS_BATCH_EXPORT_FIELDS
 
     expected_records = []
     for data_interval_start, data_interval_end in date_ranges:
@@ -153,6 +167,7 @@ async def assert_clickhouse_records_in_bigquery(
             include_events=include_events,
             destination_default_fields=bigquery_default_fields(),
             is_backfill=is_backfill,
+            use_latest_schema=True,
         ):
             for record in record_batch.select(schema_column_names).to_pylist():
                 expected_record = {}
@@ -203,6 +218,15 @@ async def assert_clickhouse_records_in_bigquery(
             min_ingested_timestamp is not None
         ), "Must set `min_ingested_timestamp` for comparison with exported value"
         assert all(ts >= min_ingested_timestamp for ts in inserted_bq_ingested_timestamp)
+
+
+def drop_column_from_bigquery_table(
+    bigquery_client: bigquery.Client, dataset_id: str, table_id: str, column_name: str
+) -> None:
+    """Drop a column from a BigQuery table."""
+
+    query_job = bigquery_client.query(f"ALTER TABLE {dataset_id}.{table_id} DROP COLUMN {column_name}")
+    _ = query_job.result()
 
 
 @pytest.fixture
@@ -339,11 +363,86 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         **bigquery_config,
     )
 
-    with freeze_time(TEST_TIME) as frozen_time:
+    with freeze_time(TEST_TIME) as frozen_time, override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
         await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
 
         ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
 
+        await assert_clickhouse_records_in_bigquery(
+            bigquery_client=bigquery_client,
+            clickhouse_client=clickhouse_client,
+            table_id=f"test_insert_activity_table_{ateam.pk}",
+            dataset_id=bigquery_dataset.dataset_id,
+            team_id=ateam.pk,
+            date_ranges=[(data_interval_start, data_interval_end)],
+            exclude_events=exclude_events,
+            include_events=None,
+            batch_export_model=model,
+            use_json_type=use_json_type,
+            min_ingested_timestamp=ingested_timestamp,
+            sort_key="person_id"
+            if batch_export_model is not None and batch_export_model.name == "persons"
+            else "event",
+        )
+
+
+@pytest.mark.parametrize("use_json_type", [True], indirect=True)
+@pytest.mark.parametrize("model", TEST_MODELS)
+async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_without_query_permissions(
+    clickhouse_client,
+    activity_environment,
+    bigquery_client,
+    bigquery_config,
+    exclude_events,
+    bigquery_dataset,
+    use_json_type,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_bigquery_activity` function inserts data into a BigQuery table.
+
+    For this test we mock the `acheck_for_query_permissions_on_table` method to assert the
+    behavior of the activity function when lacking query permissions in BigQuery.
+    """
+    if isinstance(model, BatchExportModel) and model.name == "persons":
+        pytest.skip("Unnecessary test case as person batch export requires query permissions")
+
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
+
+    insert_inputs = BigQueryInsertInputs(
+        team_id=ateam.pk,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        use_json_type=use_json_type,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+        **bigquery_config,
+    )
+
+    with (
+        freeze_time(TEST_TIME) as frozen_time,
+        override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1),
+        unittest.mock.patch(
+            "posthog.temporal.batch_exports.bigquery_batch_export.BigQueryClient.acheck_for_query_permissions_on_table",
+            return_value=False,
+        ) as mocked_check,
+    ):
+        await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
+
+        mocked_check.assert_called_once()
         await assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,
             clickhouse_client=clickhouse_client,
@@ -447,6 +546,109 @@ async def test_insert_into_bigquery_activity_merges_data_in_follow_up_runs(
             batch_export_model=model,
             min_ingested_timestamp=ingested_timestamp,
             sort_key="person_id",
+        )
+
+
+async def test_insert_into_bigquery_activity_handles_person_schema_changes(
+    clickhouse_client,
+    activity_environment,
+    bigquery_client,
+    bigquery_config,
+    bigquery_dataset,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_bigquery_activity` handles changes to the
+    person schema.
+
+    If we update the schema of the persons model we export, we should still be
+    able to export the data without breaking existing exports. For example, any
+    new fields should not be added to the destination (in future we may want to
+    allow this but for now we don't).
+
+    To replicate this situation we first export the data with the original
+    schema, then delete a column in the destination and then rerun the export.
+    """
+    model = BatchExportModel(name="persons", schema=None)
+
+    insert_inputs = BigQueryInsertInputs(
+        team_id=ateam.pk,
+        table_id=f"test_insert_activity_migration_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        **bigquery_config,
+    )
+
+    with freeze_time(TEST_TIME) as frozen_time:
+        await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
+
+        await assert_clickhouse_records_in_bigquery(
+            bigquery_client=bigquery_client,
+            clickhouse_client=clickhouse_client,
+            table_id=f"test_insert_activity_migration_table_{ateam.pk}",
+            dataset_id=bigquery_dataset.dataset_id,
+            team_id=ateam.pk,
+            date_ranges=[(data_interval_start, data_interval_end)],
+            batch_export_model=model,
+            min_ingested_timestamp=ingested_timestamp,
+            sort_key="person_id",
+        )
+
+    # drop the created_at column from the BigQuery table
+    drop_column_from_bigquery_table(
+        bigquery_client=bigquery_client,
+        dataset_id=bigquery_dataset.dataset_id,
+        table_id=f"test_insert_activity_migration_table_{ateam.pk}",
+        column_name="created_at",
+    )
+
+    _, persons_to_export_created = generate_test_data
+
+    for old_person in persons_to_export_created[: len(persons_to_export_created) // 2]:
+        new_person_id = uuid.uuid4()
+        new_person, _ = await generate_test_persons_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            person_id=new_person_id,
+            count=1,
+            properties={"utm_medium": "referral", "$initial_os": "Linux", "new_property": "Something"},
+        )
+
+        await generate_test_person_distinct_id2_in_clickhouse(
+            clickhouse_client,
+            ateam.pk,
+            person_id=uuid.UUID(new_person[0]["id"]),
+            distinct_id=old_person["distinct_id"],
+            version=old_person["version"] + 1,
+            timestamp=old_person["_timestamp"],
+        )
+
+    with freeze_time(TEST_TIME) as frozen_time:
+        await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
+
+        # this time we don't expected there to be a created_at column
+        expected_fields = [field for field in EXPECTED_PERSONS_BATCH_EXPORT_FIELDS if field != "created_at"]
+        await assert_clickhouse_records_in_bigquery(
+            bigquery_client=bigquery_client,
+            clickhouse_client=clickhouse_client,
+            table_id=f"test_insert_activity_migration_table_{ateam.pk}",
+            dataset_id=bigquery_dataset.dataset_id,
+            team_id=ateam.pk,
+            date_ranges=[(data_interval_start, data_interval_end)],
+            batch_export_model=model,
+            min_ingested_timestamp=ingested_timestamp,
+            sort_key="person_id",
+            expected_fields=expected_fields,
         )
 
 

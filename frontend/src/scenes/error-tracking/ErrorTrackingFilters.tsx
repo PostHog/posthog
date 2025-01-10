@@ -12,21 +12,14 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
-export const FilterGroup = (): JSX.Element => {
-    const { filterGroup, filterTestAccounts, searchQuery } = useValues(errorTrackingLogic)
-    const { setFilterGroup, setFilterTestAccounts, setSearchQuery } = useActions(errorTrackingLogic)
+export const FilterGroup = ({ children }: { children?: React.ReactNode }): JSX.Element => {
+    const { filterGroup, filterTestAccounts } = useValues(errorTrackingLogic)
+    const { setFilterGroup, setFilterTestAccounts } = useActions(errorTrackingLogic)
 
     return (
         <div className="flex flex-1 items-center justify-between space-x-2">
             <div className="flex flex-1 items-center gap-2 mx-2">
-                <LemonInput
-                    type="search"
-                    placeholder="Search..."
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    className="flex-grow max-w-none"
-                    size="small"
-                />
+                {children}
                 <UniversalFilters
                     rootKey="error-tracking"
                     group={filterGroup}
@@ -86,11 +79,11 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
     )
 }
 
-export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element => {
-    const { dateRange, assignee, hasGroupActions } = useValues(errorTrackingLogic)
+export const Options = (): JSX.Element => {
+    const { dateRange, assignee } = useValues(errorTrackingLogic)
     const { setDateRange, setAssignee } = useActions(errorTrackingLogic)
-    const { order } = useValues(errorTrackingSceneLogic)
-    const { setOrder } = useActions(errorTrackingSceneLogic)
+    const { orderBy } = useValues(errorTrackingSceneLogic)
+    const { setOrderBy } = useActions(errorTrackingSceneLogic)
 
     return (
         <div className="flex justify-between">
@@ -106,42 +99,40 @@ export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element
                         size="small"
                     />
                 </div>
-                {!isGroup && (
-                    <div className="flex items-center gap-1">
-                        <span>Sort by:</span>
-                        <LemonSelect
-                            onSelect={setOrder}
-                            onChange={setOrder}
-                            value={order}
-                            options={[
-                                {
-                                    value: 'last_seen',
-                                    label: 'Last seen',
-                                },
-                                {
-                                    value: 'first_seen',
-                                    label: 'First seen',
-                                },
-                                {
-                                    value: 'occurrences',
-                                    label: 'Occurrences',
-                                },
-                                {
-                                    value: 'users',
-                                    label: 'Users',
-                                },
-                                {
-                                    value: 'sessions',
-                                    label: 'Sessions',
-                                },
-                            ]}
-                            size="small"
-                        />
-                    </div>
-                )}
-            </div>
-            {hasGroupActions && !isGroup && (
                 <div className="flex items-center gap-1">
+                    <span>Sort by:</span>
+                    <LemonSelect
+                        onSelect={setOrderBy}
+                        onChange={setOrderBy}
+                        value={orderBy}
+                        options={[
+                            {
+                                value: 'last_seen',
+                                label: 'Last seen',
+                            },
+                            {
+                                value: 'first_seen',
+                                label: 'First seen',
+                            },
+                            {
+                                value: 'occurrences',
+                                label: 'Occurrences',
+                            },
+                            {
+                                value: 'users',
+                                label: 'Users',
+                            },
+                            {
+                                value: 'sessions',
+                                label: 'Sessions',
+                            },
+                        ]}
+                        size="small"
+                    />
+                </div>
+            </div>
+            <div className="flex items-center gap-1">
+                <>
                     <span>Assigned to:</span>
                     <MemberSelect
                         value={assignee}
@@ -149,13 +140,30 @@ export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element
                             setAssignee(user?.id || null)
                         }}
                     />
-                </div>
-            )}
+                </>
+            </div>
         </div>
+    )
+}
+
+export const UniversalSearch = (): JSX.Element => {
+    const { searchQuery } = useValues(errorTrackingLogic)
+    const { setSearchQuery } = useActions(errorTrackingLogic)
+
+    return (
+        <LemonInput
+            type="search"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={setSearchQuery}
+            className="flex-grow max-w-none"
+            size="small"
+        />
     )
 }
 
 export default {
     FilterGroup,
     Options,
+    UniversalSearch,
 }

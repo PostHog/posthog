@@ -165,9 +165,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         queryset=ExperimentHoldout.objects.all(), source="holdout", required=False, allow_null=True
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
-    saved_metrics_ids = serializers.ListField(
-        child=serializers.JSONField(), write_only=True, required=False, allow_null=True
-    )
+    saved_metrics_ids = serializers.ListField(child=serializers.JSONField(), required=False, allow_null=True)
 
     class Meta:
         model = Experiment
@@ -194,6 +192,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "type",
             "metrics",
             "metrics_secondary",
+            "stats_config",
         ]
         read_only_fields = [
             "id",
@@ -245,8 +244,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         variants = value.get("feature_flag_variants", [])
 
-        if len(variants) >= 11:
-            raise ValidationError("Feature flag variants must be less than 11")
+        if len(variants) >= 21:
+            raise ValidationError("Feature flag variants must be less than 21")
         elif len(variants) > 0:
             if "control" not in [variant["key"] for variant in variants]:
                 raise ValidationError("Feature flag variants must contain a control variant")
@@ -301,6 +300,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         feature_flag_serializer.is_valid(raise_exception=True)
         feature_flag = feature_flag_serializer.save()
+
+        if not validated_data.get("stats_config"):
+            validated_data["stats_config"] = {"version": 2}
 
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
@@ -378,6 +380,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "holdout",
             "metrics",
             "metrics_secondary",
+            "stats_config",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
@@ -429,8 +432,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
                     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
                 ]
 
-                filters = {
-                    "groups": [{"properties": properties, "rollout_percentage": 100}],
+                feature_flag_filters = {
+                    "groups": feature_flag.filters.get("groups", []),
                     "multivariate": {"variants": variants or default_variants},
                     "aggregation_group_type_index": aggregation_group_type_index,
                     "holdout_groups": holdout_groups,
@@ -438,7 +441,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,
-                    data={"filters": filters},
+                    data={"filters": feature_flag_filters},
                     partial=True,
                     context=self.context,
                 )

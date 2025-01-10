@@ -21,17 +21,17 @@ use crate::{
 #[derive(Clone)]
 pub struct State {
     pub redis: Arc<dyn RedisClient + Send + Sync>,
-    pub postgres_reader: Arc<dyn DatabaseClient + Send + Sync>,
-    pub postgres_writer: Arc<dyn DatabaseClient + Send + Sync>,
-    pub cohort_cache: Arc<CohortCacheManager>, // TODO does this need a better name than just `cohort_cache`?
+    pub reader: Arc<dyn DatabaseClient + Send + Sync>,
+    pub writer: Arc<dyn DatabaseClient + Send + Sync>,
+    pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdsToTrack,
 }
 
 pub fn router<R, D>(
     redis: Arc<R>,
-    postgres_reader: Arc<D>,
-    postgres_writer: Arc<D>,
+    reader: Arc<D>,
+    writer: Arc<D>,
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
@@ -43,9 +43,9 @@ where
 {
     let state = State {
         redis,
-        postgres_reader,
-        postgres_writer,
-        cohort_cache,
+        reader,
+        writer,
+        cohort_cache_manager: cohort_cache,
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
     };

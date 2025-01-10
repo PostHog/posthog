@@ -1,4 +1,5 @@
 import { IconPlus } from '@posthog/icons'
+import { LemonBanner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -22,6 +23,8 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
     const { allExperiments, sortedExperiments, allExperimentsLoading } = useValues(experimentsLogic)
     const { apiURL } = useValues(toolbarConfigLogic)
 
+    const isWebExperimentsDisabled = Boolean(window?.parent?.posthog?.config?.disable_web_experiments)
+
     useEffect(() => {
         getExperiments()
     }, [])
@@ -29,6 +32,21 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
+                {isWebExperimentsDisabled && (
+                    <div className="p-2">
+                        <LemonBanner type="warning">
+                            Web experiments are disabled in your PostHog web snippet configuration. To run experiments,
+                            add <code>disable_web_experiments: false</code> to your configuration.{' '}
+                            <Link
+                                target="_blank"
+                                targetBlankIcon
+                                to="https://posthog.com/docs/experiments/no-code-web-experiments"
+                            >
+                                Learn more
+                            </Link>
+                        </LemonBanner>
+                    </div>
+                )}
                 <LemonInput
                     autoFocus
                     fullWidth

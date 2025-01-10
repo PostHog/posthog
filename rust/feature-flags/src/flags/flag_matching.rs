@@ -5,7 +5,11 @@ use crate::cohort::cohort_cache_manager::CohortCacheManager;
 use crate::cohort::cohort_models::{Cohort, CohortId};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
-use crate::metrics::metrics_consts::{FLAG_EVALUATION_ERROR_COUNTER, FLAG_HASH_KEY_WRITES_COUNTER};
+use crate::metrics::metrics_consts::{
+    DB_GROUP_PROPERTIES_READS_COUNTER, DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
+    DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_EVALUATION_ERROR_COUNTER,
+    FLAG_HASH_KEY_WRITES_COUNTER, PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
+};
 use crate::metrics::metrics_utils::parse_exception_for_prometheus_label;
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::{OperatorType, PropertyFilter};
@@ -26,6 +30,7 @@ use tokio::time::{sleep, timeout};
 use tracing::{error, info};
 
 pub type TeamId = i32;
+pub type ProjectId = i32;
 pub type PersonId = i32;
 pub type GroupTypeIndex = i32;
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
@@ -70,21 +75,21 @@ pub struct GroupTypeMapping {
 /// These mappings are ingested via the plugin server.
 #[derive(Clone)]
 pub struct GroupTypeMappingCache {
-    team_id: TeamId,
+    project_id: ProjectId,
     failed_to_fetch_flags: bool,
     group_types_to_indexes: HashMap<String, GroupTypeIndex>,
     group_indexes_to_types: HashMap<GroupTypeIndex, String>,
-    postgres_reader: PostgresReader,
+    reader: PostgresReader,
 }
 
 impl GroupTypeMappingCache {
-    pub fn new(team_id: TeamId, postgres_reader: PostgresReader) -> Self {
+    pub fn new(project_id: ProjectId, reader: PostgresReader) -> Self {
         GroupTypeMappingCache {
-            team_id,
+            project_id,
             failed_to_fetch_flags: false,
             group_types_to_indexes: HashMap::new(),
             group_indexes_to_types: HashMap::new(),
-            postgres_reader,
+            reader,
         }
     }
 
@@ -99,19 +104,29 @@ impl GroupTypeMappingCache {
             return Ok(self.group_types_to_indexes.clone());
         }
 
-        let team_id = self.team_id;
         let mapping = match self
-            .fetch_group_type_mapping(self.postgres_reader.clone(), team_id)
+            .fetch_group_type_mapping(self.reader.clone(), self.project_id)
             .await
         {
             Ok(mapping) if !mapping.is_empty() => mapping,
             Ok(_) => {
                 self.failed_to_fetch_flags = true;
-                // TODO add the `"Failed to fetch group"` type of lable.  See posthog/models/feature_flag/flag_matching.py:parse_exception_for_error_message
+                let reason = "no_group_type_mappings";
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), reason.to_string())],
+                    1,
+                );
                 return Err(FlagError::NoGroupTypeMappings);
             }
             Err(e) => {
                 self.failed_to_fetch_flags = true;
+                let reason = parse_exception_for_prometheus_label(&e);
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), reason.to_string())],
+                    1,
+                );
                 return Err(e);
             }
         };
@@ -135,26 +150,31 @@ impl GroupTypeMappingCache {
             self.group_indexes_to_types.clone_from(&result);
             Ok(result)
         } else {
-            // TODO add the `"Failed to fetch group"` type of lable.  See posthog/models/feature_flag/flag_matching.py:parse_exception_for_error_message
+            let reason = "no_group_type_mappings";
+            inc(
+                FLAG_EVALUATION_ERROR_COUNTER,
+                &[("reason".to_string(), reason.to_string())],
+                1,
+            );
             Err(FlagError::NoGroupTypeMappings)
         }
     }
 
     async fn fetch_group_type_mapping(
         &mut self,
-        postgres_reader: PostgresReader,
-        team_id: TeamId,
+        reader: PostgresReader,
+        project_id: ProjectId,
     ) -> Result<HashMap<String, GroupTypeIndex>, FlagError> {
-        let mut conn = postgres_reader.as_ref().get_connection().await?;
+        let mut conn = reader.as_ref().get_connection().await?;
 
         let query = r#"
             SELECT group_type, group_type_index 
             FROM posthog_grouptypemapping 
-            WHERE team_id = $1
+            WHERE project_id = $1
         "#;
 
         let rows = sqlx::query_as::<_, GroupTypeMapping>(query)
-            .bind(team_id)
+            .bind(project_id)
             .fetch_all(&mut *conn)
             .await?;
 
@@ -164,7 +184,12 @@ impl GroupTypeMappingCache {
             .collect();
 
         if mapping.is_empty() {
-            // TODO add the `"Failed to fetch group"` type of lable.  See posthog/models/feature_flag/flag_matching.py:parse_exception_for_error_message
+            let reason = "no_group_type_mappings";
+            inc(
+                FLAG_EVALUATION_ERROR_COUNTER,
+                &[("reason".to_string(), reason.to_string())],
+                1,
+            );
             Err(FlagError::NoGroupTypeMappings)
         } else {
             Ok(mapping)
@@ -186,8 +211,8 @@ pub struct PropertiesCache {
 pub struct FeatureFlagMatcher {
     pub distinct_id: String,
     pub team_id: TeamId,
-    pub postgres_reader: PostgresReader,
-    pub postgres_writer: PostgresWriter,
+    pub reader: PostgresReader,
+    pub writer: PostgresWriter,
     pub cohort_cache: Arc<CohortCacheManager>,
     group_type_mapping_cache: GroupTypeMappingCache,
     properties_cache: PropertiesCache,
@@ -200,8 +225,8 @@ impl FeatureFlagMatcher {
     pub fn new(
         distinct_id: String,
         team_id: TeamId,
-        postgres_reader: PostgresReader,
-        postgres_writer: PostgresWriter,
+        reader: PostgresReader,
+        writer: PostgresWriter,
         cohort_cache: Arc<CohortCacheManager>,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
         groups: Option<HashMap<String, Value>>,
@@ -209,11 +234,11 @@ impl FeatureFlagMatcher {
         FeatureFlagMatcher {
             distinct_id,
             team_id,
-            postgres_reader: postgres_reader.clone(),
-            postgres_writer: postgres_writer.clone(),
+            reader: reader.clone(),
+            writer: writer.clone(),
             cohort_cache,
             group_type_mapping_cache: group_type_mapping_cache
-                .unwrap_or_else(|| GroupTypeMappingCache::new(team_id, postgres_reader.clone())),
+                .unwrap_or_else(|| GroupTypeMappingCache::new(team_id, reader.clone())),
             groups: groups.unwrap_or_default(),
             properties_cache: PropertiesCache::default(),
         }
@@ -283,16 +308,32 @@ impl FeatureFlagMatcher {
             error_while_computing_flags: initial_error
                 || flags_response.error_while_computing_flags,
             feature_flags: flags_response.feature_flags,
+            feature_flag_payloads: flags_response.feature_flag_payloads,
         }
     }
 
+    /// Processes hash key overrides for feature flags with experience continuity enabled.
+    ///
+    /// This method handles the logic for managing hash key overrides, which are used to ensure
+    /// consistent feature flag experiences across different distinct IDs (e.g., when a user logs in).
+    /// It performs the following steps:
+    ///
+    /// 1. Checks if a hash key override needs to be written by comparing the current distinct ID
+    ///    with the provided hash key
+    /// 2. If needed, writes the hash key override to the database using the writer connection
+    /// 3. Increments metrics to track successful/failed hash key override writes
+    /// 4. Retrieves and returns the current hash key overrides for the target distinct IDs
+    ///
+    /// Returns a tuple containing:
+    /// - Option<HashMap<String, String>>: The hash key overrides if successfully retrieved, None if there was an error
+    /// - bool: Whether there was an error during processing (true = error occurred)
     async fn process_hash_key_override(
         &self,
         hash_key: String,
         target_distinct_ids: Vec<String>,
     ) -> (Option<HashMap<String, String>>, bool) {
         let should_write = match should_write_hash_key_override(
-            self.postgres_reader.clone(),
+            self.reader.clone(),
             self.team_id,
             self.distinct_id.clone(),
             hash_key.clone(),
@@ -320,7 +361,7 @@ impl FeatureFlagMatcher {
         if should_write {
             if let Err(e) = set_feature_flag_hash_key_overrides(
                 // NB: this is the only method that writes to the database, so it's the only one that should use the writer
-                self.postgres_writer.clone(),
+                self.writer.clone(),
                 self.team_id,
                 target_distinct_ids.clone(),
                 hash_key.clone(),
@@ -328,7 +369,6 @@ impl FeatureFlagMatcher {
             .await
             {
                 error!("Failed to set feature flag hash key overrides: {:?}", e);
-                // Increment the counter for failed write
                 let reason = parse_exception_for_prometheus_label(&e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
@@ -340,7 +380,6 @@ impl FeatureFlagMatcher {
             writing_hash_key_override = true;
         }
 
-        // TODO I'm not sure if this is the right place to increment this counter
         inc(
             FLAG_HASH_KEY_WRITES_COUNTER,
             &[
@@ -354,7 +393,7 @@ impl FeatureFlagMatcher {
         );
 
         match get_feature_flag_hash_key_overrides(
-            self.postgres_reader.clone(),
+            self.reader.clone(),
             self.team_id,
             target_distinct_ids,
         )
@@ -374,15 +413,22 @@ impl FeatureFlagMatcher {
         }
     }
 
-    async fn evaluate_flags_with_overrides(
+    /// Evaluates feature flags with property and hash key overrides.
+    ///
+    /// This function evaluates feature flags in two steps:
+    /// 1. First, it evaluates flags that can be computed using only the provided property overrides
+    /// 2. Then, for remaining flags that need database properties, it fetches and caches those properties
+    ///    before evaluating those flags
+    pub async fn evaluate_flags_with_overrides(
         &mut self,
         feature_flags: FeatureFlagList,
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> FlagsResponse {
-        let mut result = HashMap::new();
         let mut error_while_computing_flags = false;
+        let mut feature_flags_map = HashMap::new();
+        let mut feature_flag_payloads_map = HashMap::new();
         let mut flags_needing_db_properties = Vec::new();
 
         // Step 1: Evaluate flags with locally computable property overrides first
@@ -402,7 +448,11 @@ impl FeatureFlagMatcher {
             {
                 Ok(Some(flag_match)) => {
                     let flag_value = self.flag_match_to_value(&flag_match);
-                    result.insert(flag.key.clone(), flag_value);
+                    feature_flags_map.insert(flag.key.clone(), flag_value);
+
+                    if let Some(payload) = flag_match.payload {
+                        feature_flag_payloads_map.insert(flag.key.clone(), payload);
+                    }
                 }
                 Ok(None) => {
                     flags_needing_db_properties.push(flag.clone());
@@ -425,25 +475,61 @@ impl FeatureFlagMatcher {
 
         // Step 2: Fetch and cache properties for remaining flags (just one DB lookup for all of relevant properties)
         if !flags_needing_db_properties.is_empty() {
-            let group_type_indexes: HashSet<GroupTypeIndex> = flags_needing_db_properties
+            let group_type_indexes_required: HashSet<GroupTypeIndex> = flags_needing_db_properties
                 .iter()
                 .filter_map(|flag| flag.get_group_type_index())
                 .collect();
 
-            let postgres_reader = self.postgres_reader.clone();
+            // Map group names to group_type_index and group_keys
+            let group_type_to_key_map: HashMap<GroupTypeIndex, String> = self
+                .groups
+                .iter()
+                .filter_map(|(group_type, group_key_value)| {
+                    let group_key = group_key_value.as_str()?.to_string();
+                    self.group_type_mapping_cache
+                        .group_types_to_indexes
+                        .get(group_type)
+                        .cloned()
+                        .map(|group_type_index| (group_type_index, group_key))
+                })
+                .collect();
+
+            // Extract group_keys that are relevant to the required group_type_indexes
+            let group_keys: HashSet<String> = group_type_to_key_map
+                .iter()
+                .filter_map(|(group_type_index, group_key)| {
+                    if group_type_indexes_required.contains(group_type_index) {
+                        Some(group_key.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // Extract group_type_indexes for the required flags
+            let group_type_indexes: HashSet<GroupTypeIndex> = group_type_indexes_required.clone();
+
+            let reader = self.reader.clone();
             let distinct_id = self.distinct_id.clone();
             let team_id = self.team_id;
 
-            match fetch_and_locally_cache_all_properties(
+            match fetch_and_locally_cache_all_relevant_properties(
                 &mut self.properties_cache,
-                postgres_reader,
+                reader,
                 distinct_id,
                 team_id,
                 &group_type_indexes,
+                &group_keys,
             )
             .await
             {
-                Ok(_) => {}
+                Ok(_) => {
+                    inc(
+                        DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
+                        &[("team_id".to_string(), team_id.to_string())],
+                        1,
+                    );
+                }
                 Err(e) => {
                     error_while_computing_flags = true;
                     // TODO add sentry exception tracking
@@ -458,9 +544,6 @@ impl FeatureFlagMatcher {
             }
 
             // Step 3: Evaluate remaining flags with cached properties
-            // At this point we've already done a round of flag evaluations with locally computable property overrides
-            // This step is for flags that couldn't be evaluated locally due to missing property values,
-            // so we do a single query to fetch all of the remaining properties, and then proceed with flag evaluations
             for flag in flags_needing_db_properties {
                 match self
                     .get_match(&flag, None, hash_key_overrides.clone())
@@ -468,7 +551,11 @@ impl FeatureFlagMatcher {
                 {
                     Ok(flag_match) => {
                         let flag_value = self.flag_match_to_value(&flag_match);
-                        result.insert(flag.key.clone(), flag_value);
+                        feature_flags_map.insert(flag.key.clone(), flag_value);
+
+                        if let Some(payload) = flag_match.payload {
+                            feature_flag_payloads_map.insert(flag.key.clone(), payload);
+                        }
                     }
                     Err(e) => {
                         error_while_computing_flags = true;
@@ -490,7 +577,8 @@ impl FeatureFlagMatcher {
 
         FlagsResponse {
             error_while_computing_flags,
-            feature_flags: result,
+            feature_flags: feature_flags_map,
+            feature_flag_payloads: feature_flag_payloads_map,
         }
     }
 
@@ -609,6 +697,10 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
+        let ha = self
+            .hashed_identifier(flag, hash_key_overrides.clone())
+            .await?;
+        println!("hashed_identifier: {:?}", ha);
         if self
             .hashed_identifier(flag, hash_key_overrides.clone())
             .await?
@@ -806,7 +898,7 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// Get group properties from cache or database.
+    /// Get group properties from overrides, cache or database.
     ///
     /// This function attempts to retrieve group properties either from a cache or directly from the database.
     /// It first checks if there are any locally computable property overrides. If so, it returns those.
@@ -832,9 +924,26 @@ impl FeatureFlagMatcher {
     /// and updates the cache accordingly.
     async fn get_person_id(&mut self) -> Result<PersonId, FlagError> {
         match self.properties_cache.person_id {
-            Some(id) => Ok(id),
+            Some(id) => {
+                inc(
+                    PROPERTY_CACHE_HITS_COUNTER,
+                    &[("type".to_string(), "person_id".to_string())],
+                    1,
+                );
+                Ok(id)
+            }
             None => {
+                inc(
+                    PROPERTY_CACHE_MISSES_COUNTER,
+                    &[("type".to_string(), "person_id".to_string())],
+                    1,
+                );
                 let id = self.get_person_id_from_db().await?;
+                inc(
+                    DB_PERSON_PROPERTIES_READS_COUNTER,
+                    &[("team_id".to_string(), self.team_id.to_string())],
+                    1,
+                );
                 self.properties_cache.person_id = Some(id);
                 Ok(id)
             }
@@ -844,15 +953,15 @@ impl FeatureFlagMatcher {
     /// Fetches the `PersonId` from the database based on the current `distinct_id` and `team_id`.
     /// This method is called when the `PersonId` is not present in the properties cache.
     async fn get_person_id_from_db(&mut self) -> Result<PersonId, FlagError> {
-        let postgres_reader = self.postgres_reader.clone();
+        let reader = self.reader.clone();
         let distinct_id = self.distinct_id.clone();
         let team_id = self.team_id;
-        fetch_person_properties_from_db(postgres_reader, distinct_id, team_id)
+        fetch_person_properties_from_db(reader, distinct_id, team_id)
             .await
             .map(|(_, person_id)| person_id)
     }
 
-    /// Get person properties from cache or database.
+    /// Get person properties from overrides, cache or database.
     ///
     /// This function attempts to retrieve person properties either from a cache or directly from the database.
     /// It first checks if there are any locally computable property overrides. If so, it returns those.
@@ -884,7 +993,7 @@ impl FeatureFlagMatcher {
         // At the start of the request, fetch all of the cohorts for the team from the cache
         // This method also caches any cohorts for a given team in memory for the duration of the application, so we don't need to fetch from
         // the database again until we restart the application.  See the CohortCacheManager for more details.
-        let cohorts = self.cohort_cache.get_cohorts_for_team(self.team_id).await?;
+        let cohorts = self.cohort_cache.get_cohorts(self.team_id).await?;
 
         // Split the cohorts into static and dynamic, since the dynamic ones have property filters
         // and we need to evaluate them based on the target properties, whereas the static ones are
@@ -898,7 +1007,7 @@ impl FeatureFlagMatcher {
 
         if !static_cohorts.is_empty() {
             let results = evaluate_static_cohorts(
-                self.postgres_reader.clone(),
+                self.reader.clone(),
                 person_id,
                 static_cohorts.iter().map(|c| c.id).collect(),
             )
@@ -912,7 +1021,7 @@ impl FeatureFlagMatcher {
                     .get_cohort_id()
                     .ok_or(FlagError::CohortFiltersParsingError)?;
                 let match_result =
-                    evaluate_dynamic_cohorts(cohort_id, target_properties, cohorts.clone())?;
+                    evaluate_dynamic_cohorts(cohort_id, target_properties, &cohorts)?;
                 cohort_matches.insert(cohort_id, match_result);
             }
         }
@@ -997,15 +1106,73 @@ impl FeatureFlagMatcher {
             .group_properties
             .get(&group_type_index)
         {
+            inc(
+                PROPERTY_CACHE_HITS_COUNTER,
+                &[("type".to_string(), "group_properties".to_string())],
+                1,
+            );
             let mut result = HashMap::new();
             result.clone_from(properties);
             return Ok(result);
         }
 
-        let postgres_reader = self.postgres_reader.clone();
+        inc(
+            PROPERTY_CACHE_MISSES_COUNTER,
+            &[("type".to_string(), "group_properties".to_string())],
+            1,
+        );
+
+        let reader = self.reader.clone();
         let team_id = self.team_id;
+        // groups looks like this {"project": "project_123"}
+        // and then the group type index looks like this {"project": 1}
+        // so I want my group keys to look like this ["project_123"],
+        // but they need to be aware of the different group types
+        // Retrieve group_type_name using group_type_index from the cache
+        let group_type_mapping = self
+            .group_type_mapping_cache
+            .group_type_index_to_group_type_map()
+            .await?;
+        let group_type_name = match group_type_mapping.get(&group_type_index) {
+            Some(name) => name.clone(),
+            None => {
+                error!(
+                    "No group_type_name found for group_type_index {}",
+                    group_type_index
+                );
+                return Err(FlagError::NoGroupTypeMappings);
+            }
+        };
+
+        // Retrieve the corresponding group_key from self.groups using group_type_name
+        let group_key = match self.groups.get(&group_type_name) {
+            Some(Value::String(key)) => key.clone(),
+            Some(_) => {
+                error!(
+                    "Group key for group_type_name '{}' is not a string",
+                    group_type_name
+                );
+                return Err(FlagError::NoGroupTypeMappings);
+            }
+            None => {
+                // If there's no group_key provided for this group_type_name, we consider that there are no properties to fetch
+                return Ok(HashMap::new());
+            }
+        };
         let db_properties =
-            fetch_group_properties_from_db(postgres_reader, team_id, group_type_index).await?;
+            fetch_group_properties_from_db(reader, team_id, group_type_index, group_key).await?;
+
+        inc(
+            DB_GROUP_PROPERTIES_READS_COUNTER,
+            &[("team_id".to_string(), team_id.to_string())],
+            1,
+        );
+
+        inc(
+            DB_GROUP_PROPERTIES_READS_COUNTER,
+            &[("team_id".to_string(), team_id.to_string())],
+            1,
+        );
 
         // once the properties are fetched, cache them so we don't need to fetch again in a given request
         self.properties_cache
@@ -1025,16 +1192,33 @@ impl FeatureFlagMatcher {
     ) -> Result<HashMap<String, Value>, FlagError> {
         // check if the properties are already cached, if so return them
         if let Some(properties) = &self.properties_cache.person_properties {
+            inc(
+                PROPERTY_CACHE_HITS_COUNTER,
+                &[("type".to_string(), "person_properties".to_string())],
+                1,
+            );
             let mut result = HashMap::new();
             result.clone_from(properties);
             return Ok(result);
         }
 
-        let postgres_reader = self.postgres_reader.clone();
+        inc(
+            PROPERTY_CACHE_MISSES_COUNTER,
+            &[("type".to_string(), "person_properties".to_string())],
+            1,
+        );
+
+        let reader = self.reader.clone();
         let distinct_id = self.distinct_id.clone();
         let team_id = self.team_id;
         let (db_properties, person_id) =
-            fetch_person_properties_from_db(postgres_reader, distinct_id, team_id).await?;
+            fetch_person_properties_from_db(reader, distinct_id, team_id).await?;
+
+        inc(
+            DB_PERSON_PROPERTIES_READS_COUNTER,
+            &[("team_id".to_string(), team_id.to_string())],
+            1,
+        );
 
         // once the properties and person ID are fetched, cache them so we don't need to fetch again in a given request
         self.properties_cache.person_properties = Some(db_properties.clone());
@@ -1060,10 +1244,13 @@ impl FeatureFlagMatcher {
                 .await?
                 .get(&group_type_index)
                 .and_then(|group_type_name| self.groups.get(group_type_name))
-                .cloned()
-                .unwrap_or_default();
+                .and_then(|v| v.as_str())
+                // NB: we currently use empty string ("") as the hashed identifier for group flags without a group key,
+                // and I don't want to break parity with the old service since I don't want the hash values to change
+                .unwrap_or("")
+                .to_string();
 
-            Ok(group_key.to_string())
+            Ok(group_key)
         } else {
             // Person-based flag
             // Use hash key overrides for experience continuity
@@ -1092,9 +1279,9 @@ impl FeatureFlagMatcher {
             .hashed_identifier(feature_flag, hash_key_overrides)
             .await?;
         if hashed_identifier.is_empty() {
-            // Return a hash value that will make the flag evaluate to false
-            // TODO make this cleaner – we should have a way to return a default value
-            return Ok(0.0);
+            // Return a hash value that will make the flag evaluate to false; since we
+            // can't evaluate a flag without an identifier.
+            return Ok(0.0); // NB: A flag with 0.0 hash will always evaluate to false
         }
         let hash_key = format!("{}.{}{}", feature_flag.key, hashed_identifier, salt);
         let mut hasher = Sha1::new();
@@ -1167,11 +1354,11 @@ impl FeatureFlagMatcher {
 
 /// Evaluate static cohort filters by checking if the person is in each cohort.
 async fn evaluate_static_cohorts(
-    postgres_reader: PostgresReader,
-    person_id: i32, // Change this parameter from distinct_id to person_id
+    reader: PostgresReader,
+    person_id: i32,
     cohort_ids: Vec<CohortId>,
 ) -> Result<Vec<(CohortId, bool)>, FlagError> {
-    let mut conn = postgres_reader.get_connection().await?;
+    let mut conn = reader.get_connection().await?;
 
     let query = r#"
            WITH cohort_membership AS (
@@ -1188,7 +1375,7 @@ async fn evaluate_static_cohorts(
 
     let rows = sqlx::query(query)
         .bind(&cohort_ids)
-        .bind(person_id) // Bind person_id directly
+        .bind(person_id)
         .fetch_all(&mut *conn)
         .await?;
 
@@ -1210,10 +1397,9 @@ async fn evaluate_static_cohorts(
 fn evaluate_dynamic_cohorts(
     initial_cohort_id: CohortId,
     target_properties: &HashMap<String, Value>,
-    cohorts: Vec<Cohort>,
+    cohorts: &[Cohort],
 ) -> Result<bool, FlagError> {
-    let cohort_dependency_graph =
-        build_cohort_dependency_graph(initial_cohort_id, cohorts.clone())?;
+    let cohort_dependency_graph = build_cohort_dependency_graph(initial_cohort_id, cohorts)?;
 
     // We need to sort cohorts topologically to ensure we evaluate dependencies before the cohorts that depend on them.
     // For example, if cohort A depends on cohort B, we need to evaluate B first to know if A matches.
@@ -1318,7 +1504,7 @@ fn apply_cohort_membership_logic(
 /// The graph is acyclic, which is required for valid cohort dependencies.
 fn build_cohort_dependency_graph(
     initial_cohort_id: CohortId,
-    cohorts: Vec<Cohort>,
+    cohorts: &[Cohort],
 ) -> Result<DiGraph<CohortId, ()>, FlagError> {
     let mut graph = DiGraph::new();
     let mut node_map = HashMap::new();
@@ -1369,7 +1555,6 @@ fn build_cohort_dependency_graph(
         }
     }
 
-    // Check for cycles, this is an directed acyclic graph so we use is_cyclic_directed
     if is_cyclic_directed(&graph) {
         return Err(FlagError::CohortDependencyCycle(format!(
             "Cyclic dependency detected starting at cohort {}",
@@ -1384,52 +1569,62 @@ fn build_cohort_dependency_graph(
 ///
 /// This function fetches both person and group properties for a specified distinct ID and team ID.
 /// It updates the properties cache with the fetched properties and returns the result.
-async fn fetch_and_locally_cache_all_properties(
+async fn fetch_and_locally_cache_all_relevant_properties(
     properties_cache: &mut PropertiesCache,
-    postgres_reader: PostgresReader,
+    reader: PostgresReader,
     distinct_id: String,
     team_id: TeamId,
     group_type_indexes: &HashSet<GroupTypeIndex>,
+    group_keys: &HashSet<String>,
 ) -> Result<(), FlagError> {
-    let mut conn = postgres_reader.as_ref().get_connection().await?;
+    let mut conn = reader.as_ref().get_connection().await?;
 
     let query = r#"
-        SELECT 
-            person.person_id,
-            person.person_properties,
-            group_properties.group_properties
-        FROM (
-            SELECT 
-                "posthog_person"."id" AS person_id,
-                "posthog_person"."properties" AS person_properties
-            FROM "posthog_person"
-            INNER JOIN "posthog_persondistinctid" 
-                ON "posthog_person"."id" = "posthog_persondistinctid"."person_id"
-            WHERE 
-                "posthog_persondistinctid"."distinct_id" = $1
-                AND "posthog_persondistinctid"."team_id" = $2
-                AND "posthog_person"."team_id" = $2
-            LIMIT 1
-        ) AS person,
-        (
-            SELECT 
-                json_object_agg(
-                    "posthog_group"."group_type_index", 
-                    "posthog_group"."group_properties"
-                ) AS group_properties
-            FROM "posthog_group"
-            WHERE 
-                "posthog_group"."team_id" = $2
-                AND "posthog_group"."group_type_index" = ANY($3)
-        ) AS group_properties
+        SELECT
+            (
+                SELECT "posthog_person"."id"
+                FROM "posthog_person"
+                INNER JOIN "posthog_persondistinctid"
+                    ON "posthog_person"."id" = "posthog_persondistinctid"."person_id"
+                WHERE
+                    "posthog_persondistinctid"."distinct_id" = $1
+                    AND "posthog_persondistinctid"."team_id" = $2
+                    AND "posthog_person"."team_id" = $2
+                LIMIT 1
+            ) AS person_id,
+            (
+                SELECT "posthog_person"."properties"
+                FROM "posthog_person"
+                INNER JOIN "posthog_persondistinctid"
+                    ON "posthog_person"."id" = "posthog_persondistinctid"."person_id"
+                WHERE
+                    "posthog_persondistinctid"."distinct_id" = $1
+                    AND "posthog_persondistinctid"."team_id" = $2
+                    AND "posthog_person"."team_id" = $2
+                LIMIT 1
+            ) AS person_properties,
+            (
+                SELECT
+                    json_object_agg(
+                        "posthog_group"."group_type_index",
+                        "posthog_group"."group_properties"
+                    )
+                FROM "posthog_group"
+                WHERE
+                    "posthog_group"."team_id" = $2
+                    AND "posthog_group"."group_type_index" = ANY($3)
+                    AND "posthog_group"."group_key" = ANY($4)
+            ) AS group_properties
     "#;
 
     let group_type_indexes_vec: Vec<GroupTypeIndex> = group_type_indexes.iter().cloned().collect();
+    let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
     let row: (Option<i32>, Option<Value>, Option<Value>) = sqlx::query_as(query)
         .bind(&distinct_id)
         .bind(team_id)
         .bind(&group_type_indexes_vec)
+        .bind(&group_keys_vec) // Bind group_keys_vec to $4
         .fetch_optional(&mut *conn)
         .await?
         .unwrap_or((None, None, None));
@@ -1479,11 +1674,11 @@ async fn fetch_and_locally_cache_all_properties(
 /// This function constructs and executes a SQL query to fetch the person properties for a specified distinct ID and team ID.
 /// It returns the fetched properties as a HashMap.
 async fn fetch_person_properties_from_db(
-    postgres_reader: PostgresReader,
+    reader: PostgresReader,
     distinct_id: String,
     team_id: TeamId,
 ) -> Result<(HashMap<String, Value>, i32), FlagError> {
-    let mut conn = postgres_reader.as_ref().get_connection().await?;
+    let mut conn = reader.as_ref().get_connection().await?;
 
     let query = r#"
            SELECT "posthog_person"."id" as person_id, "posthog_person"."properties" as person_properties
@@ -1520,23 +1715,26 @@ async fn fetch_person_properties_from_db(
 /// This function constructs and executes a SQL query to fetch the group properties for a specified team ID and group type index.
 /// It returns the fetched properties as a HashMap.
 async fn fetch_group_properties_from_db(
-    postgres_reader: PostgresReader,
+    reader: PostgresReader,
     team_id: TeamId,
     group_type_index: GroupTypeIndex,
+    group_key: String,
 ) -> Result<HashMap<String, Value>, FlagError> {
-    let mut conn = postgres_reader.as_ref().get_connection().await?;
+    let mut conn = reader.as_ref().get_connection().await?;
 
     let query = r#"
         SELECT "posthog_group"."group_properties"
         FROM "posthog_group"
         WHERE ("posthog_group"."team_id" = $1
-                AND "posthog_group"."group_type_index" = $2)
+                AND "posthog_group"."group_type_index" = $2
+                AND "posthog_group"."group_key" = $3)
         LIMIT 1
     "#;
 
     let row: Option<Value> = sqlx::query_scalar(query)
         .bind(team_id)
         .bind(group_type_index)
+        .bind(group_key)
         .fetch_optional(&mut *conn)
         .await?;
 
@@ -1556,9 +1754,6 @@ fn locally_computable_property_overrides(
     property_filters: &[PropertyFilter],
 ) -> Option<HashMap<String, Value>> {
     property_overrides.as_ref().and_then(|overrides| {
-        // TODO handle note from Neil: https://github.com/PostHog/posthog/pull/24589#discussion_r1735828561
-        // TL;DR – we'll need to handle cohort properties at the DB level, i.e. we'll need to adjust the cohort query
-        // to account for if a given person is an element of the cohort X, Y, Z, etc
         let should_prefer_overrides = property_filters
             .iter()
             .all(|prop| overrides.contains_key(&prop.key) && prop.prop_type != "cohort");
@@ -1582,12 +1777,12 @@ fn all_properties_match(
 }
 
 async fn get_feature_flag_hash_key_overrides(
-    postgres_reader: PostgresReader,
+    reader: PostgresReader,
     team_id: TeamId,
     distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
     let mut feature_flag_hash_key_overrides = HashMap::new();
-    let mut conn = postgres_reader.as_ref().get_connection().await?;
+    let mut conn = reader.as_ref().get_connection().await?;
 
     let person_and_distinct_id_query = r#"
             SELECT person_id, distinct_id 
@@ -1637,7 +1832,7 @@ async fn get_feature_flag_hash_key_overrides(
 }
 
 async fn set_feature_flag_hash_key_overrides(
-    postgres_writer: PostgresWriter,
+    writer: PostgresWriter,
     team_id: TeamId,
     distinct_ids: Vec<String>,
     hash_key_override: String,
@@ -1646,7 +1841,7 @@ async fn set_feature_flag_hash_key_overrides(
     const RETRY_DELAY: Duration = Duration::from_millis(100);
 
     for retry in 0..MAX_RETRIES {
-        let mut conn = postgres_writer.get_connection().await?;
+        let mut conn = writer.get_connection().await?;
         let mut transaction = conn.begin().await?;
 
         let query = r#"
@@ -1713,7 +1908,7 @@ async fn set_feature_flag_hash_key_overrides(
 }
 
 async fn should_write_hash_key_override(
-    postgres_reader: PostgresReader,
+    reader: PostgresReader,
     team_id: TeamId,
     distinct_id: String,
     hash_key_override: String,
@@ -1746,7 +1941,7 @@ async fn should_write_hash_key_override(
 
     for retry in 0..MAX_RETRIES {
         let result = timeout(QUERY_TIMEOUT, async {
-            let mut conn = postgres_reader.get_connection().await.map_err(|e| {
+            let mut conn = reader.get_connection().await.map_err(|e| {
                 FlagError::DatabaseError(format!("Failed to acquire connection: {}", e))
             })?;
 
@@ -1842,22 +2037,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_properties_from_pg_to_match() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+        let team = insert_new_team_in_pg(reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
         let distinct_id = "user_distinct_id".to_string();
-        insert_person_for_team_in_pg(postgres_reader.clone(), team.id, distinct_id.clone(), None)
+        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
             .await
             .expect("Failed to insert person");
 
         let not_matching_distinct_id = "not_matching_distinct_id".to_string();
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             not_matching_distinct_id.clone(),
             Some(json!({ "email": "a@x.com"})),
@@ -1893,8 +2088,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -1907,8 +2102,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             not_matching_distinct_id.clone(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -1921,8 +2116,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "other_distinct_id".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -1935,12 +2130,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_person_property_overrides() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             None,
@@ -1975,8 +2168,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader,
-            postgres_writer,
+            reader,
+            writer,
             cohort_cache,
             None,
             None,
@@ -1997,12 +2190,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_group_property_overrides() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             None,
@@ -2032,8 +2223,7 @@ mod tests {
             None,
         );
 
-        let mut group_type_mapping_cache =
-            GroupTypeMappingCache::new(team.id, postgres_reader.clone());
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id, reader.clone());
         let group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
         group_type_mapping_cache.group_types_to_indexes = group_types_to_indexes;
         group_type_mapping_cache.group_indexes_to_types =
@@ -2052,8 +2242,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
@@ -2076,10 +2266,10 @@ mod tests {
     #[tokio::test]
     async fn test_get_matching_variant_with_cache() {
         let flag = create_test_flag_with_variants(1);
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(1, postgres_reader.clone());
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(1, reader.clone());
 
         let group_types_to_indexes = [("group_type_1".to_string(), 1)].into_iter().collect();
         let group_type_index_to_name = [(1, "group_type_1".to_string())].into_iter().collect();
@@ -2092,8 +2282,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             1,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
@@ -2108,20 +2298,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_matching_variant_with_db() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         let flag = create_test_flag_with_variants(team.id);
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -2134,9 +2322,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_condition_match_empty_properties() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
         let flag = create_test_flag(
             Some(1),
             None,
@@ -2167,8 +2355,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             1,
-            postgres_reader,
-            postgres_writer,
+            reader,
+            writer,
             cohort_cache,
             None,
             None,
@@ -2224,12 +2412,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_overrides_avoid_db_lookups() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             None,
@@ -2265,8 +2451,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -2295,12 +2481,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_to_db_when_overrides_insufficient() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             None,
@@ -2346,7 +2530,7 @@ mod tests {
         )]));
 
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"email": "test@example.com", "age": 30})),
@@ -2357,8 +2541,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -2381,16 +2565,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_property_fetching_and_caching() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         let distinct_id = "test_user".to_string();
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "test@example.com", "age": 30})),
@@ -2401,8 +2583,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id,
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -2426,16 +2608,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_property_caching() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         let distinct_id = "test_user".to_string();
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "test@example.com", "age": 30})),
@@ -2446,8 +2626,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -2479,8 +2659,8 @@ mod tests {
         let mut new_matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -2570,12 +2750,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_flag_evaluation() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
         let flag = Arc::new(create_test_flag(
             None,
             Some(team.id),
@@ -2600,15 +2778,15 @@ mod tests {
         let mut handles = vec![];
         for i in 0..100 {
             let flag_clone = flag.clone();
-            let postgres_reader_clone = postgres_reader.clone();
-            let postgres_writer_clone = postgres_writer.clone();
+            let reader_clone = reader.clone();
+            let writer_clone = writer.clone();
             let cohort_cache_clone = cohort_cache.clone();
             handles.push(tokio::spawn(async move {
                 let mut matcher = FeatureFlagMatcher::new(
                     format!("test_user_{}", i),
                     team.id,
-                    postgres_reader_clone,
-                    postgres_writer_clone,
+                    reader_clone,
+                    writer_clone,
                     cohort_cache_clone,
                     None,
                     None,
@@ -2629,12 +2807,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_property_operators() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             None,
@@ -2675,7 +2851,7 @@ mod tests {
         );
 
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"email": "user@example@domain.com", "age": 30})),
@@ -2686,8 +2862,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -2700,9 +2876,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_hashed_identifier() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
         let flag = create_test_flag(
             Some(1),
             None,
@@ -2724,15 +2900,8 @@ mod tests {
             None,
         );
 
-        let mut matcher = FeatureFlagMatcher::new(
-            "".to_string(),
-            1,
-            postgres_reader,
-            postgres_writer,
-            cohort_cache,
-            None,
-            None,
-        );
+        let mut matcher =
+            FeatureFlagMatcher::new("".to_string(), 1, reader, writer, cohort_cache, None, None);
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
 
@@ -2741,9 +2910,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_rollout_percentage() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
         let mut flag = create_test_flag(
             Some(1),
             None,
@@ -2768,8 +2937,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             1,
-            postgres_reader,
-            postgres_writer,
+            reader,
+            writer,
             cohort_cache,
             None,
             None,
@@ -2789,9 +2958,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_uneven_variant_distribution() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
         let mut flag = create_test_flag_with_variants(1);
 
         // Adjust variant rollout percentages to be uneven
@@ -2819,8 +2988,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             1,
-            postgres_reader,
-            postgres_writer,
+            reader,
+            writer,
             cohort_cache,
             None,
             None,
@@ -2851,22 +3020,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_missing_properties_in_db() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         // Insert a person without properties
-        insert_person_for_team_in_pg(
-            postgres_reader.clone(),
-            team.id,
-            "test_user".to_string(),
-            None,
-        )
-        .await
-        .unwrap();
+        insert_person_for_team_in_pg(reader.clone(), team.id, "test_user".to_string(), None)
+            .await
+            .unwrap();
 
         let flag = create_test_flag(
             None,
@@ -2899,8 +3061,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache,
             None,
             None,
@@ -2913,16 +3075,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_malformed_property_data() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         // Insert a person with malformed properties
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"age": "not_a_number"})),
@@ -2961,8 +3121,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache,
             None,
             None,
@@ -2976,12 +3136,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_match_with_insufficient_overrides() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             None,
@@ -3027,7 +3185,7 @@ mod tests {
         )]));
 
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"email": "test@example.com", "age": 30})),
@@ -3038,8 +3196,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache,
             None,
             None,
@@ -3055,9 +3213,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluation_reasons() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
         let flag = create_test_flag(
             Some(1),
             None,
@@ -3082,8 +3240,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             1,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache,
             None,
             None,
@@ -3100,12 +3258,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_complex_conditions() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             Some(1),
@@ -3150,7 +3306,7 @@ mod tests {
         );
 
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"email": "user2@example.com", "age": 35})),
@@ -3161,8 +3317,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache,
             None,
             None,
@@ -3175,12 +3331,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_super_condition_matches_boolean() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             Some(1),
@@ -3241,7 +3395,7 @@ mod tests {
         );
 
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             "test_id".to_string(),
             Some(json!({"email": "test@posthog.com", "is_enabled": true})),
@@ -3249,24 +3403,19 @@ mod tests {
         .await
         .unwrap();
 
-        insert_person_for_team_in_pg(postgres_reader.clone(), team.id, "lil_id".to_string(), None)
+        insert_person_for_team_in_pg(reader.clone(), team.id, "lil_id".to_string(), None)
             .await
             .unwrap();
 
-        insert_person_for_team_in_pg(
-            postgres_reader.clone(),
-            team.id,
-            "another_id".to_string(),
-            None,
-        )
-        .await
-        .unwrap();
+        insert_person_for_team_in_pg(reader.clone(), team.id, "another_id".to_string(), None)
+            .await
+            .unwrap();
 
         let mut matcher_test_id = FeatureFlagMatcher::new(
             "test_id".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -3275,8 +3424,8 @@ mod tests {
         let mut matcher_example_id = FeatureFlagMatcher::new(
             "lil_id".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -3285,8 +3434,8 @@ mod tests {
         let mut matcher_another_id = FeatureFlagMatcher::new(
             "another_id".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -3312,15 +3461,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_super_condition_matches_string() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             "test_id".to_string(),
             Some(json!({"email": "test@posthog.com", "is_enabled": "true"})),
@@ -3389,8 +3536,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_id".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -3405,15 +3552,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_super_condition_matches_and_false() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             "test_id".to_string(),
             Some(json!({"email": "test@posthog.com", "is_enabled": true})),
@@ -3421,16 +3566,11 @@ mod tests {
         .await
         .unwrap();
 
-        insert_person_for_team_in_pg(
-            postgres_reader.clone(),
-            team.id,
-            "another_id".to_string(),
-            None,
-        )
-        .await
-        .unwrap();
+        insert_person_for_team_in_pg(reader.clone(), team.id, "another_id".to_string(), None)
+            .await
+            .unwrap();
 
-        insert_person_for_team_in_pg(postgres_reader.clone(), team.id, "lil_id".to_string(), None)
+        insert_person_for_team_in_pg(reader.clone(), team.id, "lil_id".to_string(), None)
             .await
             .unwrap();
 
@@ -3495,8 +3635,8 @@ mod tests {
         let mut matcher_test_id = FeatureFlagMatcher::new(
             "test_id".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -3505,8 +3645,8 @@ mod tests {
         let mut matcher_example_id = FeatureFlagMatcher::new(
             "lil_id".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -3515,8 +3655,8 @@ mod tests {
         let mut matcher_another_id = FeatureFlagMatcher::new(
             "another_id".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -3556,16 +3696,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_basic_cohort_matching() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         // Insert a cohort with the condition that matches the test user's properties
         let cohort_row = insert_cohort_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             None,
             json!({
@@ -3590,7 +3728,7 @@ mod tests {
 
         // Insert a person with properties that match the cohort condition
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"$browser_version": 126})),
@@ -3630,8 +3768,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -3644,16 +3782,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_not_in_cohort_matching() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         // Insert a cohort with a condition that does not match the test user's properties
         let cohort_row = insert_cohort_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             None,
             json!({
@@ -3678,7 +3814,7 @@ mod tests {
 
         // Insert a person with properties that do not match the cohort condition
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"$browser_version": 126})),
@@ -3718,8 +3854,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -3732,16 +3868,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_not_in_cohort_matching_user_in_cohort() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         // Insert a cohort with a condition that matches the test user's properties
         let cohort_row = insert_cohort_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             None,
             json!({
@@ -3766,7 +3900,7 @@ mod tests {
 
         // Insert a person with properties that match the cohort condition
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"$browser_version": 126})),
@@ -3806,8 +3940,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -3821,16 +3955,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_cohort_dependent_on_another_cohort() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         // Insert a base cohort
         let base_cohort_row = insert_cohort_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             None,
             json!({
@@ -3855,7 +3987,7 @@ mod tests {
 
         // Insert a dependent cohort that includes the base cohort
         let dependent_cohort_row = insert_cohort_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             None,
             json!({
@@ -3880,7 +4012,7 @@ mod tests {
 
         // Insert a person with properties that match the base cohort condition
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"$browser_version": 126})),
@@ -3920,8 +4052,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -3934,16 +4066,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_in_cohort_matching_user_not_in_cohort() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         // Insert a cohort with a condition that does not match the test user's properties
         let cohort_row = insert_cohort_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             None,
             json!({
@@ -3968,7 +4098,7 @@ mod tests {
 
         // Insert a person with properties that do not match the cohort condition
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"$browser_version": 125})),
@@ -4008,8 +4138,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -4023,16 +4153,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_static_cohort_matching_user_in_cohort() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         // Insert a static cohort
         let cohort = insert_cohort_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             Some("Static Cohort".to_string()),
             json!({}), // Static cohorts don't have property filters
@@ -4044,7 +4172,7 @@ mod tests {
         // Insert a person
         let distinct_id = "static_user".to_string();
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "static@user.com"})),
@@ -4053,13 +4181,12 @@ mod tests {
         .unwrap();
 
         // Retrieve the person's ID
-        let person_id =
-            get_person_id_by_distinct_id(postgres_reader.clone(), team.id, &distinct_id)
-                .await
-                .unwrap();
+        let person_id = get_person_id_by_distinct_id(reader.clone(), team.id, &distinct_id)
+            .await
+            .unwrap();
 
         // Associate the person with the static cohort
-        add_person_to_cohort(postgres_reader.clone(), person_id, cohort.id)
+        add_person_to_cohort(reader.clone(), person_id, cohort.id)
             .await
             .unwrap();
 
@@ -4095,8 +4222,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -4112,16 +4239,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_static_cohort_matching_user_not_in_cohort() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         // Insert a static cohort
         let cohort = insert_cohort_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             Some("Another Static Cohort".to_string()),
             json!({}), // Static cohorts don't have property filters
@@ -4133,7 +4258,7 @@ mod tests {
         // Insert a person
         let distinct_id = "non_static_user".to_string();
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "nonstatic@user.com"})),
@@ -4175,8 +4300,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -4192,16 +4317,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_static_cohort_not_in_matching_user_not_in_cohort() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         // Insert a static cohort
         let cohort = insert_cohort_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             Some("Static Cohort NotIn".to_string()),
             json!({}), // Static cohorts don't have property filters
@@ -4213,7 +4336,7 @@ mod tests {
         // Insert a person
         let distinct_id = "not_in_static_user".to_string();
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "notinstatic@user.com"})),
@@ -4255,8 +4378,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -4272,16 +4395,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_static_cohort_not_in_matching_user_in_cohort() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
         // Insert a static cohort
         let cohort = insert_cohort_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             Some("Static Cohort NotIn User In".to_string()),
             json!({}), // Static cohorts don't have property filters
@@ -4293,7 +4414,7 @@ mod tests {
         // Insert a person
         let distinct_id = "in_not_in_static_user".to_string();
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "innotinstatic@user.com"})),
@@ -4302,13 +4423,12 @@ mod tests {
         .unwrap();
 
         // Retrieve the person's ID
-        let person_id =
-            get_person_id_by_distinct_id(postgres_reader.clone(), team.id, &distinct_id)
-                .await
-                .unwrap();
+        let person_id = get_person_id_by_distinct_id(reader.clone(), team.id, &distinct_id)
+            .await
+            .unwrap();
 
         // Associate the person with the static cohort
-        add_person_to_cohort(postgres_reader.clone(), person_id, cohort.id)
+        add_person_to_cohort(reader.clone(), person_id, cohort.id)
             .await
             .unwrap();
 
@@ -4344,8 +4464,8 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -4361,15 +4481,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_feature_flag_hash_key_overrides_success() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
         let distinct_id = "user2".to_string();
 
         // Insert person
-        insert_person_for_team_in_pg(postgres_reader.clone(), team.id, distinct_id.clone(), None)
+        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
             .await
             .unwrap();
 
@@ -4404,13 +4522,13 @@ mod tests {
         };
 
         // Insert the feature flag into the database
-        insert_flag_for_team_in_pg(postgres_writer.clone(), team.id, Some(flag_row))
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
             .await
             .unwrap();
 
         // Set hash key override
         set_feature_flag_hash_key_overrides(
-            postgres_writer.clone(),
+            writer.clone(),
             team.id,
             vec![distinct_id.clone()],
             "hash_key_2".to_string(),
@@ -4419,13 +4537,10 @@ mod tests {
         .unwrap();
 
         // Retrieve hash key overrides
-        let overrides = get_feature_flag_hash_key_overrides(
-            postgres_reader.clone(),
-            team.id,
-            vec![distinct_id.clone()],
-        )
-        .await
-        .unwrap();
+        let overrides =
+            get_feature_flag_hash_key_overrides(reader.clone(), team.id, vec![distinct_id.clone()])
+                .await
+                .unwrap();
 
         assert_eq!(
             overrides.get("test_flag"),
@@ -4436,15 +4551,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_feature_flag_hash_key_overrides_success() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
         let distinct_id = "user2".to_string();
 
         // Insert person
-        insert_person_for_team_in_pg(postgres_reader.clone(), team.id, distinct_id.clone(), None)
+        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
             .await
             .unwrap();
 
@@ -4479,13 +4592,13 @@ mod tests {
         };
 
         // Insert the feature flag into the database
-        insert_flag_for_team_in_pg(postgres_writer.clone(), team.id, Some(flag_row))
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
             .await
             .unwrap();
 
         // Set hash key override
         set_feature_flag_hash_key_overrides(
-            postgres_writer.clone(),
+            writer.clone(),
             team.id,
             vec![distinct_id.clone()],
             "hash_key_2".to_string(),
@@ -4494,13 +4607,10 @@ mod tests {
         .unwrap();
 
         // Retrieve hash key overrides
-        let overrides = get_feature_flag_hash_key_overrides(
-            postgres_reader.clone(),
-            team.id,
-            vec![distinct_id.clone()],
-        )
-        .await
-        .unwrap();
+        let overrides =
+            get_feature_flag_hash_key_overrides(reader.clone(), team.id, vec![distinct_id.clone()])
+                .await
+                .unwrap();
 
         assert_eq!(
             overrides.get("test_flag"),
@@ -4511,17 +4621,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_feature_flags_with_experience_continuity() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
         let distinct_id = "user3".to_string();
 
         // Insert person
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "user3@example.com"})),
@@ -4560,7 +4668,7 @@ mod tests {
 
         // Set hash key override
         set_feature_flag_hash_key_overrides(
-            postgres_writer.clone(),
+            writer.clone(),
             team.id,
             vec![distinct_id.clone()],
             "hash_key_continuity".to_string(),
@@ -4575,8 +4683,8 @@ mod tests {
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -4594,16 +4702,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_feature_flags_with_continuity_missing_override() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
         let distinct_id = "user4".to_string();
 
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "user4@example.com"})),
@@ -4647,8 +4753,8 @@ mod tests {
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -4666,16 +4772,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_all_feature_flags_mixed_continuity() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .unwrap();
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
         let distinct_id = "user5".to_string();
 
         insert_person_for_team_in_pg(
-            postgres_reader.clone(),
+            reader.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "user5@example.com"})),
@@ -4743,7 +4847,7 @@ mod tests {
 
         // Set hash key override for the continuity flag
         set_feature_flag_hash_key_overrides(
-            postgres_writer.clone(),
+            writer.clone(),
             team.id,
             vec![distinct_id.clone()],
             "hash_key_mixed".to_string(),
@@ -4758,8 +4862,8 @@ mod tests {
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            postgres_reader.clone(),
-            postgres_writer.clone(),
+            reader.clone(),
+            writer.clone(),
             cohort_cache.clone(),
             None,
             None,

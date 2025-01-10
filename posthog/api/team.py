@@ -24,8 +24,6 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -38,14 +36,16 @@ from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
-    APIScopePermission,
     AccessControlPermission,
+    APIScopePermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     get_organization_from_view,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
@@ -115,6 +115,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         model = Team
         fields = [
             "id",
+            "project_id",
             "uuid",
             "name",
             "api_token",
@@ -141,6 +142,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "heatmaps_opt_in",
             "capture_dead_clicks",
         ]
+        read_only_fields = fields
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -199,6 +201,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "primary_dashboard",
             "live_events_columns",
             "recording_domains",
+            "cookieless_server_hash_mode",
+            "human_friendly_comparison_periods",
             "person_on_events_querying_enabled",
             "inject_web_apps",
             "extra_settings",
@@ -211,6 +215,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "capture_dead_clicks",
             "user_access_level",
+            "default_data_theme",
         )
         read_only_fields = (
             "id",
@@ -234,7 +239,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
-        return GroupTypeMapping.objects.filter(team_id=team.id).exists()
+        return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()
 
     def get_live_events_token(self, team: Team) -> Optional[str]:
         return encode_jwt(
@@ -610,18 +615,28 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         product_type = request.data.get("product_type")
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
+        should_report_product_intent = False
 
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
-        if not created:
+
+        if created:
+            # For new intents, check activation immediately but skip reporting
+            was_already_activated = product_intent.check_and_update_activation(skip_reporting=True)
+            # Only report the action if they haven't already activated
+            if isinstance(user, User) and not was_already_activated:
+                should_report_product_intent = True
+        else:
             if not product_intent.activated_at:
-                product_intent.check_and_update_activation()
+                is_activated = product_intent.check_and_update_activation()
+                if not is_activated:
+                    should_report_product_intent = True
             product_intent.updated_at = datetime.now(tz=UTC)
             product_intent.save()
 
-        if isinstance(user, User) and not product_intent.activated_at:
+        if should_report_product_intent and isinstance(user, User):
             report_user_action(
                 user,
                 "user showed product intent",

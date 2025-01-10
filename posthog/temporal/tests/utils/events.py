@@ -99,11 +99,13 @@ def generate_test_events(
     return events
 
 
-async def insert_event_values_in_clickhouse(client: ClickHouseClient, events: list[EventValues]):
+async def insert_event_values_in_clickhouse(
+    client: ClickHouseClient, events: list[EventValues], table: str = "sharded_events"
+):
     """Execute an insert query to insert provided EventValues into sharded_events."""
     await client.execute_query(
         f"""
-        INSERT INTO `sharded_events` (
+        INSERT INTO `{table}` (
             uuid,
             event,
             timestamp,
@@ -156,6 +158,7 @@ async def generate_test_events_in_clickhouse(
     distinct_ids: list[str] | None = None,
     duplicate: bool = False,
     batch_size: int = 10000,
+    table: str = "sharded_events",
 ) -> tuple[list[EventValues], list[EventValues], list[EventValues]]:
     """Insert test events into the sharded_events table.
 
@@ -202,7 +205,7 @@ async def generate_test_events_in_clickhouse(
         if duplicate is True:
             duplicate_events = events_to_insert
 
-        await insert_event_values_in_clickhouse(client=client, events=events_to_insert + duplicate_events)
+        await insert_event_values_in_clickhouse(client=client, events=events_to_insert + duplicate_events, table=table)
 
         events.extend(events_to_insert)
 
@@ -235,5 +238,7 @@ async def generate_test_events_in_clickhouse(
         distinct_ids=distinct_ids,
     )
 
-    await insert_event_values_in_clickhouse(client=client, events=events_outside_range + events_from_other_team)
+    await insert_event_values_in_clickhouse(
+        client=client, events=events_outside_range + events_from_other_team, table=table
+    )
     return (events, events_outside_range, events_from_other_team)

@@ -1,4 +1,4 @@
-import { actions, kea, path } from 'kea'
+import { actions, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -20,7 +20,18 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
     actions({
         loadFromRawIds: (rawIds: ErrorTrackingStackFrame['raw_id'][]) => ({ rawIds }),
         loadForSymbolSet: (symbolSetId: ErrorTrackingSymbolSet['id']) => ({ symbolSetId }),
+        setShowAllFrames: (showAllFrames: boolean) => ({ showAllFrames }),
     }),
+
+    reducers(() => ({
+        showAllFrames: [
+            false,
+            { persist: true },
+            {
+                setShowAllFrames: (_, { showAllFrames }) => showAllFrames,
+            },
+        ],
+    })),
 
     loaders(({ values }) => ({
         stackFrameRecords: [
@@ -29,6 +40,9 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                 loadFromRawIds: async ({ rawIds }) => {
                     const loadedRawIds = Object.keys(values.stackFrameRecords)
                     rawIds = rawIds.filter((rawId) => !loadedRawIds.includes(rawId))
+                    if (rawIds.length === 0) {
+                        return values.stackFrameRecords
+                    }
                     const { results } = await api.errorTracking.stackFrames(rawIds)
                     return mapStackFrameRecords(results, values.stackFrameRecords)
                 },

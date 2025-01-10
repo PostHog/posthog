@@ -1,36 +1,28 @@
-import { IconInfo, IconPencil, IconPlus } from '@posthog/icons'
+import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { useState } from 'react'
 
 import { Experiment, InsightType } from '~/types'
 
-import {
-    experimentLogic,
-    getDefaultFilters,
-    getDefaultFunnelsMetric,
-    TabularSecondaryMetricResults,
-} from '../experimentLogic'
+import { experimentLogic, TabularSecondaryMetricResults } from '../experimentLogic'
 import { SecondaryMetricChartModal } from '../Metrics/SecondaryMetricChartModal'
-import { SecondaryMetricModal } from '../Metrics/SecondaryMetricModal'
+import { MAX_SECONDARY_METRICS } from '../MetricsView/const'
+import { AddSecondaryMetric } from '../MetricsView/MetricsView'
 import { VariantTag } from './components'
 
-const MAX_SECONDARY_METRICS = 10
-
 export function SecondaryMetricsTable({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false)
     const [isChartModalOpen, setIsChartModalOpen] = useState(false)
     const [modalMetricIdx, setModalMetricIdx] = useState<number | null>(null)
 
     const {
-        experimentResults,
+        metricResults,
         secondaryMetricResultsLoading,
         experiment,
-        getSecondaryMetricType,
+        _getMetricType,
         secondaryMetricResults,
         tabularSecondaryMetricResults,
         countDataForVariant,
@@ -39,20 +31,8 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
         credibleIntervalForVariant,
         experimentMathAggregationForTrends,
         getHighestProbabilityVariant,
-        featureFlags,
     } = useValues(experimentLogic({ experimentId }))
-    const { loadExperiment } = useActions(experimentLogic({ experimentId }))
-
-    const openEditModal = (idx: number): void => {
-        setModalMetricIdx(idx)
-        setIsEditModalOpen(true)
-    }
-
-    const closeEditModal = (): void => {
-        setIsEditModalOpen(false)
-        setModalMetricIdx(null)
-        loadExperiment()
-    }
+    const { openSecondaryMetricModal } = useActions(experimentLogic({ experimentId }))
 
     const openChartModal = (idx: number): void => {
         setModalMetricIdx(idx)
@@ -64,13 +44,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
         setModalMetricIdx(null)
     }
 
-    // :FLAG: CLEAN UP AFTER MIGRATION
-    let metrics
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-        metrics = experiment.metrics_secondary
-    } else {
-        metrics = experiment.secondary_metrics
-    }
+    const metrics = experiment.metrics_secondary
 
     const columns: LemonTableColumns<any> = [
         {
@@ -78,7 +52,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                 {
                     title: <div className="py-2">Variant</div>,
                     render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
-                        if (!experimentResults || !experimentResults.insight) {
+                        if (!metricResults?.[0] || !metricResults?.[0].insight) {
                             return <span className="font-semibold">{item.variant}</span>
                         }
                         return (
@@ -95,7 +69,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
     metrics?.forEach((metric, idx) => {
         const targetResults = secondaryMetricResults?.[idx]
         const winningVariant = getHighestProbabilityVariant(targetResults || null)
-        const metricType = getSecondaryMetricType(idx)
+        const metricType = _getMetricType(metric)
 
         const Header = (): JSX.Element => (
             <div className="">
@@ -120,7 +94,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                                 type="secondary"
                                 size="xsmall"
                                 icon={<IconPencil />}
-                                onClick={() => openEditModal(idx)}
+                                onClick={() => openSecondaryMetricModal(idx)}
                             />
                         </div>
                     </div>
@@ -149,16 +123,18 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                         ),
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
-                            return <div>{targetResults ? countDataForVariant(targetResults, variant) : '—'}</div>
+                            const count = targetResults ? countDataForVariant(targetResults, variant) : null
+                            return <div>{count === null ? '—' : humanFriendlyNumber(count)}</div>
                         },
                     },
                     {
                         title: 'Exposure',
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
-                            return (
-                                <div>{targetResults ? exposureCountDataForVariant(targetResults, variant) : '—'}</div>
-                            )
+                            const exposureCount = targetResults
+                                ? exposureCountDataForVariant(targetResults, variant)
+                                : null
+                            return <div>{exposureCount === null ? '—' : humanFriendlyNumber(exposureCount)}</div>
                         },
                     },
                     {
@@ -277,11 +253,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                         <div className="ml-auto">
                             {metrics && metrics.length > 0 && (
                                 <div className="mb-2 mt-4 justify-end">
-                                    <AddSecondaryMetricButton
-                                        experimentId={experimentId}
-                                        metrics={metrics}
-                                        openEditModal={openEditModal}
-                                    />
+                                    <AddSecondaryMetric />
                                 </div>
                             )}
                         </div>
@@ -303,21 +275,11 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                                 Add up to {MAX_SECONDARY_METRICS} secondary metrics to monitor side effects of your
                                 experiment.
                             </div>
-                            <AddSecondaryMetricButton
-                                experimentId={experimentId}
-                                metrics={metrics}
-                                openEditModal={openEditModal}
-                            />
+                            <AddSecondaryMetric />
                         </div>
                     </div>
                 )}
             </div>
-            <SecondaryMetricModal
-                metricIdx={modalMetricIdx ?? 0}
-                isOpen={isEditModalOpen}
-                onClose={closeEditModal}
-                experimentId={experimentId}
-            />
             <SecondaryMetricChartModal
                 experimentId={experimentId}
                 metricIdx={modalMetricIdx ?? 0}
@@ -325,54 +287,5 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                 onClose={closeChartModal}
             />
         </>
-    )
-}
-
-const AddSecondaryMetricButton = ({
-    experimentId,
-    metrics,
-    openEditModal,
-}: {
-    experimentId: Experiment['id']
-    metrics: any
-    openEditModal: (metricIdx: number) => void
-}): JSX.Element => {
-    const { experiment, featureFlags } = useValues(experimentLogic({ experimentId }))
-    const { setExperiment } = useActions(experimentLogic({ experimentId }))
-    return (
-        <LemonButton
-            icon={<IconPlus />}
-            type="secondary"
-            size="small"
-            onClick={() => {
-                // :FLAG: CLEAN UP AFTER MIGRATION
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    const newMetricsSecondary = [...experiment.metrics_secondary, getDefaultFunnelsMetric()]
-                    setExperiment({
-                        metrics_secondary: newMetricsSecondary,
-                    })
-                    openEditModal(newMetricsSecondary.length - 1)
-                } else {
-                    const newSecondaryMetrics = [
-                        ...experiment.secondary_metrics,
-                        {
-                            name: '',
-                            filters: getDefaultFilters(InsightType.FUNNELS, undefined),
-                        },
-                    ]
-                    setExperiment({
-                        secondary_metrics: newSecondaryMetrics,
-                    })
-                    openEditModal(newSecondaryMetrics.length - 1)
-                }
-            }}
-            disabledReason={
-                metrics.length >= MAX_SECONDARY_METRICS
-                    ? `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
-                    : undefined
-            }
-        >
-            Add metric
-        </LemonButton>
     )
 }

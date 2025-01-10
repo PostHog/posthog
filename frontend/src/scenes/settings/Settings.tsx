@@ -10,6 +10,7 @@ import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, inStorybookTestRunner } from 'lib/utils'
 import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { settingsLogic } from './settingsLogic'
 import { SettingsLogicProps } from './types'
@@ -56,7 +57,16 @@ export function Settings({
                                 {levels.map((level) => (
                                     <li key={level} className="space-y-px">
                                         <LemonButton
-                                            onClick={() => selectLevel(level)}
+                                            to={urls.settings(level)}
+                                            onClick={
+                                                // Outside of /settings, we want to select the level without navigating
+                                                props.logicKey === 'settingsScene'
+                                                    ? (e) => {
+                                                          selectLevel(level)
+                                                          e.preventDefault()
+                                                      }
+                                                    : undefined
+                                            }
                                             size="small"
                                             fullWidth
                                             active={selectedLevel === level && !selectedSectionId}
@@ -70,7 +80,16 @@ export function Settings({
                                                 .map((section) => (
                                                     <li key={section.id} className="pl-4">
                                                         <LemonButton
-                                                            onClick={() => selectSection(section.id, section.level)}
+                                                            to={urls.settings(section.id)}
+                                                            onClick={
+                                                                // Outside of /settings, we want to select the level without navigating
+                                                                props.logicKey === 'settingsScene'
+                                                                    ? (e) => {
+                                                                          selectSection(section.id, section.level)
+                                                                          e.preventDefault()
+                                                                      }
+                                                                    : undefined
+                                                            }
                                                             size="small"
                                                             fullWidth
                                                             active={selectedSectionId === section.id}
@@ -116,7 +135,7 @@ export function Settings({
 }
 
 function SettingsRenderer(props: SettingsLogicProps): JSX.Element {
-    const { settings } = useValues(settingsLogic(props))
+    const { settings, selectedLevel, selectedSectionId } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
 
     return (
@@ -124,13 +143,22 @@ function SettingsRenderer(props: SettingsLogicProps): JSX.Element {
             {settings.length ? (
                 settings.map((x) => (
                     <div key={x.id} className="relative">
-                        <div
-                            id={x.id}
-                            className="absolute -mt-14" // Account for top bar when scrolling to anchor
-                        />
-                        <h2 className="flex gap-2 items-center">
+                        <h2 id={x.id} className="flex gap-2 items-center">
                             {x.title}
-                            <LemonButton icon={<IconLink />} size="small" onClick={() => selectSetting?.(x.id)} />
+                            <LemonButton
+                                icon={<IconLink />}
+                                size="small"
+                                to={urls.settings(selectedSectionId ?? selectedLevel, x.id)}
+                                onClick={
+                                    // Outside of /settings, we want to select the level without navigating
+                                    props.logicKey === 'settingsScene'
+                                        ? (e) => {
+                                              selectSetting(x.id)
+                                              e.preventDefault()
+                                          }
+                                        : undefined
+                                }
+                            />
                         </h2>
                         {x.description && <p>{x.description}</p>}
 

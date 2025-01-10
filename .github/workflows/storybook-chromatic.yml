@@ -18,7 +18,7 @@ concurrency:
 jobs:
     storybook-chromatic:
         name: Publish to Chromatic
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 15
         if: github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
         outputs:
@@ -50,7 +50,7 @@ jobs:
 
     visual-regression:
         name: Visual regression tests
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 30
         container:
             image: mcr.microsoft.com/playwright:v1.45.0
@@ -147,7 +147,7 @@ jobs:
 
             - name: Archive failure screenshots
               if: ${{ failure() }}
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                   name: failure-screenshots-${{ matrix.browser }}
                   path: frontend/__snapshots__/__failures__/
@@ -211,7 +211,7 @@ jobs:
 
     visual-regression-summary:
         name: Summarize visual regression tests
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: visual-regression
         if: always() # Run even if visual-regression fails for one (or more) of the browsers

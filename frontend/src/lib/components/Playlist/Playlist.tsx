@@ -7,7 +7,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 import { Resizer } from '../Resizer/Resizer'
@@ -26,7 +26,7 @@ export type PlaylistSection<T> = {
 export type PlaylistProps<T> = {
     sections: PlaylistSection<T>[]
     listEmptyState: JSX.Element
-    content: ({ activeItem }: { activeItem: T | null }) => JSX.Element
+    content: (({ activeItem }: { activeItem: T | null }) => JSX.Element) | null
     title?: string
     notebooksHref?: string
     embedded?: boolean
@@ -40,6 +40,7 @@ export type PlaylistProps<T> = {
     onChangeSections?: (activeKeys: string[]) => void
     'data-attr'?: string
     activeItemId?: string
+    isCollapsed?: boolean
 }
 
 const CounterBadge = ({
@@ -79,12 +80,23 @@ export function Playlist<
     selectInitialItem,
     onSelect,
     onChangeSections,
+    isCollapsed = false,
     'data-attr': dataAttr,
 }: PlaylistProps<T>): JSX.Element {
     const [controlledActiveItemId, setControlledActiveItemId] = useState<T['id'] | null>(
         selectInitialItem && sections[0].items[0] ? sections[0].items[0].id : null
     )
-    const [listCollapsed, setListCollapsed] = useState<boolean>(false)
+    const [listCollapsed, setListCollapsed] = useState<boolean>(isCollapsed)
+    useEffect(
+        () => {
+            if (isCollapsed !== listCollapsed) {
+                setListCollapsed(isCollapsed)
+            }
+        },
+        // purposefully only isCollapsed in dependencies
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [isCollapsed]
+    )
     const playlistListRef = useRef<HTMLDivElement>(null)
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
@@ -137,7 +149,7 @@ export function Playlist<
                     onDoubleClick={() => setListCollapsed(!listCollapsed)}
                 />
             </div>
-            <div className="Playlist__main">{content({ activeItem })}</div>
+            {content && <div className="Playlist__main">{content({ activeItem })}</div>}
         </div>
     )
 }
@@ -241,7 +253,7 @@ function List<
         <div className="flex flex-col w-full bg-bg-light overflow-hidden border-r h-full">
             <DraggableToNotebook href={notebooksHref}>
                 <div className="flex flex-col gap-1">
-                    <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                    <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                         <TitleWithCount title={title} count={itemsCount} onClickCollapse={onClickCollapse} />
                         {headerActions}
                     </div>
