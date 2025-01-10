@@ -131,9 +131,7 @@ export function DeltaChart({
     }
 
     const BAR_HEIGHT = 8 + getScaleAddition(variants.length)
-    const FIRST_BAR_PADDING = 2
-    const LAST_BAR_PADDING = 2
-    const BAR_PADDING = 14 + getScaleAddition(variants.length)
+    const BAR_PADDING = 10 + getScaleAddition(variants.length)
     const TICK_PANEL_HEIGHT = 20
     const VIEW_BOX_WIDTH = 800
     const HORIZONTAL_PADDING = 20
@@ -155,8 +153,7 @@ export function DeltaChart({
     }
 
     // Update chart height calculation to include only one BAR_PADDING for each space between bars
-    const chartHeight =
-        FIRST_BAR_PADDING + LAST_BAR_PADDING + BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * variants.length
+    const chartHeight = BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * variants.length
 
     const valueToX = (value: number): number => {
         // Scale the value to fit within the padded area
@@ -220,7 +217,7 @@ export function DeltaChart({
                     className="p-2 overflow-auto"
                 >
                     <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
-                        <div className="space-y-1 pl-1">
+                        <div className="space-y-1">
                             <div className="flex items-center gap-2">
                                 <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
                                     <span className="mr-1">{metricIndex + 1}.</span>
@@ -379,7 +376,7 @@ export function DeltaChart({
                                             variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
                                     }
 
-                                    const y = FIRST_BAR_PADDING + BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * index
+                                    const y = BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * index
                                     const x1 = valueToX(lower)
                                     const x2 = valueToX(upper)
                                     const deltaX = valueToX(delta)
