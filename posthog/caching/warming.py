@@ -169,6 +169,7 @@ def schedule_warming_for_teams_task():
                     "count": len(insight_tuples),
                     "team_id": team.id,
                     "organization_id": team.organization_id,
+                    "shared_only": shared_only,
                 },
             )
 
