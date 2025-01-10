@@ -126,6 +126,9 @@ class FakeSnowflakeCursor:
         else:
             return [("test", "LOADED", 100, 99, 1, 1, "Some error on copy", 3)]
 
+    def description(self):
+        return []
+
 
 class FakeSnowflakeConnection:
     def __init__(
