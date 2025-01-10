@@ -4874,3 +4874,9 @@ export enum CookielessServerHashMode {
 export interface Conversation {
     id: string
 }
+
+export type UserGroup = {
+    id: string
+    name: string
+    members: UserBasicType[]
+}
