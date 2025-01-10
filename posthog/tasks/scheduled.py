@@ -113,14 +113,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Send all instance usage to the Billing service
-    # Sends later on Sunday due to clickhouse things that happen on Sunday at ~00:00 UTC
     sender.add_periodic_task(
-        crontab(hour="3", minute="15", day_of_week="mon"),
-        send_org_usage_reports.s(),
-        name="send instance usage report, monday",
-    )
-    sender.add_periodic_task(
-        crontab(hour="2", minute="15", day_of_week="tue,wed,thu,fri,sat,sun"),
+        crontab(hour="4", minute="0", day_of_week="*"),
         send_org_usage_reports.s(),
         name="send instance usage report",
     )
