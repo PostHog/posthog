@@ -69,7 +69,7 @@ class SnapshotTableInfo:
 
 
 @activity.defn
-async def create_table(inputs: SnapshotTableInfo) -> None:
+async def create_snapshot_table(inputs: SnapshotTableInfo) -> None:
     """Create one of the auxiliary tables in ClickHouse cluster.
 
     This activity will submit the 'CREATE TABLE' query for the corresponding table,
@@ -84,7 +84,7 @@ async def create_table(inputs: SnapshotTableInfo) -> None:
 
 
 @activity.defn
-async def drop_table(inputs: SnapshotTableInfo) -> None:
+async def drop_snapshot_table(inputs: SnapshotTableInfo) -> None:
     """Drop one of the auxiliary tables from ClickHouse cluster.
 
     We don't wait for tables to be dropped, and take a more optimistic approach
@@ -191,12 +191,11 @@ async def wait_for_table(inputs: WaitForTableInputs) -> None:
 
 
 @contextlib.asynccontextmanager
-async def manage_table(table_name: str) -> collections.abc.AsyncGenerator[None, None]:
+async def manage_snapshot_table(snapshot_table: SnapshotTableInfo) -> collections.abc.AsyncGenerator[None, None]:
     """A context manager to create ans subsequently drop a table."""
-    table_activity_inputs = SnapshotTableInfo(name=table_name)
     await workflow.execute_activity(
-        create_table,
-        table_activity_inputs,
+        create_snapshot_table,
+        snapshot_table,
         start_to_close_timeout=timedelta(minutes=5),
         retry_policy=RetryPolicy(maximum_attempts=1),
         heartbeat_timeout=timedelta(minutes=1),
@@ -204,7 +203,7 @@ async def manage_table(table_name: str) -> collections.abc.AsyncGenerator[None, 
 
     await workflow.execute_activity(
         wait_for_table,
-        WaitForTableInputs(name=table_name, should_exist=True),
+        WaitForTableInputs(name=snapshot_table.name, should_exist=True),
         start_to_close_timeout=timedelta(hours=6),
         retry_policy=RetryPolicy(
             maximum_attempts=0, initial_interval=timedelta(seconds=20), maximum_interval=timedelta(minutes=2)
@@ -216,8 +215,8 @@ async def manage_table(table_name: str) -> collections.abc.AsyncGenerator[None, 
         yield
     finally:
         await workflow.execute_activity(
-            drop_table,
-            table_activity_inputs,
+            drop_snapshot_table,
+            snapshot_table,
             start_to_close_timeout=timedelta(hours=1),
             retry_policy=RetryPolicy(
                 maximum_attempts=2, initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=10)
@@ -226,7 +225,7 @@ async def manage_table(table_name: str) -> collections.abc.AsyncGenerator[None, 
         )
         await workflow.execute_activity(
             wait_for_table,
-            WaitForTableInputs(name=table_name, should_exist=False),
+            WaitForTableInputs(name=snapshot_table.name, should_exist=False),
             # Assuming clean-up should be relatively fast.
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(
@@ -527,7 +526,8 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
         """Workflow implementation to squash person overrides into events table."""
         workflow.logger.info("Starting squash workflow")
 
-        async with manage_table("person_distinct_id_overrides_join"):
+        snapshot_table = SnapshotTableInfo("person_distinct_id_overrides_join")
+        async with manage_snapshot_table(snapshot_table):
             await submit_and_wait_for_mutation("update_events_with_person_overrides")
             workflow.logger.info("Squash finished, now deleting person overrides")
 

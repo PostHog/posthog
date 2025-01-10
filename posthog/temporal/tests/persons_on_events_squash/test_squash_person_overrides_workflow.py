@@ -18,8 +18,8 @@ from posthog.temporal.batch_exports.squash_person_overrides import (
     SquashPersonOverridesWorkflow,
     SnapshotTableInfo,
     WaitForTableInputs,
-    create_table,
-    drop_table,
+    create_snapshot_table,
+    drop_snapshot_table,
     parse_mutation_counts,
     submit_mutation,
     wait_for_mutation,
@@ -140,7 +140,7 @@ async def create_overrides_join_table_helper(activity_environment) -> SnapshotTa
         name="person_distinct_id_overrides_join",
     )
 
-    await activity_environment.run(create_table, join_table_inputs)
+    await activity_environment.run(create_snapshot_table, join_table_inputs)
     await activity_environment.run(wait_for_table, WaitForTableInputs(name=join_table_inputs.name, should_exist=True))
 
     return join_table_inputs
@@ -179,7 +179,7 @@ async def test_create_person_distinct_id_overrides_join_table(
             assert ids[0] == person_override.distinct_id
             assert UUID(ids[1]) == person_override.person_id
 
-    await activity_environment.run(drop_table, inputs)
+    await activity_environment.run(drop_snapshot_table, inputs)
 
 
 @pytest.mark.django_db
@@ -215,7 +215,7 @@ async def test_create_person_distinct_id_overrides_join_with_older_overrides_pre
             assert ids[0] == person_override.distinct_id
             assert UUID(ids[1]) == person_override.person_id
 
-    await activity_environment.run(drop_table, inputs)
+    await activity_environment.run(drop_snapshot_table, inputs)
 
 
 @pytest.mark.django_db
@@ -231,14 +231,14 @@ async def test_create_wait_and_drop_table(activity_environment, person_overrides
     before = int(response.splitlines()[0])
     assert before == 0
 
-    await activity_environment.run(create_table, inputs)
+    await activity_environment.run(create_snapshot_table, inputs)
     await activity_environment.run(wait_for_table, WaitForTableInputs(name=inputs.name, should_exist=True))
 
     response = await clickhouse_client.read_query(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{inputs.name}")
     during = int(response.splitlines()[0])
     assert during == 1
 
-    await activity_environment.run(drop_table, inputs)
+    await activity_environment.run(drop_snapshot_table, inputs)
     await activity_environment.run(wait_for_table, WaitForTableInputs(name=inputs.name, should_exist=False))
 
     response = await clickhouse_client.read_query(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{inputs.name}")
@@ -336,7 +336,7 @@ async def overrides_join_table(person_overrides_data, activity_environment):
 
     yield inputs.name
 
-    await activity_environment.run(drop_table, inputs)
+    await activity_environment.run(drop_snapshot_table, inputs)
 
 
 @pytest.mark.django_db
@@ -460,7 +460,7 @@ SETTINGS
     assert row[1] == not_overriden_person["distinct_id"]
     assert UUID(row[2]) == not_overriden_person["person_id"]
 
-    await activity_environment.run(drop_table, join_table_inputs)
+    await activity_environment.run(drop_snapshot_table, join_table_inputs)
 
 
 @pytest.mark.django_db
@@ -483,8 +483,8 @@ async def test_squash_person_overrides_workflow(
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
-            create_table,
-            drop_table,
+            create_snapshot_table,
+            drop_snapshot_table,
             submit_mutation,
             wait_for_mutation,
             wait_for_table,
@@ -521,8 +521,8 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
-            create_table,
-            drop_table,
+            create_snapshot_table,
+            drop_snapshot_table,
             submit_mutation,
             wait_for_mutation,
             wait_for_table,

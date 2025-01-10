@@ -43,8 +43,8 @@ from posthog.temporal.batch_exports.snowflake_batch_export import (
 )
 from posthog.temporal.batch_exports.squash_person_overrides import (
     SquashPersonOverridesWorkflow,
-    create_table,
-    drop_table,
+    create_snapshot_table,
+    drop_snapshot_table,
     submit_mutation,
     wait_for_mutation,
     wait_for_table,
@@ -67,8 +67,8 @@ ACTIVITIES = [
     backfill_schedule,
     create_batch_export_backfill_model,
     start_batch_export_run,
-    create_table,
-    drop_table,
+    create_snapshot_table,
+    drop_snapshot_table,
     finish_batch_export_run,
     get_schedule_frequency,
     insert_into_bigquery_activity,
