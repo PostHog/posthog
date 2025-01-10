@@ -7,7 +7,7 @@ import type { llmObservabilityLogicType } from './llmObservabilityLogicType'
 
 export const LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'llm-observability-data'
 
-const INITIAL_DATE_FROM = '-24h' as string | null
+const INITIAL_DATE_FROM = '-30d' as string | null
 const INITIAL_DATE_TO = null as string | null
 
 export interface QueryTile {
