@@ -278,7 +278,9 @@ services:
         extends:
             file: docker-compose.base.yml
             service: plugins
-        build: ./docker/Dockerfile.plugin
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.dev-plugin
         command: >
             bash -c "
             cd /local &&
