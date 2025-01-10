@@ -17,6 +17,8 @@ from collections.abc import Callable, Iterable
 from urllib.parse import urlparse, parse_qs
 from uuid import UUID
 
+from posthog.models.utils import uuid7
+
 if TYPE_CHECKING:
     from posthog.demo.matrix.matrix import Cluster, Matrix
 
@@ -256,6 +258,32 @@ class SimBrowserClient(SimClient):
         self.person.advance_timer(self.person.cluster.random.uniform(0.02, 0.1))  # A page doesn't load instantly
         self.current_url = current_url
         self.capture(EVENT_PAGEVIEW, properties)
+
+    def capture_ai_generation(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        latency: float,
+        request_url: str = "https://api.openai.com/v1/",
+        provider: str = "OpenAI",
+        model: str = "gpt-4o",
+        trace_id: Optional[str] = None,
+        http_status: int = 200,
+    ):
+        """Capture an AI generation event."""
+        self.capture(
+            "$ai_generation",
+            {
+                "$ai_request_url": request_url,
+                "$ai_provider": provider,
+                "$ai_model": model,
+                "$ai_http_status": http_status,
+                "$ai_input_tokens": input_tokens,
+                "$ai_output_tokens": output_tokens,
+                "$ai_latency": latency,
+                "$ai_trace_id": trace_id or str(uuid7()),
+            },
+        )
 
     def identify(self, distinct_id: Optional[str], set_properties: Optional[Properties] = None):
         """Identify person in active client. Similar to JS `posthog.identify()`.
