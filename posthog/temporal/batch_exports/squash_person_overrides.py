@@ -63,9 +63,8 @@ async def create_table(inputs: TableActivityInputs) -> None:
     after this to ensure a table is available in the cluster before continuing.
     """
 
-    async with Heartbeater():
-        async with get_client() as clickhouse_client:
-            await inputs.create_table(clickhouse_client)
+    async with Heartbeater(), get_client() as clickhouse_client:
+        await inputs.create_table(clickhouse_client)
 
     activity.logger.info("Created table %s", inputs.name)
 
@@ -79,9 +78,8 @@ async def drop_table(inputs: TableActivityInputs) -> None:
     a table is dropped in the cluster if ensuring clean-up is required.
     """
 
-    async with Heartbeater():
-        async with get_client() as clickhouse_client:
-            await inputs.drop_table(clickhouse_client)
+    async with Heartbeater(), get_client() as clickhouse_client:
+        await inputs.drop_table(clickhouse_client)
 
     activity.logger.info("Dropped table %s", inputs.name)
 
