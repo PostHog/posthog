@@ -147,10 +147,7 @@ async def create_overrides_join_table_helper(activity_environment) -> TableActiv
 
 async def run_squash_mutation_helper(activity_environment) -> None:
     """Helper function to run the Squash mutation in test functions."""
-    squash_mutation_activity_inputs = MutationActivityInputs(
-        name="update_events_with_person_overrides",
-        query_parameters={},
-    )
+    squash_mutation_activity_inputs = MutationActivityInputs(name="update_events_with_person_overrides")
     await activity_environment.run(submit_mutation, squash_mutation_activity_inputs)
     await activity_environment.run(wait_for_mutation, squash_mutation_activity_inputs)
 
@@ -356,10 +353,7 @@ async def test_update_events_with_person_overrides_mutation(
     events_to_override and check the person_id associated with each of them. It should
     match the override_person_id associated with the old_person_id they used to be set to.
     """
-    mutation_activity_inputs = MutationActivityInputs(
-        name="update_events_with_person_overrides",
-        query_parameters={},
-    )
+    mutation_activity_inputs = MutationActivityInputs(name="update_events_with_person_overrides")
 
     mutation_query = await activity_environment.run(submit_mutation, mutation_activity_inputs)
 
@@ -435,10 +429,7 @@ async def test_delete_person_overrides_mutation(
 
     await run_squash_mutation_helper(activity_environment)
 
-    mutation_activity_inputs = MutationActivityInputs(
-        name="delete_person_overrides",
-        query_parameters={},
-    )
+    mutation_activity_inputs = MutationActivityInputs(name="delete_person_overrides")
     mutation_query = await activity_environment.run(submit_mutation, mutation_activity_inputs)
 
     assert (

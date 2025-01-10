@@ -3,7 +3,6 @@ import collections
 import collections.abc
 import contextlib
 import json
-import typing
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import NamedTuple
@@ -231,8 +230,6 @@ async def manage_table(table_name: str) -> collections.abc.AsyncGenerator[None, 
 
 # mutation management
 
-QueryParameters = dict[str, typing.Any]
-
 
 class Mutation(NamedTuple):
     name: str
@@ -246,11 +243,9 @@ class MutationActivityInputs:
 
     Attributes:
         name: The mutation name which we are working with.
-        query_parameters: Any query parameters needed for the mutation query.
     """
 
     name: str
-    query_parameters: QueryParameters
 
 
 @activity.defn
@@ -267,11 +262,10 @@ async def submit_mutation(inputs: MutationActivityInputs) -> str:
     query = MUTATIONS[inputs.name].submit_query.format(
         database=settings.CLICKHOUSE_DATABASE,
         cluster=settings.CLICKHOUSE_CLUSTER,
-        **inputs.query_parameters,
     )
 
     async with get_client() as clickhouse_client:
-        prepared_query = clickhouse_client.prepare_query(query, inputs.query_parameters)
+        prepared_query = clickhouse_client.prepare_query(query)
 
         # Best cancellation scenario: It fires off before we begin a new mutation and there is nothing to cancel.
         activity.heartbeat()
@@ -351,7 +345,7 @@ async def wait_for_mutation(inputs: MutationActivityInputs) -> None:
     )
     async with Heartbeater():
         async with get_client() as clickhouse_client:
-            prepared_submit_query = clickhouse_client.prepare_query(submit_query, inputs.query_parameters)
+            prepared_submit_query = clickhouse_client.prepare_query(submit_query)
             query_command = parse_mutation_command(prepared_submit_query)
 
             try:
@@ -409,13 +403,10 @@ async def wait_for_mutation(inputs: MutationActivityInputs) -> None:
 
 async def submit_and_wait_for_mutation(
     mutation_name: str,
-    mutation_parameters: QueryParameters,
 ) -> None:
     """Submit and wait for a mutation in ClickHouse."""
-    mutation_activity_inputs = MutationActivityInputs(
-        name=mutation_name,
-        query_parameters=mutation_parameters,
-    )
+    mutation_activity_inputs = MutationActivityInputs(name=mutation_name)
+
     await workflow.execute_activity(
         submit_mutation,
         mutation_activity_inputs,
@@ -571,17 +562,9 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
         workflow.logger.info("Starting squash workflow")
 
         async with manage_table("person_distinct_id_overrides_join"):
-            mutation_parameters: QueryParameters = {}
-            await submit_and_wait_for_mutation(
-                "update_events_with_person_overrides",
-                mutation_parameters,
-            )
+            await submit_and_wait_for_mutation("update_events_with_person_overrides")
             workflow.logger.info("Squash finished, now deleting person overrides")
 
-            delete_mutation_parameters: QueryParameters = {}
-            await submit_and_wait_for_mutation(
-                "delete_person_overrides",
-                delete_mutation_parameters,
-            )
+            await submit_and_wait_for_mutation("delete_person_overrides")
 
         workflow.logger.info("Squash workflow is done 🎉")
