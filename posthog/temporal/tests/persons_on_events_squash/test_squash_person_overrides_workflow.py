@@ -16,7 +16,7 @@ from posthog.temporal.batch_exports.squash_person_overrides import (
     MutationActivityInputs,
     SquashPersonOverridesInputs,
     SquashPersonOverridesWorkflow,
-    TableActivityInputs,
+    SnapshotTableInfo,
     WaitForTableInputs,
     create_table,
     drop_table,
@@ -133,10 +133,10 @@ async def test_parse_empty_mutation_counts(clickhouse_client):
     assert total_mutations == 0
 
 
-async def create_overrides_join_table_helper(activity_environment) -> TableActivityInputs:
+async def create_overrides_join_table_helper(activity_environment) -> SnapshotTableInfo:
     """Helper function to create overrides join table in test functions."""
 
-    join_table_inputs = TableActivityInputs(
+    join_table_inputs = SnapshotTableInfo(
         name="person_distinct_id_overrides_join",
     )
 
@@ -221,7 +221,7 @@ async def test_create_person_distinct_id_overrides_join_with_older_overrides_pre
 @pytest.mark.django_db
 async def test_create_wait_and_drop_table(activity_environment, person_overrides_data, clickhouse_client):
     """Test if a table is created, waited on, and dropped in a normal workflow."""
-    inputs = TableActivityInputs(
+    inputs = SnapshotTableInfo(
         name="person_distinct_id_overrides_join",
     )
 

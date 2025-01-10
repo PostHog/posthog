@@ -19,14 +19,8 @@ from posthog.temporal.common.heartbeat import Heartbeater
 # table management
 
 
-class Table(NamedTuple):
-    name: str
-    create_query: str
-    drop_query: str
-
-
 @dataclass
-class TableActivityInputs:
+class SnapshotTableInfo:
     """Inputs for activities that work with tables.
 
     Attributes:
@@ -36,26 +30,46 @@ class TableActivityInputs:
     name: str
 
     async def create_table(self, clickhouse_client):
-        create_table_query = TABLES[self.name].create_query.format(
-            database=settings.CLICKHOUSE_DATABASE,
-            cluster=settings.CLICKHOUSE_CLUSTER,
-            table=self.name,
+        return await clickhouse_client.execute_query(
+            f"""
+            CREATE OR REPLACE TABLE {settings.CLICKHOUSE_DATABASE}.{self.name}
+                ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
+            (
+                `team_id` Int64,
+                `distinct_id` String,
+                `person_id` UUID,
+                `latest_version` Int64
+            )
+            ENGINE = Join(ANY, left, team_id, distinct_id)
+            AS
+                SELECT
+                    team_id,
+                    distinct_id,
+                    argMax(person_id, version) AS person_id,
+                    max(version) AS latest_version
+                FROM
+                    {settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides
+                GROUP BY
+                    team_id, distinct_id
+            SETTINGS
+                max_execution_time = 0,
+                max_memory_usage = 0,
+                distributed_ddl_task_timeout = 0
+            """
         )
-
-        return await clickhouse_client.execute_query(create_table_query)
 
     async def drop_table(self, clickhouse_client):
-        drop_table_query = TABLES[self.name].drop_query.format(
-            database=settings.CLICKHOUSE_DATABASE,
-            cluster=settings.CLICKHOUSE_CLUSTER,
-            table=self.name,
+        return await clickhouse_client.execute_query(
+            f"""
+            DROP TABLE IF EXISTS {settings.CLICKHOUSE_DATABASE}.{self.name}
+                ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
+            SETTINGS distributed_ddl_task_timeout = 0
+            """
         )
-
-        return await clickhouse_client.execute_query(drop_table_query)
 
 
 @activity.defn
-async def create_table(inputs: TableActivityInputs) -> None:
+async def create_table(inputs: SnapshotTableInfo) -> None:
     """Create one of the auxiliary tables in ClickHouse cluster.
 
     This activity will submit the 'CREATE TABLE' query for the corresponding table,
@@ -70,7 +84,7 @@ async def create_table(inputs: TableActivityInputs) -> None:
 
 
 @activity.defn
-async def drop_table(inputs: TableActivityInputs) -> None:
+async def drop_table(inputs: SnapshotTableInfo) -> None:
     """Drop one of the auxiliary tables from ClickHouse cluster.
 
     We don't wait for tables to be dropped, and take a more optimistic approach
@@ -179,7 +193,7 @@ async def wait_for_table(inputs: WaitForTableInputs) -> None:
 @contextlib.asynccontextmanager
 async def manage_table(table_name: str) -> collections.abc.AsyncGenerator[None, None]:
     """A context manager to create ans subsequently drop a table."""
-    table_activity_inputs = TableActivityInputs(name=table_name)
+    table_activity_inputs = SnapshotTableInfo(name=table_name)
     await workflow.execute_activity(
         create_table,
         table_activity_inputs,
@@ -417,44 +431,6 @@ async def submit_and_wait_for_mutation(
 
 
 # core workflow logic
-
-CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
-CREATE OR REPLACE TABLE {database}.{table} ON CLUSTER {cluster} (
-    `team_id` Int64,
-    `distinct_id` String,
-    `person_id` UUID,
-    `latest_version` Int64
-)
-ENGINE = Join(ANY, left, team_id, distinct_id)
-AS
-    SELECT
-        team_id,
-        distinct_id,
-        argMax(person_id, version) AS person_id,
-        max(version) AS latest_version
-    FROM
-        {database}.person_distinct_id_overrides
-    GROUP BY
-        team_id, distinct_id
-SETTINGS
-    max_execution_time = 0,
-    max_memory_usage = 0,
-    distributed_ddl_task_timeout = 0
-"""
-
-DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
-DROP TABLE IF EXISTS {database}.{table} ON CLUSTER {cluster}
-SETTINGS
-    distributed_ddl_task_timeout = 0
-"""
-
-TABLES = {
-    "person_distinct_id_overrides_join": Table(
-        name="person_distinct_id_overrides_join",
-        create_query=CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN,
-        drop_query=DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN,
-    ),
-}
 
 SUBMIT_UPDATE_EVENTS_WITH_PERSON_OVERRIDES = """
 ALTER TABLE
