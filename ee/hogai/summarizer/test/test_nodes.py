@@ -155,8 +155,6 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_agent_reconstructs_conversation(self):
-        self.project.product_description = "Dating app for lonely hedgehogs."
-        self.project.save()
         node = SummarizerNode(self.team)
 
         history = node._construct_messages(

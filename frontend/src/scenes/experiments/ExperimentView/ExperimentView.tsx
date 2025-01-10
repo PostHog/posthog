@@ -8,14 +8,16 @@ import { ExperimentImplementationDetails } from '../ExperimentImplementationDeta
 import { experimentLogic } from '../experimentLogic'
 import { MetricModal } from '../Metrics/MetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
-import { SavedMetricModal } from '../Metrics/SavedMetricModal'
+import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import {
     ExperimentLoadingAnimation,
+    ExploreButton,
     LoadingState,
     NoResultsEmptyState,
     PageHeaderCustom,
     ResultsHeader,
+    ResultsQuery,
 } from './components'
 import { CumulativeExposuresChart } from './CumulativeExposuresChart'
 import { DataCollection } from './DataCollection'
@@ -26,17 +28,58 @@ import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { Results } from './Results'
 import { SecondaryMetricsTable } from './SecondaryMetricsTable'
+import { SummaryTable } from './SummaryTable'
 
-const ResultsTab = (): JSX.Element => {
-    const { experiment, metricResults, featureFlags } = useValues(experimentLogic)
-    const result = metricResults?.[0]
-    const hasResultsInsight = result && result.insight
+const NewResultsTab = (): JSX.Element => {
+    const { experiment, metricResults } = useValues(experimentLogic)
+    const hasSomeResults = metricResults?.some((result) => result?.insight)
+
+    const hasSinglePrimaryMetric = experiment.metrics.length === 1
 
     return (
-        <div className="space-y-8">
-            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
-                <MetricsView />
-            ) : hasResultsInsight ? (
+        <>
+            {!hasSomeResults && (
+                <>
+                    {experiment.type === 'web' ? (
+                        <WebExperimentImplementationDetails experiment={experiment} />
+                    ) : (
+                        <ExperimentImplementationDetails experiment={experiment} />
+                    )}
+                </>
+            )}
+            {/* Show overview if there's only a single primary metric */}
+            {hasSinglePrimaryMetric && (
+                <div className="mb-4">
+                    <Overview />
+                </div>
+            )}
+            <MetricsView isSecondary={false} />
+            {/* Show detailed results if there's only a single primary metric */}
+            {hasSomeResults && hasSinglePrimaryMetric && (
+                <div>
+                    <div className="pb-4">
+                        <SummaryTable metric={experiment.metrics[0]} metricIndex={0} isSecondary={false} />
+                    </div>
+                    <div className="flex justify-end">
+                        <ExploreButton result={metricResults?.[0] || null} size="xsmall" />
+                    </div>
+                    <div className="pb-4">
+                        <ResultsQuery result={metricResults?.[0] || null} showTable={true} />
+                    </div>
+                </div>
+            )}
+            <MetricsView isSecondary={true} />
+        </>
+    )
+}
+
+const OldResultsTab = (): JSX.Element => {
+    const { experiment, metricResults } = useValues(experimentLogic)
+    const hasSomeResults = metricResults?.some((result) => result?.insight)
+
+    return (
+        <>
+            {hasSomeResults ? (
                 <Results />
             ) : (
                 <>
@@ -54,13 +97,14 @@ const ResultsTab = (): JSX.Element => {
                     )}
                 </>
             )}
-            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
-                <MetricsView isSecondary={true} />
-            ) : (
-                <SecondaryMetricsTable experimentId={experiment.id} />
-            )}
-        </div>
+            <SecondaryMetricsTable experimentId={experiment.id} />
+        </>
     )
+}
+
+const ResultsTab = (): JSX.Element => {
+    const { featureFlags } = useValues(experimentLogic)
+    return <>{featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? <NewResultsTab /> : <OldResultsTab />}</>
 }
 
 const VariantsTab = (): JSX.Element => {
@@ -87,8 +131,8 @@ export function ExperimentView(): JSX.Element {
     } = useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
-    const result = metricResults?.[0]
-    const hasResultsInsight = result && result.insight
+    // Instead, check if any result in the array has an insight
+    const hasSomeResults = metricResults?.some((result) => result?.insight)
 
     return (
         <>
@@ -103,8 +147,9 @@ export function ExperimentView(): JSX.Element {
                             <ExperimentLoadingAnimation />
                         ) : (
                             <>
-                                {hasResultsInsight && !featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
+                                {hasSomeResults && !featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
                                     <div>
+                                        <h2 className="font-semibold text-lg">Summary</h2>
                                         <Overview />
                                         <LemonDivider className="mt-4" />
                                     </div>
@@ -149,8 +194,8 @@ export function ExperimentView(): JSX.Element {
                         <MetricModal experimentId={experimentId} isSecondary={true} />
                         <MetricModal experimentId={experimentId} isSecondary={false} />
 
-                        <SavedMetricModal experimentId={experimentId} isSecondary={true} />
-                        <SavedMetricModal experimentId={experimentId} isSecondary={false} />
+                        <SharedMetricModal experimentId={experimentId} isSecondary={true} />
+                        <SharedMetricModal experimentId={experimentId} isSecondary={false} />
 
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />

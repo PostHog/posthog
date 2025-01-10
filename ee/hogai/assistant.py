@@ -1,6 +1,6 @@
 import json
 from collections.abc import Generator, Iterator
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from uuid import uuid4
 
 from langchain_core.messages import AIMessageChunk
@@ -10,14 +10,12 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 from ee import settings
-from ee.hogai.funnels.nodes import (
-    FunnelGeneratorNode,
-)
+from ee.hogai.funnels.nodes import FunnelGeneratorNode
 from ee.hogai.graph import AssistantGraph
+from ee.hogai.memory.nodes import MemoryInitializerNode
+from ee.hogai.retention.nodes import RetentionGeneratorNode
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
-from ee.hogai.trends.nodes import (
-    TrendsGeneratorNode,
-)
+from ee.hogai.trends.nodes import TrendsGeneratorNode
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
@@ -57,7 +55,19 @@ else:
 VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
+    AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
 }
+
+STREAMING_NODES: set[AssistantNodeName] = {
+    AssistantNodeName.MEMORY_ONBOARDING,
+    AssistantNodeName.MEMORY_INITIALIZER,
+    AssistantNodeName.SUMMARIZER,
+}
+"""Nodes that can stream messages to the client."""
+
+
+VERBOSE_NODES = STREAMING_NODES | {AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT}
+"""Nodes that can send messages to the client."""
 
 
 class Assistant:
@@ -119,8 +129,11 @@ class Assistant:
             # Check if the assistant has requested help.
             state = self._graph.get_state(config)
             if state.next:
+                interrupt_value = state.tasks[0].interrupts[0].value
                 yield self._serialize_message(
-                    AssistantMessage(content=state.tasks[0].interrupts[0].value, id=str(uuid4()))
+                    AssistantMessage(content=interrupt_value, id=str(uuid4()))
+                    if isinstance(interrupt_value, str)
+                    else interrupt_value
                 )
             else:
                 self._report_conversation_state(last_viz_message)
@@ -166,6 +179,8 @@ class Assistant:
                 | AssistantNodeName.TRENDS_PLANNER_TOOLS
                 | AssistantNodeName.FUNNEL_PLANNER
                 | AssistantNodeName.FUNNEL_PLANNER_TOOLS
+                | AssistantNodeName.RETENTION_PLANNER
+                | AssistantNodeName.RETENTION_PLANNER_TOOLS
             ):
                 substeps: list[str] = []
                 if input:
@@ -191,6 +206,8 @@ class Assistant:
                 return ReasoningMessage(content="Creating trends query")
             case AssistantNodeName.FUNNEL_GENERATOR:
                 return ReasoningMessage(content="Creating funnel query")
+            case AssistantNodeName.RETENTION_GENERATOR:
+                return ReasoningMessage(content="Creating retention query")
             case _:
                 return None
 
@@ -225,26 +242,34 @@ class Assistant:
                 return node_val.messages[0]
             elif node_val.intermediate_steps:
                 return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-        elif node_val := state_update.get(AssistantNodeName.SUMMARIZER):
-            if isinstance(node_val, PartialAssistantState) and node_val.messages:
-                self._chunks = AIMessageChunk(content="")
-                return node_val.messages[0]
+
+        for node_name in VERBOSE_NODES:
+            if node_val := state_update.get(node_name):
+                if isinstance(node_val, PartialAssistantState) and node_val.messages:
+                    self._chunks = AIMessageChunk(content="")
+                    return node_val.messages[0]
 
         return None
 
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
         if isinstance(langchain_message, AIMessageChunk):
-            if langgraph_state["langgraph_node"] in VISUALIZATION_NODES.keys():
+            node_name = langgraph_state["langgraph_node"]
+            if node_name in VISUALIZATION_NODES.keys():
                 self._chunks += langchain_message  # type: ignore
-                parsed_message = VISUALIZATION_NODES[langgraph_state["langgraph_node"]].parse_output(
-                    self._chunks.tool_calls[0]["args"]
-                )
+                parsed_message = VISUALIZATION_NODES[node_name].parse_output(self._chunks.tool_calls[0]["args"])
                 if parsed_message:
                     initiator_id = self._state.start_id if self._state is not None else None
                     return VisualizationMessage(answer=parsed_message.query, initiator=initiator_id)
-            elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
+            elif node_name in STREAMING_NODES:
                 self._chunks += langchain_message  # type: ignore
+                if node_name == AssistantNodeName.MEMORY_INITIALIZER:
+                    if not MemoryInitializerNode.should_process_message_chunk(langchain_message):
+                        return None
+                    else:
+                        return AssistantMessage(
+                            content=MemoryInitializerNode.format_message(cast(str, self._chunks.content))
+                        )
                 return AssistantMessage(content=self._chunks.content)
         return None
 

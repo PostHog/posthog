@@ -1452,11 +1452,20 @@ export function resolveWebhookService(webhookUrl: string): string {
     return 'your webhook service'
 }
 
-function hexToRGB(hex: string): { r: number; g: number; b: number } {
+export function hexToRGB(hex: string): { r: number; g: number; b: number } {
     const originalString = hex.trim()
     const hasPoundSign = originalString[0] === '#'
-    const originalColor = hasPoundSign ? originalString.slice(1) : originalString
+    let originalColor = hasPoundSign ? originalString.slice(1) : originalString
 
+    // convert 3-digit hex colors to 6-digit
+    if (originalColor.length === 3) {
+        originalColor = originalColor
+            .split('')
+            .map((c) => c + c)
+            .join('')
+    }
+
+    // make sure we have a 6-digit color
     if (originalColor.length !== 6) {
         console.warn(`Incorrectly formatted color string: ${hex}.`)
         return { r: 0, g: 0, b: 0 }
@@ -1511,6 +1520,26 @@ export function lightenDarkenColor(hex: string, pct: number): string {
     b = output(b + amt)
 
     return `rgb(${[r, g, b].join(',')})`
+}
+
+/* Colors in hsl for gradation. */
+export const BRAND_BLUE_HSL: [number, number, number] = [228, 100, 56]
+export const PURPLE: [number, number, number] = [260, 88, 71]
+
+/**
+ * Gradate color saturation based on its intended strength.
+ * This is for visualizations where a data point's color depends on its value.
+ * @param hsl The HSL color to gradate.
+ * @param strength The strength of the data point.
+ * @param floor The minimum saturation. This preserves proportionality of strength, so doesn't just cut it off.
+ */
+export function gradateColor(
+    hsl: [number, number, number],
+    strength: number,
+    floor: number = 0
+): `hsla(${number}, ${number}%, ${number}%, ${string})` {
+    const saturation = floor + (1 - floor) * strength
+    return `hsla(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%, ${saturation.toPrecision(3)})`
 }
 
 export function toString(input?: any): string {
