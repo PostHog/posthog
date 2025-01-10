@@ -126,7 +126,7 @@ jobs:
             - name: Run HogVM TypeScript tests
               run: |
                   cd hogvm/typescript
-                  pnpm install --frozen-lockfile
+                  pnpm install --frozen-lockfile --filter .
                   pnpm run test
 
             - name: Run Hog tests
@@ -191,9 +191,8 @@ jobs:
                   node-version: 18
                   registry-url: https://registry.npmjs.org
             - name: Install package.json dependencies
-              run: cd hogvm/typescript && pnpm install
-            - name: Install @posthog/hogvm
-              run: cd hogvm/typescript && pnpm run compile
+              run: cd hogvm/typescript && pnpm install --frozen-lockfile --filter .
+
             - name: Publish the package in the npm registry
               run: cd hogvm/typescript && npm publish --access public
               env:

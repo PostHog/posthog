@@ -115,10 +115,10 @@ jobs:
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --filter .
 
             - name: Install @posthog/hogvm
-              run: cd hogvm/typescript && pnpm run compile
+              run: cd hogvm/typescript && pnpm install --frozen-lockfile --filter . && pnpm run compile
 
             - name: Install CI utilities with pnpm
               run: pnpm install http-server wait-on

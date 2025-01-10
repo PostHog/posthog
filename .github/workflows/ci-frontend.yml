@@ -157,11 +157,11 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --filter .
 
             - name: Install @posthog/hogvm
               if: needs.changes.outputs.frontend == 'true'
-              run: cd hogvm/typescript && pnpm run compile
+              run: cd hogvm/typescript && pnpm install --frozen-lockfile --filter . && pnpm run compile
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions

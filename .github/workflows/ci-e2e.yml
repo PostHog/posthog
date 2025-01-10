@@ -143,7 +143,11 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --filter .
+
+            - name: Install @posthog/hogvm
+              if: needs.changes.outputs.frontend == 'true'
+              run: cd hogvm/typescript && pnpm install --frozen-lockfile --filter . && pnpm run compile
 
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections

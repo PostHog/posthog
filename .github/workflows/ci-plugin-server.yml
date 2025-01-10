@@ -70,7 +70,7 @@ jobs:
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --filter .
 
             - name: Check formatting with prettier
               run: pnpm prettier:check
@@ -165,7 +165,11 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
-              run: cd plugin-server && pnpm i
+              run: cd plugin-server && pnpm i --filter .
+
+            - name: Build npm dependencies
+              if: needs.changes.outputs.plugin-server == 'true'
+              run: cd hogvm/typescript && pnpm i --filter . && pnpm compile
 
             - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'
@@ -255,11 +259,15 @@ jobs:
                   cache: pnpm
                   cache-dependency-path: plugin-server/pnpm-lock.yaml
 
+            - name: Build npm dependencies
+              if: needs.changes.outputs.plugin-server == 'true'
+              run: cd hogvm/typescript && pnpm i --filter . && pnpm compile
+
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   cd plugin-server
-                  pnpm install --frozen-lockfile
+                  pnpm install --frozen-lockfile --filter .
                   pnpm build
 
             - name: Wait for Clickhouse, Redis & Kafka
