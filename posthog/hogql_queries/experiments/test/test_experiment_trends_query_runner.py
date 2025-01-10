@@ -1538,7 +1538,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     # Uses the same values as test_query_runner_with_data_warehouse_series_avg_amount for easy comparison
-    @freeze_time("2020-01-01T12:00:00Z")
+    @freeze_time("2020-01-01T00:00:00Z")
     def test_query_runner_with_avg_math_v2_stats(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
