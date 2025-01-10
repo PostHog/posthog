@@ -1250,7 +1250,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         prepared_count_query = query_runner.prepared_count_query
-        self.assertEqual(prepared_count_query.series[0].math, "avg")
+        self.assertEqual(prepared_count_query.series[0].math, "sum")
 
         result = query_runner.calculate()
         trend_result = cast(ExperimentTrendsQueryResponse, result)
@@ -1294,7 +1294,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         count_query = TrendsQuery(
             series=[
-                EventsNode(event="purchase", math="avg", math_property="amount", math_property_type="event_properties")
+                EventsNode(event="purchase", math="sum", math_property="amount", math_property_type="event_properties")
             ],
         )
         exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
@@ -1364,7 +1364,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         prepared_count_query = query_runner.prepared_count_query
-        self.assertEqual(prepared_count_query.series[0].math, "avg")
+        self.assertEqual(prepared_count_query.series[0].math, "sum")
 
         result = query_runner.calculate()
         trend_result = cast(ExperimentTrendsQueryResponse, result)
