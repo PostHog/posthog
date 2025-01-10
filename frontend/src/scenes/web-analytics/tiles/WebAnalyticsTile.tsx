@@ -619,32 +619,7 @@ export const WebExternalClicksTile = ({
 }
 
 export const CoreWebVitalsQueryTile = ({ query }: { query: CoreWebVitalsQuery }): JSX.Element => {
-    const { setInterval } = useActions(webAnalyticsLogic)
-    const {
-        dateFilter: { interval },
-    } = useValues(webAnalyticsLogic)
-
-    return (
-        <div className="border rounded bg-bg-light flex-1 flex flex-col">
-            <div className="flex flex-row items-center justify-end m-2 mr-4">
-                <div className="flex flex-row items-center">
-                    <span className="mr-2">Group by</span>
-                    <IntervalFilterStandalone
-                        interval={interval}
-                        onIntervalChange={setInterval}
-                        options={[
-                            { value: 'hour', label: 'Hour' },
-                            { value: 'day', label: 'Day' },
-                            { value: 'week', label: 'Week' },
-                            { value: 'month', label: 'Month' },
-                        ]}
-                    />
-                </div>
-            </div>
-
-            <Query query={query} readOnly={true} context={{}} />
-        </div>
-    )
+    return <Query query={query} readOnly context={{}} />
 }
 
 export const WebQuery = ({
