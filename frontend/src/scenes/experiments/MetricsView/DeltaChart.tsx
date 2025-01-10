@@ -130,9 +130,9 @@ export function DeltaChart({
         return 0
     }
 
-    const BAR_HEIGHT = 10 + getScaleAddition(variants.length)
-    const FIRST_BAR_PADDING = 6
-    const LAST_BAR_PADDING = 6
+    const BAR_HEIGHT = 8 + getScaleAddition(variants.length)
+    const FIRST_BAR_PADDING = 2
+    const LAST_BAR_PADDING = 2
     const BAR_PADDING = 14 + getScaleAddition(variants.length)
     const TICK_PANEL_HEIGHT = 20
     const VIEW_BOX_WIDTH = 800
@@ -833,12 +833,12 @@ function SignificanceHighlight({
         : { color: 'primary', label: 'Not significant' }
 
     const inner = isSignificant ? (
-        <div className="bg-success-highlight text-success-dark px-1 py-0.5 flex items-center gap-1 rounded border border-success">
+        <div className="bg-success-highlight text-success-dark px-1.5 py-0.5 flex items-center gap-1 rounded border border-success">
             <IconTrending fontSize={20} fontWeight={600} />
             <span className="text-xs font-semibold">{result.label}</span>
         </div>
     ) : (
-        <div className="bg-warning-highlight text-warning-dark px-1 py-0.5 flex items-center gap-1 rounded border border-warning">
+        <div className="bg-warning-highlight text-warning-dark px-1.5 py-0.5 flex items-center gap-1 rounded border border-warning">
             <IconMinus fontSize={20} fontWeight={600} />
             <span className="text-xs font-semibold">{result.label}</span>
         </div>
