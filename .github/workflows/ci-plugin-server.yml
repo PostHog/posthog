@@ -268,18 +268,18 @@ jobs:
             - name: Build npm dependencies
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
-                  cd hogvm/typescript
-                  pnpm i --filter .
-                  pnpm compile
-                  cd ../../rust/cyclotron-node
-                  pnpm i --filter .
-                  pnpm build
-
-            - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.plugin-server == 'true'
-              run: |
                   cd plugin-server
                   pnpm install --frozen-lockfile --filter .
+
+                  cd ../hogvm/typescript
+                  pnpm install --frozen-lockfile --filter .
+                  pnpm compile
+
+                  cd ../../rust/cyclotron-node
+                  pnpm install --frozen-lockfile --filter .
+                  pnpm build
+
+                  cd ../../plugin-server
                   pnpm build
 
             - name: Wait for Clickhouse, Redis & Kafka
