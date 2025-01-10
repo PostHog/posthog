@@ -1117,7 +1117,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(funnel)
 
-    @cached_by_filters
+    # @cached_by_filters
     def calculate_funnel(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
@@ -1139,7 +1139,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 "timezone": team.timezone,
             }
 
-    @cached_by_filters
+    # @cached_by_filters
     def calculate_funnel_hogql(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=team)
