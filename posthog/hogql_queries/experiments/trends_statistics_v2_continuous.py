@@ -82,8 +82,10 @@ def calculate_probabilities_v2_continuous(
     if len(test_variants) < 1:
         raise ValidationError("Can't calculate experiment results for less than 2 variants", code="no_data")
 
+    mean_value_control = control_variant.count / control_variant.absolute_exposure
+
     # Calculate posterior parameters for control
-    log_control_mean = np.log(control_variant.count + EPSILON)  # Using count field to store mean value
+    log_control_mean = np.log(mean_value_control + EPSILON)  # Using count field to store mean value
 
     # Update parameters for control
     kappa_n_control = KAPPA_0 + control_variant.absolute_exposure
@@ -100,7 +102,8 @@ def calculate_probabilities_v2_continuous(
     # Draw samples for each test variant
     test_samples = []
     for test in test_variants:
-        log_test_mean = np.log(test.count + EPSILON)  # Using count field to store mean value
+        mean_value_test = test.count / test.absolute_exposure
+        log_test_mean = np.log(mean_value_test + EPSILON)  # Using count field to store mean value
 
         kappa_n_test = KAPPA_0 + test.absolute_exposure
         mu_n_test = (KAPPA_0 * MU_0 + test.absolute_exposure * log_test_mean) / kappa_n_test
