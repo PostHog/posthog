@@ -18,9 +18,23 @@ export interface HumanMessage extends BaseAssistantMessage {
     content: string
 }
 
+export interface AssistantFormOption {
+    value: string
+    variant?: string
+}
+
+export interface AssistantForm {
+    options: AssistantFormOption[]
+}
+
+export interface AssistantMessageMetadata {
+    form?: AssistantForm
+}
+
 export interface AssistantMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Assistant
     content: string
+    meta?: AssistantMessageMetadata
 }
 
 export interface ReasoningMessage extends BaseAssistantMessage {

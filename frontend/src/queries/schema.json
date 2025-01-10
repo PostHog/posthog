@@ -572,6 +572,32 @@
             "enum": ["status", "message", "conversation"],
             "type": "string"
         },
+        "AssistantForm": {
+            "additionalProperties": false,
+            "properties": {
+                "options": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantFormOption"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["options"],
+            "type": "object"
+        },
+        "AssistantFormOption": {
+            "additionalProperties": false,
+            "properties": {
+                "value": {
+                    "type": "string"
+                },
+                "variant": {
+                    "type": "string"
+                }
+            },
+            "required": ["value"],
+            "type": "object"
+        },
         "AssistantFunnelsBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
@@ -1139,12 +1165,24 @@
                 "id": {
                     "type": "string"
                 },
+                "meta": {
+                    "$ref": "#/definitions/AssistantMessageMetadata"
+                },
                 "type": {
                     "const": "ai",
                     "type": "string"
                 }
             },
             "required": ["type", "content"],
+            "type": "object"
+        },
+        "AssistantMessageMetadata": {
+            "additionalProperties": false,
+            "properties": {
+                "form": {
+                    "$ref": "#/definitions/AssistantForm"
+                }
+            },
             "type": "object"
         },
         "AssistantMessageType": {
@@ -3986,6 +4024,7 @@
                 "min_count_per_actor",
                 "max_count_per_actor",
                 "median_count_per_actor",
+                "p75_count_per_actor",
                 "p90_count_per_actor",
                 "p95_count_per_actor",
                 "p99_count_per_actor"
@@ -9179,7 +9218,7 @@
             "type": "object"
         },
         "PropertyMathType": {
-            "enum": ["avg", "sum", "min", "max", "median", "p90", "p95", "p99"],
+            "enum": ["avg", "sum", "min", "max", "median", "p75", "p90", "p95", "p99"],
             "type": "string"
         },
         "PropertyOperator": {

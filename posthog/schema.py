@@ -79,6 +79,14 @@ class AssistantEventType(StrEnum):
     CONVERSATION = "conversation"
 
 
+class AssistantFormOption(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    value: str
+    variant: Optional[str] = None
+
+
 class AssistantFunnelsBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
@@ -125,15 +133,6 @@ class AssistantGenericPropertyFilter3(BaseModel):
     operator: AssistantDateTimePropertyFilterOperator
     type: str
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
-
-
-class AssistantMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: Optional[str] = None
-    type: Literal["ai"] = "ai"
 
 
 class AssistantMessageType(StrEnum):
@@ -434,6 +433,7 @@ class CountPerActorMathType(StrEnum):
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
     MAX_COUNT_PER_ACTOR = "max_count_per_actor"
     MEDIAN_COUNT_PER_ACTOR = "median_count_per_actor"
+    P75_COUNT_PER_ACTOR = "p75_count_per_actor"
     P90_COUNT_PER_ACTOR = "p90_count_per_actor"
     P95_COUNT_PER_ACTOR = "p95_count_per_actor"
     P99_COUNT_PER_ACTOR = "p99_count_per_actor"
@@ -1102,6 +1102,7 @@ class PropertyMathType(StrEnum):
     MIN = "min"
     MAX = "max"
     MEDIAN = "median"
+    P75 = "p75"
     P90 = "p90"
     P95 = "p95"
     P99 = "p99"
@@ -1514,6 +1515,13 @@ class AssistantDateTimePropertyFilter(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
+class AssistantForm(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    options: list[AssistantFormOption]
+
+
 class AssistantFunnelsBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1739,6 +1747,13 @@ class AssistantGroupPropertyFilter4(BaseModel):
         ),
     )
     type: Literal["group"] = "group"
+
+
+class AssistantMessageMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    form: Optional[AssistantForm] = None
 
 
 class AssistantSetPropertyFilter(BaseModel):
@@ -2989,6 +3004,16 @@ class AssistantInsightsQueryBase(BaseModel):
     samplingFactor: Optional[float] = Field(
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
     )
+
+
+class AssistantMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    meta: Optional[AssistantMessageMetadata] = None
+    type: Literal["ai"] = "ai"
 
 
 class AssistantRetentionFilter(BaseModel):
