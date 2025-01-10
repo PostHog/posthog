@@ -35,6 +35,7 @@ from posthog.event_usage import report_user_action
 from posthog.helpers.dashboard_templates import (
     add_enriched_insights_to_feature_flag_dashboard,
 )
+from posthog.helpers.encrypted_flag_payloads import encrypt_flag_payloads, get_decrypted_flag_payloads
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import (
     Detail,
@@ -95,6 +96,7 @@ class FeatureFlagSerializer(
     TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.HyperlinkedModelSerializer
 ):
     created_by = UserBasicSerializer(read_only=True)
+
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
@@ -155,6 +157,7 @@ class FeatureFlagSerializer(
             "user_access_level",
             "creation_context",
             "is_remote_configuration",
+            "has_encrypted_payloads",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -391,6 +394,7 @@ class FeatureFlagSerializer(
                 key=validated_key, team__project_id=instance.team.project_id, deleted=True
             ).delete()
         self._update_filters(validated_data)
+        encrypt_flag_payloads(validated_data)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
@@ -423,6 +427,11 @@ class FeatureFlagSerializer(
             _update_feature_flag_dashboard(instance, old_key)
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
+
+        # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
+        # if the request was made with a personal API key
+        if instance.has_encrypted_payloads:
+            instance.filters = get_decrypted_flag_payloads(request, instance.filters)
 
         return instance
 
@@ -524,6 +533,8 @@ class FeatureFlagViewSet(
                     )
                 elif type == "experiment":
                     queryset = queryset.filter(~Q(experiment__isnull=True))
+                elif type == "config":
+                    queryset = queryset.filter(is_remote_configuration=True)
 
         return queryset
 
@@ -596,6 +607,15 @@ class FeatureFlagViewSet(
             increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
         return super().list(request, args, kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        response = super().retrieve(request, *args, **kwargs)
+        feature_flag_data = response.data
+
+        if feature_flag_data.get("has_encrypted_payloads", False):
+            feature_flag_data["filters"] = get_decrypted_flag_payloads(request, feature_flag_data["filters"])
+
+        return response
 
     @action(methods=["POST"], detail=True)
     def dashboard(self, request: request.Request, **kwargs):
