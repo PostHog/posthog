@@ -7,26 +7,37 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+
+import { SessionRecordingType } from '~/types'
 
 import { Resizer } from '../Resizer/Resizer'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
-export type PlaylistSection<T> = {
+type PlaylistSectionBase = {
     key: string
     title?: string
-    items: T[]
-    render: ({ item, isActive }: { item: T; isActive: boolean }) => JSX.Element
     initiallyOpen?: boolean
+}
+
+export type PlaylistRecordingPreviewBlock = PlaylistSectionBase & {
+    items: SessionRecordingType[]
+    render: ({ item, isActive }: { item: SessionRecordingType; isActive: boolean }) => JSX.Element
     footer?: JSX.Element
 }
 
-export type PlaylistProps<T> = {
-    sections: PlaylistSection<T>[]
+export type PlaylistContentBlock = PlaylistSectionBase & {
+    content: ReactNode
+}
+
+export type PlaylistSection = PlaylistRecordingPreviewBlock | PlaylistContentBlock
+
+export type PlaylistProps = {
+    sections: PlaylistSection[]
     listEmptyState: JSX.Element
-    content: (({ activeItem }: { activeItem: T | null }) => JSX.Element) | null
+    content: ReactNode | (({ activeItem }: { activeItem: SessionRecordingType | null }) => JSX.Element) | null
     title?: string
     notebooksHref?: string
     embedded?: boolean
@@ -36,7 +47,7 @@ export type PlaylistProps<T> = {
     onScrollListEdge?: (edge: 'top' | 'bottom') => void
     // Optionally select the first item in the list. Only works in controlled mode
     selectInitialItem?: boolean
-    onSelect?: (item: T) => void
+    onSelect?: (item: SessionRecordingType) => void
     onChangeSections?: (activeKeys: string[]) => void
     'data-attr'?: string
     activeItemId?: string
@@ -60,12 +71,7 @@ const CounterBadge = ({
     </span>
 )
 
-export function Playlist<
-    T extends {
-        id: string | number // accepts any object as long as it conforms to the interface of having an `id`
-        [key: string]: any
-    }
->({
+export function Playlist({
     title,
     notebooksHref,
     loading,
@@ -82,9 +88,13 @@ export function Playlist<
     onChangeSections,
     isCollapsed = false,
     'data-attr': dataAttr,
-}: PlaylistProps<T>): JSX.Element {
-    const [controlledActiveItemId, setControlledActiveItemId] = useState<T['id'] | null>(
-        selectInitialItem && sections[0].items[0] ? sections[0].items[0].id : null
+}: PlaylistProps): JSX.Element {
+    const firstItem = sections
+        .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
+        ?.find((s) => s.items.length > 0)?.items[0]
+
+    const [controlledActiveItemId, setControlledActiveItemId] = useState<SessionRecordingType['id'] | null>(
+        selectInitialItem && firstItem ? firstItem.id : null
     )
     const [listCollapsed, setListCollapsed] = useState<boolean>(isCollapsed)
     useEffect(
@@ -103,14 +113,18 @@ export function Playlist<
         750: 'medium',
     })
 
-    const onChangeActiveItem = (item: T): void => {
+    const onChangeActiveItem = (item: SessionRecordingType): void => {
         setControlledActiveItemId(item.id)
         onSelect?.(item)
     }
 
     const activeItemId = propsActiveItemId === undefined ? controlledActiveItemId : propsActiveItemId
 
-    const activeItem = sections.flatMap((s) => s.items).find((i) => i.id === activeItemId) || null
+    const activeItem =
+        sections
+            .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
+            .flatMap((s) => s.items)
+            .find((i) => i.id === activeItemId) || null
 
     return (
         <div
@@ -149,7 +163,11 @@ export function Playlist<
                     onDoubleClick={() => setListCollapsed(!listCollapsed)}
                 />
             </div>
-            {content && <div className="Playlist__main">{content({ activeItem })}</div>}
+            {content && (
+                <div className="Playlist__main">
+                    {typeof content === 'function' ? content({ activeItem }) : content}
+                </div>
+            )}
         </div>
     )
 }
@@ -192,12 +210,7 @@ function TitleWithCount({
     )
 }
 
-function List<
-    T extends {
-        id: string | number
-        [key: string]: any
-    }
->({
+function List({
     title,
     notebooksHref,
     onClickCollapse,
@@ -212,17 +225,17 @@ function List<
     emptyState,
 }: {
     title?: string
-    notebooksHref: PlaylistProps<T>['notebooksHref']
+    notebooksHref: PlaylistProps['notebooksHref']
     onClickCollapse: () => void
-    activeItemId: T['id'] | null
-    setActiveItemId: (item: T) => void
-    headerActions: PlaylistProps<T>['headerActions']
-    footerActions: PlaylistProps<T>['footerActions']
-    sections: PlaylistProps<T>['sections']
+    activeItemId: SessionRecordingType['id'] | null
+    setActiveItemId: (item: SessionRecordingType) => void
+    headerActions: PlaylistProps['headerActions']
+    footerActions: PlaylistProps['footerActions']
+    sections: PlaylistProps['sections']
     onChangeSections?: (activeKeys: string[]) => void
-    onScrollListEdge: PlaylistProps<T>['onScrollListEdge']
-    loading: PlaylistProps<T>['loading']
-    emptyState: PlaylistProps<T>['listEmptyState']
+    onScrollListEdge: PlaylistProps['onScrollListEdge']
+    loading: PlaylistProps['loading']
+    emptyState: PlaylistProps['listEmptyState']
 }): JSX.Element {
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -246,7 +259,9 @@ function List<
         lastScrollPositionRef.current = e.currentTarget.scrollTop
     }
 
-    const itemsCount = sections.flatMap((s) => s.items).length
+    const itemsCount = sections
+        .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
+        .flatMap((s) => s.items).length
     const initiallyOpenSections = sections.filter((s) => s.initiallyOpen).map((s) => s.key)
 
     return (
@@ -260,29 +275,31 @@ function List<
                     <LemonTableLoader loading={loading} />
                 </div>
             </DraggableToNotebook>
-
             <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
-                {sections.flatMap((s) => s.items).length ? (
+                {sections.filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s).flatMap((s) => s.items)
+                    .length ? (
                     <>
-                        {sections.length > 1 ? (
-                            <LemonCollapse
-                                defaultActiveKeys={initiallyOpenSections}
-                                panels={sections.map((s) => ({
+                        <LemonCollapse
+                            defaultActiveKeys={initiallyOpenSections}
+                            panels={sections.map((s) => {
+                                const content =
+                                    'items' in s ? (
+                                        <ListSection {...s} activeItemId={activeItemId} onClick={setActiveItemId} />
+                                    ) : (
+                                        s.content
+                                    )
+                                return {
                                     key: s.key,
                                     header: s.title,
-                                    content: (
-                                        <ListSection {...s} activeItemId={activeItemId} onClick={setActiveItemId} />
-                                    ),
+                                    content,
                                     className: 'p-0',
-                                }))}
-                                onChange={onChangeSections}
-                                multiple
-                                embedded
-                                size="small"
-                            />
-                        ) : (
-                            <ListSection {...sections[0]} activeItemId={activeItemId} onClick={setActiveItemId} />
-                        )}
+                                }
+                            })}
+                            onChange={onChangeSections}
+                            multiple
+                            embedded
+                            size="small"
+                        />
                     </>
                 ) : loading ? (
                     <LoadingState />
@@ -297,20 +314,15 @@ function List<
     )
 }
 
-export function ListSection<
-    T extends {
-        id: string | number
-        [key: string]: any
-    }
->({
+export function ListSection({
     items,
     render,
     footer,
     onClick,
     activeItemId,
-}: PlaylistSection<T> & {
-    onClick: (item: T) => void
-    activeItemId: T['id'] | null
+}: PlaylistRecordingPreviewBlock & {
+    onClick: (item: SessionRecordingType) => void
+    activeItemId: SessionRecordingType['id'] | null
 }): JSX.Element {
     return (
         <>

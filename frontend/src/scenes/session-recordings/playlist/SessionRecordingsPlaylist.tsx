@@ -8,11 +8,11 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { FiltersPanel } from 'scenes/session-recordings/playlist/filters/FiltersPanel'
 import { urls } from 'scenes/urls'
 
-import { ReplayTabs, SessionRecordingType } from '~/types'
+import { ReplayTabs } from '~/types'
 
-import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
 import {
@@ -48,8 +48,6 @@ export function SessionRecordingsPlaylist({
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
-    const allowReplayHogQLFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS]
-    const allowReplayFlagsFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_FLAGS_FILTERS]
 
     const pinnedDescription = isTestingSaved ? 'Saved' : 'Pinned'
 
@@ -57,7 +55,7 @@ export function SessionRecordingsPlaylist({
 
     const notebookNode = useNotebookNode()
 
-    const sections: PlaylistSection<SessionRecordingType>[] = []
+    const sections: PlaylistSection[] = []
 
     if (pinnedRecordings.length) {
         sections.push({
@@ -72,8 +70,15 @@ export function SessionRecordingsPlaylist({
     }
 
     sections.push({
+        key: 'filters',
+        title: 'Filtered by',
+        content: <FiltersPanel />,
+        initiallyOpen: true,
+    })
+
+    sections.push({
         key: 'other',
-        title: 'Other recordings',
+        title: 'Filtered recordings',
         items: otherRecordings,
         render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />,
         footer: (
@@ -96,15 +101,6 @@ export function SessionRecordingsPlaylist({
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div className="h-full space-y-2">
-                {!notebookNode && (
-                    <RecordingsUniversalFilters
-                        filters={filters}
-                        setFilters={setFilters}
-                        className="border"
-                        allowReplayHogQLFilters={allowReplayHogQLFilters}
-                        allowReplayFlagsFilters={allowReplayFlagsFilters}
-                    />
-                )}
                 <Playlist
                     isCollapsed={!playlistOpen}
                     data-attr="session-recordings-playlist"
