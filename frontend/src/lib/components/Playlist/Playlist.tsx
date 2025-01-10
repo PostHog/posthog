@@ -290,7 +290,7 @@ function List({
                                     )
                                 return {
                                     key: s.key,
-                                    header: s.title,
+                                    header: s.title ?? '',
                                     content,
                                     className: 'p-0',
                                 }
