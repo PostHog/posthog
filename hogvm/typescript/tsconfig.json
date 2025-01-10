@@ -18,7 +18,8 @@
         "strict": true,
         "noImplicitAny": true,
         "useUnknownInCatchVariables": false,
-        "isolatedModules": true
+        "isolatedModules": true,
+        "lib": ["es2022"]
     },
     "include": ["src"],
     "exclude": ["node_modules", "dist", "bin"]

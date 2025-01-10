@@ -40,7 +40,7 @@ jobs:
             - name: Install dependencies and Chromatic
               run: |
                   pnpm install --frozen-lockfile --filter .
-                  pnpm install chromatic
+                  pnpm install chromatic -w
 
             - name: Install npm dependencies
               run: |
