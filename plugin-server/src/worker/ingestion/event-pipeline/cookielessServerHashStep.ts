@@ -5,13 +5,12 @@ import { DateTime } from 'luxon'
 import { getDomain } from 'tldts'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { CookielessServerHashMode } from '../../../types'
+import { CookielessServerHashMode, Hub } from '../../../types'
 import { ConcurrencyController } from '../../../utils/concurrencyController'
 import { DB } from '../../../utils/db/db'
 import { now } from '../../../utils/now'
 import { UUID7 } from '../../../utils/utils'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../timestamps'
-import { EventPipelineRunner } from './runner'
 
 /* ---------------------------------------------------------------------
  * This pipeline step is used to get the distinct id and session id for events that are using the cookieless server hash mode.
@@ -60,9 +59,9 @@ import { EventPipelineRunner } from './runner'
  */
 
 const TIMEZONE_FALLBACK = 'UTC'
-const COOKIELESS_SENTINEL_VALUE = '$posthog_cklsh'
-const COOKIELESS_MODE_FLAG_PROPERTY = '$cklsh_mode'
-const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY = '$cklsh_extra'
+export const COOKIELESS_SENTINEL_VALUE = '$posthog_cklsh'
+export const COOKIELESS_MODE_FLAG_PROPERTY = '$cklsh_mode'
+export const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY = '$cklsh_extra'
 const MAX_NEGATIVE_TIMEZONE_HOURS = 12
 const MAX_POSITIVE_TIMEZONE_HOURS = 14
 const MAX_INGESTION_LAG_HOURS = 24
@@ -72,17 +71,14 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24
 const IDENTIFIES_TTL_SECONDS = 60 * 60 * 24
 const DELETE_EXPIRED_SALTS_INTERVAL_MS = 60 * 60 * 1000
 
-export async function cookielessServerHashStep(
-    runner: EventPipelineRunner,
-    event: PluginEvent
-): Promise<[PluginEvent | undefined]> {
+export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Promise<[PluginEvent | undefined]> {
     // if events aren't using this mode, skip all processing
     if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
         return [event]
     }
 
     // if the team isn't allowed to use this mode, drop the event
-    const team = await runner.hub.teamManager.getTeamForEvent(event)
+    const team = await hub.teamManager.getTeamForEvent(event)
     if (!team?.cookieless_server_hash_mode) {
         eventDroppedCounter
             .labels({
@@ -176,7 +172,7 @@ export async function cookielessServerHashStep(
             return [undefined]
         }
 
-        const hashValue = await doHash(runner.hub.db, {
+        const hashValue = await doHash(hub.db, {
             timestampMs,
             eventTimeZone,
             teamTimeZone,
@@ -187,17 +183,22 @@ export async function cookielessServerHashStep(
             hashExtra,
         })
         const distinctId = hashToDistinctId(hashValue)
-        event.distinct_id = distinctId
-        event.properties['$device_id'] = distinctId
-        event.properties['$session_id'] = createStatelessSessionId(timestampMs, eventTimeZone, teamTimeZone, hashValue)
-
-        return [event]
+        const newEvent = {
+            ...event,
+            distinct_id: distinctId,
+            properties: {
+                ...event.properties,
+                $device_id: distinctId,
+                $session_id: createStatelessSessionId(timestampMs, eventTimeZone, teamTimeZone, hashValue),
+            },
+        }
+        return [newEvent]
     } else {
         // TRICKY: if a user were to log in and out, to avoid collisions, we would want a different hash value, so we store the set of identify event uuids for identifies
         // ASSUMPTION: all events are processed in order, for this to happen we need them to be in the same kafka topic at this point
 
         // Find the base hash value, before we take the number of identifies into account
-        const baseHashValue = await doHash(runner.hub.db, {
+        const baseHashValue = await doHash(hub.db, {
             timestampMs,
             eventTimeZone,
             teamTimeZone,
@@ -215,14 +216,10 @@ export async function cookielessServerHashStep(
             // identify event, so the anon_distinct_id must be the sentinel and needs to be replaced
 
             // add this identify event id to redis
-            const numIdentifies = await runner.hub.db.redisSAddAndSCard(
-                identifiesRedisKey,
-                event.uuid,
-                IDENTIFIES_TTL_SECONDS
-            )
+            const numIdentifies = await hub.db.redisSAddAndSCard(identifiesRedisKey, event.uuid, IDENTIFIES_TTL_SECONDS)
 
             // we want the number of identifies that happened before this one
-            hashValue = await doHash(runner.hub.db, {
+            hashValue = await doHash(hub.db, {
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone,
@@ -237,8 +234,8 @@ export async function cookielessServerHashStep(
             // set the distinct id to the new hash value
             event.properties[`$anon_distinct_id`] = hashToDistinctId(hashValue)
         } else if (event.distinct_id === COOKIELESS_SENTINEL_VALUE) {
-            const numIdentifies = await runner.hub.db.redisSCard(identifiesRedisKey)
-            hashValue = await doHash(runner.hub.db, {
+            const numIdentifies = await hub.db.redisSCard(identifiesRedisKey)
+            hashValue = await doHash(hub.db, {
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone,
@@ -253,10 +250,10 @@ export async function cookielessServerHashStep(
             event.distinct_id = hashToDistinctId(hashValue)
             event.properties[`$distinct_id`] = hashValue
         } else {
-            const numIdentifies = await runner.hub.db.redisSCard(identifiesRedisKey)
+            const numIdentifies = await hub.db.redisSCard(identifiesRedisKey)
 
             // this event is after identify has been called, so subtract 1 from the numIdentifies
-            hashValue = await doHash(runner.hub.db, {
+            hashValue = await doHash(hub.db, {
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone,
@@ -271,14 +268,14 @@ export async function cookielessServerHashStep(
 
         const sessionRedisKey = getRedisSessionsKey(hashValue, teamId)
         // do we have a session id for this user already?
-        const sessionInfoBuffer = await runner.hub.db.redisGetBuffer(sessionRedisKey, 'cookielessServerHashStep')
+        const sessionInfoBuffer = await hub.db.redisGetBuffer(sessionRedisKey, 'cookielessServerHashStep')
         let sessionState = sessionInfoBuffer ? bufferToSessionState(sessionInfoBuffer) : undefined
 
         // if not, or the TTL has expired, create a new one. Don't rely on redis TTL, as ingestion lag could approach the 30-minute session inactivity timeout
         if (!sessionState || timestampMs - sessionState.lastActivityTimestamp > 60 * 30 * 1000) {
             const sessionId = new UUID7(timestampMs)
             sessionState = { sessionId: sessionId, lastActivityTimestamp: timestampMs }
-            await runner.hub.db.redisSetBuffer(
+            await hub.db.redisSetBuffer(
                 sessionRedisKey,
                 sessionStateToBuffer(sessionState),
                 'cookielessServerHashStep',
@@ -286,7 +283,7 @@ export async function cookielessServerHashStep(
             )
         } else {
             // otherwise, update the timestamp
-            await runner.hub.db.redisSetBuffer(
+            await hub.db.redisSetBuffer(
                 sessionRedisKey,
                 sessionStateToBuffer({ sessionId: sessionState.sessionId, lastActivityTimestamp: timestampMs }),
                 'cookielessServerHashStep',
@@ -307,7 +304,7 @@ function getProperties(
     timestamp: string
 ): {
     userAgent: string | undefined
-    ip: string | undefined
+    ip: string | null
     host: string | undefined
     timezone: string | undefined
     timestampMs: number
@@ -315,7 +312,7 @@ function getProperties(
     hashExtra: string | undefined
 } {
     const userAgent = event.properties?.['$raw_user_agent']
-    const ip = event.properties?.['$ip']
+    const ip = event.ip
     const host = event.properties?.['$host']
     const timezone = event.properties?.['$timezone']
     const hashExtra = event.properties?.[COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY]
@@ -335,8 +332,7 @@ export async function getSaltForDay(
     teamtimeZone: string
 ): Promise<Uint32Array> {
     // get the day based on the timezone
-    const { year, month, day } = toYearMonthDayInTimezoneSafe(timestamp, eventTimeZone, teamtimeZone)
-    const yyyymmdd = `${year}-${month}-${day}`
+    const yyyymmdd = toYYYYMMDDInTimezoneSafe(timestamp, eventTimeZone, teamtimeZone)
 
     if (!isCalendarDateValid(yyyymmdd)) {
         throw new Error('Date is out of range')
@@ -455,8 +451,11 @@ export function isCalendarDateValid(yyyymmdd: string): boolean {
     const endOfDayPlus14 = new Date(utcDate)
     endOfDayPlus14.setUTCHours(MAX_POSITIVE_TIMEZONE_HOURS + 24) // End at UTC+14
 
+    const isGteMinimum = nowUTC >= startOfDayMinus12
+    const isLtMaximum = nowUTC < endOfDayPlus14
+
     // Check if the current UTC time falls within this range
-    return nowUTC >= startOfDayMinus12 && nowUTC < endOfDayPlus14
+    return isGteMinimum && isLtMaximum
 }
 
 export function hashToDistinctId(hash: Uint32Array): string {
@@ -474,23 +473,25 @@ export function getRedisSessionsKey(hash: Uint32Array, teamId: number): string {
     return `cklshs:${teamId}:${uint32ArrayToBase64String(hash)}`
 }
 
-export function toYearMonthDayInTimezoneSafe(
+export function toYYYYMMDDInTimezoneSafe(
     timestamp: number,
     eventTimeZone: string | undefined,
     teamTimeZone: string
-): { year: number; month: number; day: number } {
+): string {
+    let dateObj: { year: number; month: number; day: number }
     if (eventTimeZone) {
         try {
-            return toYearMonthDayInTimezone(timestamp, eventTimeZone)
+            dateObj = toYearMonthDayInTimezone(timestamp, eventTimeZone)
         } catch {
             // pass
         }
     }
     try {
-        return toYearMonthDayInTimezone(timestamp, teamTimeZone)
+        dateObj = toYearMonthDayInTimezone(timestamp, teamTimeZone)
     } catch {
-        return toYearMonthDayInTimezone(timestamp, TIMEZONE_FALLBACK)
+        dateObj = toYearMonthDayInTimezone(timestamp, TIMEZONE_FALLBACK)
     }
+    return `${dateObj.year}-${dateObj.month.toString().padStart(2, '0')}-${dateObj.day.toString().padStart(2, '0')}`
 }
 
 export function toStartOfDayInTimezoneSafe(
