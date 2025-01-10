@@ -678,3 +678,23 @@ export const areMapsEqual = <K, V>(map1: Map<K, V>, map2: Map<K, V>): boolean =>
     }
     return true
 }
+
+export function deepFreeze<T extends object>(t: T): T {
+    function deepFreezeInner(obj: any) {
+        if (obj === null || typeof obj !== 'object') {
+            return
+        }
+        if (Object.isFrozen(obj)) {
+            return
+        }
+        Object.freeze(obj)
+        Object.keys(obj).forEach((key) => {
+            if (key in obj && obj[key] !== null && typeof obj[key] === 'object' && !Object.isFrozen(obj[key])) {
+                deepFreezeInner(obj[key])
+            }
+        })
+        return obj
+    }
+    deepFreezeInner(t)
+    return t
+}

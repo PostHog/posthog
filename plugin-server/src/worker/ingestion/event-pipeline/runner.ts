@@ -222,7 +222,7 @@ export class EventPipelineRunner {
             return this.runHeatmapPipelineSteps(event, kafkaAcks)
         }
 
-        const [postCookielessEvent] = await this.runStep(cookielessServerHashStep, [this, event], event.team_id)
+        const [postCookielessEvent] = await this.runStep(cookielessServerHashStep, [this.hub, event], event.team_id)
         if (postCookielessEvent == null) {
             return this.registerLastStep('cookielessServerHashStep', [event], kafkaAcks)
         }
