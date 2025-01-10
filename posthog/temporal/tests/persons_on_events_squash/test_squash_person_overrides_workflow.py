@@ -136,12 +136,12 @@ async def test_parse_empty_mutation_counts(clickhouse_client):
 async def create_overrides_join_table_helper(activity_environment) -> SnapshotTableInfo:
     """Helper function to create overrides join table in test functions."""
 
-    join_table_inputs = SnapshotTableInfo(
-        name="person_distinct_id_overrides_join",
-    )
+    join_table_inputs = SnapshotTableInfo()
 
     await activity_environment.run(create_snapshot_table, join_table_inputs)
-    await activity_environment.run(wait_for_table, WaitForTableInputs(name=join_table_inputs.name, should_exist=True))
+    await activity_environment.run(
+        wait_for_table, WaitForTableInputs(name=join_table_inputs.table_name, should_exist=True)
+    )
 
     return join_table_inputs
 
@@ -221,27 +221,25 @@ async def test_create_person_distinct_id_overrides_join_with_older_overrides_pre
 @pytest.mark.django_db
 async def test_create_wait_and_drop_table(activity_environment, person_overrides_data, clickhouse_client):
     """Test if a table is created, waited on, and dropped in a normal workflow."""
-    inputs = SnapshotTableInfo(
-        name="person_distinct_id_overrides_join",
-    )
+    inputs = SnapshotTableInfo()
 
     # Ensure we are starting from scratch
-    await clickhouse_client.execute_query(f"DROP TABLE IF EXISTS {settings.CLICKHOUSE_DATABASE}.{inputs.name}")
-    response = await clickhouse_client.read_query(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{inputs.name}")
+    await clickhouse_client.execute_query(f"DROP TABLE IF EXISTS {settings.CLICKHOUSE_DATABASE}.{inputs.table_name}")
+    response = await clickhouse_client.read_query(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{inputs.table_name}")
     before = int(response.splitlines()[0])
     assert before == 0
 
     await activity_environment.run(create_snapshot_table, inputs)
-    await activity_environment.run(wait_for_table, WaitForTableInputs(name=inputs.name, should_exist=True))
+    await activity_environment.run(wait_for_table, WaitForTableInputs(name=inputs.table_name, should_exist=True))
 
-    response = await clickhouse_client.read_query(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{inputs.name}")
+    response = await clickhouse_client.read_query(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{inputs.table_name}")
     during = int(response.splitlines()[0])
     assert during == 1
 
     await activity_environment.run(drop_snapshot_table, inputs)
-    await activity_environment.run(wait_for_table, WaitForTableInputs(name=inputs.name, should_exist=False))
+    await activity_environment.run(wait_for_table, WaitForTableInputs(name=inputs.table_name, should_exist=False))
 
-    response = await clickhouse_client.read_query(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{inputs.name}")
+    response = await clickhouse_client.read_query(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{inputs.table_name}")
     after = int(response.splitlines()[0])
     assert after == 0
 
@@ -334,7 +332,7 @@ async def overrides_join_table(person_overrides_data, activity_environment):
     """
     inputs = await create_overrides_join_table_helper(activity_environment)
 
-    yield inputs.name
+    yield inputs.table_name
 
     await activity_environment.run(drop_snapshot_table, inputs)
 

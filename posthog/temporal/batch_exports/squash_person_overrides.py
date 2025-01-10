@@ -104,18 +104,16 @@ async def wait_for_table(inputs: WaitForTableInputs) -> None:
 # snapshot table management
 @dataclass
 class SnapshotTableInfo:
-    """Inputs for activities that work with tables.
+    """Inputs for activities that work with tables."""
 
-    Attributes:
-        name: The table name which we are working with.
-    """
-
-    name: str
+    @property
+    def table_name(self) -> str:
+        return "person_distinct_id_overrides_join"
 
     async def create_table(self, clickhouse_client):
         return await clickhouse_client.execute_query(
             f"""
-            CREATE OR REPLACE TABLE {settings.CLICKHOUSE_DATABASE}.{self.name}
+            CREATE OR REPLACE TABLE {settings.CLICKHOUSE_DATABASE}.{self.table_name}
                 ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
             (
                 `team_id` Int64,
@@ -144,7 +142,7 @@ class SnapshotTableInfo:
     async def drop_table(self, clickhouse_client):
         return await clickhouse_client.execute_query(
             f"""
-            DROP TABLE IF EXISTS {settings.CLICKHOUSE_DATABASE}.{self.name}
+            DROP TABLE IF EXISTS {settings.CLICKHOUSE_DATABASE}.{self.table_name}
                 ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
             SETTINGS distributed_ddl_task_timeout = 0
             """
@@ -163,7 +161,7 @@ async def create_snapshot_table(inputs: SnapshotTableInfo) -> None:
     async with Heartbeater(), get_client() as clickhouse_client:
         await inputs.create_table(clickhouse_client)
 
-    activity.logger.info("Created table %s", inputs.name)
+    activity.logger.info("Created table %s", inputs.table_name)
 
 
 @activity.defn
@@ -178,7 +176,7 @@ async def drop_snapshot_table(inputs: SnapshotTableInfo) -> None:
     async with Heartbeater(), get_client() as clickhouse_client:
         await inputs.drop_table(clickhouse_client)
 
-    activity.logger.info("Dropped table %s", inputs.name)
+    activity.logger.info("Dropped table %s", inputs.table_name)
 
 
 @contextlib.asynccontextmanager
@@ -194,7 +192,7 @@ async def manage_snapshot_table(snapshot_table: SnapshotTableInfo) -> collection
 
     await workflow.execute_activity(
         wait_for_table,
-        WaitForTableInputs(name=snapshot_table.name, should_exist=True),
+        WaitForTableInputs(name=snapshot_table.table_name, should_exist=True),
         start_to_close_timeout=timedelta(hours=6),
         retry_policy=RetryPolicy(
             maximum_attempts=0, initial_interval=timedelta(seconds=20), maximum_interval=timedelta(minutes=2)
@@ -216,7 +214,7 @@ async def manage_snapshot_table(snapshot_table: SnapshotTableInfo) -> collection
         )
         await workflow.execute_activity(
             wait_for_table,
-            WaitForTableInputs(name=snapshot_table.name, should_exist=False),
+            WaitForTableInputs(name=snapshot_table.table_name, should_exist=False),
             # Assuming clean-up should be relatively fast.
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(
@@ -517,7 +515,7 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
         """Workflow implementation to squash person overrides into events table."""
         workflow.logger.info("Starting squash workflow")
 
-        snapshot_table = SnapshotTableInfo("person_distinct_id_overrides_join")
+        snapshot_table = SnapshotTableInfo()
         async with manage_snapshot_table(snapshot_table):
             await submit_and_wait_for_mutation("update_events_with_person_overrides")
             workflow.logger.info("Squash finished, now deleting person overrides")
