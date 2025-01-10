@@ -306,19 +306,18 @@ export function DeltaChart({
                             metricIndex={metricIndex}
                             isSecondary={isSecondary}
                         />
-                        {isSecondary ||
-                            (!isSecondary && experiment.metrics.length > 1 && (
-                                <div className="absolute bottom-2 left-2 flex justify-center">
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        icon={<IconGraph />}
-                                        onClick={() => setIsModalOpen(true)}
-                                    >
-                                        Details
-                                    </LemonButton>
-                                </div>
-                            ))}
+                        {(isSecondary || (!isSecondary && experiment.metrics.length > 1)) && (
+                            <div className="absolute bottom-2 left-2 flex justify-center">
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    icon={<IconGraph />}
+                                    onClick={() => setIsModalOpen(true)}
+                                >
+                                    Details
+                                </LemonButton>
+                            </div>
+                        )}
                         <svg
                             ref={chartSvgRef}
                             viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
