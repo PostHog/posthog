@@ -54,6 +54,7 @@
         "typegen:check": "kea-typegen check",
         "typegen:watch": "kea-typegen watch --delete --show-ts-errors",
         "typegen:clean": "find frontend/src -type f -name '*Type.ts' -delete",
+        "pnpm:clean": "rm -rf node_modules && rm -rf plugin-server/node_modules && rm -rf plugin-transpiler/node_modules && rm -rf frontend/@posthog/apps-common/node_modules && rm -rf frontend/@posthog/lemon-ui/node_modules && rm -rf hogvm/typescript/node_modules",
         "storybook": "DEBUG=0 storybook dev -p 6006",
         "build-storybook": "DEBUG=0 storybook build",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",

@@ -59,8 +59,8 @@ importers:
         specifier: ^7.49.0
         version: 7.49.0
       '@sentry/profiling-node':
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: ^1.3.5
+        version: 1.3.5(@sentry/node@7.49.0)
       '@sentry/tracing':
         specifier: ^7.17.4
         version: 7.49.0
@@ -1458,21 +1458,16 @@ packages:
     resolution: {integrity: sha512-AlSnCYgfEbvK8pkNluUkmdW/cD9UpvOVCa+ERQswXNRkAv5aDGCL6Ihv6fnIajE++BYuwZh0+HwZUBVKTFzoZg==}
     engines: {node: '>=8'}
 
-  '@sentry/core@7.53.0':
-    resolution: {integrity: sha512-TKMWWEvwT8tSqyIWuCexUk+fIoMA8ZAzGJdOfPW9XRL38RrXA9O+7V5xxK98X/bPHQ6UQF/QceookGOqqpmQyQ==}
-    engines: {node: '>=8'}
-
-  '@sentry/hub@7.53.0':
-    resolution: {integrity: sha512-lMWyELUtsomXiQOn5DI77ZOeYOmE5VbqSZ+fPrhnvey5NDxyHozEl5KBpyWIiC5Kc++lmjWQK6gH7FUA/vhO2A==}
-    engines: {node: '>=8'}
-
   '@sentry/node@7.49.0':
     resolution: {integrity: sha512-KLIrqcbKk4yR3g8fjl87Eyv4M9j4YI6b7sqVAZYj3FrX3mC6JQyGdlDfUpSKy604n1iAdr6OuUp5f9x7jPJaeQ==}
     engines: {node: '>=8'}
 
-  '@sentry/profiling-node@0.3.0':
-    resolution: {integrity: sha512-zodtr8JgI3m7GOoELEiE+zokEhyVoP6I4PvfPOTA6Etud4CUZ1B6uM7Ls8VgWAwlrPxJzaP+GJUJevZ0P2jfOQ==}
+  '@sentry/profiling-node@1.3.5':
+    resolution: {integrity: sha512-n2bfEbtLW3WuIMQGyxKJKzBNZOb1JYfMeJQ2WQn/42F++69m+u7T0S3EDGRN0Y//fbt5+r0any+4r3kChRXZkQ==}
     engines: {node: '>=8.0.0'}
+    hasBin: true
+    peerDependencies:
+      '@sentry/node': ^7.44.1
 
   '@sentry/tracing@7.49.0':
     resolution: {integrity: sha512-RtyTt1DvX7s1M2ca9qnevOkuwn8HjbKXrSVHtMbQYoT3uGvjT8Pm71D5WtWMWH2QLpFgcqQq/1ifZBUAG4Y7qA==}
@@ -1482,16 +1477,8 @@ packages:
     resolution: {integrity: sha512-9yXXh7iv76+O6h2ONUVx0wsL1auqJFWez62mTjWk4350SgMmWp/zUkBxnVXhmcYqscz/CepC+Loz9vITLXtgxg==}
     engines: {node: '>=8'}
 
-  '@sentry/types@7.53.0':
-    resolution: {integrity: sha512-hqlbrCL8nfDfjlF6wh4NHNW9plhWJ1m2BSqRyspcxOC44e293BPfwjUzr0aQapJK/aRkHROnfAtzsEu2awNPzg==}
-    engines: {node: '>=8'}
-
   '@sentry/utils@7.49.0':
     resolution: {integrity: sha512-JdC9yGnOgev4ISJVwmIoFsk8Zx0psDZJAj2DV7x4wMZsO6QK+YjC7G3mUED/S5D5lsrkBZ/3uvQQhr8DQI4UcQ==}
-    engines: {node: '>=8'}
-
-  '@sentry/utils@7.53.0':
-    resolution: {integrity: sha512-T3F2DkXB9fDjUIAcrOMrGCnquyTQxTyTb5Mh+NbFBevQn32fHehQ62VraLhe20HTVy8YBFkXisvLu6HeOZ5Mog==}
     engines: {node: '>=8'}
 
   '@sinclair/typebox@0.24.51':
@@ -2831,8 +2818,8 @@ packages:
     engines: {node: '>=0.10'}
     hasBin: true
 
-  detect-libc@2.0.1:
-    resolution: {integrity: sha512-463v3ZeIrcWtdgIg6vI6XUncguvr2TnGl4SzDXinkt9mSLpBJKXT3mW6xT3VQdDN11+WVs29pgvivTc4Lp8v+w==}
+  detect-libc@2.0.3:
+    resolution: {integrity: sha512-bwy0MGW55bG41VqxxypOsdSdGqLwXPI/focwgTYCFMbdUiBAxLg9CFzG08sz2aqzknwiX7Hkl0bQENjg8iLByw==}
     engines: {node: '>=8'}
 
   detect-newline@3.1.0:
@@ -4414,8 +4401,8 @@ packages:
   no-case@2.3.2:
     resolution: {integrity: sha512-rmTZ9kz+f3rCvK2TD1Ue/oZlns7OGoIWP4fc3llxxRXlOkHKoWPPWJOfFYpITabSow43QJbRIoHQXtt10VldyQ==}
 
-  node-abi@3.40.0:
-    resolution: {integrity: sha512-zNy02qivjjRosswoYmPi8hIKJRr8MpQyeKT6qlcq/OnOgA3Rhoae+IYOqsM9V5+JnHWmxKnWOT2GxvtqdtOCXA==}
+  node-abi@3.71.0:
+    resolution: {integrity: sha512-SZ40vRiy/+wRTf21hxkkEjPJZpARzUMVcJoQse2EF8qkUWbbO2z7vd5oA/H6bVH6SZQ5STGcu0KRDS7biNRfxw==}
     engines: {node: '>=10'}
 
   node-fetch@2.6.9:
@@ -6462,7 +6449,7 @@ snapshots:
       '@babel/helper-validator-option': 7.21.0
       browserslist: 4.21.5
       lru-cache: 5.1.1
-      semver: 6.3.0
+      semver: 6.3.1
 
   '@babel/helper-compilation-targets@7.25.9':
     dependencies:
@@ -7649,7 +7636,7 @@ snapshots:
   '@npmcli/fs@2.1.2':
     dependencies:
       '@gar/promisify': 1.1.3
-      semver: 7.5.0
+      semver: 7.6.3
 
   '@npmcli/fs@3.1.1':
     dependencies:
@@ -7709,19 +7696,6 @@ snapshots:
       '@sentry/utils': 7.49.0
       tslib: 1.14.1
 
-  '@sentry/core@7.53.0':
-    dependencies:
-      '@sentry/types': 7.53.0
-      '@sentry/utils': 7.53.0
-      tslib: 1.14.1
-
-  '@sentry/hub@7.53.0':
-    dependencies:
-      '@sentry/core': 7.53.0
-      '@sentry/types': 7.53.0
-      '@sentry/utils': 7.53.0
-      tslib: 1.14.1
-
   '@sentry/node@7.49.0':
     dependencies:
       '@sentry-internal/tracing': 7.49.0
@@ -7735,20 +7709,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@sentry/profiling-node@0.3.0':
+  '@sentry/profiling-node@1.3.5(@sentry/node@7.49.0)':
     dependencies:
-      '@sentry/hub': 7.53.0
       '@sentry/node': 7.49.0
-      '@sentry/tracing': 7.49.0
-      '@sentry/types': 7.49.0
-      '@sentry/utils': 7.49.0
-      detect-libc: 2.0.1
-      nan: 2.17.0
-      node-abi: 3.40.0
-      node-gyp: 9.3.1
-    transitivePeerDependencies:
-      - bluebird
-      - supports-color
+      detect-libc: 2.0.3
+      node-abi: 3.71.0
 
   '@sentry/tracing@7.49.0':
     dependencies:
@@ -7756,16 +7721,9 @@ snapshots:
 
   '@sentry/types@7.49.0': {}
 
-  '@sentry/types@7.53.0': {}
-
   '@sentry/utils@7.49.0':
     dependencies:
       '@sentry/types': 7.49.0
-      tslib: 1.14.1
-
-  '@sentry/utils@7.53.0':
-    dependencies:
-      '@sentry/types': 7.53.0
       tslib: 1.14.1
 
   '@sinclair/typebox@0.24.51': {}
@@ -9498,7 +9456,7 @@ snapshots:
 
   detect-libc@1.0.3: {}
 
-  detect-libc@2.0.1: {}
+  detect-libc@2.0.3: {}
 
   detect-newline@3.1.0: {}
 
@@ -11530,9 +11488,9 @@ snapshots:
     dependencies:
       lower-case: 1.1.4
 
-  node-abi@3.40.0:
+  node-abi@3.71.0:
     dependencies:
-      semver: 7.5.0
+      semver: 7.6.3
 
   node-fetch@2.6.9(encoding@0.1.13):
     dependencies:
