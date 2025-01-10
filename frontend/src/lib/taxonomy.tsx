@@ -271,7 +271,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Previous pageview ID',
             description: 'posthog-js adds these to the page leave event, they are used in web analytics calculations',
             examples: ['1'],
-            system: True,
+            system: true,
         },
         $copy_type: {
             label: 'Copy Type',
