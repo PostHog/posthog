@@ -114,7 +114,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Send all instance usage to the Billing service
     sender.add_periodic_task(
-        crontab(hour="4", minute="0", day_of_week="*"),
+        crontab(hour="4", minute="0"),
         send_org_usage_reports.s(),
         name="send instance usage report",
     )
