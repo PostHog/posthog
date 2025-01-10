@@ -528,7 +528,7 @@ def _run(
     reset_pipeline: bool,
 ):
     if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
-        pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental)
+        pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental, reset_pipeline)
         pipeline.run()
         del pipeline
     else:

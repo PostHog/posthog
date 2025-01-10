@@ -49,7 +49,6 @@ from . import (
     personal_api_key,
     plugin,
     plugin_log_entry,
-    property_definition,
     proxy_record,
     query,
     scheduled_change,
@@ -61,6 +60,7 @@ from . import (
     uploaded_media,
     user,
 )
+from ..taxonomy import property_definition_api
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet
@@ -264,7 +264,7 @@ projects_router.register(
 )
 projects_router.register(
     r"property_definitions",
-    property_definition.PropertyDefinitionViewSet,
+    property_definition_api.PropertyDefinitionViewSet,
     "project_property_definitions",
     ["project_id"],
 )
