@@ -85,7 +85,7 @@ def calculate_probabilities_v2_continuous(
     mean_value_control = control_variant.count / control_variant.absolute_exposure
 
     # Calculate posterior parameters for control
-    log_control_mean = np.log(mean_value_control + EPSILON)  # Using count field to store mean value
+    log_control_mean = np.log(mean_value_control + EPSILON)
 
     # Update parameters for control
     kappa_n_control = KAPPA_0 + control_variant.absolute_exposure
@@ -103,7 +103,7 @@ def calculate_probabilities_v2_continuous(
     test_samples = []
     for test in test_variants:
         mean_value_test = test.count / test.absolute_exposure
-        log_test_mean = np.log(mean_value_test + EPSILON)  # Using count field to store mean value
+        log_test_mean = np.log(mean_value_test + EPSILON)
 
         kappa_n_test = KAPPA_0 + test.absolute_exposure
         mu_n_test = (KAPPA_0 * MU_0 + test.absolute_exposure * log_test_mean) / kappa_n_test
