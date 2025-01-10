@@ -38,6 +38,7 @@ from posthog.schema import (
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
     DateRange,
+    PropertyMathType,
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
@@ -127,6 +128,13 @@ class ExperimentTrendsQueryRunner(QueryRunner):
            to separate results for different experiment variants.
         """
         prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
+
+        uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(prepared_count_query)
+
+        # Only SUM is supported now, but some earlier experiments AVG. That does not
+        # make sense as input for experiment analysis, so we'll swithc that to SUM here
+        if uses_math_aggregation:
+            prepared_count_query.series[0].math = PropertyMathType.SUM
 
         prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
         prepared_count_query.dateRange = self._get_date_range()
