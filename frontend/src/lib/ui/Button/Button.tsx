@@ -1,5 +1,5 @@
+import { Link } from '@posthog/lemon-ui'
 import { cva, VariantProps } from 'class-variance-authority'
-import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/styles'
 import { forwardRef } from 'react'
@@ -19,9 +19,10 @@ export const buttonStyles = cva(
                 outline: ['element-button-outline'],
                 muted: ['element-button-muted'],
                 'muted-darker': ['element-button-muted-darker'],
+                'top-bar-tabs': ['element-button-top-bar-tabs'],
             },
             active: {
-                true: [''],
+                true: ['element-button-active'],
                 false: [''],
             },
             size: {
@@ -104,6 +105,10 @@ export const buttonStyles = cva(
                 size: ['base', 'lg'],
                 className: 'py-3',
             },
+            {
+                intent: 'top-bar-tabs',
+                className: 'pt-[7px] pb-[11px]',
+            },
         ],
     }
 )
@@ -126,7 +131,7 @@ export type ButtonVariantProps = VariantProps<typeof buttonStyles> & {
     insideInput?: boolean
 }
 
-export const Button = forwardRef<HTMLButtonElement, ButtonVariantProps>(
+export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVariantProps>(
     (
         {
             intent,
@@ -173,12 +178,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonVariantProps>(
                   disableClientSideRouting,
                   target: targetBlank ? '_blank' : undefined,
                   to: !disabled ? to : undefined,
+                  insideButton: true,
               }
             : { type: type }
 
         let workingButton = (
             <ButtonComponent
-                ref={ref}
+                ref={ref as any}
                 className={cn(
                     buttonStyles({
                         intent,

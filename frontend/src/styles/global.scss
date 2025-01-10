@@ -10,6 +10,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 @use 'sass:map';
 
 // Global components
+@import 'vars';
 @import '../../../node_modules/react-toastify/dist/ReactToastify';
 @import 'fonts';
 @import 'functions';
@@ -17,7 +18,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 @import 'tailwindcss/components'; // NOTE: The components layer must be before utilities for correct specificity
 @import 'utilities';
 @import 'utilities-legacy'; // TODO: Remove all legacy utilities
-// @import '@posthog/design-system/dist/tokens.css';
+@import 'design-system';
 
 :root {
     @include root-variables;

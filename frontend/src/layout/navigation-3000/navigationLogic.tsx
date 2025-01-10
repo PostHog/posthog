@@ -49,7 +49,7 @@ import { experimentsSidebarLogic } from './sidebars/experiments'
 import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
 import { insightsSidebarLogic } from './sidebars/insights'
 import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
-import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from './types'
+import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem, TopBarNavbarItem } from './types'
 
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
 export const ITEM_KEY_PART_SEPARATOR = '::'
@@ -328,6 +328,43 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         isNavCollapsed: [
             (s) => [s.isNavCollapsedDesktop, s.mobileLayout],
             (isNavCollapsedDesktop, mobileLayout): boolean => !mobileLayout && isNavCollapsedDesktop,
+        ],
+        topBarNavbarItems: [
+            () => [],
+            (): TopBarNavbarItem[] => {
+                return [
+                    {
+                        identifier: Scene.Dashboards,
+                        label: 'Dashboards',
+                        to: urls.dashboards(),
+                    },
+                    {
+                        identifier: Scene.Notebooks,
+                        label: 'Notebooks',
+                        to: urls.notebooks(),
+                    },
+                    {
+                        identifier: Scene.DataManagement,
+                        label: 'Data',
+                        to: urls.eventDefinitions(),
+                    },
+                    {
+                        identifier: Scene.PersonsManagement,
+                        label: 'People',
+                        to: urls.persons(),
+                    },
+                    {
+                        identifier: Scene.Activity,
+                        label: 'Activity',
+                        to: urls.activity(),
+                    },
+                    {
+                        identifier: Scene.Products,
+                        label: 'Products',
+                        to: urls.products(),
+                    },
+                ]
+            },
         ],
         navbarItems: [
             (s) => [

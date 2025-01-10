@@ -1,10 +1,12 @@
-import './Link.scss'
+// import './Link.scss'
 
+import { cva, VariantProps } from 'class-variance-authority'
 import clsx from 'clsx'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { cn } from 'lib/utils/styles'
 import React from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
@@ -14,32 +16,45 @@ import { SidePanelTab } from '~/types'
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
 
+const linkStyles = cva('element-link', {
+    variants: {
+        intent: {
+            primary: ['element-link-primary'],
+            secondary: ['element-link-secondary'],
+        },
+    },
+    defaultVariants: {
+        intent: 'primary',
+    },
+})
+
 type RoutePart = string | Record<string, any>
 
-export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'className' | 'children' | 'title'> & {
-    /** The location to go to. This can be a kea-location or a "href"-like string */
-    to?: string | [string, RoutePart?, RoutePart?]
-    /** If true, in-app navigation will not be used and the link will navigate with a page load */
-    disableClientSideRouting?: boolean
-    preventClick?: boolean
-    onClick?: (event: React.MouseEvent<HTMLElement>) => void
-    onMouseDown?: (event: React.MouseEvent<HTMLElement>) => void
-    onMouseEnter?: (event: React.MouseEvent<HTMLElement>) => void
-    onMouseLeave?: (event: React.MouseEvent<HTMLElement>) => void
-    onKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void
-    onFocus?: (event: React.FocusEvent<HTMLElement>) => void
-    /** @deprecated Links should never be quietly disabled. Use `disabledReason` to provide an explanation instead. */
-    disabled?: boolean
-    /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
-    disabledReason?: string | null | false
-    /**
-     * Whether an "open in new" icon should be shown if target is `_blank`.
-     * This is true by default if `children` is a string.
-     */
-    targetBlankIcon?: boolean
-    /** If true, the default color will be as normal text with only a link color on hover */
-    subtle?: boolean
-}
+export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'className' | 'children' | 'title'> &
+    VariantProps<typeof linkStyles> & {
+        /** The location to go to. This can be a kea-location or a "href"-like string */
+        to?: string | [string, RoutePart?, RoutePart?]
+        /** If true, in-app navigation will not be used and the link will navigate with a page load */
+        disableClientSideRouting?: boolean
+        preventClick?: boolean
+        onClick?: (event: React.MouseEvent<HTMLElement>) => void
+        onMouseDown?: (event: React.MouseEvent<HTMLElement>) => void
+        onMouseEnter?: (event: React.MouseEvent<HTMLElement>) => void
+        onMouseLeave?: (event: React.MouseEvent<HTMLElement>) => void
+        onKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void
+        onFocus?: (event: React.FocusEvent<HTMLElement>) => void
+        /** @deprecated Links should never be quietly disabled. Use `disabledReason` to provide an explanation instead. */
+        disabled?: boolean
+        /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
+        disabledReason?: string | null | false
+        /**
+         * Whether an "open in new" icon should be shown if target is `_blank`.
+         * This is true by default if `children` is a string.
+         */
+        targetBlankIcon?: boolean
+        /** If true, the default color will be as normal text with only a link color on hover */
+        subtle?: boolean // TODO: move to intent
+    }
 
 const shouldForcePageLoad = (input: any): boolean => {
     if (!input || typeof input !== 'string') {
@@ -157,7 +172,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             // eslint-disable-next-line react/forbid-elements
             <a
                 ref={ref as any}
-                className={clsx('Link', subtle && 'Link--subtle', className)}
+                className={cn(linkStyles({ intent: subtle ? 'secondary' : 'primary' }), className)}
                 onClick={onClick}
                 href={href}
                 target={target}
@@ -173,7 +188,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 <span>
                     <button
                         ref={ref as any}
-                        className={clsx('Link', subtle && 'Link--subtle', className)}
+                        className={clsx('Link', subtle && 'Link-subtle', className)}
                         onClick={onClick}
                         type="button"
                         disabled={disabled || !!disabledReason}

@@ -43,6 +43,15 @@ export interface SidebarNavbarItem extends NavbarItemBase {
 /** A navbar item either points to a sidebar (via a sidebar logic) or directly to a scene (via a URL). */
 export type NavbarItem = NavbarItemBase | SceneNavbarItem | SidebarNavbarItem
 
+interface TopBarNavbarItemBase {
+    to: string
+    identifier: string
+    label: string
+    tag?: 'alpha' | 'beta' | 'new'
+}
+
+export type TopBarNavbarItem = TopBarNavbarItemBase
+
 export type ListItemSaveHandler = (newName: string) => Promise<void>
 
 /** A category of items. This is either displayed directly for sidebars with only one category, or as an accordion. */
