@@ -22,7 +22,7 @@ import {
     ActionsNode,
     AnyEntityNode,
     CompareFilter,
-    CoreWebVitals,
+    CoreWebVitalsMetric,
     CustomEventConversionGoal,
     EventsNode,
     NodeKind,
@@ -722,7 +722,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 // TODO: Use actual web vitals tab, this is just a placeholder
                 if (featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && productTab === ProductTab.CORE_WEB_VITALS) {
-                    const createSeries = (name: CoreWebVitals, math: PropertyMathType): AnyEntityNode => ({
+                    const createSeries = (name: CoreWebVitalsMetric, math: PropertyMathType): AnyEntityNode => ({
                         kind: NodeKind.EventsNode,
                         event: '$web_vitals',
                         name: '$web_vitals',

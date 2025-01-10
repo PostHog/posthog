@@ -1535,20 +1535,21 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase<unknow
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
-export type CoreWebVitals = 'INP' | 'LCP' | 'CLS' | 'FCP'
+export type CoreWebVitalsMetric = 'INP' | 'LCP' | 'CLS' | 'FCP'
 
 export interface CoreWebVitalsQuery<T = InsightQueryNode> extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.CoreWebVitalsQuery
     source: T
 }
 
+export interface CoreWebVitalsItemAction {
+    custom_name: CoreWebVitalsMetric
+    math: PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
+}
 export interface CoreWebVitalsItem {
     data: number[]
     days: string[]
-    action: {
-        custom_name: CoreWebVitals
-        math: PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
-    }
+    action: CoreWebVitalsItemAction
 }
 
 export type CoreWebVitalsQueryResponse = AnalyticsQueryResponseBase<CoreWebVitalsItem[]>
