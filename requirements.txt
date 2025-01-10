@@ -144,7 +144,7 @@ defusedxml==0.6.0
     # via
     #   python3-openid
     #   social-auth-core
-deltalake==0.22.3
+deltalake==0.23.2
     # via -r requirements.in
 distro==1.9.0
     # via openai
@@ -276,8 +276,6 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-greenlet==3.1.1
-    # via sqlalchemy
 grpcio==1.63.2
     # via
     #   -r requirements.in
