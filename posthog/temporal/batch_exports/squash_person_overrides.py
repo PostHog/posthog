@@ -16,88 +16,7 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 
-# table management
-
-
-@dataclass
-class SnapshotTableInfo:
-    """Inputs for activities that work with tables.
-
-    Attributes:
-        name: The table name which we are working with.
-    """
-
-    name: str
-
-    async def create_table(self, clickhouse_client):
-        return await clickhouse_client.execute_query(
-            f"""
-            CREATE OR REPLACE TABLE {settings.CLICKHOUSE_DATABASE}.{self.name}
-                ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
-            (
-                `team_id` Int64,
-                `distinct_id` String,
-                `person_id` UUID,
-                `latest_version` Int64
-            )
-            ENGINE = Join(ANY, left, team_id, distinct_id)
-            AS
-                SELECT
-                    team_id,
-                    distinct_id,
-                    argMax(person_id, version) AS person_id,
-                    max(version) AS latest_version
-                FROM
-                    {settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides
-                GROUP BY
-                    team_id, distinct_id
-            SETTINGS
-                max_execution_time = 0,
-                max_memory_usage = 0,
-                distributed_ddl_task_timeout = 0
-            """
-        )
-
-    async def drop_table(self, clickhouse_client):
-        return await clickhouse_client.execute_query(
-            f"""
-            DROP TABLE IF EXISTS {settings.CLICKHOUSE_DATABASE}.{self.name}
-                ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
-            SETTINGS distributed_ddl_task_timeout = 0
-            """
-        )
-
-
-@activity.defn
-async def create_snapshot_table(inputs: SnapshotTableInfo) -> None:
-    """Create one of the auxiliary tables in ClickHouse cluster.
-
-    This activity will submit the 'CREATE TABLE' query for the corresponding table,
-    but it will be created asynchronously in all cluster's nodes. Execute `wait_for_table`
-    after this to ensure a table is available in the cluster before continuing.
-    """
-
-    async with Heartbeater(), get_client() as clickhouse_client:
-        await inputs.create_table(clickhouse_client)
-
-    activity.logger.info("Created table %s", inputs.name)
-
-
-@activity.defn
-async def drop_snapshot_table(inputs: SnapshotTableInfo) -> None:
-    """Drop one of the auxiliary tables from ClickHouse cluster.
-
-    We don't wait for tables to be dropped, and take a more optimistic approach
-    that tables will be cleaned up. Execute `wait_for_table` after this to ensure
-    a table is dropped in the cluster if ensuring clean-up is required.
-    """
-
-    async with Heartbeater(), get_client() as clickhouse_client:
-        await inputs.drop_table(clickhouse_client)
-
-    activity.logger.info("Dropped table %s", inputs.name)
-
-
+# generic table management
 @dataclass
 class WaitForTableInputs:
     name: str
@@ -180,6 +99,86 @@ async def wait_for_table(inputs: WaitForTableInputs) -> None:
             raise
 
     activity.logger.info("Waiting done, table %s in cluster does %s", inputs.name, goal)
+
+
+# snapshot table management
+@dataclass
+class SnapshotTableInfo:
+    """Inputs for activities that work with tables.
+
+    Attributes:
+        name: The table name which we are working with.
+    """
+
+    name: str
+
+    async def create_table(self, clickhouse_client):
+        return await clickhouse_client.execute_query(
+            f"""
+            CREATE OR REPLACE TABLE {settings.CLICKHOUSE_DATABASE}.{self.name}
+                ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
+            (
+                `team_id` Int64,
+                `distinct_id` String,
+                `person_id` UUID,
+                `latest_version` Int64
+            )
+            ENGINE = Join(ANY, left, team_id, distinct_id)
+            AS
+                SELECT
+                    team_id,
+                    distinct_id,
+                    argMax(person_id, version) AS person_id,
+                    max(version) AS latest_version
+                FROM
+                    {settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides
+                GROUP BY
+                    team_id, distinct_id
+            SETTINGS
+                max_execution_time = 0,
+                max_memory_usage = 0,
+                distributed_ddl_task_timeout = 0
+            """
+        )
+
+    async def drop_table(self, clickhouse_client):
+        return await clickhouse_client.execute_query(
+            f"""
+            DROP TABLE IF EXISTS {settings.CLICKHOUSE_DATABASE}.{self.name}
+                ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
+            SETTINGS distributed_ddl_task_timeout = 0
+            """
+        )
+
+
+@activity.defn
+async def create_snapshot_table(inputs: SnapshotTableInfo) -> None:
+    """Create one of the auxiliary tables in ClickHouse cluster.
+
+    This activity will submit the 'CREATE TABLE' query for the corresponding table,
+    but it will be created asynchronously in all cluster's nodes. Execute `wait_for_table`
+    after this to ensure a table is available in the cluster before continuing.
+    """
+
+    async with Heartbeater(), get_client() as clickhouse_client:
+        await inputs.create_table(clickhouse_client)
+
+    activity.logger.info("Created table %s", inputs.name)
+
+
+@activity.defn
+async def drop_snapshot_table(inputs: SnapshotTableInfo) -> None:
+    """Drop one of the auxiliary tables from ClickHouse cluster.
+
+    We don't wait for tables to be dropped, and take a more optimistic approach
+    that tables will be cleaned up. Execute `wait_for_table` after this to ensure
+    a table is dropped in the cluster if ensuring clean-up is required.
+    """
+
+    async with Heartbeater(), get_client() as clickhouse_client:
+        await inputs.drop_table(clickhouse_client)
+
+    activity.logger.info("Dropped table %s", inputs.name)
 
 
 @contextlib.asynccontextmanager
