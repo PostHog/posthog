@@ -165,12 +165,8 @@ export const FEATURE_FLAGS = {
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
-    SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-feature-success
-    SURVEYS_WIDGETS: 'surveys-widgets', // owner: #team-feature-success
-    SURVEYS_EVENTS: 'surveys-events', // owner: #team-feature-success
-    SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-feature-success
-    SURVEYS_RECURRING: 'surveys-recurring', // owner: #team-feature-success
-    SURVEYS_ADAPTIVE_COLLECTION: 'surveys-recurring', // owner: #team-feature-success
+    SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
+    SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: #team-replay
@@ -217,7 +213,7 @@ export const FEATURE_FLAGS = {
     MESSAGING: 'messaging', // owner @mariusandra #team-cdp
     BILLING_TRIAL_FLOW: 'billing-trial-flow', // owner: @zach
     EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
-    AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: @pauldambra
+    AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: #team-surveys
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     FEATURE_MANAGEMENT_UI: 'feature-management-ui', // owner: @haven #team-feature-flags
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
