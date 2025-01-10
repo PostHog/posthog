@@ -254,6 +254,27 @@ class PostgreSQLClient:
 
                 await cursor.execute(sql.SQL(base_query).format(table=table_identifier))
 
+    async def aget_table_columns(self, schema: str | None, table_name: str) -> list[str]:
+        """Get the column names for a table in PostgreSQL.
+
+        Args:
+            schema: Name of the schema where the table is located.
+            table_name: Name of the table to get columns for.
+
+        Returns:
+            A list of column names in the table.
+        """
+        if schema:
+            table_identifier = sql.Identifier(schema, table_name)
+        else:
+            table_identifier = sql.Identifier(table_name)
+
+        async with self.connection.transaction():
+            async with self.connection.cursor() as cursor:
+                await cursor.execute(sql.SQL("SELECT * FROM {} WHERE 1=0").format(table_identifier))
+                columns = [column.name for column in cursor.description or []]
+                return columns
+
     @contextlib.asynccontextmanager
     async def managed_table(
         self,
