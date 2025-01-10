@@ -98,14 +98,6 @@ async def drop_snapshot_table(inputs: SnapshotTableInfo) -> None:
     activity.logger.info("Dropped table %s", inputs.name)
 
 
-def parse_count(response: bytes) -> int:
-    """Parse the result of a single row SELECT count(*)."""
-    line = response.decode("utf-8").splitlines()[0]
-    count_str = line.strip()
-
-    return int(count_str)
-
-
 @dataclass
 class WaitForTableInputs:
     name: str
