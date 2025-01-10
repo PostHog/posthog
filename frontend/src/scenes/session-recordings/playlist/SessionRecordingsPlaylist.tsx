@@ -1,4 +1,4 @@
-import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
@@ -44,7 +44,7 @@ export function SessionRecordingsPlaylist({
         activeSessionRecordingId,
         hasNext,
     } = useValues(logic)
-    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, setShowOtherRecordings } = useActions(logic)
+    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters } = useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -60,7 +60,12 @@ export function SessionRecordingsPlaylist({
     if (pinnedRecordings.length) {
         sections.push({
             key: 'pinned',
-            title: `${pinnedDescription} recordings`,
+            title: (
+                <div className="flex flex-row space-x-1 items-center">
+                    <span>{pinnedDescription} recordings</span>
+                    <LemonBadge.Number count={pinnedRecordings.length} status="muted" size="small" />
+                </div>
+            ),
             items: pinnedRecordings,
             render: ({ item, isActive }) => (
                 <SessionRecordingPreview recording={item} isActive={isActive} pinned={true} />
@@ -78,7 +83,12 @@ export function SessionRecordingsPlaylist({
 
     sections.push({
         key: 'other',
-        title: 'Filtered recordings',
+        title: (
+            <div className="flex flex-row space-x-1 items-center">
+                <span>Filtered recordings</span>
+                <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
+            </div>
+        ),
         items: otherRecordings,
         initiallyOpen: !pinnedRecordings.length,
         render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />,
@@ -106,10 +116,8 @@ export function SessionRecordingsPlaylist({
                     isCollapsed={!playlistOpen}
                     data-attr="session-recordings-playlist"
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
-                    title="Results"
                     embedded={!!notebookNode}
                     sections={sections}
-                    onChangeSections={(activeSections) => setShowOtherRecordings(activeSections.includes('other'))}
                     headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
                     footerActions={<SessionRecordingPlaylistBottomSettings />}
                     loading={sessionRecordingsResponseLoading}

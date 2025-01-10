@@ -18,7 +18,7 @@ const SCROLL_TRIGGER_OFFSET = 100
 
 type PlaylistSectionBase = {
     key: string
-    title?: string
+    title?: ReactNode
     initiallyOpen?: boolean
 }
 
@@ -189,23 +189,29 @@ function TitleWithCount({
 }): JSX.Element {
     return (
         <div className="flex items-center gap-0.5">
-            <LemonButton size="xsmall" icon={<IconCollapse className="rotate-90" />} onClick={onClickCollapse} />
-            <span className="flex flex-1 gap-1 items-center">
-                {title ? <span className="font-bold uppercase text-xxs tracking-wide">{title}</span> : null}
-                <Tooltip
-                    placement="bottom"
-                    title={
-                        <>
-                            Showing {count} results.
-                            <br />
-                            Scrolling to the bottom or the top of the list will load older or newer results
-                            respectively.
-                        </>
-                    }
-                >
-                    <CounterBadge size="xsmall">{Math.min(999, count)}+</CounterBadge>
-                </Tooltip>
-            </span>
+            <LemonButton
+                size="xsmall"
+                icon={<IconCollapse className="rotate-90 text-xl" />}
+                onClick={onClickCollapse}
+            />
+            {title && (
+                <span className="flex flex-1 gap-1 items-center">
+                    <span className="font-bold uppercase text-xxs tracking-wide">{title}</span>
+                    <Tooltip
+                        placement="bottom"
+                        title={
+                            <>
+                                Showing {count} results.
+                                <br />
+                                Scrolling to the bottom or the top of the list will load older or newer results
+                                respectively.
+                            </>
+                        }
+                    >
+                        <CounterBadge size="xsmall">{Math.min(999, count)}+</CounterBadge>
+                    </Tooltip>
+                </span>
+            )}
         </div>
     )
 }
@@ -282,7 +288,7 @@ function List({
                         const content =
                             'content' in s ? (
                                 s.content
-                            ) : loading ? (
+                            ) : loading && s.key === 'other' ? (
                                 <LoadingState />
                             ) : 'items' in s && !!s.items.length ? (
                                 <ListSection {...s} onClick={setActiveItemId} activeItemId={activeItemId} />
