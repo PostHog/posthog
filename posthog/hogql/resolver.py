@@ -422,7 +422,7 @@ class Resolver(CloningVisitor):
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         if node.kind in HOGQLX_COMPONENTS:
             return self.visit(convert_to_hx(node))
-        return self.visit(expand_hogqlx_query(node, self.context.team.pk))
+        return self.visit(expand_hogqlx_query(node, self.context.team.pk if self.context.team else None))
 
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""

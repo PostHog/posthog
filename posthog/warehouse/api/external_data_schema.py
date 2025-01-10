@@ -102,7 +102,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         hogql_context = self.context.get("database", None)
         if not hogql_context:
-            hogql_context = create_hogql_database(team_id=self.context["team_id"])
+            hogql_context = create_hogql_database(team=schema.team)
 
         return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
 
@@ -209,7 +209,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = create_hogql_database(team_id=self.team_id)
+        context["database"] = create_hogql_database(team=self.team)
         return context
 
     def safely_get_queryset(self, queryset):

@@ -59,7 +59,7 @@ class TableSerializer(serializers.ModelSerializer):
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
         if not database:
-            database = create_hogql_database(team_id=self.context["team_id"])
+            database = create_hogql_database(team=table.team)
 
         if database.has_table(table.name):
             fields = database.get_table(table.name).fields
@@ -135,7 +135,7 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         database = self.context.get("database", None)
 
         if not database:
-            database = create_hogql_database(team_id=self.context["team_id"])
+            database = create_hogql_database(team=table.team)
 
         fields = serialize_fields(
             table.hogql_definition().fields,
@@ -171,7 +171,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = create_hogql_database(team_id=self.team_id)
+        context["database"] = create_hogql_database(team=self.team)
         context["team_id"] = self.team_id
         return context
 

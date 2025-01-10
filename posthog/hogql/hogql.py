@@ -30,7 +30,9 @@ def translate_hogql(
         context.modifiers.personsOnEventsMode = alias_poe_mode_for_legacy(actual_poe_mode)
         # Create a fake query that selects from "events" to have fields to select from.
         if context.database is None:
-            context.database = create_hogql_database(context.team.pk, context.modifiers)
+            if context.team is None:
+                raise ValueError("Cannot translate HogQL for a filter with no team specified")
+            context.database = create_hogql_database(context.team, context.modifiers)
         node = parse_expr(query, placeholders=placeholders)
         select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
 

@@ -52,15 +52,13 @@ class BaseFilter(BaseParamMixin):
         self._data = data
         self.kwargs = kwargs
         self.team = team
-        if not self.team:
-            raise Exception("team needs to be set")
 
         # Set the HogQL context for the request
         self.hogql_context = self.kwargs.get(
             "hogql_context",
             HogQLContext(
                 within_non_hogql_query=True,
-                team=self.team,
+                team=self.team if self.team else None,
             ),
         )
         if self.team:

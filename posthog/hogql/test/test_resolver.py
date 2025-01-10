@@ -45,7 +45,7 @@ class TestResolver(BaseTest):
         )
 
     def setUp(self):
-        self.database = create_hogql_database(self.team.pk)
+        self.database = create_hogql_database(self.team)
         self.context = HogQLContext(database=self.database, team=self.team, enable_select_queries=True)
 
     @pytest.mark.usefixtures("unittest_snapshot")

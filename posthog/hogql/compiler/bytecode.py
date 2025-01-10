@@ -127,9 +127,7 @@ class BytecodeCompiler(Visitor):
             for arg in args:
                 self._declare_local(arg)
 
-        if not context:
-            raise Exception("Needs context")
-        self.context = context
+        self.context = context or HogQLContext(team=None)
 
     def _start_scope(self):
         self.scope_depth += 1

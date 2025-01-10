@@ -16,7 +16,7 @@ class TestView(BaseTest):
     maxDiff = None
 
     def _init_database(self):
-        self.database = create_hogql_database(self.team.pk)
+        self.database = create_hogql_database(self.team)
         self.database.add_views(
             aapl_stock_view=create_aapl_stock_table_view(), aapl_stock_nested_view=create_nested_aapl_stock_view()
         )

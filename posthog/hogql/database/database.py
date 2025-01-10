@@ -249,21 +249,17 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     )
 
 
-def create_hogql_database(
-    team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
-) -> Database:
+def create_hogql_database(team: "Team", modifiers: Optional[HogQLQueryModifiers] = None) -> Database:
     from posthog.hogql.database.s3_table import S3Table
     from posthog.hogql.query import create_default_modifiers_for_team
-    from posthog.models import Team
     from posthog.warehouse.models import (
         DataWarehouseJoin,
         DataWarehouseSavedQuery,
         DataWarehouseTable,
     )
 
-    team = team_arg or Team.objects.get(pk=team_id)
     modifiers = create_default_modifiers_for_team(team, modifiers)
-    database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+    database = Database(timezone=team.timezone, week_start_day=WeekStartDay(team.week_start_day or 0))
 
     if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
         # no change
@@ -536,6 +532,9 @@ def serialize_database(
 
     if context.database is None:
         raise ResolutionError("Must provide database to serialize_database")
+
+    if context.team is None:
+        raise ResolutionError("Must provide team_id to serialize_database")
 
     # PostHog Tables
     posthog_tables = context.database.get_posthog_tables()

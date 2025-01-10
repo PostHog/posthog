@@ -9,6 +9,8 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_expr
 from posthog.warehouse.models import DataWarehouseJoin
 
+from posthog.models.team import Team
+
 
 class ViewLinkSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
@@ -51,7 +53,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         if field_name is None:
             raise serializers.ValidationError("Field name must not be empty.")
 
-        database = create_hogql_database(team_id)
+        database = create_hogql_database(Team.objects.get(pk=team_id))
         table = database.get_table(table_name)
         field = table.fields.get(field_name)
         if field is not None:
@@ -64,7 +66,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         if not table:
             raise serializers.ValidationError("View column must have a table.")
 
-        database = create_hogql_database(team_id)
+        database = create_hogql_database(Team.objects.get(pk=team_id))
         try:
             database.get_table(table)
         except Exception:

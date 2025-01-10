@@ -14,7 +14,7 @@ from posthog.test.base import BaseTest
 
 class TestWhereClauseExtractor(BaseTest):
     def setUp(self):
-        self.database = create_hogql_database(self.team.pk)
+        self.database = create_hogql_database(self.team)
         self.context = HogQLContext(team=self.team, database=self.database)
 
     def _select(self, query: str) -> ast.SelectQuery:
@@ -138,7 +138,7 @@ class TestWhereClauseExtractor(BaseTest):
 
 class TestCleanTableNameFromChain(BaseTest):
     def setUp(self):
-        self.database = create_hogql_database(self.team.pk)
+        self.database = create_hogql_database(self.team)
         self.context = HogQLContext(team=self.team, database=self.database)
 
     def _select(self, query: str) -> ast.SelectQuery:

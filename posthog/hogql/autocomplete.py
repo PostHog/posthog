@@ -368,7 +368,7 @@ def get_hogql_autocomplete(
     if database_arg is not None:
         database = database_arg
     else:
-        database = create_hogql_database(team_id=team.pk, team_arg=team)
+        database = create_hogql_database(team=team)
 
     context = HogQLContext(team=team, database=database)
     if query.sourceQuery is not None:

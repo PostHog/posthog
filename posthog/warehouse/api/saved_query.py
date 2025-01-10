@@ -52,10 +52,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "columns", "status", "last_run_at"]
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
-        team_id = self.context["team_id"]
         database = self.context.get("database", None)
         if not database:
-            database = create_hogql_database(team_id=team_id)
+            database = create_hogql_database(team=view.team)
 
         context = HogQLContext(team=view.team, database=database)
 
@@ -176,7 +175,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = create_hogql_database(team_id=self.team_id)
+        context["database"] = create_hogql_database(team=self.team)
         return context
 
     def safely_get_queryset(self, queryset):
