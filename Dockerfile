@@ -55,17 +55,7 @@ RUN cd frontend && pnpm build
 #
 FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json ./
-COPY patches/ patches/
-COPY rust rust/
-COPY plugin-transpiler/ plugin-transpiler/
-COPY plugin-server/package.json plugin-server/pnpm-lock.yaml plugin-server/tsconfig.json plugin-server/
-COPY plugin-server/patches/ plugin-server/patches/
-COPY hogvm/typescript/ hogvm/typescript/
-COPY frontend/@posthog/apps-common/package.json frontend/@posthog/apps-common/pnpm-lock.yaml frontend/@posthog/apps-common/
-COPY frontend/@posthog/lemon-ui/package.json frontend/@posthog/lemon-ui/pnpm-lock.yaml frontend/@posthog/lemon-ui/
 
-# WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
@@ -78,35 +68,40 @@ RUN apt-get update && \
     "libssl-dev" \
     "zlib1g-dev" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
-    corepack enable && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json ./
+COPY patches/ patches/
+COPY rust rust/
+COPY plugin-transpiler/ plugin-transpiler/
+COPY plugin-server/package.json plugin-server/pnpm-lock.yaml plugin-server/tsconfig.json plugin-server/
+COPY plugin-server/patches/ plugin-server/patches/
+COPY plugin-server/src/ plugin-server/src/
+COPY hogvm/typescript/ hogvm/typescript/
+COPY frontend/@posthog/apps-common/package.json frontend/@posthog/apps-common/pnpm-lock.yaml frontend/@posthog/apps-common/
+COPY frontend/@posthog/lemon-ui/package.json frontend/@posthog/lemon-ui/pnpm-lock.yaml frontend/@posthog/lemon-ui/
+
+# Build the plugin server and its deps
+RUN corepack enable && \
     mkdir /tmp/pnpm-store && \
-    cd plugin-server && \
-    pnpm install --no-frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
-    cd ../plugin-transpiler && \
+    # install @posthog/plugin-transpiler
+    cd ./plugin-transpiler && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
     pnpm build && \
+    # install @posthog/hogvm
     cd ../hogvm/typescript && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
     pnpm compile && \
+    # install @posthog/cyclotron-node
     cd ../../rust/cyclotron-node && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
     pnpm build && \
-    rm -rf /tmp/pnpm-store
-
-# Build the plugin server.
-#
-# Note: we run the build as a separate action to increase
-# the cache hit ratio of the layers above.
-COPY ./plugin-server/src/ ./plugin-server/src/
-RUN cd plugin-server && pnpm build
-
-# As the plugin-server is now built, let’s keep
-# only prod dependencies in the node_module folder
-# as we will copy it to the last image.
-RUN corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    # install @posthog/plugin-server
+    cd ../../plugin-server && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
+    pnpm build && \
+    # keep only prod dependencies in the node_module folder
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod --filter . && \
     rm -rf /tmp/pnpm-store
 
 
