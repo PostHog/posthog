@@ -274,7 +274,7 @@ export function DeltaChart({
                             ref={ticksSvgRef}
                             viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT}`}
                             preserveAspectRatio="xMidYMid meet"
-                            className="mx-14"
+                            className="ml-12"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ minHeight: `${TICK_PANEL_HEIGHT}px`, maxWidth: `${CHART_MAX_WIDTH}px` }}
                         >
@@ -330,7 +330,7 @@ export function DeltaChart({
                                 ref={chartSvgRef}
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
                                 preserveAspectRatio="xMidYMid meet"
-                                className="mx-14"
+                                className="ml-12"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ minHeight: `${chartHeight}px`, maxWidth: `${CHART_MAX_WIDTH}px` }}
                             >
