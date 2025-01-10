@@ -34,6 +34,7 @@ fi
 
 ./bin/migrate-check
 
+corepack enable
 cd plugin-server
 
 if [[ -n $DEBUG ]]; then
