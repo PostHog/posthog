@@ -888,12 +888,12 @@ function SignificanceHighlight({
         : { color: 'primary', label: 'Not significant' }
 
     const inner = isSignificant ? (
-        <div className="bg-success-highlight text-success px-1 xl:py-1 xl:px-1.5 flex items-center gap-1 rounded border border-success">
+        <div className="bg-success-highlight text-success px-1 xl:py-0.5 xl:px-1.5 flex items-center gap-1 rounded border border-success">
             <IconTrending fontSize={20} fontWeight={600} />
             <span className="text-xxs xl:text-xs font-semibold">{result.label}</span>
         </div>
     ) : (
-        <div className="bg-warning-highlight text-warning px-1 xl:py-1 xl:px-1.5 flex items-center gap-1 rounded border border-warning">
+        <div className="bg-warning-highlight text-warning px-1 xl:py-0.5 xl:px-1.5 flex items-center gap-1 rounded border border-warning">
             <IconMinus fontSize={20} fontWeight={600} />
             <span className="text-xxs xl:text-xs font-semibold">{result.label}</span>
         </div>
