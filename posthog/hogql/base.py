@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Literal, Optional, TypeVar
 
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.errors import NotImplementedError
-from posthog.models.team import Team
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -35,21 +34,20 @@ class AST:
             return visitor.visit_unknown(self)
         raise NotImplementedError(f"{visitor.__class__.__name__} has no method {method_name}")
 
-    def to_hogql(self, team: Team):
+    def to_hogql(self):
         from posthog.hogql.printer import print_prepared_ast
         from posthog.hogql.context import HogQLContext
 
         return print_prepared_ast(
             node=self,
-            context=HogQLContext(enable_select_queries=True, limit_top_select=False, team=team),
+            context=HogQLContext(enable_select_queries=True, limit_top_select=False),
             dialect="hogql",
         )
 
     def __str__(self):
         if isinstance(self, Type):
             return super().__str__()
-        # Need to figure out how to get Team in here
-        # return f"sql({self.to_hogql()})"
+        return f"sql({self.to_hogql()})"
 
 
 _T_AST = TypeVar("_T_AST", bound=AST)
