@@ -572,6 +572,32 @@
             "enum": ["status", "message", "conversation"],
             "type": "string"
         },
+        "AssistantForm": {
+            "additionalProperties": false,
+            "properties": {
+                "options": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantFormOption"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["options"],
+            "type": "object"
+        },
+        "AssistantFormOption": {
+            "additionalProperties": false,
+            "properties": {
+                "value": {
+                    "type": "string"
+                },
+                "variant": {
+                    "type": "string"
+                }
+            },
+            "required": ["value"],
+            "type": "object"
+        },
         "AssistantFunnelsBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
@@ -1063,12 +1089,24 @@
                 "id": {
                     "type": "string"
                 },
+                "meta": {
+                    "$ref": "#/definitions/AssistantMessageMetadata"
+                },
                 "type": {
                     "const": "ai",
                     "type": "string"
                 }
             },
             "required": ["type", "content"],
+            "type": "object"
+        },
+        "AssistantMessageMetadata": {
+            "additionalProperties": false,
+            "properties": {
+                "form": {
+                    "$ref": "#/definitions/AssistantForm"
+                }
+            },
             "type": "object"
         },
         "AssistantMessageType": {

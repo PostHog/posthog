@@ -101,6 +101,14 @@ class AssistantEventType(StrEnum):
     CONVERSATION = "conversation"
 
 
+class AssistantFormOption(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    value: str
+    variant: Optional[str] = None
+
+
 class AssistantFunnelsBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
@@ -203,15 +211,6 @@ class AssistantGroupPropertyFilter3(BaseModel):
     operator: AssistantDateTimePropertyFilterOperator
     type: Literal["group"] = "group"
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
-
-
-class AssistantMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: Optional[str] = None
-    type: Literal["ai"] = "ai"
 
 
 class AssistantMessageType(StrEnum):
@@ -1791,6 +1790,13 @@ class AssistantDateTimePropertyFilter(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
+class AssistantForm(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    options: list[AssistantFormOption]
+
+
 class AssistantFunnelsBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1967,6 +1973,13 @@ class AssistantGroupPropertyFilter4(BaseModel):
         ),
     )
     type: Literal["group"] = "group"
+
+
+class AssistantMessageMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    form: Optional[AssistantForm] = None
 
 
 class AssistantSetPropertyFilter(BaseModel):
@@ -3675,6 +3688,16 @@ class AssistantInsightsQueryBase(BaseModel):
     samplingFactor: Optional[float] = Field(
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
     )
+
+
+class AssistantMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    meta: Optional[AssistantMessageMetadata] = None
+    type: Literal["ai"] = "ai"
 
 
 class AssistantRetentionFilter(BaseModel):
