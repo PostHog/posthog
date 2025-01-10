@@ -1532,21 +1532,23 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase<unknow
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
+export type CoreWebVitals = 'INP' | 'LCP' | 'CLS' | 'FCP'
+
 export interface CoreWebVitalsQuery<T = InsightQueryNode> extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.CoreWebVitalsQuery
     source: T
 }
 
-// TODO: Is this really all needed/returned?
-export interface CoreWebVitalsQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
-    types?: unknown[]
-    columns?: unknown[]
-    hogql?: string
-    samplingRate?: SamplingRate
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
+export interface CoreWebVitalsItem {
+    data: number[]
+    days: string[]
+    action: {
+        custom_name: CoreWebVitals
+        math: PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
+    }
 }
+
+export type CoreWebVitalsQueryResponse = AnalyticsQueryResponseBase<CoreWebVitalsItem[]>
 export type CachedCoreWebVitalsQueryResponse = CachedQueryResponse<CoreWebVitalsQueryResponse>
 
 export enum SessionAttributionGroupBy {

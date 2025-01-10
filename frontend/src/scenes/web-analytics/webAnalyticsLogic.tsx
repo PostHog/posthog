@@ -22,6 +22,7 @@ import {
     ActionsNode,
     AnyEntityNode,
     CompareFilter,
+    CoreWebVitals,
     CustomEventConversionGoal,
     EventsNode,
     NodeKind,
@@ -85,6 +86,8 @@ export enum ProductTab {
     ANALYTICS = 'analytics',
     CORE_WEB_VITALS = 'core-web-vitals',
 }
+
+export type CoreWebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
 
 const loadPriorityMap: Record<TileId, number> = {
     [TileId.OVERVIEW]: 1,
@@ -279,6 +282,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setProductTab: (tab: ProductTab) => ({ tab }),
+        setCoreWebVitalsPercentile: (percentile: CoreWebVitalsPercentile) => ({ percentile }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -482,6 +486,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ProductTab.ANALYTICS as ProductTab,
             {
                 setProductTab: (_, { tab }) => tab,
+            },
+        ],
+        coreWebVitalsPercentile: [
+            PropertyMathType.P75 as CoreWebVitalsPercentile,
+            persistConfig,
+            {
+                setCoreWebVitalsPercentile: (_, { percentile }) => percentile,
             },
         ],
     }),
@@ -711,6 +722,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 // TODO: Use actual web vitals tab, this is just a placeholder
                 if (featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && productTab === ProductTab.CORE_WEB_VITALS) {
+                    const createSeries = (name: CoreWebVitals, math: PropertyMathType): AnyEntityNode => ({
+                        kind: NodeKind.EventsNode,
+                        event: '$web_vitals',
+                        name: '$web_vitals',
+                        custom_name: name,
+                        math: math,
+                        math_property: `$web_vitals_${name}_value`,
+                    })
+
                     return [
                         {
                             kind: 'query',
@@ -727,38 +747,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     dateRange,
                                     interval,
                                     series: [
-                                        {
-                                            kind: NodeKind.EventsNode,
-                                            event: '$web_vitals',
-                                            name: '$web_vitals',
-                                            custom_name: 'INP P90',
-                                            math: PropertyMathType.P90,
-                                            math_property: '$web_vitals_INP_value',
-                                        },
-                                        {
-                                            kind: NodeKind.EventsNode,
-                                            event: '$web_vitals',
-                                            name: '$web_vitals',
-                                            custom_name: 'LCP P90',
-                                            math: PropertyMathType.P90,
-                                            math_property: '$web_vitals_LCP_value',
-                                        },
-                                        {
-                                            kind: NodeKind.EventsNode,
-                                            event: '$web_vitals',
-                                            name: '$web_vitals',
-                                            custom_name: 'CLS P90',
-                                            math: PropertyMathType.P90,
-                                            math_property: '$web_vitals_CLS_value',
-                                        },
-                                        {
-                                            kind: NodeKind.EventsNode,
-                                            event: '$web_vitals',
-                                            name: '$web_vitals',
-                                            custom_name: 'FCP P90',
-                                            math: PropertyMathType.P90,
-                                            math_property: '$web_vitals_FCP_value',
-                                        },
+                                        createSeries('INP', PropertyMathType.P75),
+                                        createSeries('INP', PropertyMathType.P90),
+                                        createSeries('INP', PropertyMathType.P99),
+                                        createSeries('LCP', PropertyMathType.P75),
+                                        createSeries('LCP', PropertyMathType.P90),
+                                        createSeries('LCP', PropertyMathType.P99),
+                                        createSeries('CLS', PropertyMathType.P75),
+                                        createSeries('CLS', PropertyMathType.P90),
+                                        createSeries('CLS', PropertyMathType.P99),
+                                        createSeries('FCP', PropertyMathType.P75),
+                                        createSeries('FCP', PropertyMathType.P90),
+                                        createSeries('FCP', PropertyMathType.P99),
                                     ],
                                     trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
                                     compareFilter,
@@ -1821,6 +1821,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 shouldFilterTestAccounts,
                 compareFilter,
                 productTab,
+                coreWebVitalsPercentile,
             } = values
 
             const urlParams = new URLSearchParams()
@@ -1866,6 +1867,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (productTab !== ProductTab.ANALYTICS) {
                 urlParams.set('product_tab', productTab)
             }
+            if (productTab === ProductTab.CORE_WEB_VITALS) {
+                urlParams.set('percentile', coreWebVitalsPercentile)
+            }
 
             const basePath = productTab === ProductTab.CORE_WEB_VITALS ? '/web/core-web-vitals' : '/web'
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
@@ -1884,6 +1888,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setGeographyTab: stateToUrl,
             setCompareFilter: stateToUrl,
             setProductTab: stateToUrl,
+            setCoreWebVitalsPercentile: stateToUrl,
         }
     }),
 
@@ -1905,6 +1910,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 path_cleaning,
                 filter_test_accounts,
                 compare_filter,
+                percentile,
             }: Record<string, any>
         ): void => {
             const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
@@ -1956,6 +1962,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (productTab && productTab !== values.productTab) {
                 actions.setProductTab(productTab)
+            }
+            if (percentile && percentile !== values.coreWebVitalsPercentile) {
+                actions.setCoreWebVitalsPercentile(percentile as CoreWebVitalsPercentile)
             }
         }
 

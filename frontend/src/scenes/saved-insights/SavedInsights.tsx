@@ -256,6 +256,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.CoreWebVitalsQuery]: {
+        name: 'Core Web Vitals',
+        description: 'View Core Web Vitals.',
+        icon: IconPieChart,
+        inMenu: true,
+    },
     [NodeKind.HogQuery]: {
         name: 'Hog',
         description: 'Hog query.',
