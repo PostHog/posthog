@@ -118,6 +118,9 @@ bash = '''
 '''
 zsh = '''
   source "$PYTHON_DIR/bin/activate"
+  # Customize the prompt to show flox, directory, and git info
+  setopt PROMPT_SUBST
+  PS1='%1~ $(git_prompt_info)$ '
 '''
 fish = '''
   source "$PYTHON_DIR/bin/activate.fish"

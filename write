@@ -1,0 +1,4 @@
+undefined
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command "typegen" not found
+
+Did you mean "pnpm typegen:write"?

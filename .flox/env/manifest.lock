@@ -80,7 +80,7 @@
     },
     "profile": {
       "bash": "  source \"$PYTHON_DIR/bin/activate\"\n",
-      "zsh": "  source \"$PYTHON_DIR/bin/activate\"\n",
+      "zsh": "  source \"$PYTHON_DIR/bin/activate\"\n  # Customize the prompt to show flox, directory, and git info\n  setopt PROMPT_SUBST\n  PS1='%1~ $(git_prompt_info)$ '\n",
       "fish": "  source \"$PYTHON_DIR/bin/activate.fish\"\n",
       "tcsh": "  source \"$PYTHON_DIR/bin/activate.csh\"\n"
     },
