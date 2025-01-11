@@ -76,7 +76,7 @@ export function SessionRecordingsPlaylist({
 
     sections.push({
         key: 'filters',
-        title: 'Query recordings',
+        title: 'Filters',
         content: <FiltersPanel />,
         initiallyOpen: true,
     })
