@@ -6,6 +6,7 @@ settings:
 
 overrides:
   playwright: 1.45.0
+  typescript: ~4.9.5
 
 patchedDependencies:
   dayjs@1.11.11:
@@ -7134,7 +7135,7 @@ packages:
   /@storybook/react-docgen-typescript-plugin@1.0.6--canary.9.0c3f3b7.0(typescript@4.9.5)(webpack@5.88.2):
     resolution: {integrity: sha512-KUqXC3oa9JuQ0kZJLBhVdS4lOneKTOopnNBK4tUAgoxWQ3u/IjzdueZjFr7gyBrXMoU6duutk3RQR9u8ZpYJ4Q==}
     peerDependencies:
-      typescript: '>= 4.x'
+      typescript: ~4.9.5
       webpack: '>= 4'
     dependencies:
       debug: 4.3.4(supports-color@8.1.1)
@@ -7167,7 +7168,7 @@ packages:
       '@babel/core': ^7.22.0
       react: ^16.8.0 || ^17.0.0 || ^18.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0
-      typescript: '*'
+      typescript: ~4.9.5
     peerDependenciesMeta:
       '@babel/core':
         optional: true
@@ -7204,7 +7205,7 @@ packages:
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0
-      typescript: '*'
+      typescript: ~4.9.5
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -10563,7 +10564,7 @@ packages:
     resolution: {integrity: sha512-WD5kF7koPwVoyKL8p0LlrmIZtilrD46sQStyzzxzTFinMKN2Dxk1hN+sddLSQU1mGIZvQfU8c+ONSghvvM40jg==}
     engines: {node: '>=14.9.0'}
     peerDependencies:
-      typescript: '>=3.x || >= 4.x || >= 5.x'
+      typescript: ~4.9.5
     dependencies:
       helpertypes: 0.0.19
       typescript: 4.9.5
@@ -10710,7 +10711,7 @@ packages:
     resolution: {integrity: sha512-kcZ6+W5QzcJ3P1Mt+83OUv/oHFqZHIx8DuxG6eZ5RGMERoLqp4BuGjhHLYGK+Kf5XVkQvqBSmAy/nGWN3qDgEA==}
     engines: {node: '>=14'}
     peerDependencies:
-      typescript: '>=4.9.5'
+      typescript: ~4.9.5
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -13066,7 +13067,7 @@ packages:
     resolution: {integrity: sha512-mX3qW3idpueT2klaQXBzrIM/pHw+T0B/V9KHEvNrqijTq9NFnMZU6oreVxDYcf33P8a5cW+67PjodNHthGnNVg==}
     engines: {node: '>=12.13.0', yarn: '>=1.0.0'}
     peerDependencies:
-      typescript: '>3.6.0'
+      typescript: ~4.9.5
       webpack: ^5.11.0
     dependencies:
       '@babel/code-frame': 7.22.13
@@ -15485,7 +15486,7 @@ packages:
     resolution: {integrity: sha512-3WuX5cQcVWawpSonHVvTUTiMEbnEbpbMOCklfxeItZuYKPxqvIrYhQWfEWNnS8f17mtCnmhUETifPP/I7jAceQ==}
     hasBin: true
     peerDependencies:
-      typescript: '>=4.9.5'
+      typescript: ~4.9.5
     dependencies:
       '@babel/core': 7.23.5
       '@babel/preset-env': 7.23.5(@babel/core@7.23.5)
@@ -16303,7 +16304,7 @@ packages:
     hasBin: true
     requiresBuild: true
     peerDependencies:
-      typescript: '>= 4.4.x <= 4.9.x'
+      typescript: ~4.9.5
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -18475,7 +18476,7 @@ packages:
   /react-docgen-typescript@2.2.2(typescript@4.9.5):
     resolution: {integrity: sha512-tvg2ZtOpOi6QDwsb3GZhOjDkkX0h8Z2gipvTg6OVMUyoYoURhEiRNePT8NZItTVCDh39JJHnLdfCOkzoLbFnTg==}
     peerDependencies:
-      typescript: '>= 4.3.x'
+      typescript: ~4.9.5
     dependencies:
       typescript: 4.9.5
     dev: true
@@ -20777,7 +20778,7 @@ packages:
     resolution: {integrity: sha512-Cbu4nIqnEdd+THNEsBdkolnOXhg0I8XteoHaEKgvsxpsbWda4IsUut2c187HxywQCvveojow0Dgw/amxtSKVkQ==}
     engines: {node: '>=16.13.0'}
     peerDependencies:
-      typescript: '>=4.2.0'
+      typescript: ~4.9.5
     dependencies:
       typescript: 4.9.5
     dev: true
@@ -20786,7 +20787,7 @@ packages:
     resolution: {integrity: sha512-egavvyHbIoelkgh1IC2agNB1uMNjB8VJgh0g/cn0bg2XXTcrtjrGMzEk4OD3Fi2hocICjP3vMa56nkzIzq0FRg==}
     engines: {node: '>=14.9.0'}
     peerDependencies:
-      typescript: ^3.x || ^4.x || ^5.x
+      typescript: ~4.9.5
     dependencies:
       compatfactory: 3.0.0(typescript@4.9.5)
       typescript: 4.9.5
@@ -20812,7 +20813,7 @@ packages:
       normalize-path: 3.0.0
       safe-stable-stringify: 2.5.0
       tslib: 2.8.1
-      typescript: 5.7.2
+      typescript: 4.9.5
     dev: true
 
   /ts-node@10.9.1(@swc/core@1.3.93)(@types/node@18.11.9)(typescript@4.9.5):
@@ -20822,7 +20823,7 @@ packages:
       '@swc/core': '>=1.2.50'
       '@swc/wasm': '>=1.2.50'
       '@types/node': '*'
-      typescript: '>=2.7'
+      typescript: ~4.9.5
     peerDependenciesMeta:
       '@swc/core':
         optional: true
@@ -20878,7 +20879,7 @@ packages:
     resolution: {integrity: sha512-mHKK3iUXL+3UF6xL5k0PEhKRUBKPBCv/+RkEOpjRWxxx27KKRBmmA60A9pgOUvMi8GKhRMPEmjBRPzs2W7O1OA==}
     engines: {node: '>= 6'}
     peerDependencies:
-      typescript: '>=2.8.0 || >= 3.2.0-dev || >= 3.3.0-dev || >= 3.4.0-dev || >= 3.5.0-dev || >= 3.6.0-dev || >= 3.6.0-beta || >= 3.7.0-dev || >= 3.7.0-beta'
+      typescript: ~4.9.5
     dependencies:
       tslib: 1.14.1
       typescript: 4.9.5
@@ -21008,12 +21009,6 @@ packages:
     resolution: {integrity: sha512-1FXk9E2Hm+QzZQ7z+McJiHL4NW1F2EzMu9Nq9i3zAaGqibafqYwCVU6WyWAuyQRRzOlxou8xZSyXLEN8oKj24g==}
     engines: {node: '>=4.2.0'}
     hasBin: true
-
-  /typescript@5.7.2:
-    resolution: {integrity: sha512-i5t66RHxDvVN40HfDd1PsEThGNnlMCMT3jMUuoh9/0TaqWevNontacunWyN02LA9/fIbEWlcHZcgTKb9QoaLfg==}
-    engines: {node: '>=14.17'}
-    hasBin: true
-    dev: true
 
   /typewise-core@1.2.0:
     resolution: {integrity: sha512-2SCC/WLzj2SbUwzFOzqMCkz5amXLlxtJqDKTICqg30x+2DZxcfZN2MvQZmGfXWKNWaKK9pBPsvkcwv8bF/gxKg==}

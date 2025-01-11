@@ -1314,11 +1314,20 @@ export type QueryStatus = {
     /**  @default null */
     error_message: string | null
     results?: any
-    /** When was the query execution task picked up by a worker. @format date-time */
+    /**
+     * When was the query execution task picked up by a worker.
+     * @format date-time
+     */
     pickup_time?: string
-    /** When was query execution task enqueued. @format date-time */
+    /**
+     * When was query execution task enqueued.
+     * @format date-time
+     */
     start_time?: string
-    /** When did the query execution task finish (whether successfully or not). @format date-time */
+    /**
+     * When did the query execution task finish (whether successfully or not).
+     * @format date-time
+     */
     end_time?: string
     /**  @format date-time */
     expiration_time?: string
