@@ -688,7 +688,6 @@ def capture_report(
             team_id=team_id,
             properties={"error": str(err)},
         )
-    pha_client.flush()
 
 
 # extend this with future usage based products
