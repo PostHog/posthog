@@ -45,6 +45,10 @@ from posthog.warehouse.models import ExternalDataJob
 logger = structlog.get_logger(__name__)
 
 
+global pha_client
+pha_client = Client("sTMFPsFhdP1Ssg")
+
+
 class Period(TypedDict):
     start_inclusive: str
     end_inclusive: str
@@ -314,7 +318,6 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     except Exception as err:
         logger.exception(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
         capture_exception(err)
-        pha_client = Client("sTMFPsFhdP1Ssg")
         capture_event(
             pha_client=pha_client,
             name=f"organization usage report to billing service failure",
@@ -652,10 +655,6 @@ def get_teams_with_hog_function_fetch_calls_in_period(
     )
 
     return results
-
-
-global pha_client
-pha_client = Client("sTMFPsFhdP1Ssg")
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
