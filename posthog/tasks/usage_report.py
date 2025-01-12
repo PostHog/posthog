@@ -654,6 +654,10 @@ def get_teams_with_hog_function_fetch_calls_in_period(
     return results
 
 
+global pha_client
+pha_client = Client("sTMFPsFhdP1Ssg")
+
+
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def capture_report(
     *,
@@ -666,7 +670,6 @@ def capture_report(
 ) -> None:
     if not org_id and not team_id:
         raise ValueError("Either org_id or team_id must be provided")
-    pha_client = Client("sTMFPsFhdP1Ssg")
     try:
         capture_event(
             pha_client=pha_client,
