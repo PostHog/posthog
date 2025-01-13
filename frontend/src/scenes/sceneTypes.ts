@@ -29,6 +29,7 @@ export enum Scene {
     ReplayPlaylist = 'ReplayPlaylist',
     ReplayFilePlayback = 'ReplayFilePlayback',
     CustomCss = 'CustomCss',
+    LLMObservability = 'LLMObservability',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
     PipelineNodeNew = 'PipelineNodeNew',

@@ -47,11 +47,11 @@ from posthog.temporal.batch_exports.spmc import (
     run_consumer,
     wait_for_schema_or_producer,
 )
-from posthog.temporal.batch_exports.temporary_file import BatchExportTemporaryFile, WriterFormat
-from posthog.temporal.batch_exports.utils import (
-    JsonType,
-    set_status_to_running_task,
+from posthog.temporal.batch_exports.temporary_file import (
+    BatchExportTemporaryFile,
+    WriterFormat,
 )
+from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
@@ -120,6 +120,10 @@ class RedshiftClient(PostgreSQLClient):
             for field in merge_key
         )
 
+        # Redshift doesn't support adding a condition on the merge, so we have
+        # to first delete any rows in stage that match those in final, where
+        # stage also has a higher version. Otherwise we risk merging adding old
+        # versions back.
         delete_condition = and_separator.join(
             sql.SQL("{final_field} = {stage_field}").format(
                 final_field=sql.Identifier("final", field[0]),
@@ -404,6 +408,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
             max_record_batch_size_bytes=1024 * 1024 * 2,  # 2MB
+            use_latest_schema=True,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -453,6 +458,13 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             primary_key = None
 
         async with RedshiftClient.from_inputs(inputs).connect() as redshift_client:
+            # filter out fields that are not in the destination table
+            try:
+                columns = await redshift_client.aget_table_columns(inputs.schema, inputs.table_name)
+                table_fields = [field for field in table_fields if field[0] in columns]
+            except psycopg.errors.UndefinedTable:
+                pass
+
             async with (
                 redshift_client.managed_table(
                     inputs.schema, inputs.table_name, table_fields, delete=False, primary_key=primary_key
