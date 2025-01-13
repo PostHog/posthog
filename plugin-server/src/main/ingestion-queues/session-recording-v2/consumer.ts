@@ -4,7 +4,7 @@ import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartit
 import { buildIntegerMatcher } from '../../../config/config'
 import { BatchConsumer } from '../../../kafka/batch-consumer'
 import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
-import { status } from '../../../utils/status'
+import { status as logger } from '../../../utils/status'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { BatchConsumerFactory } from './batch-consumer-factory'
@@ -97,7 +97,7 @@ export class SessionRecordingIngester {
         const debugEnabled = this.isDebugLoggingEnabled(message.metadata.partition)
 
         if (debugEnabled) {
-            status.debug('🔄', 'processing_session_recording', {
+            logger.debug('🔄', 'processing_session_recording', {
                 partition: message.metadata.partition,
                 offset: message.metadata.offset,
                 distinct_id: message.distinct_id,
@@ -109,7 +109,7 @@ export class SessionRecordingIngester {
         const { partition } = message.metadata
         const isDebug = this.isDebugLoggingEnabled(partition)
         if (isDebug) {
-            status.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
+            logger.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
                 ...message.metadata,
                 team_id: team.teamId,
                 session_id: message.session_id,
@@ -125,7 +125,7 @@ export class SessionRecordingIngester {
         context.heartbeat()
 
         if (messages.length !== 0) {
-            status.info('🔁', `blob_ingester_consumer_v2 - handling batch`, {
+            logger.info('🔁', `blob_ingester_consumer_v2 - handling batch`, {
                 size: messages.length,
                 partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
                 assignedPartitions: this.assignedPartitions,
@@ -168,7 +168,7 @@ export class SessionRecordingIngester {
     }
 
     public async start(): Promise<void> {
-        status.info('🔁', 'blob_ingester_consumer_v2 - starting session recordings blob consumer', {
+        logger.info('🔁', 'blob_ingester_consumer_v2 - starting session recordings blob consumer', {
             librdKafkaVersion: librdkafkaVersion,
             kafkaCapabilities: features,
         })
@@ -184,7 +184,7 @@ export class SessionRecordingIngester {
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
-            status.info('🔁', 'blob_ingester_consumer_v2 - rebalancing', { err, topicPartitions })
+            logger.info('🔁', 'blob_ingester_consumer_v2 - rebalancing', { err, topicPartitions })
             /**
              * see https://github.com/Blizzard/node-rdkafka#rebalancing
              *
@@ -203,7 +203,7 @@ export class SessionRecordingIngester {
             }
 
             // We had a "real" error
-            status.error('🔥', 'blob_ingester_consumer_v2 - rebalancing error', { err })
+            logger.error('🔥', 'blob_ingester_consumer_v2 - rebalancing error', { err })
             captureException(err)
             // TODO: immediately die? or just keep going?
         })
@@ -211,18 +211,18 @@ export class SessionRecordingIngester {
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
-            status.info('🔁', 'blob_ingester_consumer_v2 batch consumer disconnected, cleaning up', { err })
+            logger.info('🔁', 'blob_ingester_consumer_v2 batch consumer disconnected, cleaning up', { err })
             await this.stop()
         })
 
         // nothing happens here unless we configure SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS
         this.batchConsumer.consumer.on('event.stats', (stats) => {
-            status.info('🪵', 'blob_ingester_consumer_v2 - kafka stats', { stats })
+            logger.info('🪵', 'blob_ingester_consumer_v2 - kafka stats', { stats })
         })
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
-        status.info('🔁', 'blob_ingester_consumer_v2 - stopping')
+        logger.info('🔁', 'blob_ingester_consumer_v2 - stopping')
         this.isStopping = true
 
         const assignedPartitions = this.assignedTopicPartitions
@@ -232,7 +232,7 @@ export class SessionRecordingIngester {
 
         const promiseResults = await this.promiseScheduler.waitForAll()
 
-        status.info('👍', 'blob_ingester_consumer_v2 - stopped!')
+        logger.info('👍', 'blob_ingester_consumer_v2 - stopped!')
 
         return promiseResults
     }
