@@ -88,21 +88,6 @@ export class KafkaParser {
         }
     }
 
-    public async parseBatch(messages: Message[]): Promise<ParsedMessageData[]> {
-        const parsedMessages: ParsedMessageData[] = []
-
-        for (const message of messages) {
-            this.metrics.incrementMessageReceived(message.partition)
-
-            const parsedMessage = await this.parseMessage(message)
-            if (parsedMessage) {
-                parsedMessages.push(parsedMessage)
-            }
-        }
-
-        return parsedMessages
-    }
-
     private isGzipped(buffer: Buffer): boolean {
         if (buffer.length < GZIP_HEADER.length) {
             return false
