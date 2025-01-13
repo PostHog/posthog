@@ -5,7 +5,11 @@ import random
 import pyarrow as pa
 import pytest
 
-from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue, slice_record_batch
+from posthog.temporal.batch_exports.spmc import (
+    Producer,
+    RecordBatchQueue,
+    slice_record_batch,
+)
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -108,7 +112,7 @@ async def test_record_batch_producer_uses_extra_query_parameters(clickhouse_clie
     )
 
     queue = RecordBatchQueue()
-    producer = Producer(clickhouse_client=clickhouse_client)
+    producer = Producer()
     producer_task = producer.start(
         queue=queue,
         team_id=team_id,
