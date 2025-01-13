@@ -767,7 +767,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     properties: webAnalyticsFilters,
                                 },
                             },
-                            insightProps: createInsightProps(TileId.OVERVIEW),
+                            insightProps: {},
                             canOpenInsight: false,
                             canOpenModal: false,
                             showIntervalSelect: true,
