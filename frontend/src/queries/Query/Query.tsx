@@ -1,5 +1,5 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { HogDebug } from 'scenes/debug/HogDebug'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -63,7 +63,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         embedded,
         filtersOverride,
         variablesOverride,
-        cachedResults,
         inSharedMode,
     } = props
 
@@ -77,86 +76,10 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     const query = readOnly ? propsQuery : localQuery
     const setQuery = propsSetQuery ?? localSetQuery
 
-    const queryContext = useMemo(() => props.context || {}, [props.context])
+    const queryContext = props.context || {}
 
     const uniqueKey =
         props.uniqueKey ?? (props.context?.insightProps && insightVizDataNodeKey(props.context.insightProps))
-
-    const component = useMemo(() => {
-        // If the query is null or a string, we don't need to render anything
-        // this will be handled below, but `useMemo` must be called unconditionally - React things
-        if (query === null || typeof query === 'string') {
-            return null
-        }
-
-        if (isDataTableNode(query)) {
-            return (
-                <DataTable
-                    query={query}
-                    setQuery={setQuery as unknown as (query: DataTableNode) => void}
-                    context={queryContext}
-                    cachedResults={cachedResults}
-                    uniqueKey={uniqueKey}
-                    readOnly={readOnly}
-                />
-            )
-        }
-
-        if (isDataVisualizationNode(query)) {
-            return (
-                <DataTableVisualization
-                    query={query}
-                    setQuery={setQuery as unknown as (query: DataVisualizationNode) => void}
-                    cachedResults={cachedResults}
-                    uniqueKey={uniqueKey}
-                    context={queryContext}
-                    readOnly={readOnly}
-                    variablesOverride={variablesOverride}
-                />
-            )
-        }
-
-        if (isSavedInsightNode(query)) {
-            return <SavedInsight query={query} context={queryContext} readOnly={readOnly} embedded={embedded} />
-        }
-
-        if (isInsightVizNode(query)) {
-            return (
-                <InsightViz
-                    query={query}
-                    setQuery={setQuery as unknown as (query: InsightVizNode) => void}
-                    context={queryContext}
-                    readOnly={readOnly}
-                    uniqueKey={uniqueKey}
-                    embedded={embedded}
-                    inSharedMode={inSharedMode}
-                    filtersOverride={filtersOverride}
-                    variablesOverride={variablesOverride}
-                />
-            )
-        }
-
-        if (isWebOverviewQuery(query)) {
-            return <WebOverview query={query} cachedResults={cachedResults} context={queryContext} />
-        }
-
-        if (isHogQuery(query)) {
-            return <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
-        }
-
-        return <DataNode query={query} cachedResults={cachedResults} />
-    }, [
-        query,
-        queryContext,
-        embedded,
-        filtersOverride,
-        variablesOverride,
-        inSharedMode,
-        cachedResults,
-        readOnly,
-        setQuery,
-        uniqueKey,
-    ])
 
     if (query === null) {
         return null
@@ -170,31 +93,71 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         }
     }
 
-    if (component) {
-        return (
-            <ErrorBoundary>
-                <>
-                    {props.context?.showQueryEditor ? (
-                        <>
-                            <QueryEditor
-                                query={JSON.stringify(query)}
-                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
-                                context={queryContext}
-                            />
-                            <div className="my-4">
-                                <LemonDivider />
-                            </div>
-                        </>
-                    ) : null}
-                    {component}
-                </>
-            </ErrorBoundary>
+    let component: JSX.Element
+    if (isDataTableNode(query)) {
+        component = (
+            <DataTable
+                query={query}
+                setQuery={setQuery as unknown as (query: DataTableNode) => void}
+                context={queryContext}
+                cachedResults={props.cachedResults}
+                uniqueKey={uniqueKey}
+                readOnly={readOnly}
+            />
         )
+    } else if (isDataVisualizationNode(query)) {
+        component = (
+            <DataTableVisualization
+                query={query}
+                setQuery={setQuery as unknown as (query: DataVisualizationNode) => void}
+                cachedResults={props.cachedResults}
+                uniqueKey={uniqueKey}
+                context={queryContext}
+                readOnly={readOnly}
+                variablesOverride={props.variablesOverride}
+            />
+        )
+    } else if (isSavedInsightNode(query)) {
+        component = <SavedInsight query={query} context={queryContext} readOnly={readOnly} embedded={embedded} />
+    } else if (isInsightVizNode(query)) {
+        component = (
+            <InsightViz
+                query={query}
+                setQuery={setQuery as unknown as (query: InsightVizNode) => void}
+                context={queryContext}
+                readOnly={readOnly}
+                uniqueKey={uniqueKey}
+                embedded={embedded}
+                inSharedMode={inSharedMode}
+                filtersOverride={filtersOverride}
+                variablesOverride={variablesOverride}
+            />
+        )
+    } else if (isWebOverviewQuery(query)) {
+        component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else if (isHogQuery(query)) {
+        component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
+    } else {
+        component = <DataNode query={query} cachedResults={props.cachedResults} />
     }
 
     return (
-        <div className="text-danger border border-danger p-2">
-            <strong>PostHoqQuery error:</strong> {query?.kind ? `Invalid node type "${query.kind}"` : 'Invalid query'}
-        </div>
+        <ErrorBoundary>
+            <>
+                {queryContext.showQueryEditor ? (
+                    <>
+                        <QueryEditor
+                            query={JSON.stringify(query)}
+                            setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
+                            context={queryContext}
+                        />
+                        <div className="my-4">
+                            <LemonDivider />
+                        </div>
+                    </>
+                ) : null}
+                {component}
+            </>
+        </ErrorBoundary>
     )
 }
