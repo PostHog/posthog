@@ -19,7 +19,7 @@ export const replayLandingPageLogic = kea<replayLandingPageLogicType>([
             null as ReplayTabs | null,
             { persist: true },
             {
-                setChosenTab: (_, { tab }) => tab,
+                setTab: (_, { tab }) => tab,
             },
         ],
     }),
