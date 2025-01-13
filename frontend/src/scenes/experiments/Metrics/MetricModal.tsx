@@ -24,9 +24,8 @@ export function MetricModal({
         editingPrimaryMetricIndex,
         editingSecondaryMetricIndex,
     } = useValues(experimentLogic({ experimentId }))
-    const { updateExperimentGoal, setExperiment, closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(
-        experimentLogic({ experimentId })
-    )
+    const { updateExperimentGoal, setExperiment, closePrimaryMetricModal, closeSecondaryMetricModal, loadExperiment } =
+        useActions(experimentLogic({ experimentId }))
 
     const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
@@ -40,10 +39,16 @@ export function MetricModal({
     const metricType = _getMetricType(metric)
     const funnelStepsLength = (metric as ExperimentFunnelsQuery)?.funnels_query?.series?.length || 0
 
+    const onClose = (): void => {
+        // :KLUDGE: Removes any local changes and resets the experiment to the server state
+        loadExperiment()
+        isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
+    }
+
     return (
         <LemonModal
             isOpen={isSecondary ? isSecondaryMetricModalOpen : isPrimaryMetricModalOpen}
-            onClose={isSecondary ? closeSecondaryMetricModal : closePrimaryMetricModal}
+            onClose={onClose}
             width={1000}
             title="Edit experiment metric"
             footer={
@@ -78,11 +83,7 @@ export function MetricModal({
                         Delete
                     </LemonButton>
                     <div className="flex items-center gap-2 ml-auto">
-                        <LemonButton
-                            form="edit-experiment-goal-form"
-                            type="secondary"
-                            onClick={isSecondary ? closeSecondaryMetricModal : closePrimaryMetricModal}
-                        >
+                        <LemonButton form="edit-experiment-goal-form" type="secondary" onClick={onClose}>
                             Cancel
                         </LemonButton>
                         <LemonButton

@@ -37,7 +37,13 @@ import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
-import { DashboardFilter, DataVisualizationNode, HogQLVariable, NodeKind, RefreshType } from '~/queries/schema'
+import {
+    DashboardFilter,
+    DataVisualizationNode,
+    HogQLVariable,
+    NodeKind,
+    RefreshType,
+} from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     AnyPropertyFilter,
