@@ -1,15 +1,14 @@
 import { IconPerson } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDropdown, LemonInput, Lettermark, ProfilePicture } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ErrorTrackingTeam } from 'lib/components/Errors/types'
 import { fullName } from 'lib/utils'
 import { useEffect, useMemo, useState } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { userGroupsLogic } from 'scenes/settings/environment/userGroupsLogic'
 
-import { OrganizationMemberType } from '~/types'
+import { OrganizationMemberType, UserGroup } from '~/types'
 
 import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '../../queries/schema'
-import { errorTrackingTeamsLogic } from './errorTrackingTeamsLogic'
 
 type AssigneeDisplayType = { id: string | number; icon: JSX.Element; displayName?: string }
 
@@ -33,9 +32,9 @@ export const AssigneeSelect = ({
     unassignedLabel?: string
 } & Partial<Pick<LemonButtonProps, 'type' | 'size'>>): JSX.Element => {
     const { meFirstMembers, filteredMembers, search, membersLoading } = useValues(membersLogic)
-    const { teams, teamsLoading } = useValues(errorTrackingTeamsLogic)
+    const { userGroups, userGroupsLoading } = useValues(userGroupsLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
-    const { ensureAllTeamsLoaded } = useActions(errorTrackingTeamsLogic)
+    const { ensureAllGroupsLoaded } = useActions(userGroupsLogic)
     const [showPopover, setShowPopover] = useState(false)
 
     const _onChange = (value: ErrorTrackingIssue['assignee']): void => {
@@ -46,15 +45,15 @@ export const AssigneeSelect = ({
     useEffect(() => {
         if (showPopover) {
             ensureAllMembersLoaded()
-            ensureAllTeamsLoaded()
+            ensureAllGroupsLoaded()
         }
-    }, [showPopover, ensureAllMembersLoaded, ensureAllTeamsLoaded])
+    }, [showPopover, ensureAllMembersLoaded, ensureAllGroupsLoaded])
 
     const displayAssignee: AssigneeDisplayType = useMemo(() => {
         if (assignee) {
-            if (assignee.type === 'error_tracking_team') {
-                const assignedTeam = teams.find((team) => team.id === assignee.id)
-                return assignedTeam ? teamDisplay(assignedTeam, 0) : unassignedUser
+            if (assignee.type === 'user_group') {
+                const assignedGroup = userGroups.find((group) => group.id === assignee.id)
+                return assignedGroup ? groupDisplay(assignedGroup, 0) : unassignedUser
             }
 
             const assignedMember = meFirstMembers.find((member) => member.user.id === assignee.id)
@@ -62,7 +61,7 @@ export const AssigneeSelect = ({
         }
 
         return unassignedUser
-    }, [assignee, meFirstMembers, teams])
+    }, [assignee, meFirstMembers, userGroupsLoading])
 
     return (
         <LemonDropdown
@@ -92,10 +91,10 @@ export const AssigneeSelect = ({
                         />
 
                         <Section
-                            loading={teamsLoading}
+                            loading={userGroupsLoading}
                             search={!!search}
-                            type="error_tracking_team"
-                            items={teams.map(teamDisplay)}
+                            type="user_group"
+                            items={userGroups.map(groupDisplay)}
                             onSelect={_onChange}
                             activeId={assignee?.id}
                         />
@@ -162,10 +161,10 @@ const Section = ({
     )
 }
 
-const teamDisplay = (team: ErrorTrackingTeam, index: number): AssigneeDisplayType => ({
-    id: team.id,
-    displayName: team.name,
-    icon: <Lettermark name={team.name} index={index} rounded />,
+const groupDisplay = (group: UserGroup, index: number): AssigneeDisplayType => ({
+    id: group.id,
+    displayName: group.name,
+    icon: <Lettermark name={group.name} index={index} rounded />,
 })
 
 const userDisplay = (member: OrganizationMemberType): AssigneeDisplayType => ({

@@ -8,7 +8,6 @@ from rest_framework.exceptions import ValidationError
 
 from django.conf import settings
 
-from posthog.api.shared import UserBasicSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -16,9 +15,7 @@ from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingSymbolSet,
     ErrorTrackingStackFrame,
-    ErrorTrackingTeam,
     ErrorTrackingIssueAssignment,
-    ErrorTrackingTeamMembership,
 )
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
@@ -65,8 +62,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             ErrorTrackingIssueAssignment.objects.update_or_create(
                 issue_id=self.get_object().id,
                 defaults={
-                    "user_id": None if assignee["type"] == "error_tracking_team" else assignee["id"],
-                    "error_tracking_team_id": None if assignee["type"] == "user" else assignee["id"],
+                    "user_id": None if assignee["type"] == "user_group" else assignee["id"],
+                    "user_group_id": None if assignee["type"] == "user" else assignee["id"],
                 },
             )
         else:
@@ -99,41 +96,6 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
                 queryset = self.queryset.filter(symbol_set=symbol_set)
 
         return queryset.select_related("symbol_set").filter(team_id=self.team.id)
-
-
-class ErrorTrackingTeamSerializer(serializers.ModelSerializer):
-    members = UserBasicSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = ErrorTrackingTeam
-        fields = ["id", "name", "members"]
-
-    def create(self, validated_data: dict, *args, **kwargs) -> ErrorTrackingTeam:
-        return ErrorTrackingTeam.objects.create(
-            team=self.context["get_team"](),
-            **validated_data,
-        )
-
-
-class ErrorTrackingTeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
-    queryset = ErrorTrackingTeam.objects.all()
-    serializer_class = ErrorTrackingTeamSerializer
-
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team.id)
-
-    @action(methods=["POST"], detail=True)
-    def add(self, request, **kwargs):
-        team = self.get_object()
-        ErrorTrackingTeamMembership.objects.get_or_create(team=team, user_id=request.data["userId"])
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @action(methods=["POST"], detail=True)
-    def remove(self, request, **kwargs):
-        team = self.get_object()
-        ErrorTrackingTeamMembership.objects.filter(team=team, user_id=request.data["userId"]).delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):

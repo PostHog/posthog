@@ -2,12 +2,11 @@ import pytest
 from django.db.utils import IntegrityError
 
 from posthog.test.base import BaseTest
+from posthog.models.user_group import UserGroup
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingTeamMembership,
     ErrorTrackingIssueAssignment,
-    ErrorTrackingTeam,
 )
 
 
@@ -84,27 +83,13 @@ class TestErrorTracking(BaseTest):
         assert override.issue_id != issue.id
         assert override.version == 1
 
-    def test_error_tracking_team_membership_cascade_deletes(self):
-        error_tracking_team = ErrorTrackingTeam.objects.create(team=self.team)
-        ErrorTrackingTeamMembership.objects.create(team=error_tracking_team, user=self.user)
-
-        assert ErrorTrackingTeamMembership.objects.count() == 1
-        error_tracking_team.delete()
-        assert ErrorTrackingTeamMembership.objects.count() == 0
-
-    def test_error_tracking_team_assignment_cascade_deletes(self):
+    def test_error_tracking_issue_assignment_cascade_deletes(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
 
         assert ErrorTrackingIssueAssignment.objects.count() == 1
         issue.delete()
         assert ErrorTrackingIssueAssignment.objects.count() == 0
-
-    def test_error_tracking_team_membership_uniqueness(self):
-        error_tracking_team = ErrorTrackingTeam.objects.create(team=self.team)
-        with pytest.raises(IntegrityError):
-            ErrorTrackingTeamMembership.objects.create(team=error_tracking_team, user=self.user)
-            ErrorTrackingTeamMembership.objects.create(team=error_tracking_team, user=self.user)
 
     def test_error_tracking_issue_assignment_uniqueness(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team)
@@ -119,9 +104,7 @@ class TestErrorTracking(BaseTest):
 
     def test_error_tracking_issue_assignment_ensure_not_both(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team)
-        error_tracking_team = ErrorTrackingTeam.objects.create(team=self.team)
+        user_group = UserGroup.objects.create(team=self.team)
 
         with pytest.raises(IntegrityError):
-            ErrorTrackingIssueAssignment.objects.create(
-                issue=issue, user=self.user, error_tracking_team=error_tracking_team
-            )
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user, user_group=user_group)

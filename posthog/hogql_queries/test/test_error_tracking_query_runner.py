@@ -14,11 +14,11 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
 )
+from posthog.models.user_group import UserGroup
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueAssignment,
-    ErrorTrackingTeam,
     update_error_tracking_issue_fingerprints,
     override_error_tracking_issue_fingerprint,
 )
@@ -483,7 +483,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([x["id"] for x in results], [issue_id])
 
     @snapshot_clickhouse_queries
-    def test_error_tracking_team_assignee(self):
+    def test_user_group_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
         self.create_events_and_issue(
             issue_id=issue_id,
@@ -491,12 +491,10 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=[self.distinct_id_one],
         )
         flush_persons_and_events()
-        error_tracking_team = ErrorTrackingTeam.objects.create(team=self.team, name="Test Team")
-        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, error_tracking_team=error_tracking_team)
+        user_group = UserGroup.objects.create(team=self.team, name="Test Team")
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user_group=user_group)
 
-        results = self._calculate(assignee={"type": "error_tracking_team", "id": str(error_tracking_team.id)})[
-            "results"
-        ]
+        results = self._calculate(assignee={"type": "user_group", "id": str(user_group.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
 

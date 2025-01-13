@@ -15,7 +15,6 @@ from posthog.models import (
     ErrorTrackingStackFrame,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
-    ErrorTrackingTeam,
 )
 from botocore.config import Config
 from posthog.settings import (
@@ -227,28 +226,3 @@ class TestErrorTracking(APIBaseTest):
         )
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_error_tracking_teams(self):
-        self.client.post(
-            f"/api/projects/{self.team.id}/error_tracking/teams",
-            data={"name": "My team"},
-        )
-
-        # creates the team
-        error_tracking_team = ErrorTrackingTeam.objects.get(team=self.team)
-        self.assertIsNotNone(error_tracking_team)
-        self.assertEqual(error_tracking_team.name, "My team")
-
-        self.client.post(
-            f"/api/projects/{self.team.id}/error_tracking/teams/{error_tracking_team.id}/add",
-            data={"userId": self.user.id},
-        )
-        # adds a team member
-        self.assertEqual(error_tracking_team.members.count(), 1)
-
-        self.client.post(
-            f"/api/projects/{self.team.id}/error_tracking/teams/{error_tracking_team.id}/remove",
-            data={"userId": self.user.id},
-        )
-        # removes a team member
-        self.assertEqual(error_tracking_team.members.count(), 0)

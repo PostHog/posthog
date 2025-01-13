@@ -217,11 +217,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
             queryset = (
                 queryset.filter(assignment__user_id=self.query.assignee.id)
                 if self.query.assignee.type == "user"
-                else queryset.filter(assignment__error_tracking_team_id=self.query.assignee.id)
+                else queryset.filter(assignment__user_group_id=self.query.assignee.id)
             )
 
         issues = queryset.values(
-            "id", "status", "name", "description", "assignment__user_id", "assignment__error_tracking_team_id"
+            "id", "status", "name", "description", "assignment__user_id", "assignment__user_group_id"
         )
 
         results = {}
@@ -235,12 +235,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
             }
 
             assignment_user_id = issue.get("assignment__user_id")
-            assignment_error_tracking_team_id = issue.get("assignment__error_tracking_team_id")
+            assignment_user_group_id = issue.get("assignment__user_group_id")
 
-            if assignment_user_id or assignment_error_tracking_team_id:
+            if assignment_user_id or assignment_user_group_id:
                 result["assignee"] = {
-                    "id": assignment_user_id or str(assignment_error_tracking_team_id),
-                    "type": "user" if assignment_user_id else "error_tracking_team",
+                    "id": assignment_user_id or str(assignment_user_group_id),
+                    "type": "user" if assignment_user_id else "user_group",
                 }
 
             results[issue["id"]] = result

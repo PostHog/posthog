@@ -5,6 +5,7 @@ from django.db.models import Q
 from posthog.models.utils import UUIDModel
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.user_group import UserGroup
 from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
 
 from posthog.kafka_client.client import ClickhouseProducer
@@ -50,21 +51,10 @@ class ErrorTrackingIssue(UUIDModel):
         update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
 
-class ErrorTrackingTeam(UUIDModel):
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    name = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    members = models.ManyToManyField(
-        "posthog.User",
-        through="posthog.ErrorTrackingTeamMembership",
-    )
-
-
 class ErrorTrackingIssueAssignment(UUIDModel):
     issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
-    error_tracking_team = models.ForeignKey(ErrorTrackingTeam, null=True, on_delete=models.CASCADE)
+    user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -76,17 +66,6 @@ class ErrorTrackingIssueAssignment(UUIDModel):
                 check=~(Q(user__isnull=False) & Q(error_tracking_team__isnull=False)), name="only_one_non_null"
             ),
             models.UniqueConstraint(fields=["issue"], name="unique_per_issue"),
-        ]
-
-
-class ErrorTrackingTeamMembership(UUIDModel):
-    team = models.ForeignKey(ErrorTrackingTeam, on_delete=models.CASCADE)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["team", "user"], name="unique_per_user_per_team"),
         ]
 
 

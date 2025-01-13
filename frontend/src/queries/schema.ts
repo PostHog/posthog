@@ -2001,7 +2001,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 }
 
 export interface ErrorTrackingIssueAssignee {
-    type: 'error_tracking_team' | 'user'
+    type: 'user_group' | 'user'
     id: integer | string
 }
 

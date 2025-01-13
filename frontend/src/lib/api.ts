@@ -119,7 +119,6 @@ import {
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
-    ErrorTrackingTeam,
 } from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
@@ -743,22 +742,6 @@ class ApiRequest {
 
     public errorTrackingSymbolSet(id: ErrorTrackingSymbolSet['id']): ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
-    }
-
-    public errorTrackingTeams(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('teams')
-    }
-
-    public errorTrackingTeam(id: ErrorTrackingTeam['id']): ApiRequest {
-        return this.errorTrackingTeams().addPathComponent(id)
-    }
-
-    public errorTrackingAddTeamMember(id: ErrorTrackingTeam['id']): ApiRequest {
-        return this.errorTrackingTeam(id).addPathComponent('add')
-    }
-
-    public errorTrackingRemoveTeamMember(id: ErrorTrackingTeam['id']): ApiRequest {
-        return this.errorTrackingTeam(id).addPathComponent('remove')
     }
 
     public errorTrackingStackFrames({
@@ -1983,26 +1966,6 @@ const api = {
             raw_ids: ErrorTrackingStackFrame['raw_id'][]
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
             return await new ApiRequest().errorTrackingStackFrames({ raw_ids }).get()
-        },
-
-        async teams(): Promise<{ results: ErrorTrackingTeam[] }> {
-            return await new ApiRequest().errorTrackingTeams().get()
-        },
-
-        async deleteTeam(id: ErrorTrackingTeam['id']): Promise<void> {
-            return await new ApiRequest().errorTrackingTeam(id).delete()
-        },
-
-        async createTeam(name: ErrorTrackingTeam['name']): Promise<ErrorTrackingTeam> {
-            return await new ApiRequest().errorTrackingTeams().create({ data: { name } })
-        },
-
-        async addTeamMember(id: ErrorTrackingTeam['id'], userId: UserBasicType['id']): Promise<ErrorTrackingTeam> {
-            return await new ApiRequest().errorTrackingAddTeamMember(id).create({ data: { userId } })
-        },
-
-        async removeTeamMember(id: ErrorTrackingTeam['id'], userId: UserBasicType['id']): Promise<ErrorTrackingTeam> {
-            return await new ApiRequest().errorTrackingRemoveTeamMember(id).create({ data: { userId } })
         },
     },
 
