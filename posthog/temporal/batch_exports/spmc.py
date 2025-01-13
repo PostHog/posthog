@@ -10,6 +10,9 @@ import pyarrow as pa
 import temporalio.common
 from django.conf import settings
 
+from posthog.temporal.batch_exports.batch_exports import (
+    wait_for_delta_past_data_interval_end,
+)
 from posthog.temporal.batch_exports.heartbeat import BatchExportRangeHeartbeatDetails
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
@@ -39,7 +42,7 @@ from posthog.temporal.batch_exports.utils import (
     cast_record_batch_json_columns,
     cast_record_batch_schema_json_columns,
 )
-from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 
@@ -497,15 +500,17 @@ def default_fields() -> list[BatchExportField]:
     ]
 
 
-def use_events_recent(full_range: tuple[dt.datetime | None, dt.datetime], is_backfill: bool) -> bool:
+def is_5_min_batch_export(full_range: tuple[dt.datetime | None, dt.datetime]) -> bool:
     start_at, end_at = full_range
     if start_at:
-        is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
-    else:
-        is_5_min_batch_export = False
+        return (end_at - start_at) == dt.timedelta(seconds=300)
+    return False
 
+
+def use_events_recent(full_range: tuple[dt.datetime | None, dt.datetime], is_backfill: bool) -> bool:
+    interval_is_5_min = is_5_min_batch_export(full_range)
     use_events_recent_for_all = settings.BATCH_EXPORT_USE_EVENTS_RECENT_FOR_ALL
-    return (use_events_recent_for_all or is_5_min_batch_export) and not is_backfill
+    return (use_events_recent_for_all or interval_is_5_min) and not is_backfill
 
 
 class Producer:
@@ -516,8 +521,7 @@ class Producer:
         _task: Used to keep track of producer background task.
     """
 
-    def __init__(self, clickhouse_client: ClickHouseClient):
-        self.clickhouse_client = clickhouse_client
+    def __init__(self):
         self._task: asyncio.Task | None = None
         self.logger = get_internal_logger()
 
@@ -606,6 +610,8 @@ class Producer:
                 query_parameters=parameters,
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
                 min_records_per_batch=min_records_per_batch,
+                team_id=team_id,
+                is_backfill=is_backfill,
             ),
             name="record_batch_producer",
         )
@@ -619,6 +625,8 @@ class Producer:
         done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
         queue: RecordBatchQueue,
         query_parameters: dict[str, typing.Any],
+        team_id: int,
+        is_backfill: bool,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
     ):
@@ -632,30 +640,46 @@ class Producer:
                 should be skipped.
             queue: The queue where to produce record batches.
             query_parameters: Additional query parameters.
+            team_id: The team ID of the batch export.
+            is_backfill: Whether the batch export is a backfill.
             max_record_batch_size_bytes: The max size in bytes of a record batch to insert in `queue`.
                 If a record batch is larger than this, `slice_record_batch` will be used to slice it
                 into smaller record batches.
             min_records_batch_per_batch: If slicing a record batch, each slice should contain at least
                 this number of records.
         """
-        for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
-            if interval_start is not None:
-                query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-            query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
-            query_id = uuid.uuid4()
+        clickhouse_url = None
+        if use_events_recent(full_range, is_backfill):
+            clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
 
-            try:
-                async for record_batch in self.clickhouse_client.astream_query_as_arrow(
-                    query, query_parameters=query_parameters, query_id=str(query_id)
-                ):
-                    for record_batch_slice in slice_record_batch(
-                        record_batch, max_record_batch_size_bytes, min_records_per_batch
+        # data can sometimes take a while to settle, so for 5 min batch exports
+        # we wait several seconds just to be safe
+        if is_5_min_batch_export(full_range):
+            end_at = full_range[1]
+            await wait_for_delta_past_data_interval_end(end_at)
+
+        async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
+            if not await client.is_alive():
+                raise ConnectionError("Cannot establish connection to ClickHouse")
+
+            for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
+                if interval_start is not None:
+                    query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+                query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+                query_id = uuid.uuid4()
+
+                try:
+                    async for record_batch in client.astream_query_as_arrow(
+                        query, query_parameters=query_parameters, query_id=str(query_id)
                     ):
-                        await queue.put(record_batch_slice)
+                        for record_batch_slice in slice_record_batch(
+                            record_batch, max_record_batch_size_bytes, min_records_per_batch
+                        ):
+                            await queue.put(record_batch_slice)
 
-            except Exception as e:
-                await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
-                raise
+                except Exception as e:
+                    await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
+                    raise
 
 
 def slice_record_batch(
