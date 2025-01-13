@@ -913,7 +913,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 metadata: sharedMetric.metadata,
             }))
 
-            const newMetricsIds = sharedMetricIds.map((id) => ({ id, metadata }))
+            const newMetricsIds = sharedMetricIds.map((id: SharedMetric['id']) => ({ id, metadata }))
             const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
