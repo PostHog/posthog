@@ -400,6 +400,9 @@ dependencies:
   ts-pattern:
     specifier: '4.3'
     version: 4.3.0
+  typescript:
+    specifier: ~4.9.5
+    version: 4.9.5
   use-debounce:
     specifier: ^9.0.3
     version: 9.0.3(react@18.2.0)
@@ -776,9 +779,6 @@ devDependencies:
   ts-node:
     specifier: ^10.9.1
     version: 10.9.1(@swc/core@1.3.93)(@types/node@18.11.9)(typescript@4.9.5)
-  typescript:
-    specifier: ~4.9.5
-    version: 4.9.5
   webpack:
     specifier: ^5.88.2
     version: 5.88.2(@swc/core@1.3.93)(esbuild@0.19.8)(webpack-cli@5.1.4)
@@ -18528,7 +18528,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.188.0
+      unlayer-types: 1.192.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -21115,8 +21115,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.188.0:
-    resolution: {integrity: sha512-tnn+FjUZv1qUOoRUYRFxSDz9kHfhy7dLxzMZgnU5+k6GDSBlpa8mA+r4+r0D83M+mUUd/XwuM+gvfRLGzrqZ+g==}
+  /unlayer-types@1.192.0:
+    resolution: {integrity: sha512-7AU7xclz/GaqbTKDlz3tYpcJ7DL/khf1ZxB8wrR7l/vtxp0Ma2WvgUcKX+0IGk3r6WkP3buj8tPaQa5mZHOjgw==}
     dev: false
 
   /unpipe@1.0.0:
