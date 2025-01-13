@@ -1,6 +1,5 @@
 import re
 import structlog
-from operator import itemgetter
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -73,10 +72,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
         ]
 
         if self.query.customVolume:
-            value, interval, offset = itemgetter("value", "interval", "offset")(self.query.customVolume)
+            value = self.query.customVolume.get("value")
+            offset = self.query.customVolume.get("offset")
+            interval = self.query.customVolume.get("interval")
             exprs.append(
                 ast.Alias(
-                    alias="volumeCustom",
+                    alias="customVolume",
                     expr=self.volume(value, interval, offset),
                 )
             )

@@ -2005,17 +2005,17 @@ export interface ErrorTrackingIssue {
     id: string
     name: string | null
     description: string | null
-    occurrences: number
-    sessions: number
-    users: number
     /**  @format date-time */
     first_seen: string
     /**  @format date-time */
     last_seen: string
     earliest: string
+    occurrences: number
+    sessions: number
+    users: number
     volumeDay: number[]
     volumeMonth: number[]
-    volumeCustom?: number[]
+    customVolume?: number[]
     assignee: number | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
 }

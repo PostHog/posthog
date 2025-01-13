@@ -750,6 +750,7 @@ class ErrorTrackingIssue(BaseModel):
         extra="forbid",
     )
     assignee: Optional[float] = None
+    customVolume: Optional[list[float]] = None
     description: Optional[str] = None
     earliest: str
     first_seen: AwareDatetime
@@ -760,7 +761,8 @@ class ErrorTrackingIssue(BaseModel):
     sessions: float
     status: Status
     users: float
-    volume: Optional[Any] = None
+    volumeDay: list[float]
+    volumeMonth: list[float]
 
 
 class OrderBy(StrEnum):
@@ -769,6 +771,23 @@ class OrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
+
+
+class Interval(StrEnum):
+    MINUTE = "minute"
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
+class ErrorTrackingSparklineConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    interval: Interval
+    offsetHours: Optional[float] = None
+    value: float
 
 
 class EventDefinition(BaseModel):
@@ -6070,6 +6089,7 @@ class ErrorTrackingQuery(BaseModel):
         extra="forbid",
     )
     assignee: Optional[int] = None
+    customVolume: Optional[ErrorTrackingSparklineConfig] = None
     dateRange: DateRange
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
@@ -6083,7 +6103,6 @@ class ErrorTrackingQuery(BaseModel):
     orderBy: Optional[OrderBy] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
-    select: Optional[list[str]] = None
 
 
 class EventsQuery(BaseModel):

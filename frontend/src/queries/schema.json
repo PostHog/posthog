@@ -5517,6 +5517,12 @@
                 "assignee": {
                     "type": ["number", "null"]
                 },
+                "customVolume": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
                 "description": {
                     "type": ["string", "null"]
                 },
@@ -5550,12 +5556,6 @@
                 "users": {
                     "type": "number"
                 },
-                "volumeCustom": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "type": "array"
-                },
                 "volumeDay": {
                     "items": {
                         "type": "number"
@@ -5573,12 +5573,12 @@
                 "id",
                 "name",
                 "description",
-                "occurrences",
-                "sessions",
-                "users",
                 "first_seen",
                 "last_seen",
                 "earliest",
+                "occurrences",
+                "sessions",
+                "users",
                 "volumeDay",
                 "volumeMonth",
                 "assignee",

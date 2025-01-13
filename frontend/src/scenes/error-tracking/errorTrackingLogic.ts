@@ -17,11 +17,6 @@ export type SparklineOption = LemonSegmentedButtonOption<string>
 
 const customOptions: Record<string, [SparklineOption, SparklineOption]> = {
     dStart: [lastDay, lastHour], // today
-    '-1dStart': [
-        // yesterday
-        { value: '-1d24h', label: '24h' },
-        { value: '-1d1h', label: '1h' },
-    ],
     '-24h': [lastDay, lastHour],
     mStart: [lastMonth, lastDay],
     yStart: [lastYear, lastMonth],
@@ -36,8 +31,6 @@ export const DEFAULT_ERROR_TRACKING_FILTER_GROUP = {
 }
 
 const SPARKLINE_CONFIGURATIONS: Record<string, ErrorTrackingSparklineConfig> = {
-    '-1d1h': { value: 60, interval: 'minute', offsetHours: 24 },
-    '-1d24h': { value: 24, interval: 'hour', offsetHours: 24 },
     '1h': { value: 60, interval: 'minute' },
     '24h': { value: 24, interval: 'hour' },
     '7d': { value: 168, interval: 'hour' }, // 7d * 24h = 168h
@@ -137,7 +130,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         ],
     }),
     selectors({
-        customVolumeConfig: [
+        customVolume: [
             (s) => [s.sparklineSelectedPeriod],
             (selectedPeriod): ErrorTrackingSparklineConfig | null => {
                 return constructSparklineConfig(selectedPeriod)
