@@ -54,15 +54,21 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(
-                alias="earliest",
-                expr=ast.Call(name="argMin", args=[ast.Field(chain=["properties"]), ast.Field(chain=["timestamp"])]),
-            ),
             ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
         ]
 
         if self.query.select:
             exprs.extend([parse_expr(x) for x in self.query.select])
+
+        if self.query.issueId:
+            exprs.append(
+                ast.Alias(
+                    alias="earliest",
+                    expr=ast.Call(
+                        name="argMin", args=[ast.Field(chain=["properties"]), ast.Field(chain=["timestamp"])]
+                    ),
+                )
+            )
 
         return exprs
 
