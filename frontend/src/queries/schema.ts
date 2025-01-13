@@ -1598,6 +1598,10 @@ export interface StickinessQuery
      * @default day
      */
     interval?: IntervalType
+    /**
+     * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+     */
+    intervalCount?: integer
     /** Events and actions to include */
     series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */
@@ -1796,7 +1800,7 @@ export type CachedActorsQueryResponse = CachedQueryResponse<ActorsQueryResponse>
 
 export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.ActorsQuery
-    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
+    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
@@ -2143,6 +2147,10 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     compare?: 'current' | 'previous'
 }
 
+export interface StickinessActorsQuery extends InsightActorsQuery {
+    operator?: StickinessOperator
+}
+
 export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     kind: NodeKind.FunnelsActorsQuery
     source: FunnelsQuery
@@ -2267,7 +2275,7 @@ export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<Insigh
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
-    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery
+    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery
 }
 
 export interface DatabaseSchemaSchema {
