@@ -59,7 +59,7 @@ if (res.status >= 200 and res.status < 300) {
             "key": "phoneNumber",
             "type": "string",
             "label": "Recipient Phone Number",
-            "description": "The phone number to send SMS to (e.g. +491622500509)",
+            "description": "The phone number to send SMS to (e.g. +491633950489)",
             "secret": False,
             "required": True,
         },
