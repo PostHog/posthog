@@ -5,7 +5,7 @@ export class KafkaMetrics {
     private readonly messageReceived: Counter<string>
     private readonly libVersionWarning: Counter<string>
 
-    private constructor() {
+    public constructor() {
         this.messageReceived = new Counter({
             name: 'recording_blob_ingestion_v2_kafka_message_received',
             help: 'The number of messages we have received from Kafka',
