@@ -10,7 +10,6 @@ from posthog.caching.utils import ensure_is_date
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
     INSIGHT_FUNNELS,
-    INSIGHT_PATHS,
     INSIGHT_RETENTION,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
@@ -36,7 +35,6 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import generate_insight_filters_hash
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
-from posthog.queries.paths import Paths
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
@@ -50,7 +48,6 @@ CACHE_TYPE_TO_INSIGHT_CLASS = {
     CacheType.TRENDS: Trends,
     CacheType.STICKINESS: Stickiness,
     CacheType.RETENTION: Retention,
-    CacheType.PATHS: Paths,
 }
 
 logger = structlog.get_logger(__name__)
@@ -79,8 +76,6 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
 def get_cache_type_for_filter(cacheable: FilterType) -> CacheType:
     if cacheable.insight == INSIGHT_FUNNELS:
         return CacheType.FUNNEL
-    elif cacheable.insight == INSIGHT_PATHS:
-        return CacheType.PATHS
     elif cacheable.insight == INSIGHT_RETENTION:
         return CacheType.RETENTION
     elif (
