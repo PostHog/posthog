@@ -18,7 +18,14 @@ import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
-import { ActorsQuery, DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema'
+import {
+    ActorsQuery,
+    DataTableNode,
+    EventsNode,
+    EventsQuery,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQlIdentifier, hogql } from '~/queries/utils'
 import {
     AnyPersonScopeFilter,

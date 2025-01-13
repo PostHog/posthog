@@ -32,7 +32,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { Experiment, Experiment as ExperimentType, ExperimentIdType, InsightShortId, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'

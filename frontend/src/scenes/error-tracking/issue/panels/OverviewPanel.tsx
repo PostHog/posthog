@@ -1,9 +1,10 @@
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 import { getExceptionAttributes } from 'scenes/error-tracking/utils'
 
 export const OverviewPanel = (): JSX.Element => {
-    const { issueProperties } = useValues(errorTrackingIssueSceneLogic)
+    const { issueProperties, issueLoading } = useValues(errorTrackingIssueSceneLogic)
 
     const { synthetic, level, browser, os, library, unhandled } = getExceptionAttributes(issueProperties)
 
@@ -13,6 +14,15 @@ export const OverviewPanel = (): JSX.Element => {
             <td>{value ?? <div className="italic">unknown</div>}</td>
         </tr>
     )
+
+    if (issueLoading) {
+        return (
+            <div className="space-y-2">
+                <LemonSkeleton />
+                <LemonSkeleton.Row repeat={2} />
+            </div>
+        )
+    }
 
     return (
         <div className="px-1">

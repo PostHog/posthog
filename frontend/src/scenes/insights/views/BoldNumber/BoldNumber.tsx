@@ -17,7 +17,7 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'

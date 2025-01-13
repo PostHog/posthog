@@ -46,7 +46,7 @@ import type {
     RecordingOrder,
     RecordingsQuery,
 } from './queries/schema'
-import { NodeKind } from './queries/schema'
+import { NodeKind } from './queries/schema/schema-general'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -4885,4 +4885,10 @@ export enum UserRole {
     Marketing = 'marketing',
     Sales = 'sales',
     Other = 'other',
+}
+
+export type UserGroup = {
+    id: string
+    name: string
+    members: UserBasicType[]
 }
