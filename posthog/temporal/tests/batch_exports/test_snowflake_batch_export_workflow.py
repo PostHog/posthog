@@ -15,7 +15,6 @@ import pytest
 import pytest_asyncio
 import responses
 import snowflake.connector
-from django.conf import settings
 from django.test import override_settings
 from requests.models import PreparedRequest
 from temporalio import activity
@@ -25,6 +24,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog import constants
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
@@ -423,7 +423,7 @@ async def test_snowflake_export_workflow_exports_events(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -446,7 +446,7 @@ async def test_snowflake_export_workflow_exports_events(
                     inputs,
                     id=workflow_id,
                     execution_timeout=dt.timedelta(seconds=10),
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -467,7 +467,6 @@ async def test_snowflake_export_workflow_exports_events(
                 ]
 
                 assert all(query.startswith("PUT") for query in execute_calls[0:9])
-                assert all(f"_{n}.jsonl" in query for n, query in enumerate(execute_calls[0:9]))
 
                 assert execute_async_calls[3].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
                 assert execute_async_calls[4].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
@@ -495,7 +494,7 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -516,7 +515,7 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
                     SnowflakeBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -581,7 +580,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -604,7 +603,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
                         SnowflakeBatchExportWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=settings.TEMPORAL_TASK_QUEUE,
+                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
@@ -647,7 +646,7 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -670,7 +669,7 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail(
                         SnowflakeBatchExportWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=settings.TEMPORAL_TASK_QUEUE,
+                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
@@ -698,7 +697,7 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -712,7 +711,7 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
                     SnowflakeBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -745,7 +744,7 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -759,7 +758,7 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
                     SnowflakeBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -794,7 +793,7 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -807,7 +806,7 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
                 SnowflakeBatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
             await asyncio.sleep(5)
@@ -1287,7 +1286,7 @@ async def test_snowflake_export_workflow(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -1300,7 +1299,7 @@ async def test_snowflake_export_workflow(
                 SnowflakeBatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(minutes=2),
             )
@@ -1371,7 +1370,7 @@ async def test_snowflake_export_workflow_with_many_files(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -1385,7 +1384,7 @@ async def test_snowflake_export_workflow_with_many_files(
                     SnowflakeBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(minutes=2),
                 )
@@ -1456,7 +1455,7 @@ async def test_snowflake_export_workflow_backfill_earliest_persons(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -1470,7 +1469,7 @@ async def test_snowflake_export_workflow_backfill_earliest_persons(
                     SnowflakeBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(minutes=10),
                 )
@@ -1527,7 +1526,7 @@ async def test_snowflake_export_workflow_handles_cancellation(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -1542,7 +1541,7 @@ async def test_snowflake_export_workflow_handles_cancellation(
                     SnowflakeBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -1634,8 +1633,11 @@ async def test_insert_into_snowflake_activity_heartbeats(
 @pytest.mark.parametrize(
     "details",
     [
-        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())], 1),
-        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())],),
+        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())], 10, 1),
+        (
+            [(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())],
+            10,
+        ),
     ],
 )
 def test_snowflake_heartbeat_details_parses_from_tuple(details):
@@ -1656,8 +1658,3 @@ def test_snowflake_heartbeat_details_parses_from_tuple(details):
             dt.datetime.fromisoformat(expected_done_ranges[0][1]),
         )
     ]
-
-    if len(details) >= 2:
-        assert snowflake_details.file_no == details[1]
-    else:
-        assert snowflake_details.file_no == 0

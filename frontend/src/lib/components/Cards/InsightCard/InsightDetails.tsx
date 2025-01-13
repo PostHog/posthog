@@ -24,10 +24,14 @@ import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
+    AnyEntityNode,
     FunnelsQuery,
     InsightQueryNode,
     LifecycleQuery,
+    Node,
+    NodeKind,
     PathsQuery,
+    RetentionQuery,
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema'
@@ -40,6 +44,7 @@ import {
     isInsightVizNode,
     isLifecycleQuery,
     isPathsQuery,
+    isRetentionQuery,
     isTrendsQuery,
     isValidBreakdown,
 } from '~/queries/utils'
@@ -142,6 +147,29 @@ function CompactPropertyFiltersDisplay({
     )
 }
 
+function EntityDisplay({ entity }: { entity: AnyEntityNode }): JSX.Element {
+    return (
+        <>
+            {entity.custom_name && <b> "{entity.custom_name}"</b>}
+            {isActionsNode(entity) ? (
+                <Link
+                    to={urls.action(entity.id)}
+                    className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
+                    title="Action series"
+                >
+                    {entity.name}
+                </Link>
+            ) : isEventsNode(entity) ? (
+                <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
+                    <PropertyKeyInfo value={entity.event || '$pageview'} type={TaxonomicFilterGroupType.Events} />
+                </span>
+            ) : (
+                <i>{entity.kind /* TODO: Support DataWarehouseNode */}</i>
+            )}
+        </>
+    )
+}
+
 function SeriesDisplay({
     query,
     seriesIndex,
@@ -182,22 +210,7 @@ function SeriesDisplay({
         >
             <span>
                 {isFunnelsQuery(query) ? 'Performed' : 'Showing'}
-                {series.custom_name && <b> "{series.custom_name}"</b>}
-                {isActionsNode(series) ? (
-                    <Link
-                        to={urls.action(series.id)}
-                        className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
-                        title="Action series"
-                    >
-                        {series.name}
-                    </Link>
-                ) : isEventsNode(series) ? (
-                    <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                        <PropertyKeyInfo value={series.event || '$pageview'} type={TaxonomicFilterGroupType.Events} />
-                    </span>
-                ) : (
-                    <i>{series.kind /* TODO: Support DataWarehouseNode */}</i>
-                )}
+                <EntityDisplay entity={series} />
                 {!isFunnelsQuery(query) && (
                     <span className="leading-none">
                         counted by{' '}
@@ -249,6 +262,52 @@ function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
     )
 }
 
+function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
+    const { aggregationLabel } = useValues(mathsLogic)
+
+    return (
+        <>
+            {query.aggregation_group_type_index != null
+                ? `${capitalizeFirstLetter(aggregationLabel(query.aggregation_group_type_index).plural)} which`
+                : 'Users who'}
+            {' performed'}
+            <EntityDisplay
+                entity={
+                    {
+                        ...query.retentionFilter.targetEntity,
+                        kind:
+                            query.retentionFilter.targetEntity?.type === 'actions'
+                                ? NodeKind.ActionsNode
+                                : NodeKind.EventsNode,
+                    } as AnyEntityNode
+                }
+            />
+            <strong>
+                {query.retentionFilter.retentionType === 'retention_recurring' ? 'recurringly' : 'for the first time'}
+            </strong>{' '}
+            in the preceding{' '}
+            <strong>
+                {(query.retentionFilter.totalIntervals || 11) - 1}{' '}
+                {query.retentionFilter.period?.toLocaleLowerCase() ?? 'day'}s
+            </strong>
+            <br />
+            and came back to perform
+            <EntityDisplay
+                entity={
+                    {
+                        ...query.retentionFilter.returningEntity,
+                        kind:
+                            query.retentionFilter.returningEntity?.type === 'actions'
+                                ? NodeKind.ActionsNode
+                                : NodeKind.EventsNode,
+                    } as AnyEntityNode
+                }
+            />
+            in any of the next periods
+        </>
+    )
+}
+
 export function SeriesSummary({ query, heading }: { query: InsightQueryNode; heading?: JSX.Element }): JSX.Element {
     return (
         <section>
@@ -267,6 +326,8 @@ export function SeriesSummary({ query, heading }: { query: InsightQueryNode; hea
                 <div className="InsightDetails__series">
                     {isPathsQuery(query) ? (
                         <PathsSummary query={query} />
+                    ) : isRetentionQuery(query) ? (
+                        <RetentionSummary query={query} />
                     ) : isInsightQueryWithSeries(query) ? (
                         <>
                             {query.series.map((_entity, index) => (
@@ -277,8 +338,7 @@ export function SeriesSummary({ query, heading }: { query: InsightQueryNode; hea
                             ))}
                         </>
                     ) : (
-                        /* TODO: Add support for Retention to InsightDetails */
-                        <i>Unavailable for this insight type.</i>
+                        <i>Query summary is not available for {(query as Node).kind} yet</i>
                     )}
                 </div>
             </div>
