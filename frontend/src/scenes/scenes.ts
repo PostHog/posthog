@@ -286,16 +286,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'LLM observability',
         layout: 'app-container',
     },
-    [Scene.EarlyAccessFeatures]: {
-        projectBased: true,
-        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-        activityScope: ActivityScope.EARLY_ACCESS_FEATURE,
-    },
-    [Scene.EarlyAccessFeature]: {
-        projectBased: true,
-        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-        activityScope: ActivityScope.EARLY_ACCESS_FEATURE,
-    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
