@@ -85,7 +85,6 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.alert import are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
-from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
@@ -97,7 +96,6 @@ from posthog.queries.funnels import (
     ClickhouseFunnelTrends,
 )
 from posthog.queries.funnels.utils import get_funnel_order_class
-from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
@@ -747,7 +745,6 @@ class InsightViewSet(
     sharing_enabled_actions = ["retrieve", "list"]
     queryset = Insight.objects_including_soft_deleted.all()
 
-    retention_query_class = Retention
     stickiness_query_class = Stickiness
     parser_classes = (QuerySchemaParser,)
 
@@ -960,8 +957,6 @@ When set, the specified dashboard's filters and date range override will be appl
     # Calculated Insight Endpoints
     # /projects/:id/insights/trend
     # /projects/:id/insights/funnel
-    # /projects/:id/insights/retention
-    # /projects/:id/insights/path
     #
     # Request parameters and caching are handled here and passed onto respective .queries classes
     # ******************************************
@@ -1127,37 +1122,6 @@ When set, the specified dashboard's filters and date range override will be appl
                 "result": funnel_order_class(team=team, filter=filter).run(),
                 "timezone": team.timezone,
             }
-
-    # ******************************************
-    # /projects/:id/insights/retention
-    # params:
-    # - start_entity: (dict) specifies id and type of the entity to focus retention on
-    # - **shared filter types
-    # ******************************************
-    @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
-    def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        capture_legacy_api_call(request, self.team)
-
-        timings = HogQLTimings()
-        try:
-            with timings.measure("calculate"):
-                result = self.calculate_retention(request)
-        except ExposedHogQLError as e:
-            raise ValidationError(str(e))
-
-        result["timings"] = [val.model_dump() for val in timings.to_list()]
-        return Response(result)
-
-    @cached_by_filters
-    def calculate_retention(self, request: request.Request) -> dict[str, Any]:
-        team = self.team
-        data = {}
-        if not request.GET.get("date_from") and not request.data.get("date_from"):
-            data.update({"date_from": "-11d"})
-        filter = RetentionFilter(data=data, request=request, team=self.team)
-        base_uri = request.build_absolute_uri("/")
-        result = self.retention_query_class(base_uri=base_uri).run(filter, team)
-        return {"result": result, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/:short_id/viewed
