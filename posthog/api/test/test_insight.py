@@ -3057,7 +3057,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_insight_funnels_hogql_breakdown(self) -> None:
         with freeze_time("2012-01-15T04:01:34.000Z"):
             _create_person(
