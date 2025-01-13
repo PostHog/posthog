@@ -1,6 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import type { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub } from '../../../src/types'
+import type { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { deepFreeze, UUID7 } from '../../../src/utils/utils'
@@ -61,11 +61,15 @@ describe('cookielessServerHashStep', () => {
         const muchLater = new Date('2025-01-10T19:00:00')
         const differentDay = new Date('2025-01-11T11:00:00')
         const userAgent = 'Test User Agent'
+        const identifiedDistinctId = 'identified@example.com'
         let event: PluginEvent
         let eventABitLater: PluginEvent
         let eventMuchLater: PluginEvent
         let eventDifferentDay: PluginEvent
         let eventOtherUser: PluginEvent
+        let identifyEvent: PluginEvent
+        let identifyEventABitLater: PluginEvent
+        let postIdentifyEvent: PluginEvent
 
         beforeAll(async () => {
             hub = await createHub({})
@@ -78,6 +82,16 @@ describe('cookielessServerHashStep', () => {
                 advanceTimers: true,
             })
         })
+
+        const setModeForTeam = async (mode: number, teamId: number) => {
+            await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
+                [mode, teamId],
+                'set team to cookieless'
+            )
+        }
+
         beforeEach(async () => {
             teamId = await createTeam(hub.db.postgres, organizationId)
             event = deepFreeze({
@@ -114,18 +128,50 @@ describe('cookielessServerHashStep', () => {
                 now: differentDay.toISOString(),
                 uuid: new UUID7(differentDay.getTime()).toString(),
             })
+            identifyEvent = deepFreeze({
+                event: '$identify',
+                distinct_id: identifiedDistinctId,
+                properties: {
+                    [COOKIELESS_MODE_FLAG_PROPERTY]: true,
+                    $anon_distinct_id: COOKIELESS_SENTINEL_VALUE,
+                    $host: 'https://example.com',
+                    $raw_user_agent: userAgent,
+                },
+                ip: '1.2.3.4',
+                site_url: 'https://example.com',
+                team_id: teamId,
+                now: now.toISOString(),
+                uuid: new UUID7(now.getTime()).toString(),
+            })
+            identifyEventABitLater = deepFreeze({
+                ...identifyEvent,
+                now: aBitLater.toISOString(),
+                uuid: new UUID7(aBitLater.getTime()).toString(),
+            })
+            postIdentifyEvent = deepFreeze({
+                event: 'test event',
+                distinct_id: identifiedDistinctId,
+                properties: {
+                    [COOKIELESS_MODE_FLAG_PROPERTY]: true,
+                    $host: 'https://example.com',
+                    $raw_user_agent: userAgent,
+                },
+                ip: '1.2.3.4',
+                site_url: 'https://example.com',
+                team_id: teamId,
+                now: now.toISOString(),
+                uuid: new UUID7(now.getTime()).toString(),
+            })
         })
         afterEach(() => {})
 
-        describe('stateless mode', () => {
+        // tests that are shared between both modes
+        describe.each([
+            ['stateless', 1],
+            ['stateful', 2],
+        ])('common (%s)', (_, mode) => {
             beforeEach(async () => {
-                // set the teams clksh mode to cookieless
-                await hub.db.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    `UPDATE posthog_team SET cookieless_server_hash_mode = 1 WHERE id = $1`,
-                    [teamId],
-                    'set team to cookieless'
-                )
+                await setModeForTeam(mode, teamId)
             })
             it('should give an event a distinct id and session id ', async () => {
                 const [actual] = await cookielessServerHashStep(hub, event)
@@ -137,19 +183,16 @@ describe('cookielessServerHashStep', () => {
                 expect(actual.distinct_id.startsWith('cklsh_')).toBe(true)
                 expect(actual.properties.$session_id).toBeDefined()
             })
-            it('should give the same session id and distinct id to events within the same day and same hash properties', async () => {
+            it('should give the same session id and distinct id to events with the same hash properties and within the same day and session timeout period', async () => {
                 const [actual1] = await cookielessServerHashStep(hub, event)
                 const [actual2] = await cookielessServerHashStep(hub, eventABitLater)
-                const [actual3] = await cookielessServerHashStep(hub, eventMuchLater)
 
-                if (!actual1?.properties || !actual2?.properties || !actual3?.properties) {
+                if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
                 }
                 expect(actual2.distinct_id).toEqual(actual1.distinct_id)
-                expect(actual3.distinct_id).toEqual(actual1.distinct_id)
                 expect(actual1.properties.$session_id).toBeDefined()
                 expect(actual2.properties.$session_id).toEqual(actual1.properties.$session_id)
-                expect(actual3.properties.$session_id).toEqual(actual1.properties.$session_id)
             })
             it('should give different distinct id and session id to a user with a different IP', async () => {
                 const [actual1] = await cookielessServerHashStep(hub, event)
@@ -169,6 +212,109 @@ describe('cookielessServerHashStep', () => {
                 }
                 expect(actual1.distinct_id).not.toEqual(actual2.distinct_id)
                 expect(actual1.properties.$session_id).not.toEqual(actual2.properties.$session_id)
+            })
+            it('should strip the PII used in the hash', async () => {
+                const [actual] = await cookielessServerHashStep(hub, event)
+
+                if (!actual?.properties) {
+                    throw new Error('no event or properties')
+                }
+                expect(actual.ip).toBeNull()
+                expect(actual.properties.$raw_user_user).toBeUndefined()
+                expect(actual.properties.$ip).toBeUndefined()
+                expect(actual.properties.$cklsh_extra).toBeUndefined()
+            })
+        })
+
+        describe('stateless', () => {
+            beforeEach(async () => {
+                await setModeForTeam(1, teamId)
+            })
+
+            it('should provide the same session ID for events within the same day, later than the session timeout', async () => {
+                // this is actually a limitation of this mode, but we have the same test (with a different outcome) for stateful mode
+
+                const [actual1] = await cookielessServerHashStep(hub, event)
+                const [actual2] = await cookielessServerHashStep(hub, eventMuchLater)
+
+                if (!actual1?.properties || !actual2?.properties) {
+                    throw new Error('no event or properties')
+                }
+                expect(actual2.distinct_id).toEqual(actual1.distinct_id)
+                expect(actual1.properties.$session_id).toBeDefined()
+                expect(actual2.properties.$session_id).toEqual(actual1.properties.$session_id)
+            })
+
+            it('should drop identify events', async () => {
+                // this is also a limitation of this mode
+                const [actual1] = await cookielessServerHashStep(hub, identifyEvent)
+                expect(actual1).toBeUndefined()
+            })
+        })
+
+        describe('stateful', () => {
+            beforeEach(async () => {
+                await setModeForTeam(2, teamId)
+            })
+            it('should provide a different session ID after session timeout', async () => {
+                const [actual1] = await cookielessServerHashStep(hub, event)
+                const [actual2] = await cookielessServerHashStep(hub, eventMuchLater)
+
+                if (!actual1?.properties || !actual2?.properties) {
+                    throw new Error('no event or properties')
+                }
+                expect(actual2.distinct_id).toEqual(actual1.distinct_id)
+                expect(actual1.properties.$session_id).toBeDefined()
+                expect(actual2.properties.$session_id).not.toEqual(actual1.properties.$session_id)
+            })
+            it('should handle a user identifying', async () => {
+                const [actual1] = await cookielessServerHashStep(hub, event)
+                const [actual2] = await cookielessServerHashStep(hub, identifyEvent)
+                const [actual3] = await cookielessServerHashStep(hub, postIdentifyEvent)
+
+                if (!actual1?.properties || !actual2?.properties || !actual3?.properties) {
+                    throw new Error('no event or properties')
+                }
+                expect(actual2.properties.$anon_distinct_id).toEqual(actual1.distinct_id)
+
+                expect(actual1.properties.$session_id).toBeDefined()
+                expect(actual2.properties.$session_id).toEqual(actual1.properties.$session_id)
+                expect(actual3.properties.$session_id).toEqual(actual1.properties.$session_id)
+            })
+            it('should handle identify events in an idempotent way', async () => {
+                const [actual1] = await cookielessServerHashStep(hub, event)
+                const [actual2] = await cookielessServerHashStep(hub, identifyEvent)
+                const [actual3] = await cookielessServerHashStep(hub, identifyEvent)
+
+                if (!actual1?.properties || !actual2?.properties || !actual3?.properties) {
+                    throw new Error('no event or properties')
+                }
+                expect(actual2.properties.$anon_distinct_id).toEqual(actual1.distinct_id)
+                expect(actual3.properties.$anon_distinct_id).toEqual(actual1.distinct_id)
+
+                expect(actual1.properties.$session_id).toBeDefined()
+                expect(actual2.properties.$session_id).toEqual(actual1.properties.$session_id)
+                expect(actual3.properties.$session_id).toEqual(actual1.properties.$session_id)
+            })
+            it('should treat anon events after an identify as if there was a logout, and as a different person', async () => {
+                const [actual1] = await cookielessServerHashStep(hub, event)
+                const [actual2] = await cookielessServerHashStep(hub, identifyEvent)
+                const [actual3] = await cookielessServerHashStep(hub, eventABitLater)
+                const [actual4] = await cookielessServerHashStep(hub, identifyEventABitLater)
+
+                if (!actual1?.properties || !actual2?.properties || !actual3?.properties || !actual4?.properties) {
+                    throw new Error('no event or properties')
+                }
+                expect(actual2.properties.$anon_distinct_id).toEqual(actual1.distinct_id)
+                expect(actual3.distinct_id).not.toEqual(actual1.distinct_id)
+                expect(actual4.properties.$anon_distinct_id).toEqual(actual3.distinct_id)
+                expect(actual4.properties.$anon_distinct_id).not.toEqual(actual2.properties.$anon_distinct_id)
+
+                expect(actual1.properties.$session_id).toBeDefined()
+                expect(actual2.properties.$session_id).toEqual(actual1.properties.$session_id)
+                expect(actual3.properties.$session_id).not.toEqual(actual1.properties.$session_id)
+                expect(actual3.properties.$session_id).toBeDefined()
+                expect(actual4.properties.$session_id).toEqual(actual3.properties.$session_id)
             })
         })
     })

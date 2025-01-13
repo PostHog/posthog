@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import * as crypto from 'crypto'
 import { DateTime } from 'luxon'
@@ -192,6 +192,7 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
                 $session_id: createStatelessSessionId(timestampMs, eventTimeZone, teamTimeZone, hashValue),
             },
         }
+        stripPIIProperties(newEvent)
         return [newEvent]
     } else {
         // TRICKY: if a user were to log in and out, to avoid collisions, we would want a different hash value, so we store the set of identify event uuids for identifies
@@ -208,7 +209,11 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
             userAgent,
             hashExtra,
         })
-        event.properties['$device_id'] = hashToDistinctId(baseHashValue)
+
+        const newEvent = { ...event }
+        const newProperties: Properties = { ...event.properties }
+
+        newProperties['$device_id'] = hashToDistinctId(baseHashValue)
         const identifiesRedisKey = getRedisIdentifiesKey(baseHashValue, teamId)
 
         let hashValue: Uint32Array
@@ -232,7 +237,7 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
             })
 
             // set the distinct id to the new hash value
-            event.properties[`$anon_distinct_id`] = hashToDistinctId(hashValue)
+            newProperties['$anon_distinct_id'] = hashToDistinctId(hashValue)
         } else if (event.distinct_id === COOKIELESS_SENTINEL_VALUE) {
             const numIdentifies = await hub.db.redisSCard(identifiesRedisKey)
             hashValue = await doHash(hub.db, {
@@ -247,8 +252,9 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
                 hashExtra,
             })
             // event before identify has been called, distinct id is the sentinel and needs to be replaced
-            event.distinct_id = hashToDistinctId(hashValue)
-            event.properties[`$distinct_id`] = hashValue
+            const distinctId = hashToDistinctId(hashValue)
+            newEvent.distinct_id = distinctId
+            newProperties['$distinct_id'] = distinctId
         } else {
             const numIdentifies = await hub.db.redisSCard(identifiesRedisKey)
 
@@ -291,11 +297,11 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
             )
         }
 
-        event.properties['$session_id'] = sessionState.sessionId
+        newProperties['$session_id'] = sessionState.sessionId
 
-        stripPIIProperties(event)
-
-        return [event]
+        newEvent.properties = newProperties
+        stripPIIProperties(newEvent)
+        return [newEvent]
     }
 }
 
@@ -540,6 +546,7 @@ export function stripPIIProperties(event: PluginEvent) {
         delete event.properties['$raw_user_agent']
         delete event.properties[COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY]
     }
+    event.ip = null
     return event
 }
 
