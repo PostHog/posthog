@@ -11,29 +11,6 @@ import {
 } from '~/queries/schema'
 import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
-import { sparklineLabels } from './utils'
-
-export const SPARKLINE_CONFIGURATIONS: Record<string, ErrorTrackingSparklineConfig> = {
-    '-1d1h': { value: 60, displayAs: 'minute', offsetHours: 24 },
-    '-1d24h': { value: 24, displayAs: 'hour', offsetHours: 24 },
-    '1h': { value: 60, displayAs: 'minute' },
-    '24h': { value: 24, displayAs: 'hour' },
-    '7d': { value: 168, displayAs: 'hour' }, // 7d * 24h = 168h
-    '14d': { value: 336, displayAs: 'hour' }, // 14d * 24h = 336h
-    '90d': { value: 90, displayAs: 'day' },
-    '180d': { value: 26, displayAs: 'week' }, // 180d / 7d = 26 weeks
-    mStart: { value: 31, displayAs: 'day' },
-    yStart: { value: 52, displayAs: 'week' },
-}
-
-const toStartOfIntervalFn = {
-    minute: 'toStartOfMinute',
-    hour: 'toStartOfHour',
-    day: 'toStartOfDay',
-    week: 'toStartOfWeek',
-    month: 'toStartOfMonth',
-}
-
 export const errorTrackingQuery = ({
     orderBy,
     dateRange,
@@ -41,32 +18,22 @@ export const errorTrackingQuery = ({
     filterTestAccounts,
     filterGroup,
     searchQuery,
-    sparklineConfig,
+    customVolume,
     columns,
     limit = 50,
 }: Pick<ErrorTrackingQuery, 'orderBy' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery'> & {
     filterGroup: UniversalFiltersGroup
-    sparklineConfig: ErrorTrackingSparklineConfig | null
-    columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
+    customVolume?: ErrorTrackingSparklineConfig | null
+    columns: ('error' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
 }): DataTableNode => {
-    const select: string[] = []
-
-    if (sparklineConfig) {
-        const data = sparklineData(sparklineConfig)
-        const labels = sparklineLabels(sparklineConfig)
-
-        select.splice(1, 0, `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as volume`)
-        columns.splice(1, 0, 'volume')
-    }
-
     return {
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.ErrorTrackingQuery,
-            select: select,
-            orderBy: orderBy,
-            dateRange: dateRange,
-            assignee: assignee,
+            orderBy,
+            dateRange,
+            assignee,
+            customVolume,
             filterGroup: filterGroup as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
             searchQuery: searchQuery,
@@ -76,12 +43,6 @@ export const errorTrackingQuery = ({
         showTimings: false,
         columns: columns,
     }
-}
-
-export const sparklineData = ({ value, displayAs, offsetHours }: ErrorTrackingSparklineConfig): string => {
-    const offset = offsetHours ?? 0
-    const toStartOfInterval = toStartOfIntervalFn[displayAs]
-    return `reverse(arrayMap(x -> countEqual(groupArray(dateDiff('${displayAs}', ${toStartOfInterval}(timestamp), ${toStartOfInterval}(subtractHours(now(), ${offset})))), x), range(${value})))`
 }
 
 export const errorTrackingIssueQuery = ({

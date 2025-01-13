@@ -60,6 +60,6 @@ export interface ErrorTrackingSymbolSet {
 
 export type ErrorTrackingSparklineConfig = {
     value: number
-    displayAs: 'minute' | 'hour' | 'day' | 'week' | 'month'
+    interval: 'minute' | 'hour' | 'day' | 'week' | 'month'
     offsetHours?: number
 }

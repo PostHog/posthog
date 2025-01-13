@@ -5550,7 +5550,24 @@
                 "users": {
                     "type": "number"
                 },
-                "volume": {}
+                "volumeCustom": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "volumeDay": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "volumeMonth": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                }
             },
             "required": [
                 "id",
@@ -5562,6 +5579,8 @@
                 "first_seen",
                 "last_seen",
                 "earliest",
+                "volumeDay",
+                "volumeMonth",
                 "assignee",
                 "status"
             ],
@@ -5574,6 +5593,16 @@
                     "anyOf": [
                         {
                             "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "customVolume": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingSparklineConfig"
                         },
                         {
                             "type": "null"
@@ -5615,12 +5644,6 @@
                 },
                 "searchQuery": {
                     "type": "string"
-                },
-                "select": {
-                    "items": {
-                        "$ref": "#/definitions/HogQLExpression"
-                    },
-                    "type": "array"
                 }
             },
             "required": ["dateRange", "kind"],
@@ -5675,6 +5698,23 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "ErrorTrackingSparklineConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "interval": {
+                    "enum": ["minute", "hour", "day", "week", "month"],
+                    "type": "string"
+                },
+                "offsetHours": {
+                    "type": "number"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["value", "interval"],
             "type": "object"
         },
         "EventDefinition": {

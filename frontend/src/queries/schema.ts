@@ -1,4 +1,5 @@
 import { DataColorToken } from 'lib/colors'
+import { ErrorTrackingSparklineConfig } from 'lib/components/Errors/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import {
@@ -1989,13 +1990,13 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: string
-    select?: HogQLExpression[]
     orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
     assignee?: integer | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
+    customVolume?: ErrorTrackingSparklineConfig | null
     limit?: integer
     offset?: integer
 }

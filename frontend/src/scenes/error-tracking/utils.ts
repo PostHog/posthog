@@ -21,16 +21,16 @@ export const mergeIssues = (
         [dayjs(primaryIssue.first_seen), dayjs(primaryIssue.last_seen)]
     )
 
-    const volume = primaryIssue.volume
+    // const volume = primaryIssue.volume
 
-    if (volume) {
-        const dataIndex = 3
-        const data = mergingIssues.reduce(
-            (sum: number[], g) => g.volume[dataIndex].map((num: number, idx: number) => num + sum[idx]),
-            primaryIssue.volume[dataIndex]
-        )
-        volume.splice(dataIndex, 1, data)
-    }
+    // if (volume) {
+    //     const dataIndex = 3
+    //     const data = mergingIssues.reduce(
+    //         (sum: number[], g) => g.volume[dataIndex].map((num: number, idx: number) => num + sum[idx]),
+    //         primaryIssue.volume[dataIndex]
+    //     )
+    //     volume.splice(dataIndex, 1, data)
+    // }
 
     return {
         ...primaryIssue,
@@ -39,7 +39,7 @@ export const mergeIssues = (
         users: sum('users'),
         first_seen: firstSeen.toISOString(),
         last_seen: lastSeen.toISOString(),
-        volume: volume,
+        // volume: volume,
     }
 }
 
@@ -110,9 +110,9 @@ export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): bool
     return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
 }
 
-export function sparklineLabels({ value, displayAs, offsetHours }: ErrorTrackingSparklineConfig): string[] {
+export function sparklineLabels({ value, interval, offsetHours }: ErrorTrackingSparklineConfig): string[] {
     const offset = offsetHours ?? 0
-    const now = dayjs().subtract(offset, 'hours').startOf(displayAs)
-    const dates = range(value).map((idx) => now.subtract(value - (idx + 1), displayAs))
+    const now = dayjs().subtract(offset, 'hours').startOf(interval)
+    const dates = range(value).map((idx) => now.subtract(value - (idx + 1), interval))
     return dates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
 }

@@ -1,5 +1,6 @@
 import re
 import structlog
+from operator import itemgetter
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -16,6 +17,14 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.error_tracking import ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
+
+INTERVAL_FUNCTIONS = {
+    "minute": "toStartOfMinute",
+    "hour": "toStartOfHour",
+    "day": "toStartOfDay",
+    "week": "toStartOfWeek",
+    "month": "toStartOfMonth",
+}
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -43,6 +52,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     def select(self):
         exprs: list[ast.Expr] = [
+            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
             ast.Alias(
                 alias="occurrences", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])])
             ),
@@ -58,11 +68,18 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 alias="earliest",
                 expr=ast.Call(name="argMin", args=[ast.Field(chain=["properties"]), ast.Field(chain=["timestamp"])]),
             ),
-            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
+            ast.Alias(alias="volumeDay", expr=self.volume(24, "hour", 0)),
+            ast.Alias(alias="volumeMonth", expr=self.volume(31, "day", 0)),
         ]
 
-        if self.query.select:
-            exprs.extend([parse_expr(x) for x in self.query.select])
+        if self.query.customVolume:
+            value, interval, offset = itemgetter("value", "interval", "offset")(self.query.customVolume)
+            exprs.append(
+                ast.Alias(
+                    alias="volumeCustom",
+                    expr=self.volume(value, interval, offset),
+                )
+            )
 
         return exprs
 
@@ -189,6 +206,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     )
 
         return results
+
+    def volume(self, value, interval, offset):
+        toStartOfInterval = INTERVAL_FUNCTIONS.get(interval)
+        return parse_expr(
+            f"reverse(arrayMap(x -> countEqual(groupArray(dateDiff('{interval}', {toStartOfInterval}(timestamp), {toStartOfInterval}(subtractHours(now(), {offset})))), x), range({value})))"
+        )
 
     @property
     def order_by(self):

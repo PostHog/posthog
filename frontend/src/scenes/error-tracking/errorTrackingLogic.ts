@@ -8,19 +8,6 @@ import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
 
-export const SPARKLINE_CONFIGURATIONS: Record<string, ErrorTrackingSparklineConfig> = {
-    '-1d1h': { value: 60, displayAs: 'minute', offsetHours: 24 },
-    '-1d24h': { value: 24, displayAs: 'hour', offsetHours: 24 },
-    '1h': { value: 60, displayAs: 'minute' },
-    '24h': { value: 24, displayAs: 'hour' },
-    '7d': { value: 168, displayAs: 'hour' }, // 7d * 24h = 168h
-    '14d': { value: 336, displayAs: 'hour' }, // 14d * 24h = 336h
-    '90d': { value: 90, displayAs: 'day' },
-    '180d': { value: 26, displayAs: 'week' }, // 180d / 7d = 26 weeks
-    mStart: { value: 31, displayAs: 'day' },
-    yStart: { value: 52, displayAs: 'week' },
-}
-
 const lastHour = { value: '1h', label: '1h' }
 const lastDay = { value: '24h', label: '24h' }
 const lastMonth = { value: 'mStart', label: 'Month' }
@@ -46,6 +33,41 @@ export const DEFAULT_ERROR_TRACKING_DATE_RANGE = { date_from: '-7d', date_to: nu
 export const DEFAULT_ERROR_TRACKING_FILTER_GROUP = {
     type: FilterLogicalOperator.And,
     values: [{ type: FilterLogicalOperator.And, values: [] }],
+}
+
+const SPARKLINE_CONFIGURATIONS: Record<string, ErrorTrackingSparklineConfig> = {
+    '-1d1h': { value: 60, interval: 'minute', offsetHours: 24 },
+    '-1d24h': { value: 24, interval: 'hour', offsetHours: 24 },
+    '1h': { value: 60, interval: 'minute' },
+    '24h': { value: 24, interval: 'hour' },
+    '7d': { value: 168, interval: 'hour' }, // 7d * 24h = 168h
+    '14d': { value: 336, interval: 'hour' }, // 14d * 24h = 336h
+    '90d': { value: 90, interval: 'day' },
+    '180d': { value: 26, interval: 'week' }, // 180d / 7d = 26 weeks
+    mStart: { value: 31, interval: 'day' },
+    yStart: { value: 52, interval: 'week' },
+}
+
+function constructSparklineConfig(selectedPeriod: string | null): ErrorTrackingSparklineConfig | null {
+    if (!selectedPeriod) {
+        return null
+    }
+
+    if (selectedPeriod in SPARKLINE_CONFIGURATIONS) {
+        return SPARKLINE_CONFIGURATIONS[selectedPeriod]
+    }
+
+    const result = selectedPeriod.match(/\d+|\D+/g)
+
+    if (result) {
+        const [value, unit] = result
+
+        return {
+            value: Number(value) * (unit === 'y' ? 12 : 1),
+            interval: unit === 'h' ? 'hour' : unit === 'd' ? 'day' : unit === 'w' ? 'week' : 'month',
+        }
+    }
+    return { value: 24, interval: 'hour' }
 }
 
 export const errorTrackingLogic = kea<errorTrackingLogicType>([
@@ -115,28 +137,10 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         ],
     }),
     selectors({
-        sparklineConfig: [
+        customVolumeConfig: [
             (s) => [s.sparklineSelectedPeriod],
             (selectedPeriod): ErrorTrackingSparklineConfig | null => {
-                if (!selectedPeriod) {
-                    return null
-                }
-
-                if (selectedPeriod in SPARKLINE_CONFIGURATIONS) {
-                    return SPARKLINE_CONFIGURATIONS[selectedPeriod]
-                }
-
-                const result = selectedPeriod.match(/\d+|\D+/g)
-
-                if (result) {
-                    const [value, unit] = result
-
-                    return {
-                        value: Number(value) * (unit === 'y' ? 12 : 1),
-                        displayAs: unit === 'h' ? 'hour' : unit === 'd' ? 'day' : unit === 'w' ? 'week' : 'month',
-                    }
-                }
-                return { value: 24, displayAs: 'hour' }
+                return constructSparklineConfig(selectedPeriod)
             },
         ],
     }),
