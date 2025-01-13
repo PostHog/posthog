@@ -58,7 +58,7 @@ def execute_hogql_query(
     if context is None:
         context = HogQLContext(team_id=team.pk)
         with context.timings.measure("create_hogql_database"):
-            context.database = create_hogql_database(team.pk, context.modifiers, team)
+            context.database = create_hogql_database(team.pk, team_arg=team)
 
     query_modifiers = create_default_modifiers_for_team(team, modifiers)
     debug = modifiers is not None and modifiers.debug
