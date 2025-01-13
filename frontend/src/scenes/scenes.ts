@@ -20,6 +20,8 @@ import {
     ReplayTabs,
 } from '~/types'
 
+import { BillingSectionId } from './billing/types'
+
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
 export const preloadedScenes: Record<string, LoadedScene> = {
@@ -85,6 +87,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Web analytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
+    },
+    [Scene.WebAnalyticsCoreWebVitals]: {
+        projectBased: true,
+        name: 'Core Web Vitals',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/core-web-vitals', // TODO: Add docs
     },
     [Scene.Cohort]: {
         projectBased: true,
@@ -204,6 +212,18 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
+    [Scene.ExperimentsSharedMetric]: {
+        projectBased: true,
+        name: 'Shared metric',
+        defaultDocsPath: '/docs/experiments/creating-an-experiment',
+        activityScope: ActivityScope.EXPERIMENT,
+    },
+    [Scene.ExperimentsSharedMetrics]: {
+        projectBased: true,
+        name: 'Shared metrics',
+        defaultDocsPath: '/docs/experiments/creating-an-experiment',
+        activityScope: ActivityScope.EXPERIMENT,
+    },
     [Scene.FeatureFlags]: {
         projectBased: true,
         name: 'Feature flags',
@@ -237,12 +257,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
-    [Scene.DataModel]: {
-        projectBased: true,
-        name: 'Visualize person schema',
-        defaultDocsPath: '/docs/data-datawarehouse',
-        layout: 'app-canvas',
-    },
     [Scene.DataWarehouse]: {
         projectBased: true,
         name: 'Data warehouse',
@@ -267,6 +281,21 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Data warehouse table',
         defaultDocsPath: '/docs/data-warehouse',
     },
+    [Scene.LLMObservability]: {
+        projectBased: true,
+        name: 'LLM observability',
+        layout: 'app-container',
+    },
+    [Scene.EarlyAccessFeatures]: {
+        projectBased: true,
+        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
+        activityScope: ActivityScope.EARLY_ACCESS_FEATURE,
+    },
+    [Scene.EarlyAccessFeature]: {
+        projectBased: true,
+        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
+        activityScope: ActivityScope.EARLY_ACCESS_FEATURE,
+    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
@@ -289,6 +318,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Products]: {
         projectBased: true,
         hideProjectNotice: true,
+        layout: 'app-raw',
     },
     [Scene.Onboarding]: {
         projectBased: true,
@@ -359,6 +389,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         hideProjectNotice: true,
         organizationBased: true,
         defaultDocsPath: '/pricing',
+    },
+    [Scene.BillingSection]: {
+        name: 'Billing',
+        hideProjectNotice: true,
+        organizationBased: true,
     },
     [Scene.BillingAuthorizationStatus]: {
         hideProjectNotice: true,
@@ -484,6 +519,8 @@ export const redirects: Record<
     '/batch_exports': urls.pipeline(PipelineTab.Destinations),
     '/apps': urls.pipeline(PipelineTab.Overview),
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
+    '/messaging': urls.messagingBroadcasts(),
+    '/settings/organization-rbac': urls.settings('organization-roles'),
     ...productRedirects,
 }
 
@@ -509,6 +546,7 @@ export const routes: Record<string, Scene | string> = {
     [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.webAnalytics()]: Scene.WebAnalytics,
+    [urls.webAnalyticsCoreWebVitals()]: Scene.WebAnalytics,
     [urls.actions()]: Scene.DataManagement,
     [urls.eventDefinitions()]: Scene.DataManagement,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
@@ -543,6 +581,8 @@ export const routes: Record<string, Scene | string> = {
     [urls.cohort(':id')]: Scene.Cohort,
     [urls.cohorts()]: Scene.PersonsManagement,
     [urls.experiments()]: Scene.Experiments,
+    [urls.experimentsSharedMetrics()]: Scene.ExperimentsSharedMetrics,
+    [urls.experimentsSharedMetric(':id')]: Scene.ExperimentsSharedMetric,
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.errorTracking()]: Scene.ErrorTracking,
     [urls.errorTrackingConfiguration()]: Scene.ErrorTrackingConfiguration,
@@ -550,7 +590,6 @@ export const routes: Record<string, Scene | string> = {
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,
-    [urls.dataModel()]: Scene.DataModel,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
     [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
@@ -566,6 +605,7 @@ export const routes: Record<string, Scene | string> = {
     [urls.max()]: Scene.Max,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationBilling()]: Scene.Billing,
+    [urls.organizationBillingSection(':section' as BillingSectionId)]: Scene.BillingSection,
     [urls.billingAuthorizationStatus()]: Scene.BillingAuthorizationStatus,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
@@ -604,5 +644,6 @@ export const routes: Record<string, Scene | string> = {
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
     [urls.heatmaps()]: Scene.Heatmaps,
     [urls.sessionAttributionExplorer()]: Scene.SessionAttributionExplorer,
+    [urls.llmObservability()]: Scene.LLMObservability,
     ...productRoutes,
 }

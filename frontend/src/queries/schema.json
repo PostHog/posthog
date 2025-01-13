@@ -546,22 +546,6 @@
             },
             "type": "object"
         },
-        "AssistantCompareFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "compare": {
-                    "default": false,
-                    "description": "Whether to compare the current date range to a previous date range.",
-                    "type": "boolean"
-                },
-                "compare_to": {
-                    "default": "-7d",
-                    "description": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
-                    "type": "string"
-                }
-            },
-            "type": "object"
-        },
         "AssistantDateTimePropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -585,8 +569,34 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message"],
+            "enum": ["status", "message", "conversation"],
             "type": "string"
+        },
+        "AssistantForm": {
+            "additionalProperties": false,
+            "properties": {
+                "options": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantFormOption"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["options"],
+            "type": "object"
+        },
+        "AssistantFormOption": {
+            "additionalProperties": false,
+            "properties": {
+                "value": {
+                    "type": "string"
+                },
+                "variant": {
+                    "type": "string"
+                }
+            },
+            "required": ["value"],
+            "type": "object"
         },
         "AssistantFunnelsBreakdownFilter": {
             "additionalProperties": false,
@@ -742,7 +752,7 @@
                     "description": "Breakdown the chart by a property"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantInsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -1043,27 +1053,11 @@
                 }
             ]
         },
-        "AssistantInsightDateRange": {
-            "additionalProperties": false,
-            "properties": {
-                "date_from": {
-                    "default": "-7d",
-                    "description": "Start date. The value can be:\n- a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-1w` for 1 week ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.\n- an absolute ISO 8601 date string. a constant `yStart` for the current year start. a constant `mStart` for the current month start. a constant `dStart` for the current day start. Prefer using relative dates.",
-                    "type": ["string", "null"]
-                },
-                "date_to": {
-                    "default": null,
-                    "description": "Right boundary of the date range. Use `null` for the current date. You can not use relative dates here.",
-                    "type": ["string", "null"]
-                }
-            },
-            "type": "object"
-        },
         "AssistantInsightsQueryBase": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantInsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -1092,9 +1086,11 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "description": "We only need this \"done\" value to tell when the particular message is finished during its streaming. It won't be necessary when we optimize streaming to NOT send the entire message every time a character is added.",
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
+                },
+                "meta": {
+                    "$ref": "#/definitions/AssistantMessageMetadata"
                 },
                 "type": {
                     "const": "ai",
@@ -1102,6 +1098,15 @@
                 }
             },
             "required": ["type", "content"],
+            "type": "object"
+        },
+        "AssistantMessageMetadata": {
+            "additionalProperties": false,
+            "properties": {
+                "form": {
+                    "$ref": "#/definitions/AssistantForm"
+                }
+            },
             "type": "object"
         },
         "AssistantMessageType": {
@@ -1127,6 +1132,83 @@
                     "$ref": "#/definitions/AssistantGroupPropertyFilter"
                 }
             ]
+        },
+        "AssistantRetentionFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "cumulative": {
+                    "description": "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.",
+                    "type": "boolean"
+                },
+                "period": {
+                    "$ref": "#/definitions/RetentionPeriod",
+                    "default": "Day",
+                    "description": "Retention period, the interval to track cohorts by."
+                },
+                "retentionReference": {
+                    "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",
+                    "enum": ["total", "previous"],
+                    "type": "string"
+                },
+                "retentionType": {
+                    "$ref": "#/definitions/RetentionType",
+                    "description": "Retention type: recurring or first time. Recurring retention counts a user as part of a cohort if they performed the cohort event during that time period, irrespective of it was their first time or not. First time retention only counts a user as part of the cohort if it was their first time performing the cohort event."
+                },
+                "returningEntity": {
+                    "$ref": "#/definitions/RetentionEntity",
+                    "description": "Retention event (event marking the user coming back)."
+                },
+                "showMean": {
+                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
+                    "type": "boolean"
+                },
+                "targetEntity": {
+                    "$ref": "#/definitions/RetentionEntity",
+                    "description": "Activation event (event putting the actor into the initial cohort)."
+                },
+                "totalIntervals": {
+                    "default": 11,
+                    "description": "How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial cohort).",
+                    "type": "integer"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantRetentionQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "RetentionQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters for all series",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "retentionFilter": {
+                    "$ref": "#/definitions/AssistantRetentionFilter",
+                    "description": "Properties specific to the retention insight"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["kind", "retentionFilter"],
+            "type": "object"
         },
         "AssistantSetPropertyFilter": {
             "additionalProperties": false,
@@ -1365,7 +1447,7 @@
                     "description": "Compare to date range"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantInsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -1469,8 +1551,25 @@
             ],
             "type": "string"
         },
+        "BaseAssistantMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "BaseMathType": {
-            "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session", "first_time_for_user"],
+            "enum": [
+                "total",
+                "dau",
+                "weekly_active",
+                "monthly_active",
+                "unique_session",
+                "first_time_for_user",
+                "first_matching_event_for_user"
+            ],
             "type": "string"
         },
         "BinCountValue": {
@@ -2148,6 +2247,9 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "stats_version": {
+                    "type": "integer"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -2245,6 +2347,9 @@
                 },
                 "significant": {
                     "type": "boolean"
+                },
+                "stats_version": {
+                    "type": "integer"
                 },
                 "timezone": {
                     "type": "string"
@@ -3792,9 +3897,12 @@
             "additionalProperties": false,
             "properties": {
                 "compare": {
+                    "default": false,
+                    "description": "Whether to compare the current date range to a previous date range.",
                     "type": "boolean"
                 },
                 "compare_to": {
+                    "description": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
                     "type": "string"
                 }
             },
@@ -3836,6 +3944,7 @@
                 "min_count_per_actor",
                 "max_count_per_actor",
                 "median_count_per_actor",
+                "p75_count_per_actor",
                 "p90_count_per_actor",
                 "p95_count_per_actor",
                 "p99_count_per_actor"
@@ -3872,7 +3981,7 @@
             "type": "object"
         },
         "CustomChannelField": {
-            "enum": ["utm_source", "utm_medium", "utm_campaign", "referring_domain"],
+            "enum": ["utm_source", "utm_medium", "utm_campaign", "referring_domain", "url", "pathname", "hostname"],
             "type": "string"
         },
         "CustomChannelOperator": {
@@ -3935,6 +4044,26 @@
                 }
             },
             "type": "object"
+        },
+        "DataColorToken": {
+            "enum": [
+                "preset-1",
+                "preset-2",
+                "preset-3",
+                "preset-4",
+                "preset-5",
+                "preset-6",
+                "preset-7",
+                "preset-8",
+                "preset-9",
+                "preset-10",
+                "preset-11",
+                "preset-12",
+                "preset-13",
+                "preset-14",
+                "preset-15"
+            ],
+            "type": "string"
         },
         "DataTableNode": {
             "additionalProperties": false,
@@ -4521,6 +4650,9 @@
                                 "significant": {
                                     "type": "boolean"
                                 },
+                                "stats_version": {
+                                    "type": "integer"
+                                },
                                 "variants": {
                                     "items": {
                                         "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
@@ -4584,6 +4716,9 @@
                                 },
                                 "significant": {
                                     "type": "boolean"
+                                },
+                                "stats_version": {
+                                    "type": "integer"
                                 },
                                 "variants": {
                                     "items": {
@@ -5385,6 +5520,9 @@
                 "description": {
                     "type": ["string", "null"]
                 },
+                "earliest": {
+                    "type": "string"
+                },
                 "first_seen": {
                     "format": "date-time",
                     "type": "string"
@@ -5423,6 +5561,7 @@
                 "users",
                 "first_seen",
                 "last_seen",
+                "earliest",
                 "assignee",
                 "status"
             ],
@@ -5636,6 +5775,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/EventTaxonomyQueryResponse"
@@ -6042,6 +6187,9 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "stats_version": {
+                    "type": "integer"
+                },
                 "variants": {
                     "items": {
                         "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
@@ -6140,6 +6288,9 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "stats_version": {
+                    "type": "integer"
+                },
                 "variants": {
                     "items": {
                         "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
@@ -6200,16 +6351,15 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "const": true,
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "type": {
                     "const": "ai/failure",
                     "type": "string"
                 }
             },
-            "required": ["type", "done"],
+            "required": ["type"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -6766,6 +6916,13 @@
                     "$ref": "#/definitions/FunnelLayout",
                     "default": "vertical"
                 },
+                "resultCustomizations": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ResultCustomizationByValue"
+                    },
+                    "description": "Customizations for the appearance of result datasets.",
+                    "type": "object"
+                },
                 "useUdf": {
                     "type": "boolean"
                 }
@@ -6852,8 +7009,12 @@
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7245,6 +7406,12 @@
                 "query": {
                     "type": "string"
                 },
+                "table_names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "warnings": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -7337,6 +7504,9 @@
             "additionalProperties": false,
             "description": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
             "properties": {
+                "bounceRateDurationSeconds": {
+                    "type": "number"
+                },
                 "bounceRatePageViewMode": {
                     "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
                     "type": "string"
@@ -7533,17 +7703,15 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "const": true,
-                    "description": "Human messages are only appended when done.",
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "type": {
                     "const": "human",
                     "type": "string"
                 }
             },
-            "required": ["type", "content", "done"],
+            "required": ["type", "content"],
             "type": "object"
         },
         "InsightActorsQuery": {
@@ -7766,24 +7934,6 @@
             },
             "type": "object"
         },
-        "InsightDateRange": {
-            "additionalProperties": false,
-            "properties": {
-                "date_from": {
-                    "default": "-7d",
-                    "type": ["string", "null"]
-                },
-                "date_to": {
-                    "type": ["string", "null"]
-                },
-                "explicitDate": {
-                    "default": false,
-                    "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
-                    "type": ["boolean", "null"]
-                }
-            },
-            "type": "object"
-        },
         "InsightFilter": {
             "anyOf": [
                 {
@@ -7945,8 +8095,12 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8002,8 +8156,12 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8059,8 +8217,12 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8116,8 +8278,12 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8173,8 +8339,12 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8283,8 +8453,12 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8692,8 +8866,12 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -8960,7 +9138,7 @@
             "type": "object"
         },
         "PropertyMathType": {
-            "enum": ["avg", "sum", "min", "max", "median", "p90", "p95", "p99"],
+            "enum": ["avg", "sum", "min", "max", "median", "p75", "p90", "p95", "p99"],
             "type": "string"
         },
         "PropertyOperator": {
@@ -9406,6 +9584,12 @@
                         "query": {
                             "type": "string"
                         },
+                        "table_names": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
                         "warnings": {
                             "items": {
                                 "$ref": "#/definitions/HogQLNotice"
@@ -9791,6 +9975,9 @@
                         "significant": {
                             "type": "boolean"
                         },
+                        "stats_version": {
+                            "type": "integer"
+                        },
                         "variants": {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
@@ -9854,6 +10041,9 @@
                         },
                         "significant": {
                             "type": "boolean"
+                        },
+                        "stats_version": {
+                            "type": "integer"
                         },
                         "variants": {
                             "items": {
@@ -10419,6 +10609,9 @@
                         "significant": {
                             "type": "boolean"
                         },
+                        "stats_version": {
+                            "type": "integer"
+                        },
                         "variants": {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
@@ -10482,6 +10675,9 @@
                         },
                         "significant": {
                             "type": "boolean"
+                        },
+                        "stats_version": {
+                            "type": "integer"
                         },
                         "variants": {
                             "items": {
@@ -11137,9 +11333,8 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "const": true,
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "substeps": {
                     "items": {
@@ -11152,7 +11347,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "content", "done"],
+            "required": ["type", "content"],
             "type": "object"
         },
         "RecordingOrder": {
@@ -11340,6 +11535,58 @@
                 }
             ]
         },
+        "ResultCustomization": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ResultCustomizationByValue"
+                },
+                {
+                    "$ref": "#/definitions/ResultCustomizationByPosition"
+                }
+            ]
+        },
+        "ResultCustomizationBase": {
+            "additionalProperties": false,
+            "properties": {
+                "color": {
+                    "$ref": "#/definitions/DataColorToken"
+                }
+            },
+            "required": ["color"],
+            "type": "object"
+        },
+        "ResultCustomizationBy": {
+            "enum": ["value", "position"],
+            "type": "string"
+        },
+        "ResultCustomizationByPosition": {
+            "additionalProperties": false,
+            "properties": {
+                "assignmentBy": {
+                    "const": "position",
+                    "type": "string"
+                },
+                "color": {
+                    "$ref": "#/definitions/DataColorToken"
+                }
+            },
+            "required": ["assignmentBy", "color"],
+            "type": "object"
+        },
+        "ResultCustomizationByValue": {
+            "additionalProperties": false,
+            "properties": {
+                "assignmentBy": {
+                    "const": "value",
+                    "type": "string"
+                },
+                "color": {
+                    "$ref": "#/definitions/DataColorToken"
+                }
+            },
+            "required": ["assignmentBy", "color"],
+            "type": "object"
+        },
         "RetentionEntity": {
             "additionalProperties": false,
             "properties": {
@@ -11382,6 +11629,7 @@
                     "default": "Day"
                 },
                 "retentionReference": {
+                    "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",
                     "enum": ["total", "previous"],
                     "type": "string"
                 },
@@ -11415,6 +11663,7 @@
                     "$ref": "#/definitions/RetentionPeriod"
                 },
                 "retention_reference": {
+                    "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",
                     "enum": ["total", "previous"],
                     "type": "string"
                 },
@@ -11454,8 +11703,12 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -11599,17 +11852,15 @@
                 "content": {
                     "type": "string"
                 },
-                "done": {
-                    "const": true,
-                    "description": "Router messages are not streamed, so they can only be done.",
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
                 },
                 "type": {
                     "const": "ai/router",
                     "type": "string"
                 }
             },
-            "required": ["type", "content", "done"],
+            "required": ["type", "content"],
             "type": "object"
         },
         "SamplingRate": {
@@ -12126,8 +12377,12 @@
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -12502,6 +12757,9 @@
         "TrendsAlertConfig": {
             "additionalProperties": false,
             "properties": {
+                "check_ongoing_interval": {
+                    "type": "boolean"
+                },
                 "series_index": {
                     "type": "integer"
                 },
@@ -12544,6 +12802,31 @@
                         "type": "integer"
                     },
                     "type": "array"
+                },
+                "resultCustomizationBy": {
+                    "$ref": "#/definitions/ResultCustomizationBy",
+                    "default": "value",
+                    "description": "Wether result datasets are associated by their values or by their order."
+                },
+                "resultCustomizations": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByValue"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByPosition"
+                            },
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    ],
+                    "description": "Customizations for the appearance of result datasets."
                 },
                 "showAlertThresholdLines": {
                     "default": false,
@@ -12666,8 +12949,23 @@
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range"
                 },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Whether we should be comparing against a specific conversion goal"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -12775,11 +13073,17 @@
                         },
                         {
                             "$ref": "#/definitions/AssistantFunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantRetentionQuery"
                         }
                     ]
                 },
-                "done": {
-                    "type": "boolean"
+                "id": {
+                    "type": "string"
+                },
+                "initiator": {
+                    "type": "string"
                 },
                 "plan": {
                     "type": "string"
@@ -12858,6 +13162,9 @@
         "WebExternalClicksTableQuery": {
             "additionalProperties": false,
             "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
                 "conversionGoal": {
                     "anyOf": [
                         {
@@ -12971,6 +13278,9 @@
         "WebGoalsQuery": {
             "additionalProperties": false,
             "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
                 "conversionGoal": {
                     "anyOf": [
                         {
@@ -13110,8 +13420,8 @@
         "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
-                "compare": {
-                    "type": "boolean"
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
                 },
                 "conversionGoal": {
                     "anyOf": [
@@ -13217,6 +13527,7 @@
                 "InitialPage",
                 "ExitPage",
                 "ExitClick",
+                "ScreenName",
                 "InitialChannelType",
                 "InitialReferringDomain",
                 "InitialUTMSource",
@@ -13227,6 +13538,7 @@
                 "InitialUTMSourceMediumCampaign",
                 "Browser",
                 "OS",
+                "Viewport",
                 "DeviceType",
                 "Country",
                 "Region",
@@ -13241,6 +13553,9 @@
             "properties": {
                 "breakdownBy": {
                     "$ref": "#/definitions/WebStatsBreakdown"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
                 },
                 "conversionGoal": {
                     "anyOf": [
@@ -13371,6 +13686,9 @@
                 }
             },
             "type": "object"
+        },
+        "numerical_key": {
+            "type": "string"
         }
     }
 }

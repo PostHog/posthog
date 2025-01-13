@@ -29,7 +29,7 @@ import {
 import type { codeEditorLogicType } from './codeEditorLogicType'
 
 export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
-export const activemodelStateKey = (key: string | number): string => `${key}/activeModelUri`
+export const activeModelStateKey = (key: string | number): string => `${key}/activeModelUri`
 
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 
@@ -50,6 +50,8 @@ export interface CodeEditorLogicProps {
     globals?: Record<string, any>
     multitab?: boolean
     onError?: (error: string | null, isValidView: boolean) => void
+    onMetadata?: (metadata: HogQLMetadataResponse | null) => void
+    onMetadataLoading?: (loading: boolean) => void
 }
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
@@ -77,11 +79,13 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 reloadMetadata: async (_, breakpoint) => {
                     const model = props.editor?.getModel()
                     if (!model || !props.monaco || !METADATA_LANGUAGES.includes(props.language as HogLanguage)) {
+                        props.onMetadata?.(null)
                         return null
                     }
                     await breakpoint(300)
                     const query = props.query
                     if (query === '') {
+                        props.onMetadata?.(null)
                         return null
                     }
 
@@ -100,6 +104,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         variables,
                     })
                     breakpoint()
+                    props.onMetadata?.(response)
                     return [query, response]
                 },
             },
@@ -204,7 +209,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
 
             if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] || values.featureFlags[FEATURE_FLAGS.SQL_EDITOR]) {
                 const path = modelName.path.split('/').pop()
-                path && props.multitab && actions.setLocalState(activemodelStateKey(props.key), path)
+                path && props.multitab && actions.setLocalState(activeModelStateKey(props.key), path)
             }
         },
         deleteModel: ({ modelName }) => {
@@ -278,6 +283,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         },
         error: (error) => {
             props.onError?.(error, values.isValidView)
+        },
+        metadataLoading: (loading) => {
+            props.onMetadataLoading?.(loading)
         },
     })),
     propsChanged(({ actions, props }, oldProps) => {

@@ -34,6 +34,7 @@ async def start_worker(
         client_key,
         runtime=runtime,
     )
+
     worker = Worker(
         client,
         task_queue=task_queue,

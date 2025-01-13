@@ -46,7 +46,6 @@ pub async fn flags(
     let context = RequestContext {
         state,
         ip,
-        meta: meta.0,
         headers,
         body,
     };

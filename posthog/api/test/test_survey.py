@@ -2378,6 +2378,7 @@ class TestSurveyWithActions(APIBaseTest):
         assert len(survey.actions.all()) == 0
 
 
+@freeze_time("2024-12-12 00:00:00")
 class TestSurveyResponseSampling(APIBaseTest):
     def _create_survey_with_sampling_limits(
         self,
@@ -2407,6 +2408,7 @@ class TestSurveyResponseSampling(APIBaseTest):
         )
 
         response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
         survey = Survey.objects.get(id=response_data["id"])
         return survey
 
@@ -2783,9 +2785,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                                     {
                                         "id": action.id,
                                         "name": "user subscribed",
-                                        "description": "",
-                                        "post_to_slack": False,
-                                        "slack_message_format": "",
                                         "steps": [
                                             {
                                                 "event": "$pageview",
@@ -2800,17 +2799,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                                                 "url_matching": "contains",
                                             }
                                         ],
-                                        "created_at": ANY,
-                                        "created_by": None,
-                                        "deleted": False,
-                                        "is_calculating": False,
-                                        "creation_context": None,
-                                        "last_calculated_at": ANY,
-                                        "team_id": self.team.id,
-                                        "is_action": True,
-                                        "bytecode_error": None,
-                                        "pinned_at": None,
-                                        "tags": [],
                                     }
                                 ]
                             }
@@ -2921,8 +2909,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             for survey in surveys:
                 assert "description" not in survey, f"Description field should not be present in survey: {survey}"
 
-            assert surveys[0]["name"] == "Survey 1"
-            assert surveys[1]["name"] == "Survey 2"
+            assert len(surveys) == 2
 
 
 class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):

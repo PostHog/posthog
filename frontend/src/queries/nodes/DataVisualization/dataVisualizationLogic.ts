@@ -1,7 +1,7 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { dayjs } from 'lib/dayjs'
-import { lightenDarkenColor, RGBToHex, uuid } from 'lib/utils'
+import { lightenDarkenColor, objectsEqual, RGBToHex, uuid } from 'lib/utils'
 import mergeObject from 'lodash.merge'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -178,6 +178,9 @@ export const convertTableValue = (
 }
 
 const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
+    if (type.indexOf('Tuple') !== -1) {
+        return 'TUPLE'
+    }
     if (type.indexOf('Int') !== -1) {
         return 'INTEGER'
     }
@@ -203,8 +206,8 @@ const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
     return type as ColumnScalar
 }
 
-const isNumericalType = (type: string): boolean => {
-    if (type.indexOf('Int') !== -1 || type.indexOf('Float') !== -1 || type.indexOf('Decimal') !== -1) {
+const isNumericalType = (type: ColumnScalar): boolean => {
+    if (type === 'INTEGER' || type === 'FLOAT' || type === 'DECIMAL') {
         return true
     }
 
@@ -242,6 +245,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             ['loadData'],
         ],
     })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.query && !objectsEqual(props.query, oldProps.query)) {
+            actions._setQuery(props.query)
+        }
+    }),
     props({ query: { source: {} } } as DataVisualizationLogicProps),
     actions(({ values }) => ({
         setVisualizationType: (visualizationType: ChartDisplayType) => ({ visualizationType }),
@@ -280,12 +288,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             colorMode: values.isDarkModeOn ? 'dark' : 'light',
         }),
         setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
+        _setQuery: (node: DataVisualizationNode) => ({ node }),
     })),
     reducers(({ props }) => ({
         query: [
             props.query,
             {
                 setQuery: (_, { node }) => node,
+                _setQuery: (_, { node }) => node,
             },
         ],
         visualizationType: [
@@ -540,11 +550,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 return columns.map((column, index) => {
                     const type = types[index]?.[1]
+                    const friendlyClickhouseTypeName = toFriendlyClickhouseTypeName(type)
+
                     return {
                         name: column,
                         type: {
-                            name: toFriendlyClickhouseTypeName(type),
-                            isNumerical: isNumericalType(type),
+                            name: friendlyClickhouseTypeName,
+                            isNumerical: isNumericalType(friendlyClickhouseTypeName),
                         },
                         label: `${column} - ${type}`,
                         dataIndex: index,
@@ -583,7 +595,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (state, props) => [props.key, state.dashboardId],
             (key, dashboardId) => {
                 // Key for SQL editor based visiaulizations
-                return !key.includes('SQLEditorScene') && !dashboardId
+                return !key.includes('new-SQL') && !dashboardId
             },
         ],
         sourceFeatures: [(_, props) => [props.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],

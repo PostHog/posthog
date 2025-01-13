@@ -19,7 +19,7 @@ from drf_spectacular.views import (
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
-from revproxy.views import ProxyView
+
 from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
@@ -211,7 +211,6 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
-    path("site_function/<str:id>/<str:hash>/", site_app.get_site_function),
     path("array/<str:token>/config", remote_config.RemoteConfigAPIView.as_view()),
     path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
     path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
@@ -248,9 +247,6 @@ if settings.DEBUG:
     # external clients cannot see them. See the gunicorn setup for details on
     # what we do.
     urlpatterns.append(path("_metrics", ExportToDjangoView))
-
-    # Reverse-proxy all of /i/* to capture-rs on port 3000 when running the local devenv
-    urlpatterns.append(re_path(r"(?P<path>^i/.*)", ProxyView.as_view(upstream="http://localhost:3000")))
 
 
 if settings.TEST:

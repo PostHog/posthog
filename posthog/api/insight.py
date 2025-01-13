@@ -1,5 +1,6 @@
 import json
 from functools import lru_cache
+import logging
 from typing import Any, Optional, Union, cast
 
 import posthoganalytics
@@ -89,6 +90,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -169,6 +171,24 @@ def log_and_report_insight_activity(
                 {"insight_id": insight_short_id, **properties},
                 groups=(groups(organization, team) if team_id else groups(organization)),
             )
+
+
+def capture_legacy_api_call(request: request.Request, team: Team):
+    try:
+        event = "legacy insight endpoint called"
+        distinct_id: str = request.user.distinct_id  # type: ignore
+        properties = {
+            "path": request._request.path,
+            "method": request._request.method,
+            "use_hogql": False,
+            "filter": get_filter(request=request, team=team),
+            "was_impersonated": is_impersonated_session(request),
+        }
+
+        posthoganalytics.capture(distinct_id, event, properties, groups=(groups(team.organization, team)))
+    except Exception as e:
+        logging.exception(f"Error in capture_legacy_api_call: {e}")
+        pass
 
 
 class QuerySchemaParser(JSONParser):
@@ -969,6 +989,8 @@ When set, the specified dashboard's filters and date range override will be appl
     )
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
+        capture_legacy_api_call(request, self.team)
+
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
@@ -1055,6 +1077,8 @@ When set, the specified dashboard's filters and date range override will be appl
     )
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        capture_legacy_api_call(request, self.team)
+
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
@@ -1097,6 +1121,8 @@ When set, the specified dashboard's filters and date range override will be appl
     # ******************************************
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        capture_legacy_api_call(request, self.team)
+
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
@@ -1127,6 +1153,8 @@ When set, the specified dashboard's filters and date range override will be appl
     # ******************************************
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def path(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        capture_legacy_api_call(request, self.team)
+
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
@@ -1184,7 +1212,7 @@ When set, the specified dashboard's filters and date range override will be appl
         page = int(request.query_params.get("page", "1"))
 
         item_id = kwargs["pk"]
-        if not Insight.objects.filter(id=item_id, team_id=self.team_id).exists():
+        if not Insight.objects.filter(id=item_id, team__project_id=self.team.project_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(

@@ -8,7 +8,7 @@ import { CompareFilter as CompareFilterType } from '~/queries/schema'
 type CompareFilterProps = {
     compareFilter?: CompareFilterType | null
     updateCompareFilter: (compareFilter: CompareFilterType) => void
-    disabled: boolean
+    disabled?: boolean
 }
 
 export function CompareFilter({

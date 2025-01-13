@@ -311,7 +311,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --radius-sm: 0.25rem; // Increased from Tailwind's default of 0.125rem
     --radius-lg: 0.625rem; // Increased from Tailwind's default of 0.5rem
     --modal-shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
-    --opacity-disabled: 0.6;
+    --opacity-disabled: 0.65;
     --font-medium: 500;
     --font-semibold: 600;
     --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', helvetica, arial,

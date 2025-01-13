@@ -37,6 +37,7 @@ import {
     DashboardTemplateListParams,
     DashboardTemplateType,
     DashboardType,
+    DataColorThemeModel,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -54,11 +55,13 @@ import {
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
     FeatureFlagAssociatedRoleType,
+    FeatureFlagStatusResponse,
     FeatureFlagType,
     Group,
     GroupListParams,
     HogFunctionIconResponse,
     HogFunctionStatus,
+    HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
@@ -424,8 +427,8 @@ class ApiRequest {
         return this.events(teamId).addPathComponent(id)
     }
 
-    public tags(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('tags')
+    public tags(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('tags')
     }
 
     // # Data management
@@ -520,8 +523,11 @@ class ApiRequest {
         return this.dashboards(teamId).addPathComponent(dashboardId)
     }
 
-    public dashboardCollaborators(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.dashboardsDetail(dashboardId, teamId).addPathComponent('collaborators')
+    public dashboardCollaborators(
+        dashboardId: DashboardType['id'],
+        projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId() // Collaborators endpoint is project-level, not team-level
+    ): ApiRequest {
+        return this.dashboardsDetail(dashboardId, projectId).addPathComponent('collaborators')
     }
 
     public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -531,9 +537,9 @@ class ApiRequest {
     public dashboardCollaboratorsDetail(
         dashboardId: DashboardType['id'],
         userUuid: UserType['uuid'],
-        teamId?: TeamType['id']
+        projectId?: ProjectType['id']
     ): ApiRequest {
-        return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
+        return this.dashboardCollaborators(dashboardId, projectId).addPathComponent(userUuid)
     }
 
     // # Dashboard templates
@@ -661,6 +667,13 @@ class ApiRequest {
                     record_id: featureFlagId,
                 })
             )
+    }
+
+    public featureFlagStatus(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('feature_flags')
+            .addPathComponent(String(featureFlagId))
+            .addPathComponent('status')
     }
 
     public featureFlagCreateScheduledChange(teamId: TeamType['id']): ApiRequest {
@@ -834,9 +847,9 @@ class ApiRequest {
         return apiRequest
     }
 
-    // Chat
-    public chat(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query').addPathComponent('chat')
+    // Conversations
+    public conversations(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('conversations')
     }
 
     // Notebooks
@@ -931,6 +944,15 @@ class ApiRequest {
 
     public async delete(): Promise<any> {
         return await api.delete(this.assembleFullUrl())
+    }
+
+    // Data color themes
+    public dataColorThemes(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_color_themes')
+    }
+
+    public dataColorTheme(id: DataColorThemeModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
     }
 }
 
@@ -1041,6 +1063,12 @@ const api = {
             scheduledChangeId: ScheduledChangeType['id']
         ): Promise<{ scheduled_change: ScheduledChangeType }> {
             return await new ApiRequest().featureFlagDeleteScheduledChange(teamId, scheduledChangeId).delete()
+        },
+        async getStatus(
+            teamId: TeamType['id'],
+            featureFlagId: FeatureFlagType['id']
+        ): Promise<FeatureFlagStatusResponse> {
+            return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
         },
     },
 
@@ -1283,8 +1311,8 @@ const api = {
     },
 
     tags: {
-        async list(teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<string[]> {
-            return new ApiRequest().tags(teamId).get()
+        async list(projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()): Promise<string[]> {
+            return new ApiRequest().tags(projectId).get()
         },
     },
 
@@ -1807,13 +1835,15 @@ const api = {
         ): Promise<AppMetricsTotalsV2Response> {
             return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
-        async listTemplates(
-            type?: HogFunctionTypeType | HogFunctionTypeType[]
-        ): Promise<PaginatedResponse<HogFunctionTemplateType>> {
-            return new ApiRequest()
-                .hogFunctionTemplates()
-                .withQueryString(Array.isArray(type) ? { types: type.join(',') } : { type: type ?? 'destination' })
-                .get()
+        async listTemplates(params: {
+            types: HogFunctionTypeType[]
+            sub_template_id?: HogFunctionSubTemplateIdType
+        }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
+            const finalParams = {
+                ...params,
+                types: params.types.join(','),
+            }
+            return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
         async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
             return await new ApiRequest().hogFunctionTemplate(id).get()
@@ -2500,6 +2530,18 @@ const api = {
         },
     },
 
+    dataColorThemes: {
+        async list(): Promise<DataColorThemeModel[]> {
+            return await new ApiRequest().dataColorThemes().get()
+        },
+        async create(data: Partial<DataColorThemeModel>): Promise<DataColorThemeModel> {
+            return await new ApiRequest().dataColorThemes().create({ data })
+        },
+        async update(id: DataColorThemeModel['id'], data: Partial<DataColorThemeModel>): Promise<DataColorThemeModel> {
+            return await new ApiRequest().dataColorTheme(id).update({ data })
+        },
+    },
+
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
     },
@@ -2530,12 +2572,10 @@ const api = {
         })
     },
 
-    chatURL: (): string => {
-        return new ApiRequest().chat().assembleFullUrl()
-    },
-
-    async chat(data: any): Promise<Response> {
-        return await api.createResponse(this.chatURL(), data)
+    conversations: {
+        async create(data: { content: string; conversation?: string | null }): Promise<Response> {
+            return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data)
+        },
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

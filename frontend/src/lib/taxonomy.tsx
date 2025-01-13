@@ -70,9 +70,7 @@ export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
     'rdt_cid',
 ])
 
-// If adding event properties with labels, check whether they should be added to
-// PROPERTY_NAME_ALIASES in posthog/api/property_definition.py
-// see code to output JSON below this
+// changing values in here you need to sync to python posthog/posthog/taxonomy/taxonomy.py
 export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     events: {
         '': {
@@ -133,6 +131,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Feature Interaction',
             description: 'When a user interacts with a feature.',
         },
+        $feature_enrollment_update: {
+            label: 'Feature Enrollment',
+            description: 'When a user enrolls with a feature.',
+        },
         $capture_metrics: {
             label: 'Capture Metrics',
             description: 'Metrics captured with values pertaining to your systems at a specific point in time',
@@ -180,11 +182,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         'Application Updated': {
             label: 'Application Updated',
-            description: 'When a user upgrades mobile the app.',
+            description: 'When a user upgrades the mobile app.',
         },
         'Application Installed': {
             label: 'Application Installed',
-            description: 'When a user installs mobile the app.',
+            description: 'When a user installs the mobile app.',
         },
         'Application Became Active': {
             label: 'Application Became Active',
@@ -242,6 +244,35 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     event_properties: {
         distinct_id: {} as CoreFilterDefinition, // Copied from `metadata` down below
         $session_duration: {} as CoreFilterDefinition, // Copied from `sessions` down below
+        $session_is_sampled: {
+            label: 'Whether the session is sampled',
+            description: 'Whether the session is sampled for session recording.',
+            examples: ['true', 'false'],
+            system: true,
+        },
+        $geoip_postal_code_confidence: {
+            label: 'Postal Code identification confidence score',
+            description: 'If provided by the licensed geoip database',
+            examples: ['null', '0.1'],
+            system: true,
+        },
+        $geoip_subdivision_2_confidence: {
+            label: 'Subdivision 2 identification confidence score',
+            description: 'If provided by the licensed geoip database',
+            examples: ['null', '0.1'],
+            system: true,
+        },
+        $browser_language_prefix: {
+            label: 'Browser Language Prefix',
+            description: 'Language prefix.',
+            examples: ['en', 'ja'],
+        },
+        $prev_pageview_id: {
+            label: 'Previous pageview ID',
+            description: 'posthog-js adds these to the page leave event, they are used in web analytics calculations',
+            examples: ['1'],
+            system: true,
+        },
         $copy_type: {
             label: 'Copy Type',
             description: 'Type of copy event.',

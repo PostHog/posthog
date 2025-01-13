@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { customEvent, EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
+import { EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -20,7 +20,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clamp, downloadFile } from 'lib/utils'
+import { clamp, downloadFile, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
@@ -138,12 +138,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
             eventUsageLogic,
-            [
-                'reportNextRecordingTriggered',
-                'reportRecordingPlayerSkipInactivityToggled',
-                'reportRecordingPlayerSpeedChanged',
-                'reportRecordingExportedToFile',
-            ],
+            ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
         ],
     })),
     actions({
@@ -156,7 +151,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endBuffer: true,
         startScrub: true,
         endScrub: true,
-        setErrorPlayerState: (show: boolean) => ({ show }),
+        setPlayerError: (reason: string) => ({ reason }),
+        clearPlayerError: true,
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         syncPlayerSpeed: true,
         setCurrentTimestamp: (timestamp: number) => ({ timestamp }),
@@ -189,7 +185,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // the error is emitted from code we don't control in rrweb, so we can't guarantee it's really an Error
         playerErrorSeen: (error: any) => ({ error }),
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
-        reportMessageTooLargeWarningSeen: (sessionRecordingId: string) => ({ sessionRecordingId }),
         setDebugSnapshotTypes: (types: EventType[]) => ({ types }),
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
         setPlayNextAnimationInterrupted: (interrupted: boolean) => ({ interrupted }),
@@ -349,10 +344,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         bufferTime: state.bufferTime,
                     }
                 },
-                setErrorPlayerState: (state, { show }) => {
-                    if (!show) {
-                        return state
-                    }
+                setPlayerError: (state) => {
                     return {
                         isPlaying: state.isPlaying,
                         isBuffering: state.isBuffering,
@@ -374,7 +366,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
-        isErrored: [false, { setErrorPlayerState: (_, { show }) => show }],
+        playerError: [
+            null as string | null,
+            {
+                setPlayerError: (_, { reason }) => (reason.trim().length ? reason : null),
+                clearPlayerError: () => null,
+            },
+        ],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
 
         errorCount: [0, { incrementErrorCount: (prevErrorCount) => prevErrorCount + 1 }],
@@ -398,12 +396,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             false,
             {
                 setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
-            },
-        ],
-        messageTooLargeWarningSeen: [
-            null as string | null,
-            {
-                reportMessageTooLargeWarningSeen: (_, { sessionRecordingId }) => sessionRecordingId,
             },
         ],
         debugSettings: [
@@ -431,7 +423,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (s) => [
                 s.playingState,
                 s.isBuffering,
-                s.isErrored,
+                s.playerError,
                 s.isScrubbing,
                 s.isSkippingInactivity,
                 s.snapshotsLoaded,
@@ -440,7 +432,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (
                 playingState,
                 isBuffering,
-                isErrored,
+                playerError,
                 isScrubbing,
                 isSkippingInactivity,
                 snapshotsLoaded,
@@ -452,7 +444,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         return playingState
                     case !snapshotsLoaded && !snapshotsLoading:
                         return SessionPlayerState.READY
-                    case isErrored:
+                    case !!playerError?.trim().length:
                         return SessionPlayerState.ERROR
                     case isSkippingInactivity && playingState !== SessionPlayerState.PAUSE:
                         return SessionPlayerState.SKIP
@@ -521,25 +513,26 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
         segmentForTimestamp: [
             (s) => [s.sessionPlayerData],
-            (sessionPlayerData) => {
+            (sessionPlayerData: SessionPlayerData) => {
                 return (timestamp?: number): RecordingSegment | null => {
                     if (timestamp === undefined) {
                         return null
                     }
-                    for (const segment of sessionPlayerData.segments) {
-                        if (segment.startTimestamp <= timestamp && segment.endTimestamp >= timestamp) {
-                            return segment
+                    if (sessionPlayerData.segments.length) {
+                        for (const segment of sessionPlayerData.segments) {
+                            if (segment.startTimestamp <= timestamp && timestamp <= segment.endTimestamp) {
+                                return segment
+                            }
                         }
+                        return {
+                            kind: 'buffer',
+                            startTimestamp: timestamp,
+                            endTimestamp: sessionPlayerData.segments[0].startTimestamp - 1,
+                            isActive: false,
+                        } as RecordingSegment
                     }
                     return null
                 }
-            },
-        ],
-
-        messageTooLargeWarnings: [
-            (s) => [s.customRRWebEvents],
-            (customRRWebEvents: customEvent[]) => {
-                return customRRWebEvents.filter((event) => event.data.tag === 'Message too large')
             },
         ],
 
@@ -664,7 +657,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
-            actions.reportRecordingPlayerSkipInactivityToggled(skipInactivitySetting)
             if (!values.currentSegment?.isActive && skipInactivitySetting) {
                 actions.setSkippingInactivity(true)
             } else {
@@ -776,13 +768,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadSnapshotsForSourceFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setErrorPlayerState(true)
+                actions.setPlayerError('loadSnapshotsForSourceFailure')
             }
         },
         loadSnapshotSourcesFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setErrorPlayerState(true)
+                actions.setPlayerError('loadSnapshotSourcesFailure')
             }
         },
         setPlay: () => {
@@ -831,18 +823,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         startBuffer: () => {
             actions.stopAnimation()
         },
-        setErrorPlayerState: ({ show }) => {
-            if (show) {
-                actions.incrementErrorCount()
-                actions.stopAnimation()
-            }
+        setPlayerError: () => {
+            actions.incrementErrorCount()
+            actions.stopAnimation()
         },
         startScrub: () => {
             actions.stopAnimation()
         },
-        setSpeed: ({ speed }) => {
-            actions.reportRecordingPlayerSpeedChanged(speed)
-            actions.syncPlayerSpeed()
+        setSpeed: () => {
+            if (props.mode !== SessionRecordingPlayerMode.Preview) {
+                actions.syncPlayerSpeed()
+            }
         },
         seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
             actions.stopAnimation()
@@ -852,26 +843,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // Check if we're seeking to a new segment
             const segment = values.segmentForTimestamp(timestamp)
 
-            if (segment && segment !== values.currentSegment) {
+            if (segment && !objectsEqual(segment, values.currentSegment)) {
                 actions.setCurrentSegment(segment)
-            }
-
-            if (!values.snapshotsLoaded) {
-                // We haven't started properly loading, or we're still polling so nothing to do
-            } else if (!values.isRealtimePolling && !values.snapshotsLoading && segment?.kind === 'buffer') {
-                // If not currently loading anything,
-                // and part of the recording hasn't loaded, set error state
-                values.player?.replayer?.pause()
-                actions.endBuffer()
-                console.error("Error: Player tried to seek to a position that hasn't loaded yet")
-                actions.setErrorPlayerState(true)
             }
 
             // If next time is greater than last buffered time, set to buffering
             else if (segment?.kind === 'buffer') {
-                values.player?.replayer?.pause()
-                actions.startBuffer()
-                actions.setErrorPlayerState(false)
+                const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
+                if (isPastEnd) {
+                    actions.setEndReached(true)
+                } else {
+                    values.player?.replayer?.pause()
+                    actions.startBuffer()
+                    actions.clearPlayerError()
+                }
             }
 
             // If not forced to play and if last playing state was pause, pause
@@ -881,14 +866,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // can consume 100% CPU and freeze the entire page
                 values.player?.replayer?.pause(values.toRRWebPlayerTime(timestamp))
                 actions.endBuffer()
-                actions.setErrorPlayerState(false)
+                actions.clearPlayerError()
             }
             // Otherwise play
             else {
                 values.player?.replayer?.play(values.toRRWebPlayerTime(timestamp))
                 actions.updateAnimation()
                 actions.endBuffer()
-                actions.setErrorPlayerState(false)
+                actions.clearPlayerError()
             }
 
             breakpoint()
@@ -948,7 +933,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // when the buffering progresses
                 values.player?.replayer?.pause()
                 actions.startBuffer()
-                actions.setErrorPlayerState(false)
+                actions.clearPlayerError()
                 cache.debug('buffering')
                 return
             }
@@ -1004,7 +989,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = values.endReached ? [] : playingElements
         },
         restartIframePlayback: () => {
-            cache.pausedMediaElements.forEach((el: HTMLMediaElement) => el.play())
+            cache.pausedMediaElements?.forEach((el: HTMLMediaElement) => el.play())
             cache.pausedMediaElements = []
         },
 
@@ -1093,13 +1078,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 await document.exitFullscreen()
             }
         },
-
-        reportMessageTooLargeWarningSeen: async ({ sessionRecordingId }) => {
-            posthog.capture('message too large warning seen', { sessionRecordingId })
-        },
     })),
 
-    subscriptions(({ actions, values, props }) => ({
+    subscriptions(({ actions, values }) => ({
         sessionPlayerData: (next, prev) => {
             const hasSnapshotChanges = next?.snapshotsByWindowId !== prev?.snapshotsByWindowId
 
@@ -1120,13 +1101,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
             }
         },
-        messageTooLargeWarnings: (next) => {
-            if (
-                values.messageTooLargeWarningSeen !== values.sessionRecordingId &&
-                next.length > 0 &&
-                props.mode !== SessionRecordingPlayerMode.Preview
-            ) {
-                actions.reportMessageTooLargeWarningSeen(values.sessionRecordingId)
+        playerError: (next) => {
+            if (next) {
+                posthog.capture('recording player error', {
+                    watchedSessionId: values.sessionRecordingId,
+                    currentTimestamp: values.currentTimestamp,
+                    currentSegment: values.currentSegment,
+                    currentPlayerTime: values.currentPlayerTime,
+                    error: next,
+                })
             }
         },
     })),

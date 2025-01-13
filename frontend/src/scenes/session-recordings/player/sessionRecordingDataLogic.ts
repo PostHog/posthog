@@ -678,16 +678,22 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const eventIds = existingEvents.map((ee) => ee.id)
                     const earliestTimestamp = timestamps.reduce((a, b) => Math.min(a, b))
                     const latestTimestamp = timestamps.reduce((a, b) => Math.max(a, b))
+
                     try {
                         const query: HogQLQuery = {
                             kind: NodeKind.HogQLQuery,
                             query: hogql`SELECT properties, uuid
                                          FROM events
-                                         WHERE timestamp > ${(earliestTimestamp - 1000) / 1000}
-                                           AND timestamp < ${(latestTimestamp + 1000) / 1000}
+                                        -- the timestamp range here is only to avoid querying too much of the events table
+                                        -- we don't really care about the absolute value, 
+                                        -- but we do care about whether timezones have an odd impact
+                                        -- so, we extend the range by a day on each side so that timezones don't cause issues
+                                         WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
+                                           AND timestamp < ${dayjs(latestTimestamp).add(1, 'day')}
                                            AND event in ${eventNames}
                                            AND uuid in ${eventIds}`,
                         }
+
                         const response = await api.query(query)
                         if (response.error) {
                             throw new Error(response.error)
@@ -980,11 +986,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 const eventStart = meta?.start_time ? dayjs(meta.start_time) : null
                 const snapshotStart = firstSnapshot ? dayjs(firstSnapshot.timestamp) : null
 
-                if (snapshotStart && eventStart) {
-                    return snapshotStart
+                // whichever is earliest
+                if (eventStart && snapshotStart) {
+                    return eventStart.isBefore(snapshotStart) ? eventStart : snapshotStart
                 }
-
-                return snapshotStart || eventStart
+                return eventStart || snapshotStart
             },
         ],
 
@@ -996,7 +1002,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                 // whichever is latest
                 if (eventEnd && snapshotEnd) {
-                    return snapshotEnd
+                    return eventEnd.isAfter(snapshotEnd) ? eventEnd : snapshotEnd
                 }
                 return eventEnd || snapshotEnd
             },
@@ -1087,19 +1093,27 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (everyWindowMissingFullSnapshot) {
                     // video is definitely unplayable
                     posthog.capture('recording_has_no_full_snapshot', {
-                        sessionId: sessionRecordingId,
+                        watchedSession: sessionRecordingId,
                         teamId: currentTeam?.id,
                         teamName: currentTeam?.name,
                     })
                 } else if (anyWindowMissingFullSnapshot) {
                     posthog.capture('recording_window_missing_full_snapshot', {
-                        sessionId: sessionRecordingId,
+                        watchedSession: sessionRecordingId,
                         teamID: currentTeam?.id,
                         teamName: currentTeam?.name,
                     })
                 }
 
                 return everyWindowMissingFullSnapshot
+            },
+        ],
+
+        isRecentAndInvalid: [
+            (s) => [s.start, s.snapshotsInvalid],
+            (start, snapshotsInvalid) => {
+                const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
+                return snapshotsInvalid && lessThanFiveMinutesOld
             },
         ],
 
@@ -1158,6 +1172,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             // we preload all web vitals data, so it can be used before user interaction
             if (!values.sessionEventsDataLoading) {
                 actions.loadFullEventData(value)
+            }
+        },
+        isRecentAndInvalid: (prev: boolean, next: boolean) => {
+            if (!prev && next) {
+                posthog.capture('recording cannot playback yet', {
+                    watchedSession: values.sessionPlayerData.sessionRecordingId,
+                })
             }
         },
     })),

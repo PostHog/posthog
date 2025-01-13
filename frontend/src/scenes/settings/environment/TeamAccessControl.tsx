@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -19,6 +20,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
 import { AvailableFeature, FusedTeamMemberType } from '~/types'
 
 import { AddMembersModalWithButton } from './AddMembersModal'
@@ -154,7 +156,7 @@ export function TeamMembers(): JSX.Element | null {
             title: 'Name',
             key: 'user_first_name',
             render: (_, member) =>
-                member.user.uuid == user.uuid ? `${member.user.first_name} (me)` : member.user.first_name,
+                member.user.uuid == user.uuid ? `${member.user.first_name} (you)` : member.user.first_name,
             sorter: (a, b) => a.user.first_name.localeCompare(b.user.first_name),
         },
         {
@@ -213,6 +215,11 @@ export function TeamAccessControl(): JSX.Element {
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+
+    const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
+    if (newAccessControl) {
+        return <AccessControlObject resource="project" resource_id={`${currentTeam?.id}`} />
+    }
 
     return (
         <>

@@ -12,6 +12,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
+    [Scene.WebAnalyticsCoreWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
     [Scene.Activity]: () => import('./activity/ActivityScene'),
@@ -31,6 +32,8 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.Action]: () => import('./actions/Action'),
     [Scene.Experiments]: () => import('./experiments/Experiments'),
+    [Scene.ExperimentsSharedMetrics]: () => import('./experiments/SharedMetrics/SharedMetrics'),
+    [Scene.ExperimentsSharedMetric]: () => import('./experiments/SharedMetrics/SharedMetric'),
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.FeatureManagement]: () => import('./feature-flags/FeatureManagement'),
@@ -42,7 +45,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Survey]: () => import('./surveys/Survey'),
     [Scene.CustomCss]: () => import('./themes/CustomCssScene'),
     [Scene.SurveyTemplates]: () => import('./surveys/SurveyTemplates'),
-    [Scene.DataModel]: () => import('./data-model/DataModelScene'),
     [Scene.DataWarehouse]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
     [Scene.DataWarehouseTable]: () => import('./data-warehouse/new/NewSourceWizard'),
@@ -62,6 +64,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Signup]: () => import('./authentication/signup/SignupContainer'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
     [Scene.Billing]: () => import('./billing/Billing'),
+    [Scene.BillingSection]: () => import('./billing/BillingSection'),
     [Scene.BillingAuthorizationStatus]: () => import('./billing/AuthorizationStatus'),
     [Scene.Login]: () => import('./authentication/Login'),
     [Scene.Login2FA]: () => import('./authentication/Login2FA'),
@@ -83,4 +86,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
+    [Scene.LLMObservability]: () => import('./llm-observability/LLMObservabilityScene'),
 }

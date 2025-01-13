@@ -175,7 +175,7 @@
 .Sidebar3000 {
     --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
-    --sidebar-row-height: 2.5rem;
+    --sidebar-row-height: 3rem;
     --sidebar-background: var(--bg-3000);
 
     position: relative;
@@ -238,8 +238,6 @@
 }
 
 .Sidebar3000__content {
-    position: fixed;
-    top: 0;
     box-sizing: content-box;
     display: flex;
     flex-direction: column;
@@ -349,7 +347,7 @@
 
 .Accordion {
     --accordion-arrow-size: 1rem;
-    --accordion-row-height: 1.75rem;
+    --accordion-row-height: 32px;
     --accordion-inset-expandable: 1.25rem;
     --accordion-header-background: var(--accent-3000);
     --accordion-inset: 0rem;
@@ -414,6 +412,64 @@
         transition: 50ms ease transform;
 
         .Accordion[aria-expanded='true'] & {
+            transform: rotate(90deg);
+        }
+    }
+}
+
+// New scoped accordion styles
+.SidebarListItemAccordion {
+    --accordion-arrow-size: 1rem;
+    --accordion-inset-expandable: 1.25rem;
+    --accordion-header-background: var(--accent-3000);
+    --accordion-inset: 0rem;
+
+    display: flex;
+    flex-basis: 0;
+    flex-direction: column;
+    flex-shrink: 0;
+    height: 100%;
+
+    [theme='dark'] & {
+        --accordion-header-background: var(--bg-3000);
+    }
+
+    &[role='region'] {
+        // This means: if accordion is expandable
+        --accordion-inset: var(--accordion-inset-expandable);
+    }
+
+    &:not([aria-expanded='false']) {
+        flex-grow: 1;
+
+        &:not(:last-child) {
+            border-bottom-width: 1px;
+        }
+    }
+}
+
+.SidebarListItemAccordion__header {
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--sidebar-horizontal-padding) + 1rem * var(--depth, 0));
+    cursor: pointer;
+    user-select: none;
+    background: var(--accordion-header-background);
+    border-bottom-width: 1px;
+
+    &:hover {
+        background: var(--border-3000);
+    }
+
+    > .LemonIcon {
+        flex-shrink: 0;
+        margin-right: calc(var(--accordion-inset-expandable) - var(--accordion-arrow-size));
+        font-size: var(--accordion-arrow-size);
+        transition: 50ms ease transform;
+
+        .SidebarListItemAccordion[aria-expanded='true'] & {
             transform: rotate(90deg);
         }
     }
@@ -533,8 +589,6 @@
 
     position: relative;
     display: flex;
-    flex-direction: column;
-    justify-content: center;
     width: 100%;
     height: 100%;
     color: inherit;
@@ -549,7 +603,9 @@
 }
 
 .SidebarListItem__link {
+    flex-direction: column;
     row-gap: 1px;
+    justify-content: center;
     padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
     color: inherit !important; // Disable link color
     .SidebarListItem[aria-disabled='true'] & {
@@ -558,17 +614,34 @@
 }
 
 .SidebarListItem__button {
+    flex-direction: row;
+    gap: 0.25rem;
     row-gap: 1px;
-    padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
+    align-items: center;
+    padding: 0 var(--sidebar-horizontal-padding) 0
+        calc(0.25rem + var(--sidebar-horizontal-padding) + 1rem * var(--depth, 0));
+    font-size: 1.125rem; // Make icons bigger
     color: inherit !important; // Disable link color
     cursor: pointer;
 
     &:hover {
         background: var(--border-3000);
     }
+
+    .SidebarListItem__icon {
+        flex-shrink: 0;
+    }
+
+    .SidebarListItem__name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
 }
 
 .SidebarListItem__rename {
+    flex-direction: column;
+    justify-content: center;
+
     // Pseudo-elements don't work on inputs, so we use a wrapper div
     background: var(--bg-light);
 

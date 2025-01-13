@@ -1,5 +1,4 @@
 import { Monaco } from '@monaco-editor/react'
-import { Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import type { editor as importedEditor } from 'monaco-editor'
@@ -37,20 +36,34 @@ export function QueryWindow(): JSX.Element {
     })
 
     const { allTabs, activeModelUri, queryInput, editingView, sourceQuery } = useValues(logic)
-    const { selectTab, deleteTab, createTab, setQueryInput, runQuery, setError, setIsValidView } = useActions(logic)
+    const {
+        selectTab,
+        deleteTab,
+        createTab,
+        setQueryInput,
+        runQuery,
+        setError,
+        setIsValidView,
+        setMetadata,
+        setMetadataLoading,
+    } = useActions(logic)
 
     return (
-        <div className="flex flex-1 flex-col h-full">
-            <QueryTabs
-                models={allTabs}
-                onClick={selectTab}
-                onClear={deleteTab}
-                onAdd={createTab}
-                activeModelUri={activeModelUri}
-            />
+        <div className="flex flex-1 flex-col h-full overflow-hidden">
+            <div className="overflow-x-auto px-1">
+                <QueryTabs
+                    models={allTabs}
+                    onClick={selectTab}
+                    onClear={deleteTab}
+                    onAdd={createTab}
+                    activeModelUri={activeModelUri}
+                />
+            </div>
             {editingView && (
                 <div className="h-7 bg-warning-highlight p-1">
-                    <span> Editing view "{editingView.name}"</span>
+                    <span>
+                        Editing {editingView.status ? 'materialized view' : 'view'} "{editingView.name}"
+                    </span>
                 </div>
             )}
             <QueryPane
@@ -76,6 +89,12 @@ export function QueryWindow(): JSX.Element {
                         setError(error)
                         setIsValidView(isValidView)
                     },
+                    onMetadata: (metadata) => {
+                        setMetadata(metadata)
+                    },
+                    onMetadataLoading: (loading) => {
+                        setMetadataLoading(loading)
+                    },
                 }}
             />
             <BindLogic logic={multitabEditorLogic} props={{ key: codeEditorKey, monaco, editor }}>
@@ -85,16 +104,13 @@ export function QueryWindow(): JSX.Element {
     )
 }
 
-function InternalQueryWindow(): JSX.Element {
+function InternalQueryWindow(): JSX.Element | null {
     const { cacheLoading, sourceQuery, queryInput } = useValues(multitabEditorLogic)
     const { setSourceQuery } = useActions(multitabEditorLogic)
 
+    // NOTE: hacky way to avoid flicker loading
     if (cacheLoading) {
-        return (
-            <div className="flex-1 flex justify-center items-center">
-                <Spinner className="text-3xl" />
-            </div>
-        )
+        return null
     }
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {

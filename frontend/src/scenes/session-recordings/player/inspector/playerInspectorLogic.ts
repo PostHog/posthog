@@ -4,7 +4,9 @@ import { actions, connect, events, kea, key, listeners, path, props, propsChange
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -22,6 +24,7 @@ import {
     MatchingEventsMatchType,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { RecordingsQuery } from '~/queries/schema'
 import {
     FilterableInspectorListItemTypes,
     MatchedRecordingEvent,
@@ -248,6 +251,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['allPerformanceEvents'],
             sessionRecordingDataLogic(props),
             ['trackedWindow'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions(() => ({
@@ -275,7 +280,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         matchingEventUUIDs: [
             [] as MatchedRecordingEvent[] | null,
             {
@@ -297,17 +302,29 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     if (!filters) {
                         throw new Error('Backend matching events type must include its filters')
                     }
-                    const params = toParams({
+                    // as_query is a temporary parameter as a flag
+                    // to let the backend know not to convert the query to a legacy filter when processing
+                    const params: RecordingsQuery & { as_query?: boolean } = {
                         ...convertUniversalFiltersToRecordingsQuery(filters),
                         session_ids: [props.sessionRecordingId],
-                    })
-                    const response = await api.recordings.getMatchingEvents(params)
+                    }
+                    if (values.listAPIAsQuery) {
+                        params.as_query = true
+                    }
+                    const response = await api.recordings.getMatchingEvents(toParams(params))
                     return response.results.map((x) => ({ uuid: x } as MatchedRecordingEvent))
                 },
             },
         ],
     })),
     selectors(({ props }) => ({
+        listAPIAsQuery: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return !!featureFlags[FEATURE_FLAGS.REPLAY_LIST_RECORDINGS_AS_QUERY]
+            },
+        ],
+
         allowMatchingEventsFilter: [
             (s) => [s.miniFilters],
             (miniFilters): boolean => {
@@ -731,7 +748,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // ensure that item with type 'inspector-summary' is always at the top
                 const summary = items.find((item) => item.type === 'inspector-summary')
                 if (summary) {
-                    ;(summary as InspectorListItemSummary).errorCount = errorCount
+                    summary.errorCount = errorCount
                     items.splice(items.indexOf(summary), 1)
                     items.unshift(summary)
                 }
@@ -983,6 +1000,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 return itemsByType
             },
+        ],
+
+        hasEventsToDisplay: [
+            (s) => [s.allItemsByItemType],
+            (allItemsByItemType): boolean => allItemsByItemType[FilterableInspectorListItemTypes.EVENTS]?.length > 0,
         ],
     })),
     listeners(({ values, actions }) => ({

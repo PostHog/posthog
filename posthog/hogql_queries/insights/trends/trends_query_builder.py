@@ -294,14 +294,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             return wrapper
         # Just complex series aggregation
-        elif (
-            self._aggregation_operation.requires_query_orchestration()
-            and self._aggregation_operation.is_first_time_ever_math()
+        elif self._aggregation_operation.requires_query_orchestration() and (
+            self._aggregation_operation.is_first_time_ever_math()
+            or self._aggregation_operation.is_first_matching_event()
         ):
             return self._aggregation_operation.get_first_time_math_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
                 event_name_filter=self._event_or_action_where_expr(),
+                is_first_matching_event=self._aggregation_operation.is_first_matching_event(),
             ).build()
         elif self._aggregation_operation.requires_query_orchestration():
             return self._aggregation_operation.get_actors_query_orchestrator(
@@ -697,7 +698,16 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                filters.append(property_to_expr(property, self.team))
+                if is_data_warehouse_series:
+                    if property["type"] in ("event", "person"):
+                        if property["type"] == "event":
+                            property["key"] = f"events.properties.{property['key']}"
+                        elif property["type"] == "person":
+                            property["key"] = f"events.person.properties.{property['key']}"
+                        property["type"] = "data_warehouse"
+                    filters.append(property_to_expr(property, self.team))
+                else:
+                    filters.append(property_to_expr(property, self.team))
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
