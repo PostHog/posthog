@@ -17,6 +17,7 @@ import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
 import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -36,6 +37,8 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
 } from '~/queries/schema'
+import { isFunnelsQuery, isTrendsQuery } from '~/queries/utils'
+import { isNodeWithSource, isValidQueryForExperiment } from '~/queries/utils'
 import {
     Breadcrumb,
     BreakdownAttributionType,
@@ -51,10 +54,12 @@ import {
     FunnelExperimentVariant,
     FunnelStep,
     FunnelVizType,
+    type InsightShortId,
     InsightType,
     MultivariateFlagVariant,
     ProductKey,
     PropertyMathType,
+    type QueryBasedInsightModel,
     TrendExperimentVariant,
     TrendResult,
     TrendsFilterType,
@@ -580,6 +585,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
             )
 
+            const insight = values.insight as QueryBasedInsightModel | null
+
+            const experimentMetric = getExperimentMetricFromInsight(insight)
+
             if (hasFormErrors(values.experimentErrors)) {
                 return
             }
@@ -607,6 +616,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 recommended_sample_size: recommendedSampleSize,
                                 minimum_detectable_effect: minimumDetectableEffect,
                             },
+                            metrics: experimentMetric ? [experimentMetric] : [],
                             ...(!draft && { start_date: dayjs() }),
                             // backwards compatibility: Remove any global properties set on the experiment.
                             // These were used to change feature flag targeting, but this is controlled directly
@@ -619,6 +629,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             },
                         }
                     )
+
                     if (response?.id) {
                         actions.updateExperiments(response)
                         actions.setEditExperiment(false)
@@ -635,6 +646,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             minimum_detectable_effect: minimumDetectableEffect,
                         },
                         ...(!draft && { start_date: dayjs() }),
+                        metrics: experimentMetric ? [experimentMetric] : [],
                     })
                     if (response) {
                         actions.reportExperimentCreated(response)
@@ -957,6 +969,12 @@ export const experimentLogic = kea<experimentLogicType>([
                     update
                 )
                 return response
+            },
+        },
+        insight: {
+            loadInsight: async (shortId: InsightShortId): Promise<QueryBasedInsightModel | null> => {
+                const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
+                return insight
             },
         },
         metricResults: [
@@ -1756,7 +1774,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/experiments/:id': ({ id }, _, __, currentLocation, previousLocation) => {
+        '/experiments/:id': ({ id }, query, __, currentLocation, previousLocation) => {
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
             actions.setEditExperiment(false)
@@ -1764,10 +1782,17 @@ export const experimentLogic = kea<experimentLogicType>([
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
-                    actions.resetExperiment()
+                    actions.resetExperiment({
+                        ...NEW_EXPERIMENT,
+                        name: query.name ?? '',
+                    })
                 }
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
                     actions.loadExperiment()
+                }
+
+                if (query.insight) {
+                    actions.loadInsight(query.insight as InsightShortId)
                 }
             }
         },
@@ -1890,4 +1915,32 @@ export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
             },
         },
     }
+}
+
+export function getExperimentMetricFromInsight(
+    insight: QueryBasedInsightModel | null
+): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined {
+    if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
+        return undefined
+    }
+
+    const metricName = (insight?.name || insight?.derived_name) ?? undefined
+
+    if (isFunnelsQuery(insight.query.source)) {
+        return {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: insight.query.source,
+            name: metricName,
+        }
+    }
+
+    if (isTrendsQuery(insight.query.source)) {
+        return {
+            kind: NodeKind.ExperimentTrendsQuery,
+            count_query: insight.query.source,
+            name: metricName,
+        }
+    }
+
+    return undefined
 }

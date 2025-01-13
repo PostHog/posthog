@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
+import { toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
@@ -157,7 +158,13 @@ export const urls = {
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
-    experiment: (id: string | number): string => `/experiments/${id}`,
+    experiment: (
+        id: string | number,
+        options?: {
+            insight?: string
+            name?: string
+        }
+    ): string => `/experiments/${id}${options ? `?${toParams(options)}` : ''}`,
     experiments: (): string => '/experiments',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,
