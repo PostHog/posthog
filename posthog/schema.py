@@ -101,6 +101,14 @@ class AssistantEventType(StrEnum):
     CONVERSATION = "conversation"
 
 
+class AssistantFormOption(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    value: str
+    variant: Optional[str] = None
+
+
 class AssistantFunnelsBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
@@ -205,15 +213,6 @@ class AssistantGroupPropertyFilter3(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
-class AssistantMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: Optional[str] = None
-    type: Literal["ai"] = "ai"
-
-
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
     AI = "ai"
@@ -221,6 +220,11 @@ class AssistantMessageType(StrEnum):
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
     AI_ROUTER = "ai/router"
+
+
+class RetentionReference(StrEnum):
+    TOTAL = "total"
+    PREVIOUS = "previous"
 
 
 class AssistantSetPropertyFilterOperator(StrEnum):
@@ -538,6 +542,7 @@ class CountPerActorMathType(StrEnum):
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
     MAX_COUNT_PER_ACTOR = "max_count_per_actor"
     MEDIAN_COUNT_PER_ACTOR = "median_count_per_actor"
+    P75_COUNT_PER_ACTOR = "p75_count_per_actor"
     P90_COUNT_PER_ACTOR = "p90_count_per_actor"
     P95_COUNT_PER_ACTOR = "p95_count_per_actor"
     P99_COUNT_PER_ACTOR = "p99_count_per_actor"
@@ -746,6 +751,7 @@ class ErrorTrackingIssue(BaseModel):
     )
     assignee: Optional[float] = None
     description: Optional[str] = None
+    earliest: str
     first_seen: AwareDatetime
     id: str
     last_seen: AwareDatetime
@@ -1284,6 +1290,7 @@ class PropertyMathType(StrEnum):
     MIN = "min"
     MAX = "max"
     MEDIAN = "median"
+    P75 = "p75"
     P90 = "p90"
     P95 = "p95"
     P99 = "p99"
@@ -1460,11 +1467,6 @@ class ResultCustomizationByValue(BaseModel):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
-
-
-class RetentionReference(StrEnum):
-    TOTAL = "total"
-    PREVIOUS = "previous"
 
 
 class RetentionPeriod(StrEnum):
@@ -1788,6 +1790,13 @@ class AssistantDateTimePropertyFilter(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
+class AssistantForm(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    options: list[AssistantFormOption]
+
+
 class AssistantFunnelsBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1964,6 +1973,13 @@ class AssistantGroupPropertyFilter4(BaseModel):
         ),
     )
     type: Literal["group"] = "group"
+
+
+class AssistantMessageMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    form: Optional[AssistantForm] = None
 
 
 class AssistantSetPropertyFilter(BaseModel):
@@ -3034,7 +3050,10 @@ class RetentionFilter(BaseModel):
     )
     cumulative: Optional[bool] = None
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
-    retentionReference: Optional[RetentionReference] = None
+    retentionReference: Optional[RetentionReference] = Field(
+        default=None,
+        description="Whether retention is with regard to initial cohort size, or that of the previous period.",
+    )
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
     showMean: Optional[bool] = None
@@ -3048,7 +3067,10 @@ class RetentionFilterLegacy(BaseModel):
     )
     cumulative: Optional[bool] = None
     period: Optional[RetentionPeriod] = None
-    retention_reference: Optional[RetentionReference] = None
+    retention_reference: Optional[RetentionReference] = Field(
+        default=None,
+        description="Whether retention is with regard to initial cohort size, or that of the previous period.",
+    )
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[RetentionEntity] = None
     show_mean: Optional[bool] = None
@@ -3663,6 +3685,97 @@ class AssistantInsightsQueryBase(BaseModel):
             ]
         ]
     ] = Field(default=[], description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(
+        default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
+    )
+
+
+class AssistantMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    meta: Optional[AssistantMessageMetadata] = None
+    type: Literal["ai"] = "ai"
+
+
+class AssistantRetentionFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cumulative: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user"
+            " coming back in period 5 makes them count towards all the previous periods."
+        ),
+    )
+    period: Optional[RetentionPeriod] = Field(
+        default=RetentionPeriod.DAY, description="Retention period, the interval to track cohorts by."
+    )
+    retentionReference: Optional[RetentionReference] = Field(
+        default=None,
+        description="Whether retention is with regard to initial cohort size, or that of the previous period.",
+    )
+    retentionType: Optional[RetentionType] = Field(
+        default=None,
+        description=(
+            "Retention type: recurring or first time. Recurring retention counts a user as part of a cohort if they"
+            " performed the cohort event during that time period, irrespective of it was their first time or not. First"
+            " time retention only counts a user as part of the cohort if it was their first time performing the cohort"
+            " event."
+        ),
+    )
+    returningEntity: Optional[RetentionEntity] = Field(
+        default=None, description="Retention event (event marking the user coming back)."
+    )
+    showMean: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
+        ),
+    )
+    targetEntity: Optional[RetentionEntity] = Field(
+        default=None, description="Activation event (event putting the actor into the initial cohort)."
+    )
+    totalIntervals: Optional[int] = Field(
+        default=11,
+        description=(
+            "How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial"
+            " cohort)."
+        ),
+    )
+
+
+class AssistantRetentionQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    kind: Literal["RetentionQuery"] = "RetentionQuery"
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    retentionFilter: AssistantRetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
     )
@@ -5413,7 +5526,7 @@ class VisualizationMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
+    answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery]] = None
     id: Optional[str] = None
     initiator: Optional[str] = None
     plan: Optional[str] = None

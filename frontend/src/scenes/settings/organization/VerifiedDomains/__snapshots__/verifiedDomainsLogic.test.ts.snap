@@ -75,6 +75,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "effective_membership_level": 8,
         "has_group_types": true,
         "heatmaps_opt_in": true,
+        "human_friendly_comparison_periods": false,
         "id": 997,
         "ingested_event": true,
         "is_demo": false,

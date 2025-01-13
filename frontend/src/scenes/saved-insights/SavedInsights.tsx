@@ -612,7 +612,7 @@ export function SavedInsights(): JSX.Element {
                 <Alerts alertId={alertModalId} />
             ) : (
                 <>
-                    <SavedInsightsFilters />
+                    <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
                     <LemonDivider className="my-4" />
                     <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                         <span className="text-muted-alt">

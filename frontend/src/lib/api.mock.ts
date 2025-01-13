@@ -93,6 +93,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     person_on_events_querying_enabled: true,
     live_events_token: '123',
     capture_dead_clicks: false,
+    human_friendly_comparison_periods: false,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -136,7 +137,11 @@ export const MOCK_DEFAULT_USER: UserType = {
     distinct_id: MOCK_DEFAULT_BASIC_USER.uuid,
     first_name: MOCK_DEFAULT_BASIC_USER.first_name,
     email: MOCK_DEFAULT_BASIC_USER.email,
-    notification_settings: { plugin_disabled: false },
+    notification_settings: {
+        plugin_disabled: false,
+        project_weekly_digest_disabled: {},
+        all_weekly_digest_disabled: false,
+    },
     anonymize_data: false,
     toolbar_mode: 'toolbar',
     has_password: true,

@@ -98,23 +98,26 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
         credibleIntervalForVariant,
     } = useValues(experimentLogic)
 
-    const variants = experiment.parameters.feature_flag_variants
+    const variants = experiment?.feature_flag?.filters?.multivariate?.variants
+    if (!variants) {
+        return <></>
+    }
     const results = isSecondary ? secondaryMetricResults : metricResults
     const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
     const hasSomeResults = results?.some((result) => result?.insight)
 
     let metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
-    const savedMetrics = experiment.saved_metrics
-        .filter((savedMetric) => savedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary'))
-        .map((savedMetric) => ({
-            ...savedMetric.query,
-            name: savedMetric.name,
-            savedMetricId: savedMetric.saved_metric,
-            isSavedMetric: true,
+    const sharedMetrics = experiment.saved_metrics
+        .filter((sharedMetric) => sharedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary'))
+        .map((sharedMetric) => ({
+            ...sharedMetric.query,
+            name: sharedMetric.name,
+            sharedMetricId: sharedMetric.saved_metric,
+            isSharedMetric: true,
         }))
 
-    if (savedMetrics) {
-        metrics = [...metrics, ...savedMetrics]
+    if (sharedMetrics) {
+        metrics = [...metrics, ...sharedMetrics]
     }
 
     // Calculate the maximum absolute value across ALL metrics

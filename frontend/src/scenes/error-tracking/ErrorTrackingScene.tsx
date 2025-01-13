@@ -57,7 +57,9 @@ export function ErrorTrackingScene(): JSX.Element {
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
                 <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
-                <ErrorTrackingFilters.FilterGroup />
+                <ErrorTrackingFilters.FilterGroup>
+                    <ErrorTrackingFilters.UniversalSearch />
+                </ErrorTrackingFilters.FilterGroup>
                 <LemonDivider className="mt-2" />
                 {selectedIssueIds.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
                 <Query query={query} context={context} />
@@ -186,6 +188,9 @@ const Header = (): JSX.Element => {
                             Send an exception
                         </LemonButton>
                     ) : null}
+                    <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
+                        Documentation
+                    </LemonButton>
                     <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
                         Configure
                     </LemonButton>
