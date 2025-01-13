@@ -14,7 +14,7 @@ const lastYear = { value: 'yStart', label: 'Year' }
 
 export type SparklineOption = LemonSegmentedButtonOption<string>
 
-const customOptions: Record<string, SparklineOption[]> = {
+const customOptions: Record<string, [SparklineOption, SparklineOption]> = {
     dStart: [lastDay, lastHour],
     '-24h': [lastDay, lastHour],
     '-1dStart': [
@@ -23,7 +23,7 @@ const customOptions: Record<string, SparklineOption[]> = {
     ],
     mStart: [lastMonth, lastDay],
     yStart: [lastYear, lastMonth],
-    all: [lastYear, lastMonth, lastDay],
+    all: [lastYear, lastMonth],
 }
 
 export const DEFAULT_ERROR_TRACKING_DATE_RANGE = { date_from: '-7d', date_to: null }
