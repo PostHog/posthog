@@ -2,16 +2,15 @@ import { captureException } from '@sentry/node'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 
 import { buildIntegerMatcher } from '../../../config/config'
-import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { BatchConsumer } from '../../../kafka/batch-consumer'
 import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
 import { status } from '../../../utils/status'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
+import { BatchConsumerFactory } from './batch-consumer-factory'
 import {
     KAFKA_CONSUMER_GROUP_ID,
     KAFKA_CONSUMER_GROUP_ID_OVERFLOW,
-    KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from './constants'
@@ -42,24 +41,16 @@ export class SessionRecordingIngester {
     isStopping = false
 
     private isDebugLoggingEnabled: ValueMatcher<number>
-
     private readonly teamFilter: TeamFilter
-
     private readonly metrics: SessionRecordingMetrics
-
     private readonly promiseScheduler: PromiseScheduler
+    private readonly batchConsumerFactory: BatchConsumerFactory
 
-    private sessionRecordingKafkaConfig = (): PluginsServerConfig => {
-        // TRICKY: We re-use the kafka helpers which assume KAFKA_HOSTS hence we overwrite it if set
-        return {
-            ...this.config,
-            KAFKA_HOSTS: this.config.SESSION_RECORDING_KAFKA_HOSTS || this.config.KAFKA_HOSTS,
-            KAFKA_SECURITY_PROTOCOL:
-                this.config.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL || this.config.KAFKA_SECURITY_PROTOCOL,
-        }
-    }
-
-    constructor(private config: PluginsServerConfig, private consumeOverflow: boolean) {
+    constructor(
+        private config: PluginsServerConfig,
+        private consumeOverflow: boolean,
+        batchConsumerFactory: BatchConsumerFactory
+    ) {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
         const kafkaMetrics = KafkaMetrics.getInstance()
         const kafkaParser = new KafkaParser(kafkaMetrics)
@@ -67,6 +58,7 @@ export class SessionRecordingIngester {
         this.teamFilter = new TeamFilter(teamManager, kafkaMetrics, kafkaParser)
         this.metrics = SessionRecordingMetrics.getInstance()
         this.promiseScheduler = new PromiseScheduler()
+        this.batchConsumerFactory = batchConsumerFactory
 
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
@@ -129,8 +121,8 @@ export class SessionRecordingIngester {
         return Promise.resolve()
     }
 
-    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
-        heartbeat()
+    public async handleEachBatch(messages: Message[], context: { heartbeat: () => void }): Promise<void> {
+        context.heartbeat()
 
         if (messages.length !== 0) {
             status.info('🔁', `blob_ingester_consumer_v2 - handling batch`, {
@@ -155,20 +147,9 @@ export class SessionRecordingIngester {
                     statsKey: `recordingingesterv2.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
                         messagesWithTeam = await this.teamFilter.parseBatch(messages)
-
-                        // TODO: Re-implement partition stats
-                        // for (const partitionStat of partitionStats) {
-                        //     const metrics = this.partitionMetrics[partitionStat.partition] ?? {}
-                        //     metrics.lastMessageOffset = partitionStat.offset
-                        //     if (partitionStat.timestamp) {
-                        //         // Could be empty on Kafka versions before KIP-32
-                        //         metrics.lastMessageTimestamp = partitionStat.timestamp
-                        //     }
-                        //     this.partitionMetrics[partitionStat.partition] = metrics
-                        // }
                     },
                 })
-                heartbeat()
+                context.heartbeat()
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingesterv2.handleEachBatch.consumeBatch`,
@@ -192,46 +173,11 @@ export class SessionRecordingIngester {
             kafkaCapabilities: features,
         })
 
-        // Create a node-rdkafka consumer that fetches batches of messages, runs
-        // eachBatchWithContext, then commits offsets for the batch.
-        // the batch consumer reads from the session replay kafka cluster
-        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.sessionRecordingKafkaConfig())
-
-        this.batchConsumer = await startBatchConsumer({
-            connectionConfig: replayClusterConnectionConfig,
-            groupId: this.consumerGroupId,
-            topic: this.topic,
-            autoCommit: true,
-            autoOffsetStore: false, // We will use our own offset store logic
-            sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
-            maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
-            // the largest size of a message that can be fetched by the consumer.
-            // the largest size our MSK cluster allows is 20MB
-            // we only use 9 or 10MB but there's no reason to limit this 🤷️
-            consumerMaxBytes: this.config.KAFKA_CONSUMPTION_MAX_BYTES,
-            consumerMaxBytesPerPartition: this.config.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
-            fetchMinBytes: this.config.SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES,
-            // our messages are very big, so we don't want to queue too many
-            queuedMinMessages: this.config.SESSION_RECORDING_KAFKA_QUEUE_SIZE,
-            // we'll anyway never queue more than the value set here
-            // since we have large messages we'll need this to be a reasonable multiple
-            // of the likely message size times the fetchBatchSize
-            // or we'll always hit the batch timeout
-            queuedMaxMessagesKBytes: this.config.SESSION_RECORDING_KAFKA_QUEUE_SIZE_KB,
-            fetchBatchSize: this.config.SESSION_RECORDING_KAFKA_BATCH_SIZE,
-            consumerMaxWaitMs: this.config.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            consumerErrorBackoffMs: this.config.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            batchingTimeoutMs: this.config.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
-            topicCreationTimeoutMs: this.config.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
-            topicMetadataRefreshInterval: this.config.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
-            eachBatch: async (messages, { heartbeat }) => {
-                return await this.promiseScheduler.schedule(this.handleEachBatch(messages, heartbeat))
-            },
-            callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
-            debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
-            kafkaStatisticIntervalMs: this.config.SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS,
-            maxHealthHeartbeatIntervalMs: KAFKA_CONSUMER_SESSION_TIMEOUT_MS * 2, // we don't want to proactively declare healthy - we'll let the broker do it
-        })
+        this.batchConsumer = await this.batchConsumerFactory.createBatchConsumer(
+            this.consumerGroupId,
+            this.topic,
+            this.handleEachBatch.bind(this)
+        )
 
         this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer, this.topic)).length
 

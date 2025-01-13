@@ -51,6 +51,7 @@ import {
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
+import { DefaultBatchConsumerFactory } from './ingestion-queues/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './ingestion-queues/session-recording-v2/consumer'
 import { expressApp, setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
@@ -447,7 +448,8 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobIngestionV2) {
-            const ingester = new SessionRecordingIngesterV2(serverConfig, false)
+            const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
+            const ingester = new SessionRecordingIngesterV2(serverConfig, false, batchConsumerFactory)
             await ingester.start()
 
             services.push({
@@ -459,7 +461,8 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobOverflowIngestionV2) {
-            const ingester = new SessionRecordingIngesterV2(serverConfig, true)
+            const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
+            const ingester = new SessionRecordingIngesterV2(serverConfig, true, batchConsumerFactory)
             await ingester.start()
 
             services.push({
