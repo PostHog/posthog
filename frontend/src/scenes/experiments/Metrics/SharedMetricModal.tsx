@@ -43,6 +43,7 @@ export function SharedMetricModal({
 
     const isOpen = isSecondary ? isSecondarySharedMetricModalOpen : isPrimarySharedMetricModalOpen
     const closeModal = (): void => {
+        // :KLUDGE: Removes any local changes and resets the experiment to the server state
         loadExperiment()
         isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
     }

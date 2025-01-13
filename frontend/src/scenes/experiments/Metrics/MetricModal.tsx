@@ -40,6 +40,7 @@ export function MetricModal({
     const funnelStepsLength = (metric as ExperimentFunnelsQuery)?.funnels_query?.series?.length || 0
 
     const onClose = (): void => {
+        // :KLUDGE: Removes any local changes and resets the experiment to the server state
         loadExperiment()
         isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
     }
