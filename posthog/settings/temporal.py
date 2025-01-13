@@ -1,6 +1,6 @@
 import os
 
-from posthog.settings.utils import get_from_env, get_list
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
 TEMPORAL_TASK_QUEUE: str = os.getenv("TEMPORAL_TASK_QUEUE", "no-sandbox-python-django")
@@ -65,3 +65,8 @@ CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
     [map(int, o.split(":")) for o in os.getenv("CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES", "").split(",") if o]  # type: ignore
 )
 CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
+
+# TODO - remove this once migration is complete
+BATCH_EXPORT_USE_EVENTS_RECENT_FOR_ALL: bool = get_from_env(
+    "BATCH_EXPORT_USE_EVENTS_RECENT_FOR_ALL", False, type_cast=str_to_bool
+)

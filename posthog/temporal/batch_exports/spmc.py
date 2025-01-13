@@ -497,6 +497,17 @@ def default_fields() -> list[BatchExportField]:
     ]
 
 
+def use_events_recent(full_range: tuple[dt.datetime | None, dt.datetime], is_backfill: bool) -> bool:
+    start_at, end_at = full_range
+    if start_at:
+        is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
+    else:
+        is_5_min_batch_export = False
+
+    use_events_recent_for_all = settings.BATCH_EXPORT_USE_EVENTS_RECENT_FOR_ALL
+    return (use_events_recent_for_all or is_5_min_batch_export) and not is_backfill
+
+
 class Producer:
     """Async producer for batch exports.
 
@@ -559,14 +570,7 @@ class Producer:
             else:
                 parameters["include_events"] = []
 
-            start_at, end_at = full_range
-
-            if start_at:
-                is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
-            else:
-                is_5_min_batch_export = False
-
-            if is_5_min_batch_export and not is_backfill:
+            if use_events_recent(full_range, is_backfill):
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
                 query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
