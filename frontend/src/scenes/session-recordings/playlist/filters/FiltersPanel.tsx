@@ -62,7 +62,7 @@ export const FiltersPanel = (): JSX.Element => {
 
     return (
         <>
-            <div className="px-2 space-y-1 bg-bg-light border-b py-4">
+            <div className="px-2 space-y-1 bg-bg-light border-b py-2">
                 <div className="flex items-center justify-between">
                     <h3 className="px-2 truncate" title="Filters">
                         Filters
@@ -126,7 +126,7 @@ export const FiltersPanel = (): JSX.Element => {
                     checked={filters.filter_test_accounts || false}
                     onChange={() => setFilters({ filter_test_accounts: !filters.filter_test_accounts })}
                     size="small"
-                    className="ml-1 mb-1"
+                    className="ml-1 py-1"
                     label={
                         <div className="flex text-xs gap-2">
                             <IconPeopleFilled />
