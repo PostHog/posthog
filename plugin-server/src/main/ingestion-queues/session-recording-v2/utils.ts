@@ -1,7 +1,6 @@
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, MessageHeader, PartitionMetadata } from 'node-rdkafka'
-import path from 'path'
 
 import { status } from '../../../utils/status'
 import { KafkaMetrics } from './kafka/kafka-metrics'
@@ -21,8 +20,6 @@ export const maxDefined = (...args: (number | undefined)[]): number | undefined 
     const definedArgs = args.filter((arg) => arg !== undefined) as number[]
     return definedArgs.length ? Math.max(...definedArgs) : undefined
 }
-
-export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
 export const queryWatermarkOffsets = (
     kafkaConsumer: KafkaConsumer | undefined,

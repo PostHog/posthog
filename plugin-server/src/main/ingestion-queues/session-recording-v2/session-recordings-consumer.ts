@@ -1,5 +1,4 @@
 import { captureException } from '@sentry/node'
-import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 
 import { buildIntegerMatcher } from '../../../config/config'
@@ -17,7 +16,7 @@ import { KafkaMetrics } from './kafka/kafka-metrics'
 import { KafkaParser } from './kafka/kafka-parser'
 import { SessionRecordingMetrics } from './metrics'
 import { IncomingRecordingMessage } from './types'
-import { bufferFileDir, getPartitionsForTopic } from './utils'
+import { getPartitionsForTopic } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -195,21 +194,6 @@ export class SessionRecordingIngester {
             librdKafkaVersion: librdkafkaVersion,
             kafkaCapabilities: features,
         })
-
-        // Currently we can't reuse any files stored on disk, so we opt to delete them all
-        try {
-            rmSync(bufferFileDir(this.config.SESSION_RECORDING_LOCAL_DIRECTORY), {
-                recursive: true,
-                force: true,
-            })
-            mkdirSync(bufferFileDir(this.config.SESSION_RECORDING_LOCAL_DIRECTORY), {
-                recursive: true,
-            })
-        } catch (e) {
-            status.error('🔥', 'Failed to recreate local buffer directory', e)
-            captureException(e)
-            throw e
-        }
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
