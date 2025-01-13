@@ -22,6 +22,13 @@ class Migration(migrations.Migration):
         ),
         migrations.AlterField(
             model_name="errortrackingissueassignment",
+            name="issue",
+            field=models.OneToOneField(
+                on_delete=django.db.models.deletion.CASCADE, related_name="assignment", to="posthog.errortrackingissue"
+            ),
+        ),
+        migrations.AlterField(
+            model_name="errortrackingissueassignment",
             name="user",
             field=models.ForeignKey(
                 null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
