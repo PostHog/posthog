@@ -48,6 +48,7 @@ import {
     PluginType,
     PropertyDefinition,
     PropertyFilterType,
+    PropertyMathType,
     PropertyOperator,
     RecordingUniversalFilters,
     RetentionPeriod,
@@ -77,6 +78,7 @@ export enum TileId {
     REPLAY = 'REPLAY',
     ERROR_TRACKING = 'ERROR_TRACKING',
     GOALS = 'GOALS',
+    WEB_VITALS = 'WEB_VITALS',
 }
 
 export enum ProductTab {
@@ -95,6 +97,7 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.REPLAY]: 8,
     [TileId.ERROR_TRACKING]: 9,
     [TileId.GOALS]: 10,
+    [TileId.WEB_VITALS]: 11,
 }
 
 export interface BaseTile {
@@ -711,23 +714,72 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return [
                         {
                             kind: 'query',
-                            tileId: TileId.OVERVIEW,
+                            tileId: TileId.WEB_VITALS,
+
+                            // TODO: Do we need title and docs? Likely not
+                            title: 'Core Web Vitals',
+                            docs: {
+                                title: 'Core Web Vitals',
+                                description: 'TODO',
+                                url: 'https://posthog.com/docs/web-analytics/web-vitals',
+                            },
                             layout: {
                                 colSpanClassName: 'md:col-span-full',
                                 orderWhenLargeClassName: 'xxl:order-0',
                             },
                             query: {
-                                kind: NodeKind.WebOverviewQuery,
-                                properties: webAnalyticsFilters,
-                                dateRange,
-                                sampling,
-                                compareFilter,
-                                filterTestAccounts,
-                                conversionGoal,
-                                includeLCPScore: true,
+                                kind: NodeKind.InsightVizNode,
+                                source: {
+                                    kind: NodeKind.TrendsQuery,
+                                    dateRange,
+                                    interval,
+                                    series: [
+                                        {
+                                            kind: NodeKind.EventsNode,
+                                            event: '$web_vitals',
+                                            name: '$web_vitals',
+                                            custom_name: 'INP P90',
+                                            math: PropertyMathType.P90,
+                                            math_property: '$web_vitals_INP_value',
+                                        },
+                                        {
+                                            kind: NodeKind.EventsNode,
+                                            event: '$web_vitals',
+                                            name: '$web_vitals',
+                                            custom_name: 'LCP P90',
+                                            math: PropertyMathType.P90,
+                                            math_property: '$web_vitals_LCP_value',
+                                        },
+                                        {
+                                            kind: NodeKind.EventsNode,
+                                            event: '$web_vitals',
+                                            name: '$web_vitals',
+                                            custom_name: 'CLS P90',
+                                            math: PropertyMathType.P90,
+                                            math_property: '$web_vitals_CLS_value',
+                                        },
+                                        {
+                                            kind: NodeKind.EventsNode,
+                                            event: '$web_vitals',
+                                            name: '$web_vitals',
+                                            custom_name: 'FCP P90',
+                                            math: PropertyMathType.P90,
+                                            math_property: '$web_vitals_FCP_value',
+                                        },
+                                    ],
+                                    trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+                                    compareFilter,
+                                    filterTestAccounts,
+                                    conversionGoal: undefined, // TODO: Should we support conversion goals for core web vitals?
+                                    properties: webAnalyticsFilters,
+                                },
+                                hidePersonsModal: true,
+                                embedded: true,
                             },
                             insightProps: createInsightProps(TileId.OVERVIEW),
+                            canOpenInsight: false,
                             canOpenModal: false,
+                            showIntervalSelect: true,
                         },
                     ]
                 }
@@ -783,7 +835,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
-                            includeLCPScore: true,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenModal: false,
