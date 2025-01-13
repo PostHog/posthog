@@ -7,7 +7,9 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     initial = True
 
-    dependencies = []
+    dependencies = [
+        ("posthog", "0542_migrate_early_access_features"),
+    ]
 
     database_operations = []
 
