@@ -11,7 +11,7 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { DurationFilter } from './DurationFilter'
@@ -21,6 +21,7 @@ export const RecordingsUniversalFilters = ({
     setFilters,
     className,
     allowReplayHogQLFilters = false,
+    allowReplayFlagsFilters = false,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
@@ -44,6 +45,10 @@ export const RecordingsUniversalFilters = ({
 
     if (allowReplayHogQLFilters) {
         taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
+    }
+
+    if (allowReplayFlagsFilters) {
+        taxonomicGroupTypes.push(TaxonomicFilterGroupType.EventFeatureFlags)
     }
 
     return (

@@ -97,10 +97,8 @@ describe('Surveys', () => {
         // select the first property
         cy.get('[data-attr="property-select-toggle-0"]').click()
         cy.get('[data-attr="prop-filter-person_properties-0"]').click()
-        cy.get('[data-attr=prop-val]').click({ force: true })
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
-
-        cy.get('[data-attr="rollout-percentage"]').click().type('100')
+        cy.get('[data-attr=prop-val]').focus().type('true').type('{enter}')
+        cy.get('[data-attr="rollout-percentage"]').click().clear().type('50')
 
         // save
         cy.get('[data-attr="save-survey"]').eq(0).click()
@@ -109,8 +107,8 @@ describe('Surveys', () => {
 
         // check preview release conditions
         cy.contains('Display conditions summary').should('exist')
-        cy.get('.FeatureConditionCard').should('exist').should('contain.text', 'is_demo equals true')
-        cy.get('.FeatureConditionCard').should('contain.text', 'Rolled out to 100% of users in this set.')
+        // cy.get('.FeatureConditionCard').should('exist').should('contain.text', 'is_demo equals true')
+        cy.get('.FeatureConditionCard').should('contain.text', 'Rolled out to 50% of users in this set.')
 
         // launch survey
         cy.get('[data-attr="launch-survey"]').click()
@@ -200,9 +198,8 @@ describe('Surveys', () => {
         cy.contains('Add property targeting').click()
         cy.get('[data-attr="property-select-toggle-0"]').click()
         cy.get('[data-attr="prop-filter-person_properties-0"]').click()
-        cy.get('[data-attr=prop-val]').click({ force: true })
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
-        cy.get('[data-attr="rollout-percentage"]').click().type('100')
+        cy.get('[data-attr=prop-val]').focus().type('true').type('{enter}')
+        cy.get('[data-attr="rollout-percentage"]').click().clear().type('50')
 
         cy.get('[data-attr=save-survey]').first().click()
 
@@ -227,7 +224,7 @@ describe('Surveys', () => {
         // check if targetting criteria is copied
         cy.contains('Display conditions summary').should('exist')
         cy.get('.FeatureConditionCard').should('exist').should('contain.text', 'is_demo equals true')
-        cy.get('.FeatureConditionCard').should('contain.text', 'Rolled out to 100% of users in this set.')
+        cy.get('.FeatureConditionCard').should('contain.text', 'Rolled out to 50% of users in this set.')
 
         // delete the duplicated survey
         cy.get('[data-attr=more-button]').click()

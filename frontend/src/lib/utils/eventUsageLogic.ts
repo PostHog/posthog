@@ -399,6 +399,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             newLength: number
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
+        reportDashboardWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -646,10 +647,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             // "insight created" essentially means that the user clicked "New insight"
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
 
-            posthog.capture('insight created', {
-                query_kind: query?.kind,
-                query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
-            })
+            posthog.capture('insight created', sanitizeQuery(query))
         },
         reportInsightSaved: async ({ query, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
@@ -790,6 +788,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardShareToggled: async ({ isShared }) => {
             posthog.capture(`dashboard share toggled`, { is_shared: isShared })
+        },
+        reportDashboardWhitelabelToggled: async ({ isWhiteLabelled }) => {
+            posthog.capture(`dashboard whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
         },
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)

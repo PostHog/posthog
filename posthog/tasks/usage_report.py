@@ -3,7 +3,7 @@ import os
 from collections import Counter
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Literal, Optional, TypedDict, Union, cast
+from typing import Any, Literal, Optional, TypedDict, Union
 
 import requests
 import structlog
@@ -20,7 +20,7 @@ from sentry_sdk import capture_exception
 from posthog import version_requirement
 from posthog.clickhouse.client.connection import Workload
 from posthog.client import sync_execute
-from posthog.cloud_utils import get_cached_instance_license, is_cloud
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.logging.timing import timed_log
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
@@ -32,12 +32,12 @@ from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
+from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import (
     get_helm_info_env,
     get_instance_realm,
     get_instance_region,
-    get_machine_id,
     get_previous_day,
 )
 from posthog.warehouse.models import ExternalDataJob
@@ -277,26 +277,6 @@ def get_org_user_count(organization_id: str) -> int:
     return OrganizationMembership.objects.filter(organization_id=organization_id).count()
 
 
-def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
-    # Find the membership object for the org owner
-    user = None
-    membership = OrganizationMembership.objects.filter(
-        organization_id=organization_id, level=OrganizationMembership.Level.OWNER
-    ).first()
-    if not membership:
-        # If no owner membership is present, pick the first membership association we can find
-        membership = OrganizationMembership.objects.filter(organization_id=organization_id).first()
-    if hasattr(membership, "user"):
-        membership = cast(OrganizationMembership, membership)
-        user = membership.user
-    else:
-        capture_exception(
-            Exception("No user found for org while generating report"),
-            {"org": {"organization_id": organization_id}},
-        )
-    return user
-
-
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3, rate_limit="10/s")
 def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
@@ -334,7 +314,7 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     except Exception as err:
         logger.exception(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
         capture_exception(err)
-        pha_client = Client("sTMFPsFhdP1Ssg")
+        pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
         capture_event(
             pha_client=pha_client,
             name=f"organization usage report to billing service failure",
@@ -342,67 +322,6 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
             properties={"err": str(err)},
         )
         raise
-
-
-def capture_event(
-    *,
-    pha_client: Client,
-    name: str,
-    organization_id: Optional[str] = None,
-    team_id: Optional[int] = None,
-    properties: dict[str, Any],
-    timestamp: Optional[Union[datetime, str]] = None,
-    send_for_all_members: bool = False,
-) -> None:
-    if timestamp and isinstance(timestamp, str):
-        try:
-            timestamp = parser.isoparse(timestamp)
-        except ValueError:
-            timestamp = None
-
-    if not organization_id and not team_id:
-        raise ValueError("Either organization_id or team_id must be provided")
-
-    if is_cloud():
-        distinct_ids = []
-        if send_for_all_members:
-            if organization_id:
-                distinct_ids = list(
-                    OrganizationMembership.objects.filter(organization_id=organization_id).values_list(
-                        "user__distinct_id", flat=True
-                    )
-                )
-            elif team_id:
-                team = Team.objects.get(id=team_id)
-                distinct_ids = [user.distinct_id for user in team.all_users_with_access()]
-                organization_id = str(team.organization_id)
-        else:
-            if not organization_id:
-                team = Team.objects.get(id=team_id)
-                organization_id = str(team.organization_id)
-            org_owner = get_org_owner_or_first_user(organization_id) if organization_id else None
-            distinct_ids.append(
-                org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
-            )
-
-        for distinct_id in distinct_ids:
-            pha_client.capture(
-                distinct_id,
-                name,
-                {**properties, "scope": "user"},
-                groups={"organization": organization_id, "instance": settings.SITE_URL},
-                timestamp=timestamp,
-            )
-        pha_client.group_identify("organization", organization_id, properties)
-    else:
-        pha_client.capture(
-            get_machine_id(),
-            name,
-            {**properties, "scope": "machine"},
-            groups={"instance": settings.SITE_URL},
-            timestamp=timestamp,
-        )
-        pha_client.group_identify("instance", settings.SITE_URL, properties)
 
 
 @timed_log()
@@ -747,7 +666,7 @@ def capture_report(
 ) -> None:
     if not org_id and not team_id:
         raise ValueError("Either org_id or team_id must be provided")
-    pha_client = Client("sTMFPsFhdP1Ssg")
+    pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
     try:
         capture_event(
             pha_client=pha_client,
@@ -756,7 +675,6 @@ def capture_report(
             team_id=team_id,
             properties=full_report_dict,
             timestamp=at_date,
-            send_for_all_members=send_for_all_members,
         )
         logger.info(f"UsageReport sent to PostHog for organization {org_id}")
     except Exception as err:
@@ -769,9 +687,7 @@ def capture_report(
             organization_id=org_id,
             team_id=team_id,
             properties={"error": str(err)},
-            send_for_all_members=send_for_all_members,
         )
-    pha_client.flush()
 
 
 # extend this with future usage based products

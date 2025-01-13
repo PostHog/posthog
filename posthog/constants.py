@@ -263,6 +263,7 @@ class ExperimentNoResultsErrorKeys(StrEnum):
     NO_CONTROL_VARIANT = "no-control-variant"
     NO_TEST_VARIANT = "no-test-variant"
     NO_RESULTS = "no-results"
+    NO_EXPOSURES = "no-exposures"
 
 
 class PropertyOperatorType(StrEnum):
