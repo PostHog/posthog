@@ -32,15 +32,8 @@ import { VersionMetrics } from './versions/version-metrics'
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
-type PartitionMetrics = {
-    lastMessageTimestamp?: number
-    lastMessageOffset?: number
-    offsetLag?: number
-}
-
 export class SessionRecordingIngester {
     batchConsumer?: BatchConsumer
-    partitionMetrics: Record<number, PartitionMetrics> = {}
     topic: string
     consumerGroupId: string
     totalNumPartitions = 0
