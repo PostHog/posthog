@@ -2012,8 +2012,9 @@ export interface ErrorTrackingIssue {
     /**  @format date-time */
     last_seen: string
     earliest: string
-    // Sparkline data handled by the DataTable
-    volume?: any
+    volumeDay: number[]
+    volumeMonth: number[]
+    volumeCustom?: number[]
     assignee: number | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
 }

@@ -1,5 +1,6 @@
-import { ErrorTrackingException } from 'lib/components/Errors/types'
+import { ErrorTrackingException, ErrorTrackingSparklineConfig } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
+import { range } from 'lib/utils'
 
 import { ErrorTrackingIssue } from '~/queries/schema'
 
@@ -107,4 +108,11 @@ export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean 
 
 export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
     return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
+}
+
+export function sparklineLabels({ value, displayAs, offsetHours }: ErrorTrackingSparklineConfig): string[] {
+    const offset = offsetHours ?? 0
+    const now = dayjs().subtract(offset, 'hours').startOf(displayAs)
+    const dates = range(value).map((idx) => now.subtract(value - (idx + 1), displayAs))
+    return dates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
 }

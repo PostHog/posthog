@@ -98,7 +98,7 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
     const { sparklineSelectedPeriod, sparklineOptions: options } = useValues(errorTrackingLogic)
     const { setSparklineSelectedPeriod } = useActions(errorTrackingLogic)
 
-    if (!sparklineSelectedPeriod) {
+    if (!options || !sparklineSelectedPeriod) {
         return null
     }
 
