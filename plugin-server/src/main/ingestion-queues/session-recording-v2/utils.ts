@@ -3,9 +3,9 @@ import { DateTime } from 'luxon'
 import { KafkaConsumer, MessageHeader, PartitionMetadata } from 'node-rdkafka'
 
 import { status } from '../../../utils/status'
-import { KafkaMetrics } from './kafka/kafka-metrics'
-import { KafkaParser } from './kafka/kafka-parser'
-import { TeamIDWithConfig } from './session-recordings-consumer'
+import { TeamIDWithConfig } from './consumer'
+import { KafkaMetrics } from './kafka/metrics'
+import { KafkaParser } from './kafka/parser'
 import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
 
 // Helper to return now as a milliseconds timestamp

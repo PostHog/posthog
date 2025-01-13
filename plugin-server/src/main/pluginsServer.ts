@@ -51,7 +51,7 @@ import {
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
-import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './ingestion-queues/session-recording-v2/session-recordings-consumer'
+import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './ingestion-queues/session-recording-v2/consumer'
 import { expressApp, setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
 

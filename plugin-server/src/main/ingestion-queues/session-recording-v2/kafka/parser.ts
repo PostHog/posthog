@@ -7,9 +7,9 @@ import { KafkaProducerWrapper } from '../../../../utils/db/kafka-producer-wrappe
 import { status } from '../../../../utils/status'
 import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'
-import { TeamIDWithConfig } from '../session-recordings-consumer'
+import { TeamIDWithConfig } from '../consumer'
 import { IncomingRecordingMessage, ParsedBatch } from '../types'
-import { KafkaMetrics } from './kafka-metrics'
+import { KafkaMetrics } from './metrics'
 
 const GZIP_HEADER = Buffer.from([0x1f, 0x8b, 0x08, 0x00])
 const do_unzip = promisify(unzip)
