@@ -20,10 +20,10 @@ import {
     SDKKey,
 } from '~/types'
 
+import { BillingSectionId } from './billing/types'
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 import { SurveysTabs } from './surveys/surveysLogic'
-
 /**
  * To add a new URL to the front end:
  * - add a URL function here
@@ -108,7 +108,9 @@ export const urls = {
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
+
     webAnalytics: (): string => `/web`,
+    webAnalyticsCoreWebVitals: (): string => `/web/core-web-vitals`,
 
     replay: (
         tab?: ReplayTabs,
@@ -157,8 +159,8 @@ export const urls = {
     cohorts: (): string => '/cohorts',
     experiment: (id: string | number): string => `/experiments/${id}`,
     experiments: (): string => '/experiments',
-    experimentsSavedMetrics: (): string => '/experiments/saved-metrics',
-    experimentsSavedMetric: (id: string | number): string => `/experiments/saved-metrics/${id}`,
+    experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
+    experimentsSharedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
@@ -173,7 +175,6 @@ export const urls = {
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
     customCss: (): string => '/themes/custom-css',
-    dataModel: (): string => '/data-model',
     dataWarehouse: (query?: string | Record<string, any>): string =>
         combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
             .url,
@@ -211,6 +212,8 @@ export const urls = {
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
+    organizationBillingSection: (section: BillingSectionId = 'overview'): string =>
+        combineUrl(`/organization/billing/${section}`).url,
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
@@ -256,4 +259,5 @@ export const urls = {
     insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
+    llmObservability: (): string => '/llm-observability',
 }

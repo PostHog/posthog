@@ -40,6 +40,8 @@ from posthog.utils import GenericEmails
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -109,6 +111,14 @@ class TeamManager(models.Manager):
         create_dashboard_from_template("DEFAULT_APP", dashboard)
         team.primary_dashboard = dashboard
 
+        # Create default session recording playlists
+        for playlist in DEFAULT_PLAYLISTS:
+            SessionRecordingPlaylist.objects.create(
+                team=team,
+                name=str(playlist["name"]),
+                filters=playlist["filters"],
+                description=str(playlist.get("description", "")),
+            )
         team.save()
         return team
 
@@ -282,6 +292,7 @@ class Team(UUIDClassicModel):
     person_display_name_properties: ArrayField = ArrayField(models.CharField(max_length=400), null=True, blank=True)
     live_events_columns: ArrayField = ArrayField(models.TextField(), null=True, blank=True)
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
+    human_friendly_comparison_periods = models.BooleanField(default=False, null=True, blank=True)
     cookieless_server_hash_mode = models.SmallIntegerField(
         default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
     )
@@ -293,6 +304,8 @@ class Team(UUIDClassicModel):
         related_name="primary_dashboard_teams",
         blank=True,
     )  # Dashboard shown on project homepage
+
+    default_data_theme = models.IntegerField(null=True, blank=True)
 
     # Generic field for storing any team-specific context that is more temporary in nature and thus
     # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides

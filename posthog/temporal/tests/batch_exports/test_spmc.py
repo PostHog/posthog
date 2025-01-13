@@ -5,7 +5,7 @@ import random
 import pyarrow as pa
 import pytest
 
-from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue
+from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue, slice_record_batch
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -129,3 +129,36 @@ async def test_record_batch_producer_uses_extra_query_parameters(clickhouse_clie
             raise ValueError("Empty properties")
 
         assert record["custom_prop"] == expected["properties"]["custom"]
+
+
+def test_slice_record_batch_into_single_record_slices():
+    """Test we slice a record batch into slices with a single record."""
+    n_legs = pa.array([2, 2, 4, 4, 5, 100])
+    animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
+    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
+
+    slices = list(slice_record_batch(batch, max_record_batch_size_bytes=1, min_records_per_batch=1))
+    assert len(slices) == 6
+    assert all(slice.num_rows == 1 for slice in slices)
+
+
+def test_slice_record_batch_into_one_batch():
+    """Test we do not slice a record batch without a bytes limit."""
+    n_legs = pa.array([2, 2, 4, 4, 5, 100])
+    animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
+    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
+
+    slices = list(slice_record_batch(batch, max_record_batch_size_bytes=0))
+    assert len(slices) == 1
+    assert all(slice.num_rows == 6 for slice in slices)
+
+
+def test_slice_record_batch_in_half():
+    """Test we can slice a record batch into half size."""
+    n_legs = pa.array([4] * 6)
+    animals = pa.array(["Dog"] * 6)
+    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
+
+    slices = list(slice_record_batch(batch, max_record_batch_size_bytes=batch.nbytes // 2, min_records_per_batch=1))
+    assert len(slices) == 2
+    assert all(slice.num_rows == 3 for slice in slices)

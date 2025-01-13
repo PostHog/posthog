@@ -112,7 +112,7 @@ export function Navbar(): JSX.Element {
                             {!systemStatusHealthy ? (
                                 <NavbarButton
                                     icon={<IconWarning />}
-                                    identifier={Scene.Settings}
+                                    identifier={Scene.SystemStatus}
                                     title="System issue!"
                                     to={urls.instanceStatus()}
                                 />

@@ -14,6 +14,7 @@ aiohttp==3.11.10
     #   aiobotocore
     #   geoip2
     #   langchain
+    #   langchain-community
     #   s3fs
 aioitertools==0.11.0
     # via aiobotocore
@@ -80,6 +81,7 @@ celery-redbeat==2.1.1
     # via -r requirements.in
 certifi==2019.11.28
     # via
+    #   clickhouse-connect
     #   httpcore
     #   httpx
     #   requests
@@ -110,6 +112,8 @@ click-plugins==1.1.1
     # via celery
 click-repl==0.3.0
     # via celery
+clickhouse-connect==0.8.11
+    # via -r requirements.in
 clickhouse-driver==0.2.7
     # via
     #   -r requirements.in
@@ -132,13 +136,15 @@ cssselect==1.1.0
     # via toronado
 cssutils==1.0.2
     # via toronado
+dataclasses-json==0.6.7
+    # via langchain-community
 decorator==5.1.1
     # via retry
 defusedxml==0.6.0
     # via
     #   python3-openid
     #   social-auth-core
-deltalake==0.22.3
+deltalake==0.23.2
     # via -r requirements.in
 distro==1.9.0
     # via openai
@@ -347,10 +353,15 @@ kombu==5.3.2
     #   -r requirements.in
     #   celery
 langchain==0.3.9
+    # via
+    #   -r requirements.in
+    #   langchain-community
+langchain-community==0.3.2
     # via -r requirements.in
 langchain-core==0.3.21
     # via
     #   langchain
+    #   langchain-community
     #   langchain-openai
     #   langchain-text-splitters
     #   langgraph
@@ -370,6 +381,7 @@ langgraph-sdk==0.1.43
 langsmith==0.1.132
     # via
     #   langchain
+    #   langchain-community
     #   langchain-core
 lxml==4.9.4
     # via
@@ -378,12 +390,20 @@ lxml==4.9.4
     #   toronado
     #   xmlsec
     #   zeep
+lz4==4.3.3
+    # via clickhouse-connect
 lzstring==1.0.4
     # via -r requirements.in
 makefun==1.15.2
     # via dlt
+markdown-it-py==3.0.0
+    # via -r requirements.in
+marshmallow==3.23.1
+    # via dataclasses-json
 maxminddb==2.2.0
     # via geoip2
+mdurl==0.1.2
+    # via markdown-it-py
 mimesis==5.2.1
     # via -r requirements.in
 monotonic==1.5
@@ -399,6 +419,8 @@ multidict==6.0.5
     #   -r requirements.in
     #   aiohttp
     #   yarl
+mypy-extensions==1.0.0
+    # via typing-inspect
 nanoid==2.0.0
     # via -r requirements.in
 natsort==8.4.0
@@ -409,6 +431,7 @@ numpy==1.23.3
     # via
     #   -r requirements.in
     #   langchain
+    #   langchain-community
     #   pandas
     #   pyarrow
     #   scikit-learn
@@ -439,6 +462,7 @@ packaging==24.1
     #   google-cloud-bigquery
     #   langchain-core
     #   langfuse
+    #   marshmallow
     #   snowflake-connector-python
     #   sqlalchemy-bigquery
     #   webdriver-manager
@@ -517,8 +541,11 @@ pydantic==2.9.2
     #   langfuse
     #   langsmith
     #   openai
+    #   pydantic-settings
 pydantic-core==2.23.4
     # via pydantic
+pydantic-settings==2.7.0
+    # via langchain-community
 pyjwt==2.4.0
     # via
     #   -r requirements.in
@@ -552,7 +579,9 @@ python-dateutil==2.8.2
     #   pendulum
     #   posthoganalytics
 python-dotenv==0.21.0
-    # via webdriver-manager
+    # via
+    #   pydantic-settings
+    #   webdriver-manager
 python-statsd==2.1.0
     # via django-statsd
 python3-openid==3.1.0
@@ -562,6 +591,7 @@ python3-saml==1.12.0
 pytz==2023.3
     # via
     #   -r requirements.in
+    #   clickhouse-connect
     #   clickhouse-driver
     #   dlt
     #   infi-clickhouse-orm
@@ -576,6 +606,7 @@ pyyaml==6.0.1
     #   dlt
     #   drf-spectacular
     #   langchain
+    #   langchain-community
     #   langchain-core
 qrcode==7.4.2
     # via django-two-factor-auth
@@ -599,6 +630,7 @@ requests==2.32.0
     #   google-cloud-bigquery
     #   infi-clickhouse-orm
     #   langchain
+    #   langchain-community
     #   langfuse
     #   langsmith
     #   pdpyras
@@ -694,6 +726,7 @@ sqlalchemy==2.0.31
     # via
     #   -r requirements.in
     #   langchain
+    #   langchain-community
     #   snowflake-sqlalchemy
     #   sqlalchemy-bigquery
 sqlalchemy-bigquery==1.11.0
@@ -720,6 +753,7 @@ tenacity==8.4.2
     #   celery-redbeat
     #   dlt
     #   langchain
+    #   langchain-community
     #   langchain-core
 threadpoolctl==3.3.0
     # via scikit-learn
@@ -762,6 +796,9 @@ typing-extensions==4.12.2
     #   sqlalchemy
     #   stripe
     #   temporalio
+    #   typing-inspect
+typing-inspect==0.9.0
+    # via dataclasses-json
 tzdata==2023.3
     # via
     #   celery
@@ -776,6 +813,7 @@ uritemplate==4.1.1
 urllib3==1.26.18
     # via
     #   botocore
+    #   clickhouse-connect
     #   geoip2
     #   google-auth
     #   pdpyras
@@ -811,6 +849,8 @@ yarl==1.18.3
     # via aiohttp
 zeep==4.2.1
     # via simple-salesforce
+zstandard==0.23.0
+    # via clickhouse-connect
 zstd==1.5.5.1
     # via -r requirements.in
 zxcvbn==4.4.28

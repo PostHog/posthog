@@ -5,7 +5,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
 import { uuid } from 'lib/utils'
-import { isHumanMessage, isReasoningMessage, isVisualizationMessage } from 'scenes/max/utils'
+import { isAssistantMessage, isHumanMessage, isReasoningMessage, isVisualizationMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import {
@@ -317,6 +317,20 @@ export const maxLogic = kea<maxLogicType>([
                 }
                 return threadGrouped
             },
+        ],
+        formPending: [
+            (s) => [s.threadRaw],
+            (threadRaw) => {
+                const lastMessage = threadRaw[threadRaw.length - 1]
+                if (lastMessage && isAssistantMessage(lastMessage)) {
+                    return !!lastMessage.meta?.form
+                }
+                return false
+            },
+        ],
+        inputDisabled: [
+            (s) => [s.threadLoading, s.formPending],
+            (threadLoading, formPending) => threadLoading || formPending,
         ],
     }),
     afterMount(({ actions, values }) => {

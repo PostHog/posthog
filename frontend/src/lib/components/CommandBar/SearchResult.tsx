@@ -1,7 +1,6 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { TAILWIND_BREAKPOINTS } from 'lib/constants'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useLayoutEffect, useRef } from 'react'
@@ -28,7 +27,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
 
     const ref = useRef<HTMLDivElement | null>(null)
 
-    const { width } = useWindowSize()
+    const { isWindowLessThan } = useWindowSize()
 
     useLayoutEffect(() => {
         if (focused) {
@@ -51,7 +50,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
                     focused ? 'bg-bg-3000 border-l-primary-3000' : 'bg-bg-light'
                 )}
                 onClick={() => {
-                    if (width && width <= TAILWIND_BREAKPOINTS.md) {
+                    if (isWindowLessThan('md')) {
                         openResult(resultIndex)
                     } else {
                         setActiveResultIndex(resultIndex)
