@@ -75,52 +75,6 @@ export class SessionRecordingIngester {
         }
     }
 
-    private get connectedBatchConsumer(): KafkaConsumer | undefined {
-        // Helper to only use the batch consumer if we are actually connected to it - otherwise it will throw errors
-        const consumer = this.batchConsumer?.consumer
-        return consumer && consumer.isConnected() ? consumer : undefined
-    }
-
-    private get assignedTopicPartitions(): TopicPartition[] {
-        return this.connectedBatchConsumer?.assignments() ?? []
-    }
-
-    private get assignedPartitions(): TopicPartition['partition'][] {
-        return this.assignedTopicPartitions.map((x) => x.partition)
-    }
-
-    private async consume(messageWithTeam: MessageWithTeam): Promise<void> {
-        // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
-        // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
-        this.metrics.resetSessionsRevoked()
-        const { team, message } = messageWithTeam
-        const debugEnabled = this.isDebugLoggingEnabled(message.metadata.partition)
-
-        if (debugEnabled) {
-            logger.debug('🔄', 'processing_session_recording', {
-                partition: message.metadata.partition,
-                offset: message.metadata.offset,
-                distinct_id: message.distinct_id,
-                session_id: message.session_id,
-                raw_size: message.metadata.rawSize,
-            })
-        }
-
-        const { partition } = message.metadata
-        const isDebug = this.isDebugLoggingEnabled(partition)
-        if (isDebug) {
-            logger.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
-                ...message.metadata,
-                team_id: team.teamId,
-                session_id: message.session_id,
-            })
-        }
-
-        this.metrics.observeSessionInfo(message.metadata.rawSize)
-
-        return Promise.resolve()
-    }
-
     public async handleEachBatch(messages: Message[], context: { heartbeat: () => void }): Promise<void> {
         context.heartbeat()
 
@@ -242,7 +196,53 @@ export class SessionRecordingIngester {
         return this.batchConsumer?.isHealthy()
     }
 
-    async onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
+    private get connectedBatchConsumer(): KafkaConsumer | undefined {
+        // Helper to only use the batch consumer if we are actually connected to it - otherwise it will throw errors
+        const consumer = this.batchConsumer?.consumer
+        return consumer && consumer.isConnected() ? consumer : undefined
+    }
+
+    private get assignedTopicPartitions(): TopicPartition[] {
+        return this.connectedBatchConsumer?.assignments() ?? []
+    }
+
+    private get assignedPartitions(): TopicPartition['partition'][] {
+        return this.assignedTopicPartitions.map((x) => x.partition)
+    }
+
+    private async consume(messageWithTeam: MessageWithTeam): Promise<void> {
+        // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
+        // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
+        this.metrics.resetSessionsRevoked()
+        const { team, message } = messageWithTeam
+        const debugEnabled = this.isDebugLoggingEnabled(message.metadata.partition)
+
+        if (debugEnabled) {
+            logger.debug('🔄', 'processing_session_recording', {
+                partition: message.metadata.partition,
+                offset: message.metadata.offset,
+                distinct_id: message.distinct_id,
+                session_id: message.session_id,
+                raw_size: message.metadata.rawSize,
+            })
+        }
+
+        const { partition } = message.metadata
+        const isDebug = this.isDebugLoggingEnabled(partition)
+        if (isDebug) {
+            logger.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
+                ...message.metadata,
+                team_id: team.teamId,
+                session_id: message.session_id,
+            })
+        }
+
+        this.metrics.observeSessionInfo(message.metadata.rawSize)
+
+        return Promise.resolve()
+    }
+
+    private async onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
         /**
          * The revoke_partitions indicates that the consumer group has had partitions revoked.
          * As a result, we need to drop all sessions currently managed for the revoked partitions
