@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0540_team_human_friendly_comparison_periods"),
+        ("posthog", "0541_usergroup_usergroupmembership_usergroup_members_and_more"),
     ]
 
     database_operations = [

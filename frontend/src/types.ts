@@ -4886,3 +4886,9 @@ export enum UserRole {
     Sales = 'sales',
     Other = 'other',
 }
+
+export type UserGroup = {
+    id: string
+    name: string
+    members: UserBasicType[]
+}
