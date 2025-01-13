@@ -45,8 +45,15 @@ logger = structlog.get_logger(__name__)
 NEGATIVE_OPERATORS = [
     PropertyOperator.IS_NOT_SET,
     PropertyOperator.IS_NOT,
-    # PropertyOperator.NOT_REGEX, PropertyOperator.NOT_ICONTAINS, PropertyOperator.NOT_IN, PropertyOperator.NOT_BETWEEN
+    PropertyOperator.NOT_IN,  # COHORT operator
+    # PropertyOperator.NOT_REGEX, PropertyOperator.NOT_ICONTAINS, PropertyOperator.NOT_BETWEEN
 ]
+
+INVERSE_OPERATOR_FOR = {
+    PropertyOperator.IS_NOT_SET: PropertyOperator.IS_SET,
+    PropertyOperator.IS_NOT: PropertyOperator.EXACT,
+    PropertyOperator.NOT_IN: PropertyOperator.IN_,
+}
 
 
 def is_event_property(p: AnyPropertyFilter) -> bool:
@@ -811,7 +818,7 @@ class ReplayFiltersEventsSubQuery:
                                 args=[
                                     # we count the positive equivalent so we can easily assert there are no matches
                                     property_to_expr(
-                                        prop.model_copy(update={"operator": PropertyOperator.IS_SET}),
+                                        prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[prop.operator]}),
                                         team=self._team,
                                         scope="event",
                                     ),
@@ -830,7 +837,7 @@ class ReplayFiltersEventsSubQuery:
                                 args=[
                                     # we count the positive equivalent so we can easily assert there are no matches
                                     property_to_expr(
-                                        prop.model_copy(update={"operator": PropertyOperator.EXACT}),
+                                        prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[prop.operator]}),
                                         team=self._team,
                                         scope="event",
                                     ),

@@ -2215,13 +2215,13 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
-    def test_filter_with_cohort_properties(self):
+    def test_filter_with_cohort_properties(self) -> None:
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             with freeze_time("2021-08-21T20:00:00.000Z"):
                 user_one = "test_filter_with_cohort_properties-user"
                 user_two = "test_filter_with_cohort_properties-user2"
-                session_id_one = f"test_filter_with_cohort_properties-1-{str(uuid4())}"
-                session_id_two = f"test_filter_with_cohort_properties-2-{str(uuid4())}"
+                session_id_one = "session_not_in_cohort"
+                session_id_two = "session_in_cohort"
 
                 Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
                 Person.objects.create(
@@ -2287,6 +2287,21 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 )
 
                 assert [x["session_id"] for x in session_recordings] == [session_id_two]
+
+                (session_recordings, _, _) = self._filter_recordings_by(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            }
+                        ]
+                    }
+                )
+
+                assert [x["session_id"] for x in session_recordings] == [session_id_one]
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
