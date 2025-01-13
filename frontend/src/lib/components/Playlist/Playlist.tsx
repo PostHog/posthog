@@ -1,14 +1,13 @@
 import './Playlist.scss'
 
-import { IconCollapse } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
-import { ReactNode, useEffect, useRef, useState } from 'react'
+import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { FiltersPanel } from 'scenes/session-recordings/playlist/filters/FiltersPanel'
 
 import { SessionRecordingType } from '~/types'
 
@@ -52,23 +51,6 @@ export type PlaylistProps = {
     isCollapsed?: boolean
 }
 
-const CounterBadge = ({
-    children,
-    size = 'small',
-}: {
-    children: React.ReactNode
-    size?: 'small' | 'xsmall'
-}): JSX.Element => (
-    <span
-        className={clsx(
-            'rounded py-1 px-2 bg-border-light font-semibold select-none',
-            size === 'small' ? 'text-xs' : 'text-xxs'
-        )}
-    >
-        {children}
-    </span>
-)
-
 export function Playlist({
     title,
     notebooksHref,
@@ -84,7 +66,6 @@ export function Playlist({
     selectInitialItem,
     onSelect,
     onChangeSections,
-    isCollapsed = false,
     'data-attr': dataAttr,
 }: PlaylistProps): JSX.Element {
     const firstItem = sections
@@ -94,17 +75,7 @@ export function Playlist({
     const [controlledActiveItemId, setControlledActiveItemId] = useState<SessionRecordingType['id'] | null>(
         selectInitialItem && firstItem ? firstItem.id : null
     )
-    const [listCollapsed, setListCollapsed] = useState<boolean>(isCollapsed)
-    useEffect(
-        () => {
-            if (isCollapsed !== listCollapsed) {
-                setListCollapsed(isCollapsed)
-            }
-        },
-        // purposefully only isCollapsed in dependencies
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [isCollapsed]
-    )
+
     const playlistListRef = useRef<HTMLDivElement>(null)
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
@@ -134,28 +105,22 @@ export function Playlist({
                     'Playlist--embedded': embedded,
                 })}
             >
-                <div
-                    ref={playlistListRef}
-                    className={clsx('Playlist__list w-full', listCollapsed && 'Playlist__list--collapsed')}
-                >
-                    {listCollapsed ? (
-                        <CollapsedList onClickOpen={() => setListCollapsed(false)} />
-                    ) : (
-                        <List
-                            title={title}
-                            notebooksHref={notebooksHref}
-                            loading={loading}
-                            sections={sections}
-                            headerActions={headerActions}
-                            footerActions={footerActions}
-                            onScrollListEdge={onScrollListEdge}
-                            onClickCollapse={() => setListCollapsed(true)}
-                            activeItemId={activeItemId}
-                            setActiveItemId={onChangeActiveItem}
-                            onChangeSections={onChangeSections}
-                            emptyState={listEmptyState}
-                        />
-                    )}
+                <div ref={playlistListRef} className={clsx('Playlist__list w-full', 'Playlist__list--collapsed')}>
+                    <FiltersPanel />
+
+                    <List
+                        title={title}
+                        notebooksHref={notebooksHref}
+                        loading={loading}
+                        sections={sections}
+                        headerActions={headerActions}
+                        footerActions={footerActions}
+                        onScrollListEdge={onScrollListEdge}
+                        activeItemId={activeItemId}
+                        setActiveItemId={onChangeActiveItem}
+                        onChangeSections={onChangeSections}
+                        emptyState={listEmptyState}
+                    />
                 </div>
             </div>
             <div
@@ -175,28 +140,9 @@ export function Playlist({
     )
 }
 
-const CollapsedList = ({ onClickOpen }: { onClickOpen: () => void }): JSX.Element => (
-    <div className="flex items-start h-full bg-bg-light border-r p-1">
-        <LemonButton size="xsmall" icon={<IconChevronRight />} onClick={onClickOpen} />
-    </div>
-)
-
-function TitleWithCount({
-    title,
-    count,
-    onClickCollapse,
-}: {
-    title?: string
-    count: number
-    onClickCollapse: () => void
-}): JSX.Element {
+const TitleWithCount = ({ title, count }: { title?: string; count: number }): JSX.Element => {
     return (
         <div className="flex items-center gap-0.5">
-            <LemonButton
-                size="xsmall"
-                icon={<IconCollapse className="rotate-90 text-xl" />}
-                onClick={onClickCollapse}
-            />
             {title && (
                 <span className="flex flex-1 gap-1 items-center">
                     <span className="font-bold uppercase text-xxs tracking-wide">{title}</span>
@@ -211,7 +157,9 @@ function TitleWithCount({
                             </>
                         }
                     >
-                        <CounterBadge size="xsmall">{Math.min(999, count)}+</CounterBadge>
+                        <span className="rounded py-1 px-2 bg-border-light font-semibold select-none text-xxs">
+                            {Math.min(999, count)}+
+                        </span>
                     </Tooltip>
                 </span>
             )}
@@ -219,10 +167,9 @@ function TitleWithCount({
     )
 }
 
-function List({
+const List = ({
     title,
     notebooksHref,
-    onClickCollapse,
     setActiveItemId,
     headerActions,
     footerActions,
@@ -235,7 +182,6 @@ function List({
 }: {
     title?: string
     notebooksHref: PlaylistProps['notebooksHref']
-    onClickCollapse: () => void
     activeItemId: SessionRecordingType['id'] | null
     setActiveItemId: (item: SessionRecordingType) => void
     headerActions: PlaylistProps['headerActions']
@@ -245,7 +191,7 @@ function List({
     onScrollListEdge: PlaylistProps['onScrollListEdge']
     loading: PlaylistProps['loading']
     emptyState: PlaylistProps['listEmptyState']
-}): JSX.Element {
+}): JSX.Element => {
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
 
@@ -278,7 +224,7 @@ function List({
             <DraggableToNotebook href={notebooksHref}>
                 <div className="flex flex-col gap-1">
                     <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
-                        <TitleWithCount title={title} count={itemsCount} onClickCollapse={onClickCollapse} />
+                        {title && <TitleWithCount title={title} count={itemsCount} />}
                         {headerActions}
                     </div>
                     <LemonTableLoader loading={loading} />

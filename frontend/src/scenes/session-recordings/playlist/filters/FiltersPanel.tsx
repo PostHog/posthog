@@ -1,7 +1,11 @@
+/**
+ * @fileoverview Filters panel for session recordings playlist.
+ */
 import { IconFilter, IconPeopleFilled } from '@posthog/icons'
+import { LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { SettingsMenu, SettingsToggle } from 'lib/components/PanelLayout/PanelLayout'
+import { SettingsMenu } from 'lib/components/PanelLayout/PanelLayout'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -9,7 +13,6 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
-import { SettingsBar } from 'scenes/session-recordings/components/PanelSettings'
 import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 
 import { NodeKind } from '~/queries/schema'
@@ -24,6 +27,20 @@ export const FiltersPanel = (): JSX.Element => {
     const featureFlags = useValues(featureFlagLogic)
     const allowReplayHogQLFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS]
     const allowReplayFlagsFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_FLAGS_FILTERS]
+
+    /** For the internal users filter */
+    const onChangeOperator = (type: FilterLogicalOperator): void => {
+        let values = filters.filter_group.values
+
+        // set the type on the nested child when only using a single filter group
+        const hasSingleGroup = values.length === 1
+        if (hasSingleGroup) {
+            const group = values[0] as UniversalFiltersGroup
+            values = [{ ...group, type }]
+        }
+
+        setFilters({ filter_group: { type: type, values: values } })
+    }
 
     const durationFilter = filters.duration[0]
 
@@ -45,7 +62,33 @@ export const FiltersPanel = (): JSX.Element => {
 
     return (
         <>
-            <div className="p-2 space-y-1 bg-bg-light">
+            <div className="px-2 space-y-1 bg-bg-light border-b py-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="px-2 truncate" title="Filters">
+                        Filters
+                    </h3>
+                    <SettingsMenu
+                        highlightWhenActive={false}
+                        items={[
+                            {
+                                label: 'Any',
+                                onClick: () => onChangeOperator(FilterLogicalOperator.Or),
+                                active: filters.filter_group.type === FilterLogicalOperator.Or,
+                            },
+                            {
+                                label: 'All',
+                                onClick: () => onChangeOperator(FilterLogicalOperator.And),
+                                active: filters.filter_group.type === FilterLogicalOperator.And,
+                            },
+                        ]}
+                        icon={<IconFilter />}
+                        label={`Match ${filters.filter_group.type === FilterLogicalOperator.And ? 'all' : 'any'}...`}
+                    />
+                </div>
+                <div className="mx-2">
+                    {/* This divider has to be within a div, because otherwise horizontal margin ADDS to the width */}
+                    <LemonDivider className="my-0" />
+                </div>
                 <DateFilter
                     size="xsmall"
                     type="tertiary"
@@ -79,6 +122,18 @@ export const FiltersPanel = (): JSX.Element => {
                     size="xsmall"
                     type="tertiary"
                 />
+                <LemonSwitch
+                    checked={filters.filter_test_accounts || false}
+                    onChange={() => setFilters({ filter_test_accounts: !filters.filter_test_accounts })}
+                    size="small"
+                    className="ml-1 mb-1"
+                    label={
+                        <div className="flex text-xs gap-2">
+                            <IconPeopleFilled />
+                            <span>Show internal users</span>
+                        </div>
+                    }
+                />
                 <UniversalFilters
                     rootKey="session-recordings"
                     group={filters.filter_group}
@@ -88,7 +143,6 @@ export const FiltersPanel = (): JSX.Element => {
                     <RecordingsUniversalFilterGroup />
                 </UniversalFilters>
             </div>
-            <BottomSettings />
         </>
     )
 }
@@ -123,52 +177,5 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                 )
             })}
         </>
-    )
-}
-
-function BottomSettings(): JSX.Element {
-    const { filters } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
-
-    const onChangeOperator = (type: FilterLogicalOperator): void => {
-        let values = filters.filter_group.values
-
-        // set the type on the nested child when only using a single filter group
-        const hasSingleGroup = values.length === 1
-        if (hasSingleGroup) {
-            const group = values[0] as UniversalFiltersGroup
-            values = [{ ...group, type }]
-        }
-
-        setFilters({ filter_group: { type: type, values: values } })
-    }
-
-    return (
-        <SettingsBar border="top">
-            <SettingsMenu
-                highlightWhenActive={false}
-                items={[
-                    {
-                        label: 'Any',
-                        onClick: () => onChangeOperator(FilterLogicalOperator.Or),
-                        active: filters.filter_group.type === FilterLogicalOperator.Or,
-                    },
-                    {
-                        label: 'All',
-                        onClick: () => onChangeOperator(FilterLogicalOperator.And),
-                        active: filters.filter_group.type === FilterLogicalOperator.And,
-                    },
-                ]}
-                icon={<IconFilter />}
-                label={`Match ${filters.filter_group.type === FilterLogicalOperator.And ? 'all' : 'any'}...`}
-            />
-            <SettingsToggle
-                title="Show internal users"
-                icon={<IconPeopleFilled />}
-                label="Show internal users"
-                active={filters.filter_test_accounts || false}
-                onClick={() => setFilters({ filter_test_accounts: !filters.filter_test_accounts })}
-            />
-        </SettingsBar>
     )
 }

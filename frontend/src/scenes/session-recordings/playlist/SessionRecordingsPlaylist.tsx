@@ -7,8 +7,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { FiltersPanel } from 'scenes/session-recordings/playlist/filters/FiltersPanel'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
@@ -51,8 +49,6 @@ export function SessionRecordingsPlaylist({
 
     const pinnedDescription = isTestingSaved ? 'Saved' : 'Pinned'
 
-    const { playlistOpen } = useValues(playerSettingsLogic)
-
     const notebookNode = useNotebookNode()
 
     const sections: PlaylistSection[] = []
@@ -73,13 +69,6 @@ export function SessionRecordingsPlaylist({
             initiallyOpen: true,
         })
     }
-
-    sections.push({
-        key: 'filters',
-        title: 'Filters',
-        content: <FiltersPanel />,
-        initiallyOpen: true,
-    })
 
     sections.push({
         key: 'other',
@@ -113,7 +102,6 @@ export function SessionRecordingsPlaylist({
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div className="h-full space-y-2">
                 <Playlist
-                    isCollapsed={!playlistOpen}
                     data-attr="session-recordings-playlist"
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
                     embedded={!!notebookNode}
@@ -200,8 +188,10 @@ const ListEmptyState = (): JSX.Element => {
     )
 }
 
-function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX.Element {
-    // TODO add docs on how to enrich custom events with session_id and link to it from here
+/**
+ * TODO add docs on how to enrich custom events with session_id and link to it from here
+ */
+const UnusableEventsWarning = (props: { unusableEventsInFilter: string[] }): JSX.Element => {
     return (
         <LemonBanner type="warning">
             <p>Cannot use these events to filter for session recordings:</p>
