@@ -51,6 +51,7 @@ import {
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
+import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './ingestion-queues/session-recording-v2/session-recordings-consumer'
 import { expressApp, setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
 
@@ -443,6 +444,30 @@ export async function startPluginsServer(
             const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, true, undefined)
             await ingester.start()
             services.push(ingester.service)
+        }
+
+        if (capabilities.sessionRecordingBlobIngestionV2) {
+            const ingester = new SessionRecordingIngesterV2(serverConfig, false)
+            await ingester.start()
+
+            services.push({
+                id: 'session-recordings-blob-v2',
+                onShutdown: async () => await ingester.stop(),
+                healthcheck: () => ingester.isHealthy() ?? false,
+                batchConsumer: ingester.batchConsumer,
+            })
+        }
+
+        if (capabilities.sessionRecordingBlobOverflowIngestionV2) {
+            const ingester = new SessionRecordingIngesterV2(serverConfig, true)
+            await ingester.start()
+
+            services.push({
+                id: 'session-recordings-blob-v2-overflow',
+                onShutdown: async () => await ingester.stop(),
+                healthcheck: () => ingester.isHealthy() ?? false,
+                batchConsumer: ingester.batchConsumer,
+            })
         }
 
         if (capabilities.cdpProcessedEvents) {
