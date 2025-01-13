@@ -30,8 +30,8 @@ function createEntry(entry) {
             process.env.GENERATE_SOURCEMAP === 'false'
                 ? false
                 : process.env.NODE_ENV === 'production'
-                ? 'source-map'
-                : 'inline-source-map',
+                    ? 'source-map'
+                    : 'inline-source-map',
         entry: {
             [entry]: entry === 'main' || entry === 'cypress' ? './frontend/src/index.tsx' : null,
         },
@@ -44,8 +44,8 @@ function createEntry(entry) {
             publicPath: process.env.JS_URL
                 ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
                 : process.env.NODE_ENV === 'production'
-                ? '/static/'
-                : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
+                    ? '/static/'
+                    : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
         },
         resolve: {
             extensions: ['.js', '.jsx', '.ts', '.tsx'],
@@ -64,6 +64,7 @@ function createEntry(entry) {
                 public: path.resolve(__dirname, 'frontend', 'public'),
                 cypress: path.resolve(__dirname, 'cypress'),
                 process: 'process/browser',
+                products: path.resolve(__dirname, 'products'),
             },
         },
         module: {
@@ -164,22 +165,22 @@ function createEntry(entry) {
         // add devServer config only to 'main' entry
         ...(entry === 'main'
             ? {
-                  devServer: {
-                      contentBase: path.join(__dirname, 'frontend', 'dist'),
-                      hot: true,
-                      host: webpackDevServerHost,
-                      port: 8234,
-                      stats: 'minimal',
-                      disableHostCheck: !!process.env.LOCAL_HTTPS,
-                      public: process.env.JS_URL
-                          ? new URL(process.env.JS_URL).host
-                          : `${webpackDevServerFrontendAddr}:8234`,
-                      headers: {
-                          'Access-Control-Allow-Origin': '*',
-                          'Access-Control-Allow-Headers': '*',
-                      },
-                  },
-              }
+                devServer: {
+                    contentBase: path.join(__dirname, 'frontend', 'dist'),
+                    hot: true,
+                    host: webpackDevServerHost,
+                    port: 8234,
+                    stats: 'minimal',
+                    disableHostCheck: !!process.env.LOCAL_HTTPS,
+                    public: process.env.JS_URL
+                        ? new URL(process.env.JS_URL).host
+                        : `${webpackDevServerFrontendAddr}:8234`,
+                    headers: {
+                        'Access-Control-Allow-Origin': '*',
+                        'Access-Control-Allow-Headers': '*',
+                    },
+                },
+            }
             : {}),
         plugins: [
             new MonacoWebpackPlugin(),
@@ -187,30 +188,30 @@ function createEntry(entry) {
         ].concat(
             entry === 'main'
                 ? [
-                      // we need these only once per build
-                      new HtmlWebpackPlugin({
-                          alwaysWriteToDisk: true,
-                          title: 'PostHog',
-                          template: path.join(__dirname, 'frontend', 'src', 'index.html'),
-                      }),
+                    // we need these only once per build
+                    new HtmlWebpackPlugin({
+                        alwaysWriteToDisk: true,
+                        title: 'PostHog',
+                        template: path.join(__dirname, 'frontend', 'src', 'index.html'),
+                    }),
 
-                      new HtmlWebpackPlugin({
-                          alwaysWriteToDisk: true,
-                          title: 'PostHog',
-                          filename: 'layout.html',
-                          inject: false,
-                          template: path.join(__dirname, 'frontend', 'src', 'layout.ejs'),
-                      }),
-                      new HtmlWebpackHarddiskPlugin(),
-                  ]
+                    new HtmlWebpackPlugin({
+                        alwaysWriteToDisk: true,
+                        title: 'PostHog',
+                        filename: 'layout.html',
+                        inject: false,
+                        template: path.join(__dirname, 'frontend', 'src', 'layout.ejs'),
+                    }),
+                    new HtmlWebpackHarddiskPlugin(),
+                ]
                 : entry === 'cypress'
-                ? [
-                      new HtmlWebpackHarddiskPlugin(),
-                      new webpack.ProvidePlugin({
-                          process: 'process/browser',
-                      }),
-                  ]
-                : []
+                    ? [
+                        new HtmlWebpackHarddiskPlugin(),
+                        new webpack.ProvidePlugin({
+                            process: 'process/browser',
+                        }),
+                    ]
+                    : []
         ),
     }
 }
