@@ -67,11 +67,7 @@ export function SharedMetricModal({
 
     const availableSharedMetrics = sharedMetrics.filter(
         (metric: SharedMetric) =>
-            !experiment.saved_metrics.some(
-                (savedMetric) =>
-                    savedMetric.saved_metric === metric.id &&
-                    savedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary')
-            )
+            !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
     )
 
     return (
