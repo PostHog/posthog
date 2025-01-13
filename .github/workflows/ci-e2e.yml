@@ -141,9 +141,12 @@ jobs:
                   restore-keys: |
                       ${{ runner.os }}-pnpm-cypress-
 
-            - name: Install package.json dependencies with pnpm
+            - name: Build and install npm dependencies
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              run: pnpm install --frozen-lockfile
+              run: |
+                  pnpm install --frozen-lockfile
+                  cd hogvm/typescript && pnpm compile
+                  cd ../../rust/cyclotron-node && pnpm build
 
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections

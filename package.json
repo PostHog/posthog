@@ -15,7 +15,7 @@
     "engines": {
         "node": ">=18 <19"
     },
-    "packageManager": "pnpm@8.10.5",
+    "packageManager": "pnpm@9.15.3",
     "scripts": {
         "copy-scripts": "mkdir -p frontend/dist/ && ./bin/copy-posthog-js",
         "test": "pnpm test:unit && pnpm test:visual",
@@ -54,6 +54,7 @@
         "typegen:check": "kea-typegen check",
         "typegen:watch": "kea-typegen watch --delete --show-ts-errors",
         "typegen:clean": "find frontend/src -type f -name '*Type.ts' -delete",
+        "pnpm:clean": "rm -rf node_modules && rm -rf plugin-server/node_modules && rm -rf plugin-transpiler/node_modules && rm -rf frontend/@posthog/apps-common/node_modules && rm -rf frontend/@posthog/lemon-ui/node_modules && rm -rf hogvm/typescript/node_modules",
         "storybook": "DEBUG=0 storybook dev -p 6006",
         "build-storybook": "DEBUG=0 storybook build",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
@@ -77,7 +78,9 @@
         "@microlink/react-json-view": "^1.21.3",
         "@microsoft/fetch-event-source": "^2.0.1",
         "@monaco-editor/react": "4.6.0",
-        "@posthog/hogvm": "^1.0.66",
+        "@posthog/hogvm": "workspace:*",
+        "@posthog/apps-common": "workspace:*",
+        "@posthog/lemon-ui": "workspace:*",
         "@posthog/icons": "0.9.2",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@react-hook/size": "^2.1.2",
@@ -337,7 +340,8 @@
             "rrweb@2.0.0-alpha.13": "patches/rrweb@2.0.0-alpha.13.patch",
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
             "dayjs@1.11.11": "patches/dayjs@1.11.11.patch"
-        }
+        },
+        "allowNonAppliedPatches": true
     },
     "lint-staged": {
         "*.{json,yaml,yml}": "prettier --write",

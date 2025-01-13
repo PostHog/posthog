@@ -6,6 +6,8 @@
 #
 # Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
 #
+# With pnpm workspaces, we install all JS dependencies once and then build all packages together.
+#
 # The stages are used to:
 #
 # - frontend-build: build the frontend (static assets)
@@ -25,32 +27,38 @@ FROM node:18.19.1-bullseye-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json ./
+COPY eslint-rules/ eslint-rules/
 COPY patches/ patches/
+COPY plugin-server/patches/ plugin-server/patches/
+COPY hogvm/typescript/ hogvm/typescript/
+COPY frontend/@posthog/ frontend/@posthog/
+COPY rust/cyclotron-node/package.json rust/cyclotron-node/pnpm-lock.yaml rust/cyclotron-node/
+COPY plugin-transpiler/package.json plugin-transpiler/pnpm-lock.yaml plugin-transpiler/
+
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod --filter . && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter ./hogvm/typescript && \
+    cd hogvm/typescript && \
+    pnpm compile && \
     rm -rf /tmp/pnpm-store
 
 COPY frontend/ frontend/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
-RUN pnpm build
+RUN cd frontend && pnpm build
 
 #
 # ---------------------------------------------------------
 #
 FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
-COPY ./rust ./rust
-COPY ./plugin-transpiler/ ./plugin-transpiler/
-WORKDIR /code/plugin-server
+
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
-COPY ./plugin-server/patches/ ./patches/
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
@@ -60,28 +68,40 @@ RUN apt-get update && \
     "libssl-dev" \
     "zlib1g-dev" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
-    corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    cd ../plugin-transpiler && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    pnpm build && \
-    rm -rf /tmp/pnpm-store
+    rm -rf /var/lib/apt/lists/*
 
-# Build the plugin server.
-#
-# Note: we run the build as a separate action to increase
-# the cache hit ratio of the layers above.
-COPY ./plugin-server/src/ ./src/
-RUN pnpm build
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json ./
+COPY patches/ patches/
+COPY rust rust/
+COPY plugin-transpiler/ plugin-transpiler/
+COPY plugin-server/package.json plugin-server/pnpm-lock.yaml plugin-server/tsconfig.json plugin-server/
+COPY plugin-server/patches/ plugin-server/patches/
+COPY plugin-server/src/ plugin-server/src/
+COPY hogvm/typescript/ hogvm/typescript/
+COPY frontend/@posthog/apps-common/package.json frontend/@posthog/apps-common/pnpm-lock.yaml frontend/@posthog/apps-common/
+COPY frontend/@posthog/lemon-ui/package.json frontend/@posthog/lemon-ui/pnpm-lock.yaml frontend/@posthog/lemon-ui/
 
-# As the plugin-server is now built, let’s keep
-# only prod dependencies in the node_module folder
-# as we will copy it to the last image.
+# Build the plugin server and its deps
 RUN corepack enable && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    # install @posthog/plugin-transpiler
+    cd ./plugin-transpiler && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
+    pnpm build && \
+    # install @posthog/hogvm
+    cd ../hogvm/typescript && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
+    pnpm compile && \
+    # install @posthog/cyclotron-node
+    cd ../../rust/cyclotron-node && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
+    pnpm build && \
+    # install @posthog/plugin-server
+    cd ../../plugin-server && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter . && \
+    pnpm build && \
+    # keep only prod dependencies in the node_module folder
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod --filter . && \
     rm -rf /tmp/pnpm-store
 
 

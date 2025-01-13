@@ -33,11 +33,6 @@ function STLToString(args: any[]): string {
     return printHogStringOutput(args[0])
 }
 
-// Helper: HogInterval
-function isHogInterval(obj: any): obj is HogInterval {
-    return obj && obj.__hogInterval__ === true
-}
-
 function toHogInterval(value: number, unit: string): HogInterval {
     return {
         __hogInterval__: true,
