@@ -92,58 +92,60 @@ export function Products(): JSX.Element {
                             Don't worry &ndash; you can pick more than one! Please select all that apply.
                         </p>
                     </div>
-                    <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(3,_minmax(min-content,_160px))] ">
-                        {Object.keys(availableOnboardingProducts).map((productKey) => (
-                            <SelectableProductCard
-                                product={availableOnboardingProducts[productKey]}
-                                key={productKey}
-                                productKey={productKey}
-                                onClick={() => {
-                                    toggleSelectedProduct(productKey as ProductKey)
-                                }}
-                                selected={selectedProducts.includes(productKey as ProductKey)}
-                                className={productKey === ProductKey.SURVEYS ? 'md:col-start-2' : ''}
-                            />
-                        ))}
-                    </div>
-                    <div className="mt-12 flex gap-2 justify-center items-center">
-                        {selectedProducts.length > 1 ? (
-                            <>
-                                <LemonLabel>Start first with</LemonLabel>
-                                <LemonSelect
-                                    value={firstProductOnboarding}
-                                    options={selectedProducts.map((productKey) => ({
-                                        label: availableOnboardingProducts[productKey].name,
-                                        value: productKey,
-                                    }))}
-                                    onChange={(value) => value && setFirstProductOnboarding(value)}
-                                    placeholder="Select a product"
-                                    className="bg-bg-light"
+                    <div className="flex flex-col-reverse md:flex-col gap-12 justify-center flex-grow items-center">
+                        <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(4,_minmax(min-content,_160px))]">
+                            {Object.keys(availableOnboardingProducts).map((productKey) => (
+                                <SelectableProductCard
+                                    product={availableOnboardingProducts[productKey]}
+                                    key={productKey}
+                                    productKey={productKey}
+                                    onClick={() => {
+                                        toggleSelectedProduct(productKey as ProductKey)
+                                    }}
+                                    selected={selectedProducts.includes(productKey as ProductKey)}
                                 />
+                            ))}
+                        </div>
+
+                        <div className="flex gap-2 justify-center items-center">
+                            {selectedProducts.length > 1 ? (
+                                <>
+                                    <LemonLabel>Start first with</LemonLabel>
+                                    <LemonSelect
+                                        value={firstProductOnboarding}
+                                        options={selectedProducts.map((productKey) => ({
+                                            label: availableOnboardingProducts[productKey].name,
+                                            value: productKey,
+                                        }))}
+                                        onChange={(value) => value && setFirstProductOnboarding(value)}
+                                        placeholder="Select a product"
+                                        className="bg-bg-light"
+                                    />
+                                    <LemonButton
+                                        sideIcon={<IconArrowRight />}
+                                        onClick={handleStartOnboarding}
+                                        type="primary"
+                                        status="alt"
+                                        data-attr="onboarding-continue"
+                                    >
+                                        Go
+                                    </LemonButton>
+                                </>
+                            ) : (
                                 <LemonButton
-                                    sideIcon={<IconArrowRight />}
-                                    onClick={handleStartOnboarding}
                                     type="primary"
                                     status="alt"
+                                    onClick={handleStartOnboarding}
                                     data-attr="onboarding-continue"
+                                    sideIcon={<IconArrowRight />}
+                                    disabledReason={
+                                        selectedProducts.length === 0 ? 'Select a product to start with' : undefined
+                                    }
                                 >
-                                    Go
+                                    Get started
                                 </LemonButton>
-                            </>
-                        ) : (
-                            <LemonButton
-                                type="primary"
-                                status="alt"
-                                onClick={handleStartOnboarding}
-                                data-attr="onboarding-continue"
-                                sideIcon={<IconArrowRight />}
-                                disabledReason={
-                                    selectedProducts.length === 0 ? 'Select a product to start with' : undefined
-                                }
-                            >
-                                Get started
-                            </LemonButton>
-                        )}
+                            )}
+                        </div>
                     </div>
                 </div>
                 <p className="text-center mt-8">
