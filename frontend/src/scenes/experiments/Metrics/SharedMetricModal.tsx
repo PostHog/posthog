@@ -9,6 +9,7 @@ import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/Goal'
+import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from '../MetricsView/const'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 
 export function SharedMetricModal({
@@ -18,8 +19,15 @@ export function SharedMetricModal({
     experimentId: Experiment['id']
     isSecondary?: boolean
 }): JSX.Element {
-    const { sharedMetrics, isPrimarySharedMetricModalOpen, isSecondarySharedMetricModalOpen, editingSharedMetricId } =
-        useValues(experimentLogic({ experimentId }))
+    const {
+        experiment,
+        sharedMetrics,
+        isPrimarySharedMetricModalOpen,
+        isSecondarySharedMetricModalOpen,
+        editingSharedMetricId,
+        primaryMetricsLengthWithSharedMetrics,
+        secondaryMetricsLengthWithSharedMetrics,
+    } = useValues(experimentLogic({ experimentId }))
     const {
         closePrimarySharedMetricModal,
         closeSecondarySharedMetricModal,
@@ -44,6 +52,27 @@ export function SharedMetricModal({
 
     const isOpen = isSecondary ? isSecondarySharedMetricModalOpen : isPrimarySharedMetricModalOpen
     const closeModal = isSecondary ? closeSecondarySharedMetricModal : closePrimarySharedMetricModal
+
+    const addSharedMetricDisabledReason = (): string | undefined => {
+        if (selectedMetricIds.length === 0) {
+            return 'Please select at least one metric'
+        }
+        if (!isSecondary && primaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > MAX_PRIMARY_METRICS) {
+            return `You can only add up to ${MAX_PRIMARY_METRICS} primary metrics.`
+        }
+        if (isSecondary && secondaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > MAX_SECONDARY_METRICS) {
+            return `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
+        }
+    }
+
+    const availableSharedMetrics = sharedMetrics.filter(
+        (metric: SharedMetric) =>
+            !experiment.saved_metrics.some(
+                (savedMetric) =>
+                    savedMetric.saved_metric === metric.id &&
+                    savedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary')
+            )
+    )
 
     return (
         <LemonModal
@@ -78,9 +107,7 @@ export function SharedMetricModal({
                                     })
                                 }}
                                 type="primary"
-                                disabledReason={
-                                    selectedMetricIds.length === 0 ? 'Please select at least one metric' : undefined
-                                }
+                                disabledReason={addSharedMetricDisabledReason()}
                             >
                                 {selectedMetricIds.length < 2 ? 'Add metric' : 'Add metrics'}
                             </LemonButton>
@@ -91,9 +118,9 @@ export function SharedMetricModal({
         >
             {mode === 'create' && (
                 <div className="space-y-2">
-                    {sharedMetrics.length > 0 ? (
+                    {availableSharedMetrics.length > 0 ? (
                         <LemonTable
-                            dataSource={sharedMetrics}
+                            dataSource={availableSharedMetrics}
                             columns={[
                                 {
                                     title: '',
@@ -141,8 +168,9 @@ export function SharedMetricModal({
                                 to: urls.experimentsSharedMetric('new'),
                             }}
                         >
-                            You don't have any shared metrics yet. Shared metrics let you create reusable metrics that
-                            you can quickly add to any experiment.
+                            {sharedMetrics.length > 0
+                                ? 'All of your shared metrics are already in this experiment.'
+                                : "You don't have any shared metrics that match the experiment type. Shared metrics let you create reusable metrics that you can quickly add to any experiment."}
                         </LemonBanner>
                     )}
                 </div>
