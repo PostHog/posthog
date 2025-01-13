@@ -4,7 +4,7 @@ import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartit
 import { buildIntegerMatcher } from '../../../config/config'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
-import { PluginServerService, PluginsServerConfig, TeamId, ValueMatcher } from '../../../types'
+import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
 import { status } from '../../../utils/status'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
@@ -19,7 +19,9 @@ import { KafkaMetrics } from './kafka/metrics'
 import { KafkaParser } from './kafka/parser'
 import { SessionRecordingMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
-import { IncomingRecordingMessage } from './types'
+import { TeamFilter } from './teams/team-filter'
+import { TeamManager } from './teams/team-manager'
+import { MessageWithTeam } from './teams/types'
 import { getPartitionsForTopic } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -29,11 +31,6 @@ type PartitionMetrics = {
     lastMessageTimestamp?: number
     lastMessageOffset?: number
     offsetLag?: number
-}
-
-export interface TeamIDWithConfig {
-    teamId: TeamId | null
-    consoleLogIngestionEnabled: boolean
 }
 
 export class SessionRecordingIngester {
@@ -46,7 +43,7 @@ export class SessionRecordingIngester {
 
     private isDebugLoggingEnabled: ValueMatcher<number>
 
-    private readonly kafkaParser: KafkaParser
+    private readonly teamFilter: TeamFilter
 
     private readonly metrics: SessionRecordingMetrics
 
@@ -64,7 +61,10 @@ export class SessionRecordingIngester {
 
     constructor(private config: PluginsServerConfig, private consumeOverflow: boolean) {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
-        this.kafkaParser = new KafkaParser(KafkaMetrics.getInstance())
+        const kafkaMetrics = KafkaMetrics.getInstance()
+        const kafkaParser = new KafkaParser(kafkaMetrics)
+        const teamManager = new TeamManager()
+        this.teamFilter = new TeamFilter(teamManager, kafkaMetrics, kafkaParser)
         this.metrics = SessionRecordingMetrics.getInstance()
         this.promiseScheduler = new PromiseScheduler()
 
@@ -97,24 +97,34 @@ export class SessionRecordingIngester {
         return this.assignedTopicPartitions.map((x) => x.partition)
     }
 
-    public async consume(event: IncomingRecordingMessage): Promise<void> {
+    private async consume(messageWithTeam: MessageWithTeam): Promise<void> {
         // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
         this.metrics.resetSessionsRevoked()
+        const { team, message } = messageWithTeam
+        const debugEnabled = this.isDebugLoggingEnabled(message.metadata.partition)
 
-        const { team_id, session_id } = event
-
-        const { partition } = event.metadata
-        const isDebug = this.isDebugLoggingEnabled(partition)
-        if (isDebug) {
-            status.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
-                ...event.metadata,
-                team_id,
-                session_id,
+        if (debugEnabled) {
+            status.debug('🔄', 'processing_session_recording', {
+                partition: message.metadata.partition,
+                offset: message.metadata.offset,
+                distinct_id: message.distinct_id,
+                session_id: message.session_id,
+                raw_size: message.metadata.rawSize,
             })
         }
 
-        this.metrics.observeSessionInfo(event.metadata.rawSize)
+        const { partition } = message.metadata
+        const isDebug = this.isDebugLoggingEnabled(partition)
+        if (isDebug) {
+            status.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
+                ...message.metadata,
+                team_id: team.teamId,
+                session_id: message.session_id,
+            })
+        }
+
+        this.metrics.observeSessionInfo(message.metadata.rawSize)
 
         return Promise.resolve()
     }
@@ -139,22 +149,23 @@ export class SessionRecordingIngester {
                     messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
                 )
 
-                let recordingMessages: IncomingRecordingMessage[]
+                let messagesWithTeam: MessageWithTeam[]
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingesterv2.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
-                        const { sessions, partitionStats } = await this.kafkaParser.parseBatch(messages)
-                        recordingMessages = sessions
-                        for (const partitionStat of partitionStats) {
-                            const metrics = this.partitionMetrics[partitionStat.partition] ?? {}
-                            metrics.lastMessageOffset = partitionStat.offset
-                            if (partitionStat.timestamp) {
-                                // Could be empty on Kafka versions before KIP-32
-                                metrics.lastMessageTimestamp = partitionStat.timestamp
-                            }
-                            this.partitionMetrics[partitionStat.partition] = metrics
-                        }
+                        messagesWithTeam = await this.teamFilter.parseBatch(messages)
+
+                        // TODO: Re-implement partition stats
+                        // for (const partitionStat of partitionStats) {
+                        //     const metrics = this.partitionMetrics[partitionStat.partition] ?? {}
+                        //     metrics.lastMessageOffset = partitionStat.offset
+                        //     if (partitionStat.timestamp) {
+                        //         // Could be empty on Kafka versions before KIP-32
+                        //         metrics.lastMessageTimestamp = partitionStat.timestamp
+                        //     }
+                        //     this.partitionMetrics[partitionStat.partition] = metrics
+                        // }
                     },
                 })
                 heartbeat()
@@ -163,9 +174,9 @@ export class SessionRecordingIngester {
                     statsKey: `recordingingesterv2.handleEachBatch.consumeBatch`,
                     func: async () => {
                         if (this.config.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
-                            await Promise.all(recordingMessages.map((x) => this.consume(x)))
+                            await Promise.all(messagesWithTeam.map((x) => this.consume(x)))
                         } else {
-                            for (const message of recordingMessages) {
+                            for (const message of messagesWithTeam) {
                                 await this.consume(message)
                             }
                         }

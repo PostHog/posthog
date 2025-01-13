@@ -1,12 +1,12 @@
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
-import { KafkaConsumer, MessageHeader, PartitionMetadata } from 'node-rdkafka'
+import { KafkaConsumer, PartitionMetadata } from 'node-rdkafka'
 
 import { status } from '../../../utils/status'
-import { TeamIDWithConfig } from './consumer'
 import { KafkaMetrics } from './kafka/metrics'
 import { KafkaParser } from './kafka/parser'
-import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
+import { MessageWithTeam } from './teams/types'
+import { PersistedRecordingMessage } from './types'
 
 // Helper to return now as a milliseconds timestamp
 export const now = () => DateTime.now().toMillis()
@@ -72,87 +72,14 @@ export const getLagMultiplier = (lag: number, threshold = 1000000) => {
     return Math.max(0.1, 1 - (lag - threshold) / (threshold * 10))
 }
 
-export async function readTokenFromHeaders(
-    headers: MessageHeader[] | undefined,
-    getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>
-) {
-    const tokenHeader = headers?.find((header: MessageHeader) => {
-        // each header in the array is an object of key to value
-        // because it's possible to have multiple headers with the same key
-        // but, we don't support that. the first truthy match we find is the one we use
-        return header.token
-    })?.token
-
-    const token = typeof tokenHeader === 'string' ? tokenHeader : tokenHeader?.toString()
-
-    let teamIdWithConfig: TeamIDWithConfig | null = null
-
-    if (token) {
-        teamIdWithConfig = await getTeamFn(token)
-    }
-    return { token, teamIdWithConfig }
-}
-
 export const convertForPersistence = (
-    messages: IncomingRecordingMessage['eventsByWindowId']
+    messages: MessageWithTeam['message']['eventsByWindowId']
 ): PersistedRecordingMessage[] => {
     return Object.entries(messages).map(([window_id, events]) => {
         return {
             window_id,
             data: events,
         }
-    })
-}
-
-export const allSettledWithConcurrency = async <T, Q>(
-    concurrency: number,
-    arr: T[],
-    fn: (item: T, context: { index: number; break: () => void }) => Promise<Q>
-): Promise<{ error?: any; result?: Q }[]> => {
-    // This function processes promises in parallel like Promise.allSettled, but with a maximum concurrency
-
-    let breakCalled = false
-
-    return new Promise<{ error?: any; result?: Q }[]>((resolve) => {
-        const results: { error?: any; result?: Q }[] = []
-        const remaining = [...arr]
-        let runningCount = 0
-
-        const run = () => {
-            while (remaining.length && runningCount < concurrency) {
-                if (breakCalled) {
-                    return
-                }
-                const item = remaining.shift()
-                if (item) {
-                    const arrIndex = arr.indexOf(item)
-                    runningCount += 1
-                    fn(item, {
-                        index: arrIndex,
-                        break: () => {
-                            breakCalled = true
-                            return resolve(results)
-                        },
-                    })
-                        .then((result) => {
-                            results[arrIndex] = { result: result }
-                        })
-                        .catch((err) => {
-                            results[arrIndex] = { error: err }
-                        })
-                        .finally(() => {
-                            runningCount -= 1
-                            run()
-                        })
-                }
-            }
-
-            if (remaining.length === 0 && !runningCount) {
-                return !breakCalled ? resolve(results) : undefined
-            }
-        }
-
-        run()
     })
 }
 
