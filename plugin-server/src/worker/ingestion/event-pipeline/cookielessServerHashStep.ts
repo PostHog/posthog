@@ -113,21 +113,11 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
         return [undefined]
     }
 
-    if (event.event === '$create_alias') {
+    if (event.event === '$create_alias' || event.event === '$merge_dangerously') {
         eventDroppedCounter
             .labels({
                 event_type: 'analytics',
-                drop_cause: 'cookieless_unsupported_alias',
-            })
-            .inc()
-        return [undefined]
-    }
-
-    if (event.event === '$merge_dangerously') {
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'cookieless_unsupported_merge',
+                drop_cause: 'cookieless_unsupported_event_type',
             })
             .inc()
         return [undefined]
