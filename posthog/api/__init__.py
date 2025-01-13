@@ -2,7 +2,7 @@ from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
 
-from posthog.api import metalytics, project
+from posthog.api import data_color_theme, metalytics, project
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
@@ -49,7 +49,6 @@ from . import (
     personal_api_key,
     plugin,
     plugin_log_entry,
-    property_definition,
     proxy_record,
     query,
     scheduled_change,
@@ -60,7 +59,9 @@ from . import (
     team,
     uploaded_media,
     user,
+    user_group,
 )
+from ..taxonomy import property_definition_api
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet
@@ -264,7 +265,7 @@ projects_router.register(
 )
 projects_router.register(
     r"property_definitions",
-    property_definition.PropertyDefinitionViewSet,
+    property_definition_api.PropertyDefinitionViewSet,
     "project_property_definitions",
     ["project_id"],
 )
@@ -513,18 +514,25 @@ projects_router.register(
     ["team_id"],
 )
 
-# projects_router.register(
-#     r"error_tracking",
-#     error_tracking.ErrorTrackingGroupViewSet,
-#     "project_error_tracking",
-#     ["team_id"],
-# )
+projects_router.register(
+    r"error_tracking/issue",
+    error_tracking.ErrorTrackingIssueViewSet,
+    "project_error_tracking_issue",
+    ["team_id"],
+)
 
 projects_router.register(
     r"error_tracking/stack_frames",
     error_tracking.ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
     ["project_id"],
+)
+
+projects_router.register(
+    r"user_groups",
+    user_group.UserGroupViewSet,
+    "project_user_groups",
+    ["team_id"],
 )
 
 projects_router.register(
@@ -577,3 +585,7 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
+
+register_grandfathered_environment_nested_viewset(
+    r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
+)

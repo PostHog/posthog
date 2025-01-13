@@ -335,7 +335,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             JSONExtractString(properties, '${getResponseField(questionIndex)}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
-                        WHERE event = 'survey sent' 
+                        WHERE event = 'survey sent'
                             AND properties.$survey_id = '${props.id}'
                             ${iterationCondition}
                             AND timestamp >= '${startDate}'
@@ -465,7 +465,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             JSONExtractString(properties, '${getResponseField(questionIndex)}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
-                        WHERE event = 'survey sent' 
+                        WHERE event = 'survey sent'
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
@@ -502,7 +502,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
-                        SELECT 
+                        SELECT
                             count(),
                             arrayJoin(JSONExtractArrayRaw(properties, '${getResponseField(questionIndex)}')) AS choice
                         FROM events
@@ -639,6 +639,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 iteration_count: NEW_SURVEY.iteration_count,
                 iteration_frequency_days: NEW_SURVEY.iteration_frequency_days,
             })
+            actions.setFlagPropertyErrors(NEW_SURVEY.targeting_flag_filters)
         },
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first

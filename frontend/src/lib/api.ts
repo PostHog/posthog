@@ -37,6 +37,7 @@ import {
     DashboardTemplateListParams,
     DashboardTemplateType,
     DashboardType,
+    DataColorThemeModel,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -109,6 +110,7 @@ import {
     Survey,
     TeamType,
     UserBasicType,
+    UserGroup,
     UserType,
 } from '~/types'
 
@@ -328,7 +330,7 @@ class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
-    // # Projects
+    // # Environments
     public environments(): ApiRequest {
         return this.addPathComponent('environments')
     }
@@ -800,6 +802,23 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
 
+    // # UserGroups
+    public userGroups(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('user_groups')
+    }
+
+    public userGroup(id: UserGroup['id']): ApiRequest {
+        return this.userGroups().addPathComponent(id)
+    }
+
+    public userGroupAddMember(id: UserGroup['id']): ApiRequest {
+        return this.userGroup(id).addPathComponent('add')
+    }
+
+    public userGroupRemoveMember(id: UserGroup['id']): ApiRequest {
+        return this.userGroup(id).addPathComponent('remove')
+    }
+
     // # Alerts
     public alerts(alertId?: AlertType['id'], insightId?: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         if (alertId) {
@@ -943,6 +962,15 @@ class ApiRequest {
 
     public async delete(): Promise<any> {
         return await api.delete(this.assembleFullUrl())
+    }
+
+    // Data color themes
+    public dataColorThemes(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_color_themes')
+    }
+
+    public dataColorTheme(id: DataColorThemeModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
     }
 }
 
@@ -1930,6 +1958,28 @@ const api = {
         },
     },
 
+    userGroups: {
+        async list(): Promise<{ results: UserGroup[] }> {
+            return await new ApiRequest().userGroups().get()
+        },
+
+        async delete(id: UserGroup['id']): Promise<void> {
+            return await new ApiRequest().userGroup(id).delete()
+        },
+
+        async create(name: UserGroup['name']): Promise<UserGroup> {
+            return await new ApiRequest().userGroups().create({ data: { name } })
+        },
+
+        async addMember(id: UserGroup['id'], userId: UserBasicType['id']): Promise<UserGroup> {
+            return await new ApiRequest().userGroupAddMember(id).create({ data: { userId } })
+        },
+
+        async removeMember(id: UserGroup['id'], userId: UserBasicType['id']): Promise<UserGroup> {
+            return await new ApiRequest().userGroupRemoveMember(id).create({ data: { userId } })
+        },
+    },
+
     recordings: {
         async list(params: RecordingsQuery): Promise<RecordingsQueryResponse> {
             return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
@@ -2517,6 +2567,18 @@ const api = {
         },
         async delete(alertId: AlertType['id']): Promise<void> {
             return await new ApiRequest().alert(alertId).delete()
+        },
+    },
+
+    dataColorThemes: {
+        async list(): Promise<DataColorThemeModel[]> {
+            return await new ApiRequest().dataColorThemes().get()
+        },
+        async create(data: Partial<DataColorThemeModel>): Promise<DataColorThemeModel> {
+            return await new ApiRequest().dataColorThemes().create({ data })
+        },
+        async update(id: DataColorThemeModel['id'], data: Partial<DataColorThemeModel>): Promise<DataColorThemeModel> {
+            return await new ApiRequest().dataColorTheme(id).update({ data })
         },
     },
 

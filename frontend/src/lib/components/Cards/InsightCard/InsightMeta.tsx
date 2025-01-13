@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
@@ -258,7 +259,19 @@ export function InsightMeta({
                                     Remove from dashboard
                                 </LemonButton>
                             ) : (
-                                <LemonButton status="danger" onClick={() => void deleteWithUndo?.()} fullWidth>
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => {
+                                        void (async () => {
+                                            try {
+                                                await deleteWithUndo?.()
+                                            } catch (error: any) {
+                                                lemonToast.error(`Failed to delete insight meta: ${error.detail}`)
+                                            }
+                                        })()
+                                    }}
+                                    fullWidth
+                                >
                                     Delete insight
                                 </LemonButton>
                             )}

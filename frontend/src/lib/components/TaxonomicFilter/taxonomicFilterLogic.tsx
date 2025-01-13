@@ -18,7 +18,6 @@ import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-m
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
 import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
@@ -442,8 +441,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Feature Flags',
                         searchPlaceholder: 'feature flags',
                         type: TaxonomicFilterGroupType.FeatureFlags,
-                        logic: featureFlagsLogic,
-                        value: 'featureFlags',
+                        endpoint: combineUrl(`api/projects/${teamId}/feature_flags/`).url,
                         getName: (featureFlag: FeatureFlagType) => featureFlag.key || featureFlag.name,
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
                         getPopoverHeader: () => `Feature Flags`,

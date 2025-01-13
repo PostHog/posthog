@@ -19,6 +19,8 @@ import {
     ReplayTabs,
 } from '~/types'
 
+import { BillingSectionId } from './billing/types'
+
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
 export const preloadedScenes: Record<string, LoadedScene> = {
@@ -84,6 +86,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Web analytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
+    },
+    [Scene.WebAnalyticsCoreWebVitals]: {
+        projectBased: true,
+        name: 'Core Web Vitals',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/core-web-vitals', // TODO: Add docs
     },
     [Scene.Cohort]: {
         projectBased: true,
@@ -203,15 +211,15 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
-    [Scene.ExperimentsSavedMetric]: {
+    [Scene.ExperimentsSharedMetric]: {
         projectBased: true,
-        name: 'Saved metric',
+        name: 'Shared metric',
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
-    [Scene.ExperimentsSavedMetrics]: {
+    [Scene.ExperimentsSharedMetrics]: {
         projectBased: true,
-        name: 'Saved metrics',
+        name: 'Shared metrics',
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
@@ -272,6 +280,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Data warehouse table',
         defaultDocsPath: '/docs/data-warehouse',
     },
+    [Scene.LLMObservability]: {
+        projectBased: true,
+        name: 'LLM observability',
+        layout: 'app-container',
+    },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
@@ -304,6 +317,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Products]: {
         projectBased: true,
         hideProjectNotice: true,
+        layout: 'app-raw',
     },
     [Scene.Onboarding]: {
         projectBased: true,
@@ -374,6 +388,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         hideProjectNotice: true,
         organizationBased: true,
         defaultDocsPath: '/pricing',
+    },
+    [Scene.BillingSection]: {
+        name: 'Billing',
+        hideProjectNotice: true,
+        organizationBased: true,
     },
     [Scene.BillingAuthorizationStatus]: {
         hideProjectNotice: true,
@@ -532,6 +551,7 @@ export const routes: Record<string, Scene> = {
     [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.webAnalytics()]: Scene.WebAnalytics,
+    [urls.webAnalyticsCoreWebVitals()]: Scene.WebAnalytics,
     [urls.actions()]: Scene.DataManagement,
     [urls.eventDefinitions()]: Scene.DataManagement,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
@@ -566,8 +586,8 @@ export const routes: Record<string, Scene> = {
     [urls.cohort(':id')]: Scene.Cohort,
     [urls.cohorts()]: Scene.PersonsManagement,
     [urls.experiments()]: Scene.Experiments,
-    [urls.experimentsSavedMetrics()]: Scene.ExperimentsSavedMetrics,
-    [urls.experimentsSavedMetric(':id')]: Scene.ExperimentsSavedMetric,
+    [urls.experimentsSharedMetrics()]: Scene.ExperimentsSharedMetrics,
+    [urls.experimentsSharedMetric(':id')]: Scene.ExperimentsSharedMetric,
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
@@ -592,6 +612,7 @@ export const routes: Record<string, Scene> = {
     [urls.max()]: Scene.Max,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationBilling()]: Scene.Billing,
+    [urls.organizationBillingSection(':section' as BillingSectionId)]: Scene.BillingSection,
     [urls.billingAuthorizationStatus()]: Scene.BillingAuthorizationStatus,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
@@ -637,4 +658,5 @@ export const routes: Record<string, Scene> = {
     [urls.messagingBroadcasts()]: Scene.MessagingBroadcasts,
     [urls.messagingBroadcast(':id')]: Scene.MessagingBroadcasts,
     [urls.messagingBroadcastNew()]: Scene.MessagingBroadcasts,
+    [urls.llmObservability()]: Scene.LLMObservability,
 }

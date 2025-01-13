@@ -1,7 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
 import functools
+import os
 import uuid
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from unittest import mock
 
 import aioboto3
@@ -15,6 +16,7 @@ from django.conf import settings
 from django.test import override_settings
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.sources.helpers.rest_client.client import RESTClient
+import s3fs
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -218,6 +220,17 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        # Mock os.environ for the deltalake subprocess
+        mock.patch.dict(
+            os.environ,
+            {
+                "BUCKET_URL": f"s3://{BUCKET_NAME}",
+                "AIRBYTE_BUCKET_KEY": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                "AIRBYTE_BUCKET_SECRET": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                "AIRBYTE_BUCKET_REGION": "us-east-1",
+                "AIRBYTE_BUCKET_DOMAIN": "objectstorage:19000",
+            },
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
@@ -1081,3 +1094,178 @@ async def test_inconsistent_types_in_data(team, stripe_balance_transaction):
             {"id": "txn_1MiN3gLkdIwHu7ixxapQrznl", "type": ["transfer", "another_value"]},
         ],
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_uuid_type(team, postgres_config, postgres_connection):
+    await _run(
+        team=team,
+        schema_name="BalanceTransaction",
+        table_name="stripe_balancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=[{"id": uuid.uuid4()}],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_decimal_down_scales(team, postgres_config, postgres_connection):
+    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
+        await postgres_connection.execute(
+            "CREATE TABLE IF NOT EXISTS {schema}.downsizing_column (id integer, dec_col numeric(10, 2))".format(
+                schema=postgres_config["schema"]
+            )
+        )
+        await postgres_connection.execute(
+            "INSERT INTO {schema}.downsizing_column (id, dec_col) VALUES (1, 12345.60)".format(
+                schema=postgres_config["schema"]
+            )
+        )
+
+        await postgres_connection.commit()
+
+        workflow_id, inputs = await _run(
+            team=team,
+            schema_name="downsizing_column",
+            table_name="postgres_downsizing_column",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+        )
+
+        await postgres_connection.execute(
+            "ALTER TABLE {schema}.downsizing_column ALTER COLUMN dec_col type numeric(9, 2) using dec_col::numeric(9, 2);".format(
+                schema=postgres_config["schema"]
+            )
+        )
+
+        await postgres_connection.execute(
+            "INSERT INTO {schema}.downsizing_column (id, dec_col) VALUES (1, 1234567.89)".format(
+                schema=postgres_config["schema"]
+            )
+        )
+
+        await postgres_connection.commit()
+
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_missing_source(team, stripe_balance_transaction):
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=uuid.uuid4(),
+        external_data_schema_id=uuid.uuid4(),
+    )
+
+    with (
+        pytest.raises(Exception) as e,
+        mock.patch(
+            "posthog.temporal.data_imports.workflow_activities.create_job_model.delete_external_data_schedule"
+        ) as mock_delete_external_data_schedule,
+    ):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    exc = cast(Any, e)
+
+    assert exc.value is not None
+    assert exc.value.cause is not None
+    assert exc.value.cause.cause is not None
+    assert exc.value.cause.cause.message is not None
+
+    assert exc.value.cause.cause.message == "Source or schema no longer exists - deleted temporal schedule"
+
+    mock_delete_external_data_schedule.assert_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_nan_numerical_values(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.numerical_nan (id integer, nan_column numeric)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.numerical_nan (id, nan_column) VALUES (1, 'NaN'::numeric)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.commit()
+
+    await _run(
+        team=team,
+        schema_name="numerical_nan",
+        table_name="postgres_numerical_nan",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+    )
+
+    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE:
+        res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_numerical_nan", team)
+        columns = res.columns
+        results = res.results
+
+        assert columns is not None
+        assert len(columns) == 2
+        assert columns[0] == "id"
+        assert columns[1] == "nan_column"
+
+        assert results is not None
+        assert len(results) == 1
+        assert results[0] == (1, None)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_delete_table_on_reset(team, stripe_balance_transaction):
+    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
+        with (
+            mock.patch.object(DeltaTable, "delete") as mock_delta_table_delete,
+            mock.patch.object(s3fs.S3FileSystem, "delete") as mock_s3_delete,
+        ):
+            workflow_id, inputs = await _run(
+                team=team,
+                schema_name="BalanceTransaction",
+                table_name="stripe_balancetransaction",
+                source_type="Stripe",
+                job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id", "reset_pipeline": "True"},
+                mock_data_response=stripe_balance_transaction["data"],
+            )
+
+            source = await sync_to_async(ExternalDataSource.objects.get)(id=inputs.external_data_source_id)
+
+            assert source.job_inputs is not None and isinstance(source.job_inputs, dict)
+            source.job_inputs["reset_pipeline"] = "True"
+
+            await sync_to_async(source.save)()
+
+            await _execute_run(str(uuid.uuid4()), inputs, stripe_balance_transaction["data"])
+
+        mock_delta_table_delete.assert_called()
+        mock_s3_delete.assert_called()
+
+        await sync_to_async(source.refresh_from_db)()
+
+        assert source.job_inputs is not None and isinstance(source.job_inputs, dict)
+        assert "reset_pipeline" not in source.job_inputs.keys()

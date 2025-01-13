@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -16,6 +17,7 @@ import {
     Breadcrumb,
     OnboardingProduct,
     ProductKey,
+    ReplayTabs,
 } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
@@ -108,12 +110,15 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
 
-export const getProductUri = (productKey: ProductKey): string => {
+export const getProductUri = (productKey: ProductKey, featureFlags: FeatureFlagsSet): string => {
+    const replayLandingPageFlag = featureFlags[FEATURE_FLAGS.REPLAY_LANDING_PAGE]
+    const replayLandingPage: ReplayTabs = replayLandingPageFlag === 'templates' ? ReplayTabs.Templates : ReplayTabs.Home
+
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
             return urls.insightNew()
         case ProductKey.SESSION_REPLAY:
-            return urls.replay()
+            return urls.replay(replayLandingPage)
         case ProductKey.FEATURE_FLAGS:
             return urls.featureFlag('new')
         case ProductKey.SURVEYS:
@@ -237,12 +242,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
-            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride) => {
+            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride, s.featureFlags],
+            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride, featureFlags) => {
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
-                return productKey ? getProductUri(productKey as ProductKey) : urls.default()
+                return productKey ? getProductUri(productKey as ProductKey, featureFlags) : urls.default()
             },
         ],
         totalOnboardingSteps: [
