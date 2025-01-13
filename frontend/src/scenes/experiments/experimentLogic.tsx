@@ -273,11 +273,11 @@ export const experimentLogic = kea<experimentLogicType>([
         closePrimarySharedMetricModal: true,
         openSecondarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => ({ sharedMetricId }),
         closeSecondarySharedMetricModal: true,
-        addSharedMetricToExperiment: (
-            sharedMetricId: SharedMetric['id'],
+        addSharedMetricsToExperiment: (
+            sharedMetricIds: SharedMetric['id'][],
             metadata: { type: 'primary' | 'secondary' }
         ) => ({
-            sharedMetricId,
+            sharedMetricIds,
             metadata,
         }),
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
@@ -895,15 +895,17 @@ export const experimentLogic = kea<experimentLogicType>([
                 holdout_id: values.experiment.holdout_id,
             })
         },
-        addSharedMetricToExperiment: async ({ sharedMetricId, metadata }) => {
-            const sharedMetricsIds = values.experiment.saved_metrics.map((sharedMetric) => ({
+        addSharedMetricsToExperiment: async ({ sharedMetricIds, metadata }) => {
+            const existingMetricsIds = values.experiment.saved_metrics.map((sharedMetric) => ({
                 id: sharedMetric.saved_metric,
-                metadata,
+                metadata: sharedMetric.metadata,
             }))
-            sharedMetricsIds.push({ id: sharedMetricId, metadata })
+
+            const newMetricsIds = sharedMetricIds.map((id: SharedMetric['id']) => ({ id, metadata }))
+            const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: sharedMetricsIds,
+                saved_metrics_ids: combinedMetricsIds,
             })
 
             actions.closePrimarySharedMetricModal()
@@ -1728,6 +1730,24 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment],
             (experiment: Experiment): number => {
                 return experiment.stats_config?.version || 1
+            },
+        ],
+        primaryMetricsLengthWithSharedMetrics: [
+            (s) => [s.experiment],
+            (experiment: Experiment): number => {
+                return (
+                    experiment.metrics.length +
+                    experiment.saved_metrics.filter((savedMetric) => savedMetric.metadata.type === 'primary').length
+                )
+            },
+        ],
+        secondaryMetricsLengthWithSharedMetrics: [
+            (s) => [s.experiment],
+            (experiment: Experiment): number => {
+                return (
+                    experiment.metrics_secondary.length +
+                    experiment.saved_metrics.filter((savedMetric) => savedMetric.metadata.type === 'secondary').length
+                )
             },
         ],
     }),
