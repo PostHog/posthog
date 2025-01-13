@@ -1,6 +1,7 @@
-import { LemonBanner, LemonButton, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -22,10 +23,11 @@ export function SharedMetricModal({
     const {
         closePrimarySharedMetricModal,
         closeSecondarySharedMetricModal,
-        addSharedMetricToExperiment,
+        addSharedMetricsToExperiment,
         removeSharedMetricFromExperiment,
     } = useActions(experimentLogic({ experimentId }))
 
+    const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
     const [selectedMetricId, setSelectedMetricId] = useState<SharedMetric['id'] | null>(null)
     const [mode, setMode] = useState<'create' | 'edit'>('create')
 
@@ -48,16 +50,14 @@ export function SharedMetricModal({
             isOpen={isOpen}
             onClose={closeModal}
             width={500}
-            title={mode === 'create' ? 'Select a shared metric' : 'Shared metric'}
+            title={mode === 'create' ? 'Select one or more shared metrics' : 'Shared metric'}
             footer={
                 <div className="flex justify-between w-full">
                     <div>
                         {editingSharedMetricId && (
                             <LemonButton
                                 status="danger"
-                                onClick={() => {
-                                    removeSharedMetricFromExperiment(editingSharedMetricId)
-                                }}
+                                onClick={() => removeSharedMetricFromExperiment(editingSharedMetricId)}
                                 type="secondary"
                             >
                                 Remove from experiment
@@ -73,16 +73,16 @@ export function SharedMetricModal({
                         {mode === 'create' && (
                             <LemonButton
                                 onClick={() => {
-                                    if (selectedMetricId) {
-                                        addSharedMetricToExperiment(selectedMetricId, {
-                                            type: isSecondary ? 'secondary' : 'primary',
-                                        })
-                                    }
+                                    addSharedMetricsToExperiment(selectedMetricIds, {
+                                        type: isSecondary ? 'secondary' : 'primary',
+                                    })
                                 }}
                                 type="primary"
-                                disabledReason={!selectedMetricId ? 'Please select a metric' : undefined}
+                                disabledReason={
+                                    selectedMetricIds.length === 0 ? 'Please select at least one metric' : undefined
+                                }
                             >
-                                Add metric
+                                {selectedMetricIds.length < 2 ? 'Add metric' : 'Add metrics'}
                             </LemonButton>
                         )}
                     </div>
@@ -90,19 +90,47 @@ export function SharedMetricModal({
             }
         >
             {mode === 'create' && (
-                <div className="flex gap-4 mb-4">
+                <div className="space-y-2">
                     {sharedMetrics.length > 0 ? (
-                        <LemonSelect
-                            options={sharedMetrics.map((metric: SharedMetric) => ({
-                                label: metric.name,
-                                value: metric.id,
-                            }))}
-                            placeholder="Select a shared metric"
-                            loading={false}
-                            value={selectedMetricId}
-                            onSelect={(value) => {
-                                setSelectedMetricId(value)
-                            }}
+                        <LemonTable
+                            dataSource={sharedMetrics}
+                            columns={[
+                                {
+                                    title: '',
+                                    key: 'checkbox',
+                                    render: (_, metric: SharedMetric) => (
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedMetricIds.includes(metric.id)}
+                                            onChange={(e) => {
+                                                if (e.target.checked) {
+                                                    setSelectedMetricIds([...selectedMetricIds, metric.id])
+                                                } else {
+                                                    setSelectedMetricIds(
+                                                        selectedMetricIds.filter((id) => id !== metric.id)
+                                                    )
+                                                }
+                                            }}
+                                        />
+                                    ),
+                                },
+                                {
+                                    title: 'Name',
+                                    dataIndex: 'name',
+                                    key: 'name',
+                                },
+                                {
+                                    title: 'Description',
+                                    dataIndex: 'description',
+                                    key: 'description',
+                                },
+                                {
+                                    title: 'Type',
+                                    key: 'type',
+                                    render: (_, metric: SharedMetric) =>
+                                        metric.query.kind.replace('Experiment', '').replace('Query', ''),
+                                },
+                            ]}
                         />
                     ) : (
                         <LemonBanner
