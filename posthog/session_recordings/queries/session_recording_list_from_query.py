@@ -46,7 +46,8 @@ NEGATIVE_OPERATORS = [
     PropertyOperator.IS_NOT_SET,
     PropertyOperator.IS_NOT,
     PropertyOperator.NOT_REGEX,
-    # PropertyOperator.NOT_ICONTAINS, PropertyOperator.NOT_BETWEEN
+    PropertyOperator.NOT_ICONTAINS,
+    # PropertyOperator.NOT_BETWEEN
     # PropertyOperator.NOT_IN,  # COHORT operator we don't need to handle it explicitly
 ]
 
@@ -55,6 +56,7 @@ INVERSE_OPERATOR_FOR = {
     PropertyOperator.IS_NOT: PropertyOperator.EXACT,
     PropertyOperator.NOT_IN: PropertyOperator.IN_,
     PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
+    PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
 }
 
 

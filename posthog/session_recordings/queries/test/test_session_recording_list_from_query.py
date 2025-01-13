@@ -4423,72 +4423,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
-    def test_can_filter_for_two_is_not_set_properties(self) -> None:
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-
-        produce_replay_summary(
-            distinct_id="user",
-            session_id="1",
-            first_timestamp=self.an_hour_ago,
-            team_id=self.team.id,
-        )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
-            properties={
-                "$session_id": "1",
-                "$window_id": "1",
-                "$feature/target-flag": True,
-                "$feature/target-flag-2": False,
-            },
-        )
-
-        produce_replay_summary(
-            distinct_id="user",
-            session_id="3",
-            first_timestamp=self.an_hour_ago,
-            team_id=self.team.id,
-        )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
-            properties={
-                "$session_id": "3",
-                "$window_id": "1",
-                "$feature/flag-that-is-different": False,
-            },
-        )
-
-        produce_replay_summary(
-            distinct_id="user",
-            session_id="4",
-            first_timestamp=self.an_hour_ago,
-            team_id=self.team.id,
-        )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
-            properties={
-                "$session_id": "4",
-                "$window_id": "1",
-                "$feature/target-flag-2": False,
-            },
-        )
-
-        (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                "properties": [
-                    {"type": "event", "key": "$feature/target-flag", "operator": "is_not_set", "value": "is_not_set"},
-                    {"type": "event", "key": "$feature/target-flag-2", "operator": "is_not_set", "value": "is_not_set"},
-                ]
-            }
-        )
-
-        assert sorted([sr["session_id"] for sr in session_recordings]) == ["3"]
-
-    @freeze_time("2021-01-21T20:00:00.000Z")
-    @snapshot_clickhouse_queries
-    def test_can_filter_for_two_is_not_properties(self) -> None:
+    def test_can_filter_for_two_is_not_event_properties(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         produce_replay_summary(
@@ -4555,7 +4490,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
-    def test_can_filter_for_does_not_match_regex_properties(self) -> None:
+    def test_can_filter_for_does_not_match_regex_event_properties(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         produce_replay_summary(
@@ -4613,6 +4548,74 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                         "key": "$host",
                         "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
                         "operator": "not_regex",
+                        "type": "event",
+                    },
+                ]
+            }
+        )
+
+        assert sorted([sr["session_id"] for sr in session_recordings]) == ["1", "4"]
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_can_filter_for_does_not_contain_event_properties(self) -> None:
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "1",
+                "$window_id": "1",
+                "email": "paul@google.com",
+            },
+        )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="3",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "3",
+                "$window_id": "1",
+                "email": "paul@paul.com",
+            },
+        )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="4",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "4",
+                "$window_id": "1",
+                # no email
+            },
+        )
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "properties": [
+                    {
+                        "key": "email",
+                        "value": "paul.com",
+                        "operator": "not_icontains",
                         "type": "event",
                     },
                 ]
