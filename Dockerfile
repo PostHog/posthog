@@ -29,7 +29,7 @@ COPY package.json pnpm-lock.yaml ./
 COPY patches/ patches/
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     rm -rf /tmp/pnpm-store
 
 COPY frontend/ frontend/
