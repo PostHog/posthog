@@ -746,7 +746,7 @@ class Status(StrEnum):
 
 
 class Type5(StrEnum):
-    ERROR_TRACKING_TEAM = "error_tracking_team"
+    USER_GROUP = "user_group"
     USER = "user"
 
 

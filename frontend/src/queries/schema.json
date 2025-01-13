@@ -5588,7 +5588,7 @@
                     ]
                 },
                 "type": {
-                    "enum": ["error_tracking_team", "user"],
+                    "enum": ["user_group", "user"],
                     "type": "string"
                 }
             },
