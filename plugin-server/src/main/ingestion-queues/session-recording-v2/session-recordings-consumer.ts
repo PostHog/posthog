@@ -1,7 +1,6 @@
 import { captureException } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
-import { Gauge, Histogram, Summary } from 'prom-client'
 
 import { buildIntegerMatcher } from '../../../config/config'
 import {
@@ -16,6 +15,7 @@ import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { KafkaMetrics } from './kafka/kafka-metrics'
 import { KafkaParser } from './kafka/kafka-parser'
+import { SessionRecordingMetrics } from './metrics'
 import { IncomingRecordingMessage } from './types'
 import { bufferFileDir, getPartitionsForTopic } from './utils'
 
@@ -27,36 +27,6 @@ const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob-v2'
 const KAFKA_CONSUMER_GROUP_ID_OVERFLOW = 'session-recordings-blob-v2-overflow'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 90_000
 // const SHUTDOWN_FLUSH_TIMEOUT_MS = 30000
-
-const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
-
-const gaugeSessionsHandled = new Gauge({
-    name: 'recording_blob_ingestion_v2_session_manager_count',
-    help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
-})
-
-const gaugeSessionsRevoked = new Gauge({
-    name: 'recording_blob_ingestion_v2_sessions_revoked',
-    help: 'A gauge of the number of sessions being revoked when partitions are revoked when a re-balance occurs',
-})
-
-const histogramKafkaBatchSize = new Histogram({
-    name: 'recording_blob_ingestion_v2_kafka_batch_size',
-    help: 'The size of the batches we are receiving from Kafka',
-    buckets: [0, 1, 5, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 500, 750, 1000, 1500, 2000, 3000, Infinity],
-})
-
-const histogramKafkaBatchSizeKb = new Histogram({
-    name: 'recording_blob_ingestion_v2_kafka_batch_size_kb',
-    help: 'The size in kb of the batches we are receiving from Kafka',
-    buckets: BUCKETS_KB_WRITTEN,
-})
-
-export const sessionInfoSummary = new Summary({
-    name: 'recording_blob_ingestion_v2_session_info_bytes',
-    help: 'Size of aggregated session information being processed',
-    percentiles: [0.1, 0.25, 0.5, 0.9, 0.99],
-})
 
 type PartitionMetrics = {
     lastMessageTimestamp?: number
@@ -83,6 +53,8 @@ export class SessionRecordingIngester {
 
     private readonly kafkaParser: KafkaParser
 
+    private readonly metrics: SessionRecordingMetrics
+
     private sessionRecordingKafkaConfig = (): PluginsServerConfig => {
         // TRICKY: We re-use the kafka helpers which assume KAFKA_HOSTS hence we overwrite it if set
         return {
@@ -96,6 +68,7 @@ export class SessionRecordingIngester {
     constructor(private config: PluginsServerConfig, private consumeOverflow: boolean) {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
         this.kafkaParser = new KafkaParser(KafkaMetrics.getInstance())
+        this.metrics = SessionRecordingMetrics.getInstance()
 
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
@@ -142,7 +115,7 @@ export class SessionRecordingIngester {
     public async consume(event: IncomingRecordingMessage): Promise<void> {
         // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
-        gaugeSessionsRevoked.reset()
+        this.metrics.resetSessionsRevoked()
 
         const { team_id, session_id } = event
 
@@ -156,7 +129,7 @@ export class SessionRecordingIngester {
             })
         }
 
-        sessionInfoSummary.observe(event.metadata.rawSize)
+        this.metrics.observeSessionInfo(event.metadata.rawSize)
 
         return Promise.resolve()
     }
@@ -176,8 +149,10 @@ export class SessionRecordingIngester {
             statsKey: `recordingingesterv2.handleEachBatch`,
             sendTimeoutGuardToSentry: false,
             func: async () => {
-                histogramKafkaBatchSize.observe(messages.length)
-                histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
+                this.metrics.observeKafkaBatchSize(messages.length)
+                this.metrics.observeKafkaBatchSizeKb(
+                    messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
+                )
 
                 let recordingMessages: IncomingRecordingMessage[]
 
@@ -355,7 +330,7 @@ export class SessionRecordingIngester {
             return
         }
 
-        gaugeSessionsHandled.remove()
+        this.metrics.resetSessionsHandled()
 
         return Promise.resolve()
     }
