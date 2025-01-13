@@ -50,8 +50,6 @@ export function MemberSelect({
         onChange(value)
     }
 
-    const selectableMembers = filteredMembers.filter((m) => !excludedMembers.includes(m.user[propToCompare]))
-
     useEffect(() => {
         if (showPopover) {
             ensureAllMembersLoaded()
