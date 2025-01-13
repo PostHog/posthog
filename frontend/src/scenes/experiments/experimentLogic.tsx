@@ -746,18 +746,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.loadExperiment()
             }
         },
-        closePrimaryMetricModal: () => {
-            actions.loadExperiment()
-        },
-        closeSecondaryMetricModal: () => {
-            actions.loadExperiment()
-        },
-        closePrimarySharedMetricModal: () => {
-            actions.loadExperiment()
-        },
-        closeSecondarySharedMetricModal: () => {
-            actions.loadExperiment()
-        },
         resetRunningExperiment: async () => {
             actions.updateExperiment({ start_date: null, end_date: null, archived: false })
             values.experiment && actions.reportExperimentReset(values.experiment)

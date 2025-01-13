@@ -24,6 +24,7 @@ export function SharedMetricModal({
         closeSecondarySharedMetricModal,
         addSharedMetricToExperiment,
         removeSharedMetricFromExperiment,
+        loadExperiment,
     } = useActions(experimentLogic({ experimentId }))
 
     const [selectedMetricId, setSelectedMetricId] = useState<SharedMetric['id'] | null>(null)
@@ -41,7 +42,10 @@ export function SharedMetricModal({
     }
 
     const isOpen = isSecondary ? isSecondarySharedMetricModalOpen : isPrimarySharedMetricModalOpen
-    const closeModal = isSecondary ? closeSecondarySharedMetricModal : closePrimarySharedMetricModal
+    const closeModal = (): void => {
+        loadExperiment()
+        isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
+    }
 
     return (
         <LemonModal
