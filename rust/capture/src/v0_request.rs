@@ -274,9 +274,9 @@ impl RawEvent {
     }
 
     pub fn extract_is_cookieless_mode(&self) -> Result<bool, CaptureError> {
-        match self.properties.get("$cklsh_mode") {
+        match self.properties.get("$cookieless_mode") {
             Some(Value::Bool(b)) => Ok(*b),
-            Some(_) => Err(CaptureError::InvalidCklshMode),
+            Some(_) => Err(CaptureError::InvalidCookielessMode),
             None => Ok(false),
         }
     }

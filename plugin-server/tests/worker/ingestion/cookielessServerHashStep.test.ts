@@ -198,7 +198,7 @@ describe('cookielessServerHashStep', () => {
                     throw new Error('no event or properties')
                 }
                 expect(actual.distinct_id).not.toEqual(COOKIELESS_SENTINEL_VALUE)
-                expect(actual.distinct_id.startsWith('cklsh_')).toBe(true)
+                expect(actual.distinct_id.startsWith('cookieless_')).toBe(true)
                 expect(actual.properties.$session_id).toBeDefined()
             })
             it('should give the same session id and distinct id to events with the same hash properties and within the same day and session timeout period', async () => {
@@ -240,7 +240,7 @@ describe('cookielessServerHashStep', () => {
                 expect(actual.ip).toBeNull()
                 expect(actual.properties.$raw_user_user).toBeUndefined()
                 expect(actual.properties.$ip).toBeUndefined()
-                expect(actual.properties.$cklsh_extra).toBeUndefined()
+                expect(actual.properties.$cookieless_extra).toBeUndefined()
             })
             it('should drop alias and merge events', async () => {
                 const [actual1] = await cookielessServerHashStep(hub, aliasEvent)

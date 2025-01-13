@@ -22,7 +22,7 @@ import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../timestamps'
  * - Instead of using a cookie, we can find some stable properties of the user that are sent with every http request
  *   (ip, user agent, domain), and hash them. This hash can be used as a distinct id. In most cases this provides
  *   enough uniqueness, but if the customer wants to add any other data to their users' hashes, we provide the
- *   $cklsh_extra property for them to do so.
+ *   $cookieless_extra property for them to do so.
  * - We add a salt to the hash so that is not considered PII and is not possible to reverse. We throw away the salt when
  *   it is no longer valid.
  *
@@ -59,9 +59,9 @@ import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../timestamps'
  */
 
 const TIMEZONE_FALLBACK = 'UTC'
-export const COOKIELESS_SENTINEL_VALUE = '$posthog_cklsh'
-export const COOKIELESS_MODE_FLAG_PROPERTY = '$cklsh_mode'
-export const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY = '$cklsh_extra'
+export const COOKIELESS_SENTINEL_VALUE = '$posthog_cookieless'
+export const COOKIELESS_MODE_FLAG_PROPERTY = '$cookieless_mode'
+export const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY = '$cookieless_extra'
 const MAX_NEGATIVE_TIMEZONE_HOURS = 12
 const MAX_POSITIVE_TIMEZONE_HOURS = 14
 const MAX_INGESTION_LAG_HOURS = 24
@@ -466,17 +466,19 @@ export function isCalendarDateValid(yyyymmdd: string): boolean {
 
 export function hashToDistinctId(hash: Uint32Array): string {
     // add a prefix so that we can recognise one of these in the wild
-    return 'cklsh_' + uint32ArrayToBase64String(hash).replace(/=+$/, '')
+    return 'cookieless_' + uint32ArrayToBase64String(hash).replace(/=+$/, '')
 }
 
 export function getRedisIdentifiesKey(hash: Uint32Array, teamId: number): string {
-    // assuming 6 digits for team id, this is 8 + 2 + 6 + 24 = 40 characters
-    return `cklshi:${teamId}:${uint32ArrayToBase64String(hash)}`
+    // assuming 6 digits for team id, this is 6 + 2 + 6 + 24 = 38 characters
+    // cklsi = cookieless identifies
+    return `cklsi:${teamId}:${uint32ArrayToBase64String(hash)}`
 }
 
 export function getRedisSessionsKey(hash: Uint32Array, teamId: number): string {
-    // assuming 6 digits for team id, this is 8 + 2 + 6 + 24 = 40 characters
-    return `cklshs:${teamId}:${uint32ArrayToBase64String(hash)}`
+    // assuming 6 digits for team id, this is 6 + 2 + 6 + 24 = 38 characters
+    // cklss = cookieless sessions
+    return `cklss:${teamId}:${uint32ArrayToBase64String(hash)}`
 }
 
 export function toYYYYMMDDInTimezoneSafe(
