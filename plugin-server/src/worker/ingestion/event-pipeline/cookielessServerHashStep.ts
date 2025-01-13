@@ -310,7 +310,7 @@ function getProperties(
     timestamp: string
 ): {
     userAgent: string | undefined
-    ip: string | null
+    ip: string | undefined
     host: string | undefined
     timezone: string | undefined
     timestampMs: number
@@ -318,7 +318,7 @@ function getProperties(
     hashExtra: string | undefined
 } {
     const userAgent = event.properties?.['$raw_user_agent']
-    const ip = event.ip
+    const ip = event.properties?.['$ip']
     const host = event.properties?.['$host']
     const timezone = event.properties?.['$timezone']
     const hashExtra = event.properties?.[COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY]
