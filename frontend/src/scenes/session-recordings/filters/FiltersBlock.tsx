@@ -15,7 +15,7 @@ import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter
 import { NodeKind } from '~/queries/schema'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
-import { sessionRecordingsPlaylistLogic } from '../sessionRecordingsPlaylistLogic'
+import { sessionRecordingsPlaylistLogic } from '../playlist/sessionRecordingsPlaylistLogic'
 
 export const FiltersBlock = (): JSX.Element => {
     const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))

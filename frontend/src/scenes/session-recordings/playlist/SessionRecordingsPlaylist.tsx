@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
 
+import { FiltersBlock } from '../filters/FiltersBlock'
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
@@ -70,6 +71,13 @@ export function SessionRecordingsPlaylist({
             initiallyOpen: true,
         })
     }
+
+    sections.push({
+        key: 'filters',
+        title: 'Filters',
+        content: <FiltersBlock />,
+        initiallyOpen: true,
+    })
 
     sections.push({
         key: 'other',
