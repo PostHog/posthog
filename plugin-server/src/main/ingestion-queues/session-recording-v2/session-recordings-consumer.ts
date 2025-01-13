@@ -15,6 +15,7 @@ import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { KafkaMetrics } from './kafka/kafka-metrics'
 import { KafkaParser } from './kafka/kafka-parser'
 import { SessionRecordingMetrics } from './metrics'
+import { PromiseScheduler } from './promise-scheduler'
 import { IncomingRecordingMessage } from './types'
 import { getPartitionsForTopic } from './utils'
 
@@ -46,13 +47,13 @@ export class SessionRecordingIngester {
     totalNumPartitions = 0
     isStopping = false
 
-    private promises: Set<Promise<any>> = new Set()
-
     private isDebugLoggingEnabled: ValueMatcher<number>
 
     private readonly kafkaParser: KafkaParser
 
     private readonly metrics: SessionRecordingMetrics
+
+    private readonly promiseScheduler: PromiseScheduler
 
     private sessionRecordingKafkaConfig = (): PluginsServerConfig => {
         // TRICKY: We re-use the kafka helpers which assume KAFKA_HOSTS hence we overwrite it if set
@@ -68,6 +69,7 @@ export class SessionRecordingIngester {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
         this.kafkaParser = new KafkaParser(KafkaMetrics.getInstance())
         this.metrics = SessionRecordingMetrics.getInstance()
+        this.promiseScheduler = new PromiseScheduler()
 
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
@@ -96,19 +98,6 @@ export class SessionRecordingIngester {
 
     private get assignedPartitions(): TopicPartition['partition'][] {
         return this.assignedTopicPartitions.map((x) => x.partition)
-    }
-
-    private scheduleWork<T>(promise: Promise<T>): Promise<T> {
-        /**
-         * Helper to handle graceful shutdowns. Every time we do some work we add a promise to this array and remove it when finished.
-         * That way when shutting down we can wait for all promises to finish before exiting.
-         */
-        this.promises.add(promise)
-
-        // we void the promise returned by finally here to avoid the need to await it
-        void promise.finally(() => this.promises.delete(promise))
-
-        return promise
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {
@@ -228,7 +217,7 @@ export class SessionRecordingIngester {
             topicCreationTimeoutMs: this.config.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             topicMetadataRefreshInterval: this.config.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
             eachBatch: async (messages, { heartbeat }) => {
-                return await this.scheduleWork(this.handleEachBatch(messages, heartbeat))
+                return await this.promiseScheduler.schedule(this.handleEachBatch(messages, heartbeat))
             },
             callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
             debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
@@ -256,7 +245,7 @@ export class SessionRecordingIngester {
             }
 
             if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-                return this.scheduleWork(this.onRevokePartitions(topicPartitions))
+                return this.promiseScheduler.schedule(this.onRevokePartitions(topicPartitions))
             }
 
             // We had a "real" error
@@ -282,16 +271,12 @@ export class SessionRecordingIngester {
         status.info('🔁', 'blob_ingester_consumer_v2 - stopping')
         this.isStopping = true
 
-        // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
         const assignedPartitions = this.assignedTopicPartitions
-        // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         await this.batchConsumer?.stop()
 
-        // Simulate a revoke command to try and flush all sessions
-        // There is a race between the revoke callback and this function - Either way one of them gets there and covers the revocations
-        void this.scheduleWork(this.onRevokePartitions(assignedPartitions))
+        void this.promiseScheduler.schedule(this.onRevokePartitions(assignedPartitions))
 
-        const promiseResults = await Promise.allSettled(this.promises)
+        const promiseResults = await this.promiseScheduler.waitForAll()
 
         status.info('👍', 'blob_ingester_consumer_v2 - stopped!')
 
