@@ -45,14 +45,16 @@ logger = structlog.get_logger(__name__)
 NEGATIVE_OPERATORS = [
     PropertyOperator.IS_NOT_SET,
     PropertyOperator.IS_NOT,
-    PropertyOperator.NOT_IN,  # COHORT operator
-    # PropertyOperator.NOT_REGEX, PropertyOperator.NOT_ICONTAINS, PropertyOperator.NOT_BETWEEN
+    PropertyOperator.NOT_REGEX,
+    # PropertyOperator.NOT_ICONTAINS, PropertyOperator.NOT_BETWEEN
+    # PropertyOperator.NOT_IN,  # COHORT operator we don't need to handle it explicitly
 ]
 
 INVERSE_OPERATOR_FOR = {
     PropertyOperator.IS_NOT_SET: PropertyOperator.IS_SET,
     PropertyOperator.IS_NOT: PropertyOperator.EXACT,
     PropertyOperator.NOT_IN: PropertyOperator.IN_,
+    PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
 }
 
 
@@ -809,26 +811,7 @@ class ReplayFiltersEventsSubQuery:
             # when we're saying property is not set then we have to check it is not set on every event
             # e.g. countIf(JSONHas(events.properties, '$feature/target-flag')) = 0
             for prop in self.event_properties:
-                if getattr(prop, "operator", None) == PropertyOperator.IS_NOT_SET:
-                    exprs.append(
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Call(
-                                name="countIf",
-                                args=[
-                                    # we count the positive equivalent so we can easily assert there are no matches
-                                    property_to_expr(
-                                        prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[prop.operator]}),
-                                        team=self._team,
-                                        scope="event",
-                                    ),
-                                ],
-                            ),
-                            right=ast.Constant(value=0),
-                        )
-                    )
-
-                if getattr(prop, "operator", None) == PropertyOperator.IS_NOT:
+                if getattr(prop, "operator", None) in NEGATIVE_OPERATORS:
                     exprs.append(
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.Eq,

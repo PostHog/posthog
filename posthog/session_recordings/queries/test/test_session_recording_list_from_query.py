@@ -4552,3 +4552,71 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert sorted([sr["session_id"] for sr in session_recordings]) == ["3", "4"]
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_can_filter_for_does_not_match_regex_properties(self) -> None:
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "1",
+                "$window_id": "1",
+                "$host": "google.com",
+            },
+        )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="3",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "3",
+                "$window_id": "1",
+                "$host": "localhost:3000",
+            },
+        )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="4",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "4",
+                "$window_id": "1",
+                # no host
+            },
+        )
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "properties": [
+                    {
+                        "key": "$host",
+                        "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
+                        "operator": "not_regex",
+                        "type": "event",
+                    },
+                ]
+            }
+        )
+
+        assert sorted([sr["session_id"] for sr in session_recordings]) == ["1", "4"]
