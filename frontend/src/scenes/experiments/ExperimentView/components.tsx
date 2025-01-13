@@ -12,6 +12,7 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -31,7 +32,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { Experiment, Experiment as ExperimentType, ExperimentIdType, InsightShortId, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -43,11 +44,13 @@ export function VariantTag({
     variantKey,
     muted = false,
     fontSize,
+    className,
 }: {
     experimentId: ExperimentIdType
     variantKey: string
     muted?: boolean
     fontSize?: number
+    className?: string
 }): JSX.Element {
     const { experiment, getIndexForVariant, metricResults } = useValues(experimentLogic({ experimentId }))
 
@@ -57,7 +60,7 @@ export function VariantTag({
 
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
         return (
-            <span className="flex items-center min-w-0">
+            <span className={clsx('flex items-center min-w-0', className)}>
                 <div
                     className="w-2 h-2 rounded-full shrink-0"
                     // eslint-disable-next-line react/forbid-dom-props
@@ -73,7 +76,7 @@ export function VariantTag({
     }
 
     return (
-        <span className="flex items-center min-w-0">
+        <span className={clsx('flex items-center min-w-0', className)}>
             <div
                 className="w-2 h-2 rounded-full shrink-0"
                 // eslint-disable-next-line react/forbid-dom-props

@@ -6,7 +6,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { ExperimentIdType, InsightType } from '~/types'
 
 import { MetricInsightId } from '../constants'

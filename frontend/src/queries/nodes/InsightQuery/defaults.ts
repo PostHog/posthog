@@ -8,7 +8,7 @@ import {
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { BaseMathType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
 
 export const trendsQueryDefault: TrendsQuery = {

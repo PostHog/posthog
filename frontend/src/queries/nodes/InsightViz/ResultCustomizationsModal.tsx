@@ -15,7 +15,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ResultCustomizationBy } from '~/queries/schema'
+import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
 import { resultCustomizationsModalLogic } from './resultCustomizationsModalLogic'

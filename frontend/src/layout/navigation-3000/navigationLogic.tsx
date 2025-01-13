@@ -1,4 +1,5 @@
 import {
+    IconAI,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
@@ -280,15 +281,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             }
             actions.setSidebarWidth(newWidth)
             actions.setSidebarOverslide(newWidthRaw - newWidth)
-            if (newWidthRaw < MINIMUM_SIDEBAR_WIDTH_PX / 2) {
-                if (values.isSidebarShown) {
-                    actions.hideSidebar()
-                }
-            } else {
-                if (!values.isSidebarShown) {
-                    actions.showSidebar()
-                }
-            }
         },
         syncSidebarWidthWithViewport: () => {
             if (values.sidebarWidth > window.innerWidth * (MAXIMUM_SIDEBAR_WIDTH_PERCENTAGE / 100)) {
@@ -505,6 +497,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   }
                                 : undefined,
                         },
+                        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
+                            ? {
+                                  identifier: Scene.LLMObservability,
+                                  label: 'LLM observability',
+                                  icon: <IconAI />,
+                                  to: urls.llmObservability(),
+                                  tag: 'beta' as const,
+                              }
+                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',

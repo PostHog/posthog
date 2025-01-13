@@ -18,13 +18,14 @@ from langchain_openai import ChatOpenAI
 from langgraph.errors import NodeInterrupt
 from pydantic import ValidationError
 
-from ee.hogai.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from ee.hogai.taxonomy_agent.parsers import (
     ReActParserException,
     ReActParserMissingActionException,
     parse_react_agent_output,
 )
 from ee.hogai.taxonomy_agent.prompts import (
+    CORE_MEMORY_INSTRUCTIONS,
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
@@ -88,13 +89,14 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 agent.invoke(
                     {
                         "react_format": self._get_react_format_prompt(toolkit),
+                        "core_memory": self.core_memory.text if self.core_memory else "",
                         "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
                         "react_property_filters": self._get_react_property_filters_prompt(),
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
-                        "product_description": self._team.project.product_description,
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
+                        "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                     },
                     config,
                 ),

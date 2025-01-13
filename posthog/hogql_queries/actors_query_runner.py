@@ -333,6 +333,7 @@ class ActorsQueryRunner(QueryRunner):
                     and isinstance(self.query.source, InsightActorsQuery)
                     and isinstance(self.query.source.source, TrendsQuery)
                     and source_distinct_id_column is not None
+                    and all(getattr(field, "chain", None) != ["event_distinct_ids"] for field in select_query.select)
                 ):
                     select_query.select.append(ast.Field(chain=[source_distinct_id_column]))
 
