@@ -19,7 +19,13 @@ import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics
 
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind, QuerySchema, WebStatsBreakdown } from '~/queries/schema'
+import {
+    DataTableNode,
+    InsightVizNode,
+    NodeKind,
+    QuerySchema,
+    WebStatsBreakdown,
+} from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { ChartDisplayType, GraphPointPayload, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 

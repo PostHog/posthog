@@ -53,7 +53,7 @@ import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import { ActivityScope, InsightType, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
