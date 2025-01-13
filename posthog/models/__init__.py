@@ -84,6 +84,7 @@ from .tagged_item import TaggedItem
 from .team import Team
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
+from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
 
@@ -174,6 +175,8 @@ __all__ = [
     "User",
     "UserScenePersonalisation",
     "UserManager",
+    "UserGroup",
+    "UserGroupMembership",
     "DataWarehouseTable",
     "ScheduledChange",
     "WebExperiment",

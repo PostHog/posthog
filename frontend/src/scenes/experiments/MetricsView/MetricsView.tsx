@@ -98,7 +98,10 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
         credibleIntervalForVariant,
     } = useValues(experimentLogic)
 
-    const variants = experiment.parameters.feature_flag_variants
+    const variants = experiment?.feature_flag?.filters?.multivariate?.variants
+    if (!variants) {
+        return <></>
+    }
     const results = isSecondary ? secondaryMetricResults : metricResults
     const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
     const hasSomeResults = results?.some((result) => result?.insight)

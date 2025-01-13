@@ -9,6 +9,7 @@ from django.core.management.base import BaseCommand
 
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
+from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
 
@@ -62,6 +63,12 @@ class Command(BaseCommand):
             default="12345678",
             help="Password of the demo user (default: 12345678)",
         )
+        parser.add_argument(
+            "--product",
+            type=str,
+            default="hedgebox",
+            help="Product to simulate (default: hedgebox, alternatives: spikegpt)",
+        )
 
     def handle(self, *args, **options):
         timer = monotonic()
@@ -76,7 +83,12 @@ class Command(BaseCommand):
                 print(f"Team with ID {options['team_id']} does not exist!")
                 return
         print("Instantiating the Matrix...")
-        matrix = HedgeboxMatrix(
+        try:
+            RelevantMatrix = {"hedgebox": HedgeboxMatrix, "spikegpt": SpikeGPTMatrix}[options["product"]]
+        except KeyError:
+            print(f"Error: Product {options['product']} is not supported!")
+            return
+        matrix = RelevantMatrix(
             seed,
             now=now,
             days_past=options["days_past"],

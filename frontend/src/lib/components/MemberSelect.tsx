@@ -58,6 +58,8 @@ export function MemberSelect({
         }
     }, [showPopover])
 
+    const selectableMembers = filteredMembers.filter((m) => !excludedMembers.includes(m.user[propToCompare]))
+
     return (
         <LemonDropdown
             closeOnClickInside={false}
