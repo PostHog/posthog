@@ -144,6 +144,8 @@ class OrganizationMemberViewSet(
         requesting_user = cast(User, self.request.user)
         removed_user = cast(User, instance.user)
 
+        is_self_removal = requesting_user.id == removed_user.id
+
         posthoganalytics.capture(
             str(requesting_user.distinct_id),
             "organization member removed",
@@ -152,9 +154,9 @@ class OrganizationMemberViewSet(
                 "removed_by_id": requesting_user.distinct_id,
                 "organization_id": instance.organization_id,
                 "organization_name": instance.organization.name,
+                "removal_type": "self_removal" if is_self_removal else "removed_by_other",
             },
             groups=groups(instance.organization),
         )
 
-        instance = cast(OrganizationMembership, instance)
         instance.user.leave(organization=instance.organization)
