@@ -2,16 +2,19 @@ import { captureException } from '@sentry/node'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 
 import { buildIntegerMatcher } from '../../../config/config'
-import {
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
-} from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { PluginServerService, PluginsServerConfig, TeamId, ValueMatcher } from '../../../types'
 import { status } from '../../../utils/status'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
+import {
+    KAFKA_CONSUMER_GROUP_ID,
+    KAFKA_CONSUMER_GROUP_ID_OVERFLOW,
+    KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+} from './constants'
 import { KafkaMetrics } from './kafka/metrics'
 import { KafkaParser } from './kafka/parser'
 import { SessionRecordingMetrics } from './metrics'
@@ -21,12 +24,6 @@ import { getPartitionsForTopic } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
-
-// WARNING: Do not change this - it will essentially reset the consumer
-const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob-v2'
-const KAFKA_CONSUMER_GROUP_ID_OVERFLOW = 'session-recordings-blob-v2-overflow'
-const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 90_000
-// const SHUTDOWN_FLUSH_TIMEOUT_MS = 30000
 
 type PartitionMetrics = {
     lastMessageTimestamp?: number
