@@ -35,7 +35,7 @@ import {
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
     BreakdownAttributionType,
