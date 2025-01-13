@@ -196,10 +196,7 @@ def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: 
 def _calculate_by_filter(filter: FilterType, team: Team, cache_type: CacheType) -> list[dict[str, Any]]:
     insight_class = CACHE_TYPE_TO_INSIGHT_CLASS[cache_type]
 
-    if cache_type == CacheType.PATHS:
-        result = insight_class(filter, team).run(filter, team)
-    else:
-        result = insight_class().run(filter, team)
+    result = insight_class().run(filter, team)
     return result
 
 
