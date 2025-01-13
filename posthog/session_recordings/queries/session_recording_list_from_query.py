@@ -44,7 +44,8 @@ logger = structlog.get_logger(__name__)
 
 NEGATIVE_OPERATORS = [
     PropertyOperator.IS_NOT_SET,
-    # PropertyOperator.IS_NOT, PropertyOperator.NOT_REGEX, PropertyOperator.NOT_ICONTAINS, PropertyOperator.NOT_IN, PropertyOperator.NOT_BETWEEN
+    PropertyOperator.IS_NOT,
+    # PropertyOperator.NOT_REGEX, PropertyOperator.NOT_ICONTAINS, PropertyOperator.NOT_IN, PropertyOperator.NOT_BETWEEN
 ]
 
 
@@ -808,13 +809,31 @@ class ReplayFiltersEventsSubQuery:
                             left=ast.Call(
                                 name="countIf",
                                 args=[
-                                    ast.Call(
-                                        name="JSONHas",
-                                        args=[
-                                            ast.Field(chain=["properties"]),
-                                            ast.Constant(value=prop.key),
-                                        ],
-                                    )
+                                    # we count the positive equivalent so we can easily assert there are no matches
+                                    property_to_expr(
+                                        prop.model_copy(update={"operator": PropertyOperator.IS_SET}),
+                                        team=self._team,
+                                        scope="event",
+                                    ),
+                                ],
+                            ),
+                            right=ast.Constant(value=0),
+                        )
+                    )
+
+                if getattr(prop, "operator", None) == PropertyOperator.IS_NOT:
+                    exprs.append(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Call(
+                                name="countIf",
+                                args=[
+                                    # we count the positive equivalent so we can easily assert there are no matches
+                                    property_to_expr(
+                                        prop.model_copy(update={"operator": PropertyOperator.EXACT}),
+                                        team=self._team,
+                                        scope="event",
+                                    ),
                                 ],
                             ),
                             right=ast.Constant(value=0),
