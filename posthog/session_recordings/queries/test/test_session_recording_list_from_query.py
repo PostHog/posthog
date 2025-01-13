@@ -2311,6 +2311,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 user_one = "test_filter_with_cohort_properties-user-in-static-cohort"
                 user_two = "test_filter_with_cohort_properties-user2-in-dynamic-cohort"
                 user_three = "test_filter_with_cohort_properties-user3-in-both-cohort"
+                user_four = "test_filter_with_cohort_properties-user4-not-in-any-cohort"
 
                 session_id_one = (
                     f"in-static-cohort-test_filter_with_static_and_dynamic_cohort_properties-1-{str(uuid4())}"
@@ -2320,6 +2321,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 )
                 session_id_three = (
                     f"in-both-cohort-test_filter_with_static_and_dynamic_cohort_properties-3-{str(uuid4())}"
+                )
+                session_id_four = (
+                    f"not-in-any-cohort-test_filter_with_static_and_dynamic_cohort_properties-4-{str(uuid4())}"
                 )
 
                 Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "in@static.cohort"})
@@ -2397,6 +2401,21 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                         "properties": [
                             {
                                 "key": "id",
+                                "value": static_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            },
+                        ]
+                    }
+                )
+
+                assert sorted([x["session_id"] for x in session_recordings]) == sorted([session_id_two])
+
+                (session_recordings, _, _) = self._filter_recordings_by(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
                                 "value": dynamic_cohort.pk,
                                 "operator": "in",
                                 "type": "cohort",
@@ -2415,20 +2434,67 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                             {
                                 "key": "id",
                                 "value": dynamic_cohort.pk,
-                                "operator": "in",
-                                "type": "cohort",
-                            },
-                            {
-                                "key": "id",
-                                "value": static_cohort.pk,
-                                "operator": "in",
+                                "operator": "not_in",
                                 "type": "cohort",
                             },
                         ]
                     }
                 )
 
-                assert sorted([x["session_id"] for x in session_recordings]) == [session_id_three]
+                assert sorted([x["session_id"] for x in session_recordings]) == sorted([session_id_one])
+
+                (session_recordings, _, _) = self._filter_recordings_by(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": dynamic_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            },
+                            {
+                                "key": "id",
+                                "value": static_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            },
+                        ]
+                    }
+                )
+
+                assert sorted([x["session_id"] for x in session_recordings]) == []
+
+                # and now with users not in any cohort
+
+                Person.objects.create(
+                    team=self.team, distinct_ids=[user_four], properties={"email": "not.in.any@cohorts.com"}
+                )
+                produce_replay_summary(
+                    distinct_id=user_four,
+                    session_id=session_id_four,
+                    team_id=self.team.id,
+                )
+
+                (session_recordings, _, _) = self._filter_recordings_by(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": dynamic_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            },
+                            {
+                                "key": "id",
+                                "value": static_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            },
+                        ]
+                    }
+                )
+
+                assert sorted([x["session_id"] for x in session_recordings]) == [session_id_four]
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
