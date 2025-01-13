@@ -70,6 +70,8 @@ describe('cookielessServerHashStep', () => {
         let identifyEvent: PluginEvent
         let identifyEventABitLater: PluginEvent
         let postIdentifyEvent: PluginEvent
+        let aliasEvent: PluginEvent
+        let mergeDangerouslyEvent: PluginEvent
 
         beforeAll(async () => {
             hub = await createHub({})
@@ -162,6 +164,14 @@ describe('cookielessServerHashStep', () => {
                 now: now.toISOString(),
                 uuid: new UUID7(now.getTime()).toString(),
             })
+            aliasEvent = deepFreeze({
+                ...event,
+                event: '$create_alias',
+            })
+            mergeDangerouslyEvent = deepFreeze({
+                ...event,
+                event: '$merge_dangerously',
+            })
         })
         afterEach(() => {})
 
@@ -223,6 +233,12 @@ describe('cookielessServerHashStep', () => {
                 expect(actual.properties.$raw_user_user).toBeUndefined()
                 expect(actual.properties.$ip).toBeUndefined()
                 expect(actual.properties.$cklsh_extra).toBeUndefined()
+            })
+            it('should drop alias and merge events', async () => {
+                const [actual1] = await cookielessServerHashStep(hub, aliasEvent)
+                const [actual2] = await cookielessServerHashStep(hub, mergeDangerouslyEvent)
+                expect(actual1).toBeUndefined()
+                expect(actual2).toBeUndefined()
             })
         })
 
