@@ -130,7 +130,7 @@ REPLAY_MESSAGE_PRODUCTION_TIMER = Histogram(
 )
 
 # This flag tells us to use the cookieless mode, and that we can't use distinct id as the partition key
-COOKIELESS_MODE_FLAG_PROPERTY = "$cklsh_mode"
+COOKIELESS_MODE_FLAG_PROPERTY = "$cookieless_mode"
 
 
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
