@@ -21,8 +21,8 @@ class UsageReportForm(forms.Form):
 
     def clean_report_date(self):
         report_date = self.cleaned_data["report_date"]
-        if report_date > timezone.now().date():
-            raise forms.ValidationError("The date cannot be in the future.")
+        if report_date > (timezone.now().date() + timezone.timedelta(days=1)):
+            raise forms.ValidationError("The date cannot be more than one day in the future.")
         return report_date
 
 
