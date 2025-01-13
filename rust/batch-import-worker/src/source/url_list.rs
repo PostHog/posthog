@@ -3,8 +3,17 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Error;
 use async_trait::async_trait;
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 
 use super::DataSource;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UrlListConfig {
+    urls: Vec<String>,
+    allow_internal_ips: bool,
+    timeout_seconds: u64,
+}
 
 pub struct UrlList {
     pub urls: Vec<String>,
@@ -31,13 +40,14 @@ impl UrlList {
 
         // Validate the passed urls, and assert they all support range requests
         for url in &source.urls {
-            source.assert_supports_range_requests(url).await?;
+            source.assert_valid_url(url).await?;
         }
 
         Ok(source)
     }
 
-    pub async fn assert_supports_range_requests(&self, url: &str) -> Result<(), Error> {
+    // A url is valid to us if it supports range requests and returns a content-length header
+    async fn assert_valid_url(&self, url: &str) -> Result<(), Error> {
         let response = self
             .client
             .head(url)
@@ -60,7 +70,29 @@ impl UrlList {
             )));
         }
 
+        let content_lenth = response
+            .headers()
+            .get("content-length")
+            .ok_or(Error::msg("Missing Content-Length header"))?
+            .to_str()
+            .map_err(|e| Error::msg(format!("Failed to parse Content-Length header: {}", e)))?;
+
+        content_lenth
+            .parse::<usize>()
+            .map_err(|e| Error::msg(format!("Failed to parse Content-Length as usize: {}", e)))?;
+
         Ok(())
+    }
+}
+
+impl UrlListConfig {
+    pub async fn create_source(&self) -> Result<UrlList, Error> {
+        UrlList::new(
+            self.urls.clone(),
+            self.allow_internal_ips,
+            Duration::from_secs(self.timeout_seconds),
+        )
+        .await
     }
 }
 
@@ -106,5 +138,139 @@ impl DataSource for UrlList {
             Ok(response) => Ok(response.bytes().await.map(|bytes| bytes.to_vec())?),
             Err(e) => Err(e.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use std::time::Duration;
+
+    use httpmock::MockServer;
+
+    use crate::source::{url_list::UrlList, DataSource};
+
+    const TEST_CONTENTS: &str = include_str!("../../tests/birdbuddy_export_example.json");
+
+    #[tokio::test]
+    async fn test_url_list_creation() {
+        let server = MockServer::start();
+        let head = server.mock(|when, then| {
+            when.method(httpmock::Method::HEAD);
+            then.status(200)
+                .header("accept-ranges", "bytes")
+                .header("content-length", TEST_CONTENTS.len().to_string());
+        });
+
+        let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
+        let url_count = urls.len();
+        let source = UrlList::new(urls, true, Duration::from_secs(10))
+            .await
+            .unwrap();
+        let keys = source.keys().await.unwrap();
+        println!("{:?}", keys);
+
+        assert_eq!(head.hits(), url_count);
+    }
+
+    #[tokio::test]
+    async fn test_url_list_no_accept_ranges() {
+        let server = MockServer::start();
+        let _ = server.mock(|when, then| {
+            when.method(httpmock::Method::HEAD);
+            then.status(200)
+                .header("accept-ranges", "none")
+                .header("content-length", TEST_CONTENTS.len().to_string());
+        });
+
+        let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10)).await;
+
+        assert!(source_res.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_url_list_missing_accept_ranges() {
+        let server = MockServer::start();
+        let _ = server.mock(|when, then| {
+            when.method(httpmock::Method::HEAD);
+            then.status(200)
+                .header("content-length", TEST_CONTENTS.len().to_string());
+        });
+
+        let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10)).await;
+
+        assert!(source_res.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_url_list_missing_content_length() {
+        let server = MockServer::start();
+        let _ = server.mock(|when, then| {
+            when.method(httpmock::Method::HEAD);
+            then.status(200).header("accept-ranges", "bytes");
+        });
+
+        let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10)).await;
+
+        assert!(source_res.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_non_usize_content_length() {
+        let server = MockServer::start();
+        let _ = server.mock(|when, then| {
+            when.method(httpmock::Method::HEAD);
+            then.status(200)
+                .header("accept-ranges", "bytes")
+                .header("content-length", "not a number");
+        });
+
+        let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10)).await;
+
+        assert!(source_res.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_size() {
+        let server = MockServer::start();
+        let _ = server.mock(|when, then| {
+            when.method(httpmock::Method::HEAD);
+            then.status(200)
+                .header("accept-ranges", "bytes")
+                .header("content-length", TEST_CONTENTS.len().to_string());
+        });
+
+        let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
+        let source = UrlList::new(urls, true, Duration::from_secs(10))
+            .await
+            .unwrap();
+        let size = source.size("1").await.unwrap();
+
+        assert_eq!(size, TEST_CONTENTS.len());
+    }
+
+    #[tokio::test]
+    async fn test_get_first_100_bytes() {
+        let server = MockServer::start();
+        let _ = server.mock(|when, then| {
+            when.method(httpmock::Method::GET);
+            then.status(200)
+                .header("accept-ranges", "bytes")
+                .header("content-length", TEST_CONTENTS.len().to_string())
+                .body(TEST_CONTENTS);
+        });
+
+        let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
+        let source = UrlList::new(urls, true, Duration::from_secs(10))
+            .await
+            .unwrap();
+        let chunk = source.get_chunk("/1", 0, 100).await.unwrap();
+
+        assert_eq!(chunk.len(), 100);
+        assert_eq!(&chunk, &TEST_CONTENTS.as_bytes()[0..100]);
     }
 }

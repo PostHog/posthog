@@ -993,6 +993,7 @@ dependencies = [
  "envconfig",
  "fernet",
  "health",
+ "httpmock",
  "reqwest 0.12.3",
  "serde",
  "serde_json",

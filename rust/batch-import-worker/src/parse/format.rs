@@ -54,6 +54,10 @@ impl FormatConfig {
                     })
                 }
             }
+            ContentType::AsCapture => {
+                // TODO - implement
+                unimplemented!()
+            }
         };
 
         Ok(parser)

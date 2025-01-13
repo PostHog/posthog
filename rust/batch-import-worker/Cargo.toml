@@ -31,3 +31,4 @@ reqwest = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.8"
+httpmock = { workspace = true }
