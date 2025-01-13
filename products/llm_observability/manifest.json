@@ -1,0 +1,16 @@
+{
+    "name": "LLM Observability",
+    "scenes": {
+        "LLMObservability": {
+            "import": "frontend/LLMObservabilityScene",
+            "projectBased": true,
+            "name": "LLM observability",
+            "activityScope": "LLMObservability",
+            "layout": "app-container"
+        }
+    },
+    "routes": {
+        "/llmObservability": "LLMObservability"
+    },
+    "redirects": {}
+}

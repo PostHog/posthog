@@ -19,12 +19,10 @@ export interface QueryTile {
 }
 
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
-    path(['scenes', 'llm-observability', 'llmObservabilityLogic']),
-
+    path(['products', 'llm_observability', 'frontend', 'llmObservabilityLogic']),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
     }),
-
     reducers({
         dateFilter: [
             {
@@ -36,7 +34,6 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             },
         ],
     }),
-
     selectors({
         tiles: [
             (s) => [s.dateFilter],

@@ -281,11 +281,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Data warehouse table',
         defaultDocsPath: '/docs/data-warehouse',
     },
-    [Scene.LLMObservability]: {
-        projectBased: true,
-        name: 'LLM observability',
-        layout: 'app-container',
-    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
@@ -634,6 +629,5 @@ export const routes: Record<string, Scene | string> = {
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
     [urls.heatmaps()]: Scene.Heatmaps,
     [urls.sessionAttributionExplorer()]: Scene.SessionAttributionExplorer,
-    [urls.llmObservability()]: Scene.LLMObservability,
     ...productRoutes,
 }

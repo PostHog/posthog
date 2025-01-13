@@ -499,7 +499,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
                             ? {
-                                  identifier: Scene.LLMObservability,
+                                  identifier: 'LLMObservability',
                                   label: 'LLM observability',
                                   icon: <IconAI />,
                                   to: urls.llmObservability(),

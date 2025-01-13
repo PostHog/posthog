@@ -86,5 +86,4 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
-    [Scene.LLMObservability]: () => import('./llm-observability/LLMObservabilityScene'),
 }
