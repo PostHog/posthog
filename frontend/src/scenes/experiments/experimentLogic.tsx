@@ -156,6 +156,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentResultsLoadingTimeout',
                 'reportExperimentReleaseConditionsViewed',
                 'reportExperimentHoldoutAssigned',
+                'reportExperimentSharedMetricAssigned',
             ],
             teamLogic,
             ['addProductIntent'],
@@ -902,6 +903,12 @@ export const experimentLogic = kea<experimentLogicType>([
             }))
 
             const newMetricsIds = sharedMetricIds.map((id: SharedMetric['id']) => ({ id, metadata }))
+            newMetricsIds.forEach((metricId) => {
+                const metric = values.sharedMetrics.find((m: SharedMetric) => m.id === metricId.id)
+                if (metric) {
+                    actions.reportExperimentSharedMetricAssigned(values.experimentId, metric)
+                }
+            })
             const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
