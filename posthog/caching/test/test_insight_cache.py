@@ -16,12 +16,11 @@ from posthog.caching.insight_cache import (
 from posthog.caching.insight_caching_state import upsert
 from posthog.caching.test.test_insight_caching_state import create_insight, filter_dict
 from posthog.constants import (
-    INSIGHT_RETENTION,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
 )
 from posthog.decorators import CacheType
-from posthog.models import Filter, InsightCachingState, RetentionFilter, Team, User
+from posthog.models import Filter, InsightCachingState, Team, User
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.signals import mute_selected_signals
 from posthog.utils import get_safe_cache
@@ -206,7 +205,6 @@ def test_update_cache_when_recently_refreshed(team: Team, user: User):
     [
         (Filter, INSIGHT_TRENDS, CacheType.TRENDS),
         (StickinessFilter, INSIGHT_STICKINESS, CacheType.STICKINESS),
-        (RetentionFilter, INSIGHT_RETENTION, CacheType.RETENTION),
     ],
 )
 @pytest.mark.django_db
