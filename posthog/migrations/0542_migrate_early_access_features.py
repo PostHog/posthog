@@ -8,9 +8,8 @@ class Migration(migrations.Migration):
         ("posthog", "0541_usergroup_usergroupmembership_usergroup_members_and_more"),
     ]
 
-    database_operations = [
-        # No operations here, since we don't want to delete the table
-    ]
+    # No operations here, since we don't want to delete the table
+    database_operations = []  # noqa
 
     state_operations = [migrations.DeleteModel("EarlyAccessFeature")]
 
