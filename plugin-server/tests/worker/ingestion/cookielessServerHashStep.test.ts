@@ -1,6 +1,6 @@
 import type { PluginEvent } from '@posthog/plugin-scaffold'
 
-import type { Hub } from '../../../src/types'
+import { CookielessServerHashMode, Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { deepFreeze, UUID7 } from '../../../src/utils/utils'
@@ -72,6 +72,7 @@ describe('cookielessServerHashStep', () => {
         let postIdentifyEvent: PluginEvent
         let aliasEvent: PluginEvent
         let mergeDangerouslyEvent: PluginEvent
+        let nonCookielessEvent: PluginEvent
 
         beforeAll(async () => {
             hub = await createHub({})
@@ -85,7 +86,7 @@ describe('cookielessServerHashStep', () => {
             })
         })
 
-        const setModeForTeam = async (mode: number, teamId: number) => {
+        const setModeForTeam = async (mode: CookielessServerHashMode, teamId: number) => {
             await hub.db.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
@@ -172,13 +173,20 @@ describe('cookielessServerHashStep', () => {
                 ...event,
                 event: '$merge_dangerously',
             })
+            nonCookielessEvent = deepFreeze({
+                ...event,
+                properties: {
+                    $host: 'https://example.com',
+                    $raw_user_agent: userAgent,
+                },
+            })
         })
         afterEach(() => {})
 
         // tests that are shared between both modes
         describe.each([
-            ['stateless', 1],
-            ['stateful', 2],
+            ['stateless', CookielessServerHashMode.Stateless],
+            ['stateful', CookielessServerHashMode.Stateful],
         ])('common (%s)', (_, mode) => {
             beforeEach(async () => {
                 await setModeForTeam(mode, teamId)
@@ -240,11 +248,15 @@ describe('cookielessServerHashStep', () => {
                 expect(actual1).toBeUndefined()
                 expect(actual2).toBeUndefined()
             })
+            it('should pass through non-cookieless events', async () => {
+                const [actual1] = await cookielessServerHashStep(hub, nonCookielessEvent)
+                expect(actual1).toBe(nonCookielessEvent)
+            })
         })
 
         describe('stateless', () => {
             beforeEach(async () => {
-                await setModeForTeam(1, teamId)
+                await setModeForTeam(CookielessServerHashMode.Stateless, teamId)
             })
 
             it('should provide the same session ID for events within the same day, later than the session timeout', async () => {
@@ -270,7 +282,7 @@ describe('cookielessServerHashStep', () => {
 
         describe('stateful', () => {
             beforeEach(async () => {
-                await setModeForTeam(2, teamId)
+                await setModeForTeam(CookielessServerHashMode.Stateful, teamId)
             })
             it('should provide a different session ID after session timeout', async () => {
                 const [actual1] = await cookielessServerHashStep(hub, event)
@@ -331,6 +343,19 @@ describe('cookielessServerHashStep', () => {
                 expect(actual3.properties.$session_id).not.toEqual(actual1.properties.$session_id)
                 expect(actual3.properties.$session_id).toBeDefined()
                 expect(actual4.properties.$session_id).toEqual(actual3.properties.$session_id)
+            })
+        })
+        describe('disabled', () => {
+            beforeEach(async () => {
+                await setModeForTeam(CookielessServerHashMode.Disabled, teamId)
+            })
+            it('should drop all events', async () => {
+                const [actual1] = await cookielessServerHashStep(hub, event)
+                expect(actual1).toBeUndefined()
+            })
+            it('should pass through non-cookieless events', async () => {
+                const [actual1] = await cookielessServerHashStep(hub, nonCookielessEvent)
+                expect(actual1).toBe(nonCookielessEvent)
             })
         })
     })
