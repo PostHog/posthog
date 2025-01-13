@@ -17,7 +17,7 @@ import {
     IconServer,
     IconShieldLock,
 } from '@posthog/icons'
-import { LemonButton, LemonSnack, Link, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonSnack, LemonTabs, ProfilePicture } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -54,6 +54,7 @@ import { AvailableFeature, SidePanelTab, TeamBasicType } from '~/types'
 import { navigation3000Logic } from '../navigationLogic'
 import { sidePanelStateLogic } from '../sidepanel/sidePanelStateLogic'
 import { themeLogic } from '../themeLogic'
+import { TopbarTab } from '../topbarLogic'
 
 function TopBarNavButton({
     to,
@@ -148,7 +149,40 @@ function OtherProjectButton({ team, disabled }: { team: TeamBasicType; disabled?
     )
 }
 
-export function TopBarNew(): JSX.Element | null {
+function TopBarTabs(): JSX.Element {
+    const { productLayoutTabs } = useValues(breadcrumbsLogic)
+
+    if (!productLayoutTabs || productLayoutTabs.length === 0) {
+        return <></>
+    }
+
+    const lemonTabs = productLayoutTabs.map((tab: TopbarTab) => ({
+        key: tab.key,
+        label: (
+            <>
+                {tab.label}
+                {tab.isNew && <LemonBadge className="ml-1" size="small" />}
+            </>
+        ),
+        content: tab.content,
+    }))
+
+    return (
+        <LemonTabs
+            activeKey={productLayoutTabs[0].key}
+            onChange={(newKey) => {
+                // setActiveTab(newKey)
+                router.actions.push(productLayoutTabs.find((tab: TopbarTab) => tab.key === newKey)?.url || '')
+                // if (tabs.find((tab) => tab.key === newKey)?.removeNewWhenVisited) {
+                //     hideNewBadge()
+                // }
+            }}
+            tabs={lemonTabs}
+        />
+    )
+}
+
+export function TopNav(): JSX.Element {
     const { preflight, isCloudOrDev, isCloud } = useValues(preflightLogic)
     const { user, themeMode } = useValues(userLogic)
     const { updateUser, logout } = useActions(userLogic)
@@ -644,12 +678,25 @@ export function TopBarNew(): JSX.Element | null {
                 </div>
             </div>
             <div className="relative z-[3] flex justify-center items-center h-[34px] border-t token-surface-3000-secondary token-border-3000-secondary">
-                <Button>Something</Button>
-                <Link to="/">Something</Link>
-                <Link to="/" subtle>
-                    Something
-                </Link>
+                <TopBarTabs />
             </div>
+        </>
+    )
+}
+// interface ProductLayoutProps extends PropsWithChildren<any> {}
+
+export function ProductLayout(): JSX.Element | null {
+    return (
+        <>
+            <TopNav />
+            {/* <div className="grid grid-cols-[250px_1fr]">
+                <ul>
+                    <li>
+                        <Link to="/">Home</Link>
+                    </li>
+                </ul>
+                <div className="p-4">{children}</div>
+            </div> */}
         </>
     )
 }

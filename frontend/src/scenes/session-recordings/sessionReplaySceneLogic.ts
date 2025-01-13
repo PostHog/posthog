@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS, SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -7,6 +7,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { topbarLogic, TopbarTab } from '~/layout/navigation-3000/topbarLogic'
 import { ActivityScope, Breadcrumb, ReplayTabs } from '~/types'
 
 import type { sessionReplaySceneLogicType } from './sessionReplaySceneLogicType'
@@ -24,12 +25,34 @@ export const humanFriendlyTabName = (tab: ReplayTabs): string => {
     }
 }
 
+const tabConfigs: TopbarTab[] = [
+    {
+        key: ReplayTabs.Home,
+        label: humanFriendlyTabName(ReplayTabs.Home),
+        url: urls.replay(ReplayTabs.Home),
+        default: true,
+    },
+    {
+        key: ReplayTabs.Playlists,
+        label: humanFriendlyTabName(ReplayTabs.Playlists),
+        url: urls.replay(ReplayTabs.Playlists),
+        isNew: true,
+    },
+    {
+        key: ReplayTabs.Templates,
+        label: humanFriendlyTabName(ReplayTabs.Templates),
+        url: urls.replay(ReplayTabs.Templates),
+        isNew: true,
+    },
+]
+
 export const PLAYLIST_LIMIT_REACHED_MESSAGE = `You have reached the free limit of ${SESSION_RECORDINGS_PLAYLIST_FREE_COUNT} saved playlists`
 
 export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     path(() => ['scenes', 'session-recordings', 'sessionReplaySceneLogic']),
     connect({
         values: [featureFlagLogic, ['featureFlags']],
+        actions: [topbarLogic, ['setTopBarTabs']],
     }),
     actions({
         setTab: (tab: ReplayTabs = ReplayTabs.Home) => ({ tab }),
@@ -66,6 +89,14 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     }),
 
     selectors(() => ({
+        productLayoutTabs: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                const hasTemplates = !!featureFlags[FEATURE_FLAGS.REPLAY_TEMPLATES]
+
+                return tabConfigs.filter((tab) => (tab.key == ReplayTabs.Templates ? hasTemplates : true))
+            },
+        ],
         tabs: [
             (s) => [s.featureFlags],
             (featureFlags) => {
@@ -113,5 +144,9 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
                 }
             },
         }
+    }),
+
+    afterMount(({ actions }) => {
+        actions.setTopBarTabs(tabConfigs)
     }),
 ])

@@ -13,9 +13,9 @@ import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
+import { ProductLayout } from './components/ProductLayout'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
-import { TopBarNew } from './components/TopBarNew'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
@@ -52,7 +52,7 @@ export function Navigation({
                 {sceneConfig?.layout !== 'app-raw-no-header' && (
                     <>
                         <TopBar />
-                        <TopBarNew />
+                        <ProductLayout />
                     </>
                 )}
                 <div

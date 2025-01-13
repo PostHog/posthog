@@ -30,7 +30,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             preflightLogic,
             ['preflight'],
             sceneLogic,
-            ['sceneConfig', 'activeScene'],
+            ['sceneConfig', 'activeScene', 'activeSceneLogic'],
             userLogic,
             ['user', 'otherOrganizations'],
             organizationLogic,
@@ -221,6 +221,15 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         .reverse(),
                     preflight?.demo ? 'PostHog Demo' : 'PostHog',
                 ].join(' • '),
+        ],
+
+        productLayoutTabs: [
+            (s) => [s.activeScene, s.sceneConfig],
+            () => {
+                const currentScene = sceneLogic.findMounted()?.values
+                const currentSceneTabs = currentScene?.activeSceneLogic?.values.productLayoutTabs
+                return currentSceneTabs
+            },
         ],
     })),
     subscriptions({
