@@ -14,8 +14,10 @@ import { PluginServerService, PluginsServerConfig, TeamId, ValueMatcher } from '
 import { status } from '../../../utils/status'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
+import { KafkaMetrics } from './kafka/kafka-metrics'
+import { KafkaParser } from './kafka/kafka-parser'
 import { IncomingRecordingMessage } from './types'
-import { bufferFileDir, getPartitionsForTopic, parseKafkaBatch } from './utils'
+import { bufferFileDir, getPartitionsForTopic } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -79,6 +81,8 @@ export class SessionRecordingIngester {
 
     private isDebugLoggingEnabled: ValueMatcher<number>
 
+    private readonly kafkaParser: KafkaParser
+
     private sessionRecordingKafkaConfig = (): PluginsServerConfig => {
         // TRICKY: We re-use the kafka helpers which assume KAFKA_HOSTS hence we overwrite it if set
         return {
@@ -91,6 +95,7 @@ export class SessionRecordingIngester {
 
     constructor(private config: PluginsServerConfig, private consumeOverflow: boolean) {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
+        this.kafkaParser = new KafkaParser(KafkaMetrics.getInstance())
 
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
@@ -179,7 +184,7 @@ export class SessionRecordingIngester {
                 await runInstrumentedFunction({
                     statsKey: `recordingingesterv2.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
-                        const { sessions, partitionStats } = await parseKafkaBatch(messages)
+                        const { sessions, partitionStats } = await this.kafkaParser.parseBatch(messages)
                         recordingMessages = sessions
                         for (const partitionStat of partitionStats) {
                             const metrics = this.partitionMetrics[partitionStat.partition] ?? {}
