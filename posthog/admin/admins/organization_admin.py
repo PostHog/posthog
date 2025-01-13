@@ -7,13 +7,14 @@ from posthog.admin.inlines.organization_member_inline import OrganizationMemberI
 from posthog.admin.inlines.project_inline import ProjectInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
+from django.utils import timezone
+from datetime import timedelta
 
 from posthog.models.organization import Organization
 from django.urls import path
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django import forms
-from django.utils import timezone
 
 
 class UsageReportForm(forms.Form):
@@ -21,7 +22,7 @@ class UsageReportForm(forms.Form):
 
     def clean_report_date(self):
         report_date = self.cleaned_data["report_date"]
-        if report_date > (timezone.now().date() + timezone.timedelta(days=1)):
+        if report_date > (timezone.now().date() + timedelta(days=1)):
             raise forms.ValidationError("The date cannot be more than one day in the future.")
         return report_date
 
