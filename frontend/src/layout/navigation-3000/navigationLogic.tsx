@@ -36,11 +36,12 @@ import React from 'react'
 import { editorSidebarLogic } from 'scenes/data-warehouse/editor/editorSidebarLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { replayLandingPageLogic } from 'scenes/session-recordings/replayLandingPageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { ProductKey, ReplayTabs } from '~/types'
+import { ProductKey } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
@@ -73,6 +74,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['mobileLayout'],
             teamLogic,
             ['currentTeam', 'hasOnboardedAnyProduct'],
+            replayLandingPageLogic,
+            ['replayLandingPage'],
         ],
         actions: [navigationLogic, ['closeAccountPopover']],
     })),
@@ -341,20 +344,19 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 dashboardsModel.selectors.pinnedDashboards,
                 s.currentTeam,
                 s.hasOnboardedAnyProduct,
+                s.replayLandingPage,
             ],
             (
                 featureFlags,
                 dashboardsLoading,
                 pinnedDashboards,
                 currentTeam,
-                hasOnboardedAnyProduct
+                hasOnboardedAnyProduct,
+                replayLandingPage
             ): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
                 const hasOnboardedFeatureFlags = currentTeam?.has_completed_onboarding_for?.[ProductKey.FEATURE_FLAGS]
 
-                const replayLandingPageFlag = featureFlags[FEATURE_FLAGS.REPLAY_LANDING_PAGE]
-                const replayLandingPage: ReplayTabs =
-                    replayLandingPageFlag === 'templates' ? ReplayTabs.Templates : ReplayTabs.Home
                 const sectionOne: NavbarItem[] = hasOnboardedAnyProduct
                     ? [
                           {
