@@ -32,6 +32,7 @@ from posthog.schema import (
     EventPropertyFilter,
     GroupPropertyFilter,
     HogQLPropertyFilter,
+    PropertyOperator,
 )
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 
@@ -40,6 +41,11 @@ import structlog
 from posthog.types import AnyPropertyFilter
 
 logger = structlog.get_logger(__name__)
+
+NEGATIVE_OPERATORS = [
+    PropertyOperator.IS_NOT_SET,
+    # PropertyOperator.IS_NOT, PropertyOperator.NOT_REGEX, PropertyOperator.NOT_ICONTAINS, PropertyOperator.NOT_IN, PropertyOperator.NOT_BETWEEN
+]
 
 
 def is_event_property(p: AnyPropertyFilter) -> bool:
@@ -612,7 +618,30 @@ class ReplayFiltersEventsSubQuery:
     ):
         self._team = team
         self._query = query
+        if self._query.filter_test_accounts:
+            self._query.properties = self._query.properties or []
+            self._query.properties += self._test_account_filters
+
         self._hogql_query_modifiers = hogql_query_modifiers
+
+    @cached_property
+    def _test_account_filters(self) -> list[AnyPropertyFilter]:
+        prop_filters: list[AnyPropertyFilter] = []
+        for prop in self._team.test_account_filters:
+            match prop.get("type", None):
+                case "person":
+                    prop_filters.append(PersonPropertyFilter(**prop))
+                case "event":
+                    prop_filters.append(EventPropertyFilter(**prop))
+                case "group":
+                    prop_filters.append(GroupPropertyFilter(**prop))
+                case "hogql":
+                    prop_filters.append(HogQLPropertyFilter(**prop))
+                case None:
+                    logger.warn("test account filter had no type", filter=prop)
+                    prop_filters.append(EventPropertyFilter(**prop))
+
+        return prop_filters
 
     @cached_property
     def _event_predicates(self):
@@ -722,7 +751,18 @@ class ReplayFiltersEventsSubQuery:
             exprs.append(ast.Or(exprs=event_where_exprs))
 
         if self.event_properties:
-            exprs.append(property_to_expr(self.event_properties, team=self._team, scope="replay"))
+            # we only query positive properties here, since negative properties we need to query over the session
+            exprs.append(
+                property_to_expr(
+                    [
+                        p
+                        for p in self.event_properties
+                        if getattr(p, "operator", None) is None or p.operator not in NEGATIVE_OPERATORS
+                    ],
+                    team=self._team,
+                    scope="replay",
+                )
+            )
 
         if self.group_properties:
             exprs.append(property_to_expr(self.group_properties, team=self._team))
@@ -744,17 +784,47 @@ class ReplayFiltersEventsSubQuery:
     def _having_predicates(self) -> ast.Expr:
         (_, event_names) = self._event_predicates
 
+        exprs: list[ast.Expr] = []
         if event_names:
-            return ast.Call(
-                name="hasAll" if self.property_operand == PropertyOperatorType.AND else "hasAny",
-                args=[
-                    ast.Call(name="groupUniqArray", args=[ast.Field(chain=["event"])]),
-                    # KLUDGE: sorting only so that snapshot tests are consistent
-                    ast.Constant(value=sorted(event_names)),
-                ],
+            exprs.append(
+                ast.Call(
+                    name="hasAll" if self.property_operand == PropertyOperatorType.AND else "hasAny",
+                    args=[
+                        ast.Call(name="groupUniqArray", args=[ast.Field(chain=["event"])]),
+                        # KLUDGE: sorting only so that snapshot tests are consistent
+                        ast.Constant(value=sorted(event_names)),
+                    ],
+                )
             )
 
-        return ast.Constant(value=True)
+        if self.event_properties:
+            # when we're saying property is not set then we have to check it is not set on every event
+            # e.g. countIf(JSONHas(events.properties, '$feature/target-flag')) = 0
+            for prop in self.event_properties:
+                if getattr(prop, "operator", None) == PropertyOperator.IS_NOT_SET:
+                    exprs.append(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Call(
+                                name="countIf",
+                                args=[
+                                    ast.Call(
+                                        name="JSONHas",
+                                        args=[
+                                            ast.Field(chain=["properties"]),
+                                            ast.Constant(value=prop.key),
+                                        ],
+                                    )
+                                ],
+                            ),
+                            right=ast.Constant(value=0),
+                        )
+                    )
+
+        if exprs:
+            return self.ast_operand(exprs=exprs)
+        else:
+            return ast.Constant(value=True)
 
     @cached_property
     def action_entities(self):
@@ -782,6 +852,10 @@ class ReplayFiltersEventsSubQuery:
     @cached_property
     def property_operand(self):
         return PropertyOperatorType.AND if self._query.operand == "AND" else PropertyOperatorType.OR
+
+    @cached_property
+    def ast_operand(self) -> type[Union[ast.And, ast.Or]]:
+        return ast.And if self.property_operand == "AND" else ast.Or
 
     @cached_property
     def person_properties(self) -> PropertyGroupFilterValue | None:
