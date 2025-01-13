@@ -428,34 +428,17 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
-class CoreWebVitals(StrEnum):
-    INP = "INP"
-    LCP = "LCP"
-    CLS = "CLS"
-    FCP = "FCP"
-
-
 class Math(StrEnum):
     P75 = "p75"
     P90 = "p90"
     P99 = "p99"
 
 
-class Action(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    custom_name: CoreWebVitals
-    math: Math
-
-
-class CoreWebVitalsItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    action: Action
-    data: list[float]
-    days: list[str]
+class CoreWebVitalsMetric(StrEnum):
+    INP = "INP"
+    LCP = "LCP"
+    CLS = "CLS"
+    FCP = "FCP"
 
 
 class CountPerActorMathType(StrEnum):
@@ -1972,6 +1955,14 @@ class CohortPropertyFilter(BaseModel):
     value: int
 
 
+class CoreWebVitalsItemAction(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: CoreWebVitalsMetric
+    math: Math
+
+
 class CustomChannelCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3364,36 +3355,6 @@ class CachedActorsQueryResponse(BaseModel):
     types: list[str]
 
 
-class CachedCoreWebVitalsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: AwareDatetime
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    next_allowed_client_refresh: AwareDatetime
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list[CoreWebVitalsItem]
-    timezone: str
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
 class CachedEventTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3934,6 +3895,15 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+
+
+class CoreWebVitalsItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: CoreWebVitalsItemAction
+    data: list[float]
+    days: list[str]
 
 
 class CoreWebVitalsQueryResponse(BaseModel):
@@ -5711,6 +5681,36 @@ class AnyResponseType(
         EventsQueryResponse,
         ErrorTrackingQueryResponse,
     ]
+
+
+class CachedCoreWebVitalsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[CoreWebVitalsItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class CachedErrorTrackingQueryResponse(BaseModel):

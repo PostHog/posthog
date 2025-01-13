@@ -4172,26 +4172,11 @@
             "required": ["id", "templateId", "columnName", "bytecode", "input", "color"],
             "type": "object"
         },
-        "CoreWebVitals": {
-            "enum": ["INP", "LCP", "CLS", "FCP"],
-            "type": "string"
-        },
         "CoreWebVitalsItem": {
             "additionalProperties": false,
             "properties": {
                 "action": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "custom_name": {
-                            "$ref": "#/definitions/CoreWebVitals"
-                        },
-                        "math": {
-                            "enum": ["p75", "p90", "p99"],
-                            "type": "string"
-                        }
-                    },
-                    "required": ["custom_name", "math"],
-                    "type": "object"
+                    "$ref": "#/definitions/CoreWebVitalsItemAction"
                 },
                 "data": {
                     "items": {
@@ -4208,6 +4193,24 @@
             },
             "required": ["data", "days", "action"],
             "type": "object"
+        },
+        "CoreWebVitalsItemAction": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "$ref": "#/definitions/CoreWebVitalsMetric"
+                },
+                "math": {
+                    "enum": ["p75", "p90", "p99"],
+                    "type": "string"
+                }
+            },
+            "required": ["custom_name", "math"],
+            "type": "object"
+        },
+        "CoreWebVitalsMetric": {
+            "enum": ["INP", "LCP", "CLS", "FCP"],
+            "type": "string"
         },
         "CoreWebVitalsQuery": {
             "additionalProperties": false,
