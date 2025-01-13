@@ -6,7 +6,7 @@ from django.core.cache import cache
 from django.test.client import Client
 from unittest.mock import patch
 
-from posthog.models.early_access_feature import EarlyAccessFeature
+from products.early_access_features.backend.models import EarlyAccessFeature
 from posthog.models import FeatureFlag, Person
 from posthog.models.team.team_caching import set_team_in_cache
 from posthog.test.base import (

@@ -19,7 +19,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
-from posthog.models.early_access_feature import EarlyAccessFeature
+from products.early_access_features.backend.models import EarlyAccessFeature
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
     get_all_feature_flags,
@@ -5196,7 +5196,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
-                properties={"group": f"{i}", "created_at": f"2023-0{i+1}-04"},
+                properties={"group": f"{i}", "created_at": f"2023-0{i + 1}-04"},
             )
 
         response = self.client.post(
