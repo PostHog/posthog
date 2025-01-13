@@ -8,7 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { ProductKey, SDK, SDKInstructionsMap, SDKKey } from '~/types'
 
