@@ -10,7 +10,7 @@ use crate::{
     context::AppContext,
     emit::{Emitter, FileEmitter, NoOpEmitter, StdoutEmitter},
     parse::format::FormatConfig,
-    source::{folder::FolderSourceConfig, DataSource},
+    source::{folder::FolderSourceConfig, url_list::UrlListConfig, DataSource},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +26,7 @@ pub struct JobConfig {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum SourceConfig {
     Folder(FolderSourceConfig),
+    UrlList(UrlListConfig),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +80,7 @@ impl SourceConfig {
     pub async fn construct(&self, _context: Arc<AppContext>) -> Result<Box<dyn DataSource>, Error> {
         match self {
             SourceConfig::Folder(config) => Ok(Box::new(config.create_source().await?)),
+            SourceConfig::UrlList(config) => Ok(Box::new(config.create_source().await?)),
         }
     }
 }
