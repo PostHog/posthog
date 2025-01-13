@@ -483,6 +483,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
             },
         ],
+        hasGroupsAddon: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => {
+                return hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)
+            },
+        ],
         showPaygate: [
             (s) => [s.template, s.hasAddon],
             (template, hasAddon) => {
@@ -832,6 +838,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         mappingTemplates: [
             (s) => [s.hogFunction, s.template],
             (hogFunction, template) => template?.mapping_templates ?? hogFunction?.template?.mapping_templates ?? [],
+        ],
+
+        usesGroups: [
+            (s) => [s.configuration],
+            (configuration) => {
+                // NOTE: Bit hacky but works good enough...
+                const configStr = JSON.stringify(configuration)
+                return configStr.includes('{groups')
+            },
         ],
     })),
 
