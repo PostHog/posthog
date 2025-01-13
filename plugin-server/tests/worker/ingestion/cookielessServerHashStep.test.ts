@@ -1,7 +1,7 @@
 import type { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { CookielessServerHashMode, Hub } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { deepFreeze, UUID7 } from '../../../src/utils/utils'
 import {
@@ -76,7 +76,6 @@ describe('cookielessServerHashStep', () => {
 
         beforeAll(async () => {
             hub = await createHub({})
-            await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
 
             organizationId = await createOrganization(hub.db.postgres)
 
@@ -84,6 +83,11 @@ describe('cookielessServerHashStep', () => {
                 now,
                 advanceTimers: true,
             })
+        })
+        afterAll(() => {
+            closeHub(hub)
+
+            jest.clearAllTimers()
         })
 
         const setModeForTeam = async (mode: CookielessServerHashMode, teamId: number) => {
@@ -181,7 +185,6 @@ describe('cookielessServerHashStep', () => {
                 },
             })
         })
-        afterEach(() => {})
 
         // tests that are shared between both modes
         describe.each([
