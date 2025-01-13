@@ -460,8 +460,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
         try {
             await this.cyclotronManager?.bulkCreateJobs(cyclotronJobs)
         } catch (e) {
-            status.error('Error creating cyclotron jobs', e)
-            status.warn('Failed jobs', { jobs: cyclotronJobs })
+            status.error('⚠️', 'Error creating cyclotron jobs', e)
+            status.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
             throw e
         }
 
