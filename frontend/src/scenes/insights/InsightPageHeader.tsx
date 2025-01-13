@@ -1,4 +1,3 @@
-import { IconTestTube } from '@posthog/icons'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
@@ -39,13 +38,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import {
-    isDataTableNode,
-    isDataVisualizationNode,
-    isEventsQuery,
-    isHogQLQuery,
-    isValidQueryForExperiment,
-} from '~/queries/utils'
+import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
 import {
     ExporterFormat,
     InsightLogicProps,
@@ -373,21 +366,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
                             </>
                         )}
-                        {insightMode !== ItemMode.Edit &&
-                            insight?.query &&
-                            isValidQueryForExperiment(insight.query) && (
-                                <LemonButton
-                                    icon={<IconTestTube />}
-                                    type="secondary"
-                                    to={urls.experiment('new', {
-                                        insight: insight.short_id ?? undefined,
-                                        name: (insight.name || insight.derived_name) ?? undefined,
-                                    })}
-                                >
-                                    Run Experiment
-                                </LemonButton>
-                            )}
-
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
                                 <LemonButton

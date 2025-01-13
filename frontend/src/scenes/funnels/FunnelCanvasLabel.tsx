@@ -1,18 +1,22 @@
-import { IconInfo } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { IconInfo, IconTestTube } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
 import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
+import { urls } from 'scenes/urls'
 
-import { FunnelVizType } from '~/types'
+import { isValidQueryForExperiment } from '~/queries/utils'
+import { FunnelVizType, ItemMode } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
+    const { insightMode } = useValues(insightSceneLogic)
     const { conversionMetrics, aggregationTargetLabel, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
@@ -64,6 +68,23 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                       <span className="text-muted-alt">Conversion rate</span>
                       <FunnelStepsPicker />
                   </>,
+              ]
+            : []),
+
+        ...(insightMode !== ItemMode.Edit && insight?.query && isValidQueryForExperiment(insight.query)
+            ? [
+                  <LemonButton
+                      key="run-experiment"
+                      icon={<IconTestTube />}
+                      type="secondary"
+                      size="xsmall"
+                      to={urls.experiment('new', {
+                          insight: insight.short_id ?? undefined,
+                          name: (insight.name || insight.derived_name) ?? undefined,
+                      })}
+                  >
+                      Run Experiment
+                  </LemonButton>,
               ]
             : []),
     ]
