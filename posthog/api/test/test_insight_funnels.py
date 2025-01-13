@@ -272,8 +272,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
-                    "bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]],
-                    "average_conversion_time": 29540.0,
+                    "bins": [[2220, 2], [42510, 0], [82800, 1]],
+                    "average_conversion_time": 29540,
                 },
             },
         )
@@ -399,7 +399,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
     def test_funnel_invalid_action_handled(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
-            {"actions": [{"id": 666, "type": "actions", "order": 0}]},
+            {"actions": [{"id": 666, "type": "actions", "order": 0}, {"id": 666, "type": "actions", "order": 0}]},
         )
 
         self.assertEqual(response.status_code, 400)
