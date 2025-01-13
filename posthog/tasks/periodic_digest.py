@@ -8,6 +8,7 @@ from celery import shared_task
 from dateutil import parser
 from django.db.models import QuerySet
 from django.utils import timezone
+from posthoganalytics.client import Client
 from sentry_sdk import capture_exception
 
 from posthog.models.dashboard import Dashboard
@@ -16,15 +17,18 @@ from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
 from posthog.models.messaging import MessagingRecord
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
 )
-from posthog.tasks.usage_report import (
-    USAGE_REPORT_TASK_KWARGS,
-    capture_report,
-    get_instance_metadata,
+from posthog.tasks.email import (
+    NotificationSetting,
+    NotificationSettingType,
+    should_send_notification,
 )
+from posthog.tasks.report_utils import capture_event
+from posthog.tasks.usage_report import USAGE_REPORT_TASK_KWARGS, get_instance_metadata
 from posthog.tasks.utils import CeleryQueue
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
@@ -54,7 +58,11 @@ def get_teams_for_digest() -> list[Team]:
 
 
 def get_teams_with_new_dashboards(end: datetime, begin: datetime) -> QuerySet:
-    return Dashboard.objects.filter(created_at__gt=begin, created_at__lte=end).values("team_id", "name", "id")
+    return (
+        Dashboard.objects.filter(created_at__gt=begin, created_at__lte=end)
+        .exclude(name__contains="Generated Dashboard")
+        .values("team_id", "name", "id")
+    )
 
 
 def get_teams_with_new_event_definitions(end: datetime, begin: datetime) -> QuerySet:
@@ -62,14 +70,34 @@ def get_teams_with_new_event_definitions(end: datetime, begin: datetime) -> Quer
 
 
 def get_teams_with_new_playlists(end: datetime, begin: datetime) -> QuerySet:
-    return SessionRecordingPlaylist.objects.filter(created_at__gt=begin, created_at__lte=end).values(
-        "team_id", "name", "short_id"
+    return (
+        SessionRecordingPlaylist.objects.filter(
+            created_at__gt=begin,
+            created_at__lte=end,
+        )
+        .exclude(
+            name__isnull=True,
+            derived_name__isnull=True,
+        )
+        .exclude(
+            name="",
+            derived_name=None,
+        )
+        .values("team_id", "name", "short_id", "derived_name")
     )
 
 
 def get_teams_with_new_experiments_launched(end: datetime, begin: datetime) -> QuerySet:
-    return Experiment.objects.filter(start_date__gt=begin, start_date__lte=end).values(
-        "team_id", "name", "id", "start_date"
+    return (
+        Experiment.objects.filter(
+            start_date__gt=begin,
+            start_date__lte=end,
+        )
+        .exclude(
+            end_date__gt=begin,
+            end_date__lte=end,
+        )
+        .values("team_id", "name", "id", "start_date")
     )
 
 
@@ -144,7 +172,7 @@ def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> p
             for event_definition in all_digest_data["teams_with_new_event_definitions"].get(team.id, [])
         ],
         new_playlists=[
-            {"name": playlist.get("name"), "id": playlist.get("short_id")}
+            {"name": playlist.get("name") or playlist.get("derived_name", "Untitled"), "id": playlist.get("short_id")}
             for playlist in all_digest_data["teams_with_new_playlists"].get(team.id, [])
         ],
         new_experiments_launched=[
@@ -212,17 +240,18 @@ def send_periodic_digest_report(
     full_report_dict = {
         "team_id": team_id,
         "team_name": team_name,
-        "template": "periodic_digest_report",
+        "template_name": "periodic_digest_report",
         "digest_items_with_data": digest_items_with_data,
         **periodic_digest_report,
         **instance_metadata,
     }
 
-    capture_report.delay(
-        capture_event_name="transactional email",
+    send_digest_notifications(
         team_id=team_id,
-        full_report_dict=full_report_dict,
-        send_for_all_members=True,
+        organization_id=None,  # Will be derived from team
+        event_name="transactional email",
+        properties=full_report_dict,
+        notification_type=NotificationSetting.WEEKLY_PROJECT_DIGEST.value,
     )
 
     # Mark as sent
@@ -269,3 +298,47 @@ def send_all_periodic_digest_reports(
     except Exception as err:
         capture_exception(err)
         raise
+
+
+def send_digest_notifications(
+    *,
+    team_id: int,
+    organization_id: Optional[str],
+    event_name: str,
+    properties: dict[str, Any],
+    notification_type: NotificationSettingType,
+    timestamp: Optional[datetime] = None,
+) -> None:
+    """
+    Determines eligible recipients and sends individual notifications for digest reports.
+    """
+    pha_client = Client("sTMFPsFhdP1Ssg")
+
+    team = Team.objects.get(id=team_id) if not organization_id else None
+    organization_id = organization_id or str(team.organization_id)
+
+    users = (
+        [
+            membership.user
+            for membership in OrganizationMembership.objects.filter(organization_id=organization_id).select_related(
+                "user"
+            )
+        ]
+        if organization_id
+        else team.all_users_with_access()
+    )
+
+    eligible_users = [user for user in users if should_send_notification(user, notification_type, team_id)]
+    # Send individual events for each eligible user
+    for user in eligible_users:
+        capture_event(
+            pha_client=pha_client,
+            name=event_name,
+            organization_id=organization_id,
+            team_id=team_id,
+            properties=properties,
+            timestamp=timestamp,
+            distinct_id=user.distinct_id,
+        )
+
+    pha_client.group_identify("organization", organization_id, properties)

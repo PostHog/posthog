@@ -18,13 +18,14 @@ from langchain_openai import ChatOpenAI
 from langgraph.errors import NodeInterrupt
 from pydantic import ValidationError
 
-from ee.hogai.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from ee.hogai.taxonomy_agent.parsers import (
     ReActParserException,
     ReActParserMissingActionException,
     parse_react_agent_output,
 )
 from ee.hogai.taxonomy_agent.prompts import (
+    CORE_MEMORY_INSTRUCTIONS,
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
@@ -88,13 +89,14 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 agent.invoke(
                     {
                         "react_format": self._get_react_format_prompt(toolkit),
+                        "core_memory": self.core_memory.text if self.core_memory else "",
                         "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
                         "react_property_filters": self._get_react_property_filters_prompt(),
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
-                        "product_description": self._team.project.product_description,
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
+                        "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                     },
                     config,
                 ),
@@ -131,7 +133,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
     @property
     def _model(self) -> ChatOpenAI:
-        return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True)
+        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True)
 
     def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
         return cast(
@@ -226,7 +228,10 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     conversation.append(LangchainHumanMessage(content=message.content))
             elif isinstance(message, VisualizationMessage):
                 conversation.append(LangchainAssistantMessage(content=message.plan or ""))
-            elif isinstance(message, AssistantMessage):
+            elif isinstance(message, AssistantMessage) and (
+                # Filter out summarizer messages (which always follow viz), but leave clarification questions in
+                idx < 1 or not isinstance(filtered_messages[idx - 1], VisualizationMessage)
+            ):
                 conversation.append(LangchainAssistantMessage(content=message.content))
 
         return conversation
@@ -267,12 +272,18 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
             )
         if input.name == "ask_user_for_help":
             # The agent has requested help, so we interrupt the graph.
-            if not observation:
+            if not state.resumed:
                 raise NodeInterrupt(input.arguments)
 
             # Feedback was provided.
+            last_message = state.messages[-1]
+            response = ""
+            if isinstance(last_message, HumanMessage):
+                response = last_message.content
+
             return PartialAssistantState(
-                intermediate_steps=[*intermediate_steps[:-1], (action, observation)],
+                resumed=False,
+                intermediate_steps=[*intermediate_steps[:-1], (action, response)],
             )
 
         output = ""
@@ -292,6 +303,6 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         )
 
     def router(self, state: AssistantState):
-        if state.plan is not None:
+        if state.plan:
             return "plan_found"
         return "continue"

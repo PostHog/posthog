@@ -16,6 +16,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     CustomEventConversionGoal,
     ActionConversionGoal,
+    BounceRatePageViewMode,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
@@ -78,9 +79,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         filter_test_accounts: Optional[bool] = False,
         action: Optional[Action] = None,
         custom_event: Optional[str] = None,
-        includeLCPScore: Optional[bool] = False,
+        bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
     ):
-        modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
+        modifiers = HogQLQueryModifiers(
+            sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
+        )
         query = WebOverviewQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=[],
@@ -92,7 +95,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             else CustomEventConversionGoal(customEventName=custom_event)
             if custom_event
             else None,
-            includeLCPScore=includeLCPScore,
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate()
@@ -102,20 +104,21 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-08",
             "2023-12-15",
         ).results
-        assert [item.key for item in results] == ["visitors", "views", "sessions", "session duration", "bounce rate"]
-
-        results = self._run_web_overview_query(
-            "2023-12-08",
-            "2023-12-15",
-            includeLCPScore=True,
-        ).results
         assert [item.key for item in results] == [
             "visitors",
             "views",
             "sessions",
             "session duration",
             "bounce rate",
-            "lcp score",
+        ]
+
+        results = self._run_web_overview_query("2023-12-08", "2023-12-15").results
+        assert [item.key for item in results] == [
+            "visitors",
+            "views",
+            "sessions",
+            "session duration",
+            "bounce rate",
         ]
 
         action = Action.objects.create(
@@ -153,6 +156,55 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_overview_query(
             "2023-12-08",
             "2023-12-15",
+        ).results
+
+        visitors = results[0]
+        self.assertEqual("visitors", visitors.key)
+        self.assertEqual(2, visitors.value)
+        self.assertEqual(1, visitors.previous)
+        self.assertEqual(100, visitors.changeFromPreviousPct)
+
+        views = results[1]
+        self.assertEqual("views", views.key)
+        self.assertEqual(2, views.value)
+        self.assertEqual(2, views.previous)
+        self.assertEqual(0, views.changeFromPreviousPct)
+
+        sessions = results[2]
+        self.assertEqual("sessions", sessions.key)
+        self.assertEqual(2, sessions.value)
+        self.assertEqual(1, sessions.previous)
+        self.assertEqual(100, sessions.changeFromPreviousPct)
+
+        duration_s = results[3]
+        self.assertEqual("session duration", duration_s.key)
+        self.assertEqual(0, duration_s.value)
+        self.assertEqual(60 * 60 * 24, duration_s.previous)
+        self.assertEqual(-100, duration_s.changeFromPreviousPct)
+
+        bounce = results[4]
+        self.assertEqual("bounce rate", bounce.key)
+        self.assertEqual(100, bounce.value)
+        self.assertEqual(0, bounce.previous)
+        self.assertEqual(None, bounce.changeFromPreviousPct)
+
+    def test_increase_in_users_using_mobile(self):
+        s1a = str(uuid7("2023-12-02"))
+        s1b = str(uuid7("2023-12-12"))
+        s2 = str(uuid7("2023-12-11"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1a), ("2023-12-03", s1a), ("2023-12-12", s1b)]),
+                ("p2", [("2023-12-11", s2)]),
+            ],
+            event="$screen",
+        )
+
+        results = self._run_web_overview_query(
+            "2023-12-08",
+            "2023-12-15",
+            bounce_rate_mode=BounceRatePageViewMode.UNIQ_PAGE_SCREEN_AUTOCAPTURES,  # bounce rate won't work in the other modes
         ).results
 
         visitors = results[0]
@@ -544,40 +596,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         conversion_rate = results[3]
         self.assertAlmostEqual(conversion_rate.value, 100 * 2 / 3)
-
-    def test_lcp_score(self):
-        s1a = str(uuid7("2023-12-02"))
-        s1b = str(uuid7("2023-12-12"))
-        s2 = str(uuid7("2023-12-11"))
-        s3 = str(uuid7("2023-12-11"))
-
-        self._create_events(
-            [
-                (
-                    "p1",
-                    [
-                        ("2023-12-02", s1a, "/", {"$web_vitals_LCP_value": 1000}),
-                        ("2023-12-03", s1a, "/", {"$web_vitals_LCP_value": 400}),
-                        ("2023-12-12", s1b, "/", {"$web_vitals_LCP_value": 320}),
-                    ],
-                ),
-                ("p2", [("2023-12-11", s2, "/", {"$web_vitals_LCP_value": 200})]),
-                ("p3", [("2023-12-11", s3, "/")]),  # no LCP value
-            ],
-        )
-
-        results = self._run_web_overview_query(
-            "2023-12-08",
-            "2023-12-15",
-            session_table_version=SessionTableVersion.V2,
-            includeLCPScore=True,
-        ).results
-
-        lcp_score = results[5]
-        assert lcp_score.key == "lcp score"
-        assert lcp_score.value == 0.29
-        assert lcp_score.previous == 1
-        assert lcp_score.changeFromPreviousPct == -71
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):

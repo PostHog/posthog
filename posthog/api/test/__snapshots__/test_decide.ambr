@@ -19,6 +19,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -317,7 +318,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -388,7 +392,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -472,7 +479,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -688,7 +698,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -704,7 +717,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -769,7 +783,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -856,7 +873,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -895,6 +915,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -1224,7 +1245,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1295,7 +1319,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1381,7 +1408,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1456,7 +1486,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1656,7 +1689,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -1672,7 +1708,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -1864,7 +1901,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -2064,7 +2104,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -2080,7 +2123,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -2106,6 +2150,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -2169,7 +2214,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -2260,7 +2308,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -2331,7 +2382,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -2417,7 +2471,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -2492,7 +2549,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -2692,7 +2752,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -2708,7 +2771,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -2888,7 +2952,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -3088,7 +3155,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -3104,7 +3174,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -3130,6 +3201,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -3193,7 +3265,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -3263,7 +3338,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -3386,7 +3464,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -3402,7 +3483,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -3459,7 +3541,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -3534,7 +3619,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -3750,7 +3838,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -3766,7 +3857,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -3924,7 +4016,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -3995,7 +4090,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -4070,7 +4168,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -4218,6 +4319,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -4516,7 +4618,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -4587,7 +4692,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -4671,7 +4779,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -4887,7 +4998,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -4903,7 +5017,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -4968,7 +5083,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -5055,7 +5173,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -5094,6 +5215,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -5169,7 +5291,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -5385,7 +5510,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -5401,7 +5529,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -5527,7 +5656,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -5743,7 +5875,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -5759,7 +5894,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -6070,7 +6206,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -6141,7 +6280,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -6227,7 +6369,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -6302,7 +6447,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -6502,7 +6650,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -6518,7 +6669,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -6587,7 +6739,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -6799,7 +6954,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -6815,7 +6973,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -6925,7 +7084,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -7088,7 +7250,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -7195,7 +7360,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -7211,7 +7379,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -7541,7 +7710,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -7557,7 +7729,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -7583,6 +7756,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -7646,7 +7820,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -7737,7 +7914,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -7808,7 +7988,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -7894,7 +8077,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -7969,7 +8155,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -8169,7 +8358,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -8185,7 +8377,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -8254,7 +8447,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -8466,7 +8662,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -8482,7 +8681,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -8588,7 +8788,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -8751,7 +8954,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -8858,7 +9064,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -8874,7 +9083,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -9196,7 +9406,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
@@ -9212,7 +9425,8 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_hogfunction"."enabled"
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -9238,6 +9452,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -9301,7 +9516,10 @@
          "posthog_team"."person_display_name_properties",
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",

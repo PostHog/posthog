@@ -12,9 +12,12 @@ boto3==1.28.16
 brotli==1.1.0
 celery==5.3.4
 celery-redbeat==2.1.1
+clickhouse-connect==0.8.11
 clickhouse-driver==0.2.7
 clickhouse-pool==0.5.3
+conditional-cache==1.2
 cryptography==39.0.2
+deltalake==0.23.2
 dj-database-url==0.5.0
 Django~=4.2.15
 django-axes==5.9.0
@@ -28,12 +31,10 @@ django-prometheus==2.2.0
 django-redis==5.2.0
 django-statsd==2.5.2
 django-structlog==2.1.3
-django-revproxy==0.12.0
 djangorestframework==3.15.1
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
 dlt==1.3.0
-dlt[deltalake]==1.3.0
 dnspython==2.2.1
 drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
@@ -46,6 +47,7 @@ jsonref==1.1.0
 kafka-python==2.0.2
 kombu==5.3.2
 langchain==0.3.9
+langchain-community==0.3.2
 langchain-openai==0.2.11
 langfuse==2.55.0
 langgraph==0.2.56
@@ -97,7 +99,7 @@ sqlparse==0.4.4
 temporalio==1.7.1
 token-bucket==0.3.0
 toronado==0.1.0
-webdriver_manager==4.0.1
+webdriver_manager==4.0.2
 whitenoise==6.5.0
 mimesis==5.2.1
 more-itertools==9.0.0
@@ -113,3 +115,4 @@ xmlsec==1.3.13 # Do not change this version - it will break SAML
 lxml==4.9.4 # Do not change this version - it will break SAML
 grpcio~=1.63.2 # Version constrained so that `deepeval` can be installed in in dev
 tenacity~=8.4.2  # Version constrained so that `deepeval` can be installed in in dev
+markdown-it-py~=3.0.0

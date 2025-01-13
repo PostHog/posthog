@@ -54,7 +54,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         preflight = {
             "opt_out_capture": False,
             "licensed_users_available": None,
-            "site_url": "http://localhost:8000",
+            "site_url": "http://localhost:8010",
             "can_create_org": False,
             "instance_preferences": {"debug_queries": True, "disable_paid_fs": False},
             "object_storage": False,
@@ -207,7 +207,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                                 "debug_queries": False,
                                 "disable_paid_fs": True,
                             },
-                            "site_url": "http://localhost:8000",
+                            "site_url": "http://localhost:8010",
                             "available_social_auth_providers": {
                                 "google-oauth2": True,
                                 "github": False,

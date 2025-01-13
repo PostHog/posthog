@@ -22,7 +22,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         self.distinct_id = str(uuid4())
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_report")
+    @patch("posthog.tasks.periodic_digest.capture_event")
     def test_periodic_digest_report(self, mock_capture: MagicMock) -> None:
         # Create test data from "last week"
         with freeze_time("2024-01-15T00:01:00Z"):
@@ -32,16 +32,34 @@ class TestPeriodicDigestReport(APIBaseTest):
                 name="Test Dashboard",
             )
 
+            #  create a dashboard that is generated for a feature flag, should be excluded from the digest
+            Dashboard.objects.create(
+                team=self.team,
+                name="Generated Dashboard: test-flag Usage",
+            )
+
             # Create an event definition
             event_definition = EventDefinition.objects.create(
                 team=self.team,
                 name="Test Event",
             )
 
-            # Create a playlist
+            # Create playlists - one with name, one without name, one with empty string name
             playlist = SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name="Test Playlist",
+            )
+            # This should be excluded from the digest because it has no name and no derived name
+            SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name=None,
+                derived_name=None,
+            )
+            # This should be included in the digest but use the derived name
+            derived_playlist = SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name="",
+                derived_name="Derived Playlist",
             )
 
             # Create experiments
@@ -101,8 +119,8 @@ class TestPeriodicDigestReport(APIBaseTest):
             completed_experiment = Experiment.objects.create(
                 team=self.team,
                 name="Completed Experiment",
-                start_date=now() + timedelta(days=1),
-                end_date=now() + timedelta(days=6),
+                start_date=now() + timedelta(days=6),
+                end_date=now() + timedelta(days=7),
                 feature_flag=flag_for_completed_experiment,
             )
 
@@ -113,7 +131,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         expected_properties = {
             "team_id": self.team.id,
             "team_name": self.team.name,
-            "template": "periodic_digest_report",
+            "template_name": "periodic_digest_report",
             "users_who_logged_in": [],
             "users_who_logged_in_count": 0,
             "users_who_signed_up": [],
@@ -126,7 +144,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             "plugins_installed": {},
             "product": "open source",
             "realm": "hosted-clickhouse",
-            "site_url": "http://localhost:8000",
+            "site_url": "http://localhost:8010",
             "table_sizes": ANY,
             "clickhouse_version": ANY,
             "deployment_infrastructure": "unknown",
@@ -148,7 +166,11 @@ class TestPeriodicDigestReport(APIBaseTest):
                 {
                     "name": "Test Playlist",
                     "id": playlist.short_id,
-                }
+                },
+                {
+                    "name": "Derived Playlist",
+                    "id": derived_playlist.short_id,
+                },
             ],
             "new_experiments_launched": [
                 {
@@ -189,19 +211,22 @@ class TestPeriodicDigestReport(APIBaseTest):
             "digest_items_with_data": 8,
         }
 
-        mock_capture.delay.assert_called_once_with(
-            capture_event_name="transactional email",
+        mock_capture.assert_called_once_with(
+            pha_client=ANY,
+            distinct_id=str(self.user.distinct_id),
+            organization_id=str(self.team.organization_id),
+            name="transactional email",
             team_id=self.team.id,
-            full_report_dict=expected_properties,
-            send_for_all_members=True,
+            properties=expected_properties,
+            timestamp=None,
         )
 
-    @patch("posthog.tasks.periodic_digest.capture_report")
+    @patch("posthog.tasks.periodic_digest.capture_event")
     def test_periodic_digest_report_dry_run(self, mock_capture: MagicMock) -> None:
         send_all_periodic_digest_reports(dry_run=True)
-        mock_capture.delay.assert_not_called()
+        mock_capture.assert_not_called()
 
-    @patch("posthog.tasks.periodic_digest.capture_report")
+    @patch("posthog.tasks.periodic_digest.capture_event")
     def test_periodic_digest_report_custom_dates(self, mock_capture: MagicMock) -> None:
         # Create test data
         with freeze_time("2024-01-15T00:01:00Z"):
@@ -227,7 +252,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         expected_properties = {
             "team_id": self.team.id,
             "team_name": self.team.name,
-            "template": "periodic_digest_report",
+            "template_name": "periodic_digest_report",
             "users_who_logged_in": [],
             "users_who_logged_in_count": 0,
             "users_who_signed_up": [],
@@ -240,7 +265,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             "plugins_installed": {},
             "product": "open source",
             "realm": "hosted-clickhouse",
-            "site_url": "http://localhost:8000",
+            "site_url": "http://localhost:8010",
             "table_sizes": ANY,
             "clickhouse_version": ANY,
             "deployment_infrastructure": "unknown",
@@ -262,15 +287,18 @@ class TestPeriodicDigestReport(APIBaseTest):
             "digest_items_with_data": 1,
         }
 
-        mock_capture.delay.assert_called_once_with(
-            capture_event_name="transactional email",
+        mock_capture.assert_called_once_with(
+            pha_client=ANY,
+            distinct_id=str(self.user.distinct_id),
+            organization_id=str(self.team.organization_id),
+            name="transactional email",
             team_id=self.team.id,
-            full_report_dict=expected_properties,
-            send_for_all_members=True,
+            properties=expected_properties,
+            timestamp=None,
         )
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_report")
+    @patch("posthog.tasks.periodic_digest.capture_event")
     def test_periodic_digest_report_idempotency(self, mock_capture: MagicMock) -> None:
         # Create test data
         with freeze_time("2024-01-15T00:01:00Z"):
@@ -283,8 +311,8 @@ class TestPeriodicDigestReport(APIBaseTest):
         send_all_periodic_digest_reports()
 
         # Verify first call
-        mock_capture.delay.assert_called_once()
-        mock_capture.delay.reset_mock()
+        mock_capture.assert_called_once()
+        mock_capture.reset_mock()
 
         # Check that messaging record was created
         record = MessagingRecord.objects.get(  # type: ignore
@@ -294,13 +322,13 @@ class TestPeriodicDigestReport(APIBaseTest):
 
         # Second run - should not send the digest again
         send_all_periodic_digest_reports()
-        mock_capture.delay.assert_not_called()
+        mock_capture.assert_not_called()
 
         # Verify only one record exists
         self.assertEqual(MessagingRecord.objects.count(), 1)
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_report")
+    @patch("posthog.tasks.periodic_digest.capture_event")
     def test_periodic_digest_different_periods(self, mock_capture: MagicMock) -> None:
         # Create test data
         with freeze_time("2024-01-15T00:01:00Z"):
@@ -311,14 +339,14 @@ class TestPeriodicDigestReport(APIBaseTest):
 
         # Send weekly digest
         send_all_periodic_digest_reports()
-        mock_capture.delay.assert_called_once()
-        mock_capture.delay.reset_mock()
+        mock_capture.assert_called_once()
+        mock_capture.reset_mock()
 
         # Send monthly digest (different period length)
         send_all_periodic_digest_reports(
             begin_date=(datetime.now() - timedelta(days=30)).isoformat(), end_date=datetime.now().isoformat()
         )
-        mock_capture.delay.assert_called_once()
+        mock_capture.assert_called_once()
 
         # Verify two different records exist
         records = MessagingRecord.objects.filter(raw_email=f"team_{self.team.id}")  # type: ignore
@@ -327,17 +355,17 @@ class TestPeriodicDigestReport(APIBaseTest):
         self.assertEqual(campaign_keys, ["periodic_digest_2024-01-20_30d", "periodic_digest_2024-01-20_7d"])
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_report")
+    @patch("posthog.tasks.periodic_digest.capture_event")
     def test_periodic_digest_empty_report_no_record(self, mock_capture: MagicMock) -> None:
         # Run without any data (empty digest)
         send_all_periodic_digest_reports()
 
         # Verify no capture call and no messaging record
-        mock_capture.delay.assert_not_called()
+        mock_capture.assert_not_called()
         self.assertEqual(MessagingRecord.objects.count(), 0)
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_report")
+    @patch("posthog.tasks.periodic_digest.capture_event")
     def test_periodic_digest_dry_run_no_record(self, mock_capture: MagicMock) -> None:
         # Create test data
         Dashboard.objects.create(
@@ -349,5 +377,71 @@ class TestPeriodicDigestReport(APIBaseTest):
         send_all_periodic_digest_reports(dry_run=True)
 
         # Verify no capture call and no messaging record
-        mock_capture.delay.assert_not_called()
+        mock_capture.assert_not_called()
         self.assertEqual(MessagingRecord.objects.count(), 0)
+
+    @freeze_time("2024-01-20T00:01:00Z")
+    @patch("posthog.tasks.periodic_digest.capture_event")
+    def test_periodic_digest_excludes_playlists_without_names_and_derived_names(self, mock_capture: MagicMock) -> None:
+        # Create test data from "last week"
+        with freeze_time("2024-01-15T00:01:00Z"):
+            # Create playlists with various name states
+            valid_playlist = SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name="Valid Playlist",
+                derived_name="Derived Playlist",
+            )
+            SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name=None,  # Null name should be excluded
+                derived_name=None,
+            )
+            SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name="",  # Empty string name should be excluded
+                derived_name=None,
+            )
+
+        # Run the periodic digest report task
+        send_all_periodic_digest_reports()
+
+        # Extract the playlists from the capture call
+        call_args = mock_capture.call_args
+        self.assertIsNotNone(call_args)
+        properties = call_args[1]["properties"]
+        playlists = properties["new_playlists"]
+
+        # Verify only the valid playlist is included
+        self.assertEqual(len(playlists), 1)
+        self.assertEqual(playlists[0]["name"], "Valid Playlist")
+        self.assertEqual(playlists[0]["id"], valid_playlist.short_id)
+
+    @freeze_time("2024-01-20T00:01:00Z")
+    @patch("posthog.tasks.periodic_digest.capture_event")
+    def test_periodic_digest_respects_team_notification_settings(self, mock_capture: MagicMock) -> None:
+        # Create test data
+        with freeze_time("2024-01-15T00:01:00Z"):
+            Dashboard.objects.create(
+                team=self.team,
+                name="Test Dashboard",
+            )
+
+        # Create a second user who has disabled notifications for this team
+        user_with_disabled_notifications = self._create_user("test2@posthog.com")
+        user_with_disabled_notifications.partial_notification_settings = {
+            "project_weekly_digest_disabled": {str(self.team.id): True}  # Disable notifications for this team
+        }
+        user_with_disabled_notifications.save()
+
+        # Add both users to the organization
+        self.organization.members.add(user_with_disabled_notifications)
+
+        # Run the periodic digest report task
+        send_all_periodic_digest_reports()
+
+        # Verify capture_event was only called once (for the original user)
+        mock_capture.assert_called_once()
+
+        # Verify the call was for the original user and not the one with disabled notifications
+        call_args = mock_capture.call_args[1]
+        self.assertEqual(call_args["distinct_id"], str(self.user.distinct_id))

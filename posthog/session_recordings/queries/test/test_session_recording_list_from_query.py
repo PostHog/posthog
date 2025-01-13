@@ -3316,7 +3316,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "key": "is_internal_user",
                 "value": ["false"],
                 "operator": "exact",
-                "type": "event",
+                # in production some test account filters don't include type
+                # we default to event in that case
+                # "type": "event",
             },
             {"key": "properties.$browser == 'Chrome'", "type": "hogql"},
         ]
@@ -4241,3 +4243,96 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "ongoing": 1,
             }
         ]
+
+    @parameterized.expand(
+        [
+            (
+                "session 1 matches target flag is True",
+                [{"type": "event", "key": "$feature/target-flag", "operator": "exact", "value": ["true"]}],
+                ["1"],
+            ),
+            (
+                "session 2 matches target flag is False",
+                [{"type": "event", "key": "$feature/target-flag", "operator": "exact", "value": ["false"]}],
+                ["2"],
+            ),
+            (
+                "sessions 1 and 2 match target flag is set",
+                [{"type": "event", "key": "$feature/target-flag", "operator": "is_set", "value": "is_set"}],
+                ["1", "2"],
+            ),
+            # FIXME: we don't handle negation correctly at all, let's fix that in a follow-up
+            # because setup adds an event with no flags to each session every session matches this because we look for any event not matches not _all_ events not matches
+            # ("sessions 3 and 4 match target flag is not set", [{"type": "event", "key": "$feature/target-flag", "operator": "is_not_set", "value": "is_not_set"}], ["3", "4"]),
+        ]
+    )
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_can_filter_for_flags(self, _name: str, properties: dict, expected: list[str]) -> None:
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "1",
+                "$window_id": "1",
+                "$feature/target-flag": True,
+            },
+        )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="2",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "2",
+                "$window_id": "1",
+                "$feature/target-flag": False,
+            },
+        )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="3",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "3",
+                "$window_id": "1",
+                "$feature/flag-that-is-different": False,
+            },
+        )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="4",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "4",
+                "$window_id": "1",
+            },
+        )
+
+        (session_recordings, _, _) = self._filter_recordings_by({"properties": properties})
+        assert sorted([sr["session_id"] for sr in session_recordings]) == expected

@@ -15,7 +15,8 @@ from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.utils import extend_schema
 from prometheus_client import Counter, Histogram
-from rest_framework import exceptions, request, serializers, viewsets
+from pydantic import ValidationError
+from rest_framework import exceptions, request, serializers, viewsets, status
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
@@ -331,7 +332,15 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         data_dict = query_as_params_to_dict(request.GET.dict())
         # we used to send `version` and it's not part of query, so we pop to make sure
         data_dict.pop("version", None)
-        query = RecordingsQuery.model_validate(data_dict)
+        # we used to send `hogql_filtering` and it's not part of query, so we pop to make sure
+        data_dict.pop("hogql_filtering", None)
+
+        try:
+            query = RecordingsQuery.model_validate(data_dict)
+        except ValidationError as pydantic_validation_error:
+            return Response(
+                {"validation_errors": json.loads(pydantic_validation_error.json())}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         self._maybe_report_recording_list_filters_changed(request, team=self.team)
         return list_recordings_response(

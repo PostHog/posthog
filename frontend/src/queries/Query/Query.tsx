@@ -71,7 +71,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         if (propsQuery !== localQuery) {
             localSetQuery(propsQuery)
         }
-    }, [propsQuery])
+    }, [propsQuery]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const query = readOnly ? propsQuery : localQuery
     const setQuery = propsSetQuery ?? localSetQuery
@@ -93,7 +93,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         }
     }
 
-    let component
+    let component: JSX.Element
     if (isDataTableNode(query)) {
         component = (
             <DataTable
@@ -141,31 +141,23 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         component = <DataNode query={query} cachedResults={props.cachedResults} />
     }
 
-    if (component) {
-        return (
-            <ErrorBoundary>
-                <>
-                    {props.context?.showQueryEditor ? (
-                        <>
-                            <QueryEditor
-                                query={JSON.stringify(query)}
-                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
-                                context={queryContext}
-                            />
-                            <div className="my-4">
-                                <LemonDivider />
-                            </div>
-                        </>
-                    ) : null}
-                    {component}
-                </>
-            </ErrorBoundary>
-        )
-    }
-
     return (
-        <div className="text-danger border border-danger p-2">
-            <strong>PostHoqQuery error:</strong> {query?.kind ? `Invalid node type "${query.kind}"` : 'Invalid query'}
-        </div>
+        <ErrorBoundary>
+            <>
+                {queryContext.showQueryEditor ? (
+                    <>
+                        <QueryEditor
+                            query={JSON.stringify(query)}
+                            setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
+                            context={queryContext}
+                        />
+                        <div className="my-4">
+                            <LemonDivider />
+                        </div>
+                    </>
+                ) : null}
+                {component}
+            </>
+        </ErrorBoundary>
     )
 }

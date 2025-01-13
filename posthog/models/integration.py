@@ -28,6 +28,8 @@ logger = structlog.get_logger(__name__)
 
 
 def dot_get(d: Any, path: str, default: Any = None) -> Any:
+    if path in d and d[path] is not None:
+        return d[path]
     for key in path.split("."):
         if not isinstance(d, dict):
             return default
@@ -46,6 +48,7 @@ class Integration(models.Model):
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_ADS = "google-ads"
+        SNAPCHAT = "snapchat"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -112,7 +115,7 @@ class OauthConfig:
 
 
 class OauthIntegration:
-    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads"]
+    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat"]
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
@@ -190,6 +193,21 @@ class OauthIntegration:
                 scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
+            )
+        elif kind == "snapchat":
+            if not settings.SNAPCHAT_APP_CLIENT_ID or not settings.SNAPCHAT_APP_CLIENT_SECRET:
+                raise NotImplementedError("Snapchat app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.snapchat.com/accounts/oauth2/auth",
+                token_url="https://accounts.snapchat.com/accounts/oauth2/token",
+                token_info_url="https://adsapi.snapchat.com/v1/me",
+                token_info_config_fields=["me.id", "me.email"],
+                client_id=settings.SNAPCHAT_APP_CLIENT_ID,
+                client_secret=settings.SNAPCHAT_APP_CLIENT_SECRET,
+                scope="snapchat-offline-conversions-api snapchat-marketing-api",
+                id_path="me.id",
+                name_path="me.email",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")

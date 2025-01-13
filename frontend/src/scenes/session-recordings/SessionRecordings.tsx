@@ -208,13 +208,13 @@ function MainPanel(): JSX.Element {
 }
 
 function PageTabs(): JSX.Element {
-    const { tab, tabs, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
+    const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
 
     return (
         <LemonTabs
             activeKey={tab}
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-            tabs={tabs.map((replayTab) => {
+            tabs={Object.values(ReplayTabs).map((replayTab) => {
                 return {
                     label: (
                         <>

@@ -58,7 +58,7 @@ INSTANCE_PREFERENCES = {
     "disable_paid_fs": disable_paid_fs,
 }
 
-SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
+SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
 INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 
 if DEBUG:
@@ -108,6 +108,7 @@ CONTAINER_HOSTNAME: str = os.getenv("HOSTNAME", "unknown")
 PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
 IN_UNIT_TESTING: bool = get_from_env("IN_UNIT_TESTING", False, type_cast=str_to_bool)
+IN_EVAL_TESTING: bool = get_from_env("DEEPEVAL", False, type_cast=str_to_bool)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
 
