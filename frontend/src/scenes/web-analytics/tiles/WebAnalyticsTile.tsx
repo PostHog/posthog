@@ -15,13 +15,19 @@ import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/Worl
 import { languageCodeToFlag, languageCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind, QuerySchema, WebStatsBreakdown } from '~/queries/schema'
+import {
+    DataTableNode,
+    InsightVizNode,
+    NodeKind,
+    QuerySchema,
+    WebStatsBreakdown,
+} from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, GraphPointPayload, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
 const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -375,14 +381,9 @@ export const WebStatsTrendTile = ({
     const { togglePropertyFilter, setInterval } = useActions(webAnalyticsLogic)
     const {
         hasCountryFilter,
-        deviceTab,
-        hasDeviceTypeFilter,
-        hasBrowserFilter,
-        hasOSFilter,
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
-    const deviceTypePropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.DeviceType)?.key
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -394,42 +395,6 @@ export const WebStatsTrendTile = ({
             })
         },
         [togglePropertyFilter, worldMapPropertyName]
-    )
-
-    const onDeviceTilePieChartClick = useCallback(
-        (graphPoint: GraphPointPayload) => {
-            if (graphPoint.seriesId == null) {
-                return
-            }
-            const dataset = graphPoint.crossDataset?.[graphPoint.seriesId]
-            if (!dataset) {
-                return
-            }
-
-            const breakdownValues = dataset.breakdownValues?.[graphPoint.index]
-            const breakdownValue = Array.isArray(breakdownValues) ? breakdownValues[0] : breakdownValues
-            if (!breakdownValue) {
-                return
-            }
-            if (!deviceTypePropertyName) {
-                return
-            }
-
-            // switch to a different tab if we can, try them in this order: DeviceType Browser OS
-            let newTab: DeviceTab | undefined = undefined
-            if (deviceTab !== DeviceTab.DEVICE_TYPE && !hasDeviceTypeFilter) {
-                newTab = DeviceTab.DEVICE_TYPE
-            } else if (deviceTab !== DeviceTab.BROWSER && !hasBrowserFilter) {
-                newTab = DeviceTab.BROWSER
-            } else if (deviceTab !== DeviceTab.OS && !hasOSFilter) {
-                newTab = DeviceTab.OS
-            }
-
-            togglePropertyFilter(PropertyFilterType.Event, deviceTypePropertyName, breakdownValue, {
-                deviceTab: newTab,
-            })
-        },
-        [togglePropertyFilter, deviceTypePropertyName, deviceTab, hasDeviceTypeFilter, hasBrowserFilter, hasOSFilter]
     )
 
     const context = useMemo((): QueryContext => {
@@ -445,9 +410,6 @@ export const WebStatsTrendTile = ({
                                     : undefined,
                         }
                     },
-                },
-                [ChartDisplayType.ActionsPie]: {
-                    onSegmentClick: onDeviceTilePieChartClick,
                 },
             },
             insightProps: {
@@ -676,12 +638,16 @@ export const WebQuery = ({
             />
         )
     }
+
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebExternalClicksTableQuery) {
         return <WebExternalClicksTile query={query} insightProps={insightProps} />
     }
+
     if (query.kind === NodeKind.InsightVizNode) {
         return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} insightProps={insightProps} />
-    } else if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebGoalsQuery) {
+    }
+
+    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebGoalsQuery) {
         return <WebGoalsTile query={query} insightProps={insightProps} />
     }
 

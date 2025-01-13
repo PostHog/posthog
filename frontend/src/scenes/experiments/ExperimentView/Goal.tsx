@@ -7,7 +7,13 @@ import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useState } from 'react'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery, FunnelsQuery, NodeKind, TrendsQuery } from '~/queries/schema'
+import {
+    ExperimentFunnelsQuery,
+    ExperimentTrendsQuery,
+    FunnelsQuery,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { ActionFilter, AnyPropertyFilter, ChartDisplayType, Experiment, InsightType } from '~/types'
 
 import { experimentLogic, getDefaultFunnelsMetric } from '../experimentLogic'

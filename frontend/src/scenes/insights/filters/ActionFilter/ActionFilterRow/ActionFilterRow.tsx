@@ -40,7 +40,7 @@ import {
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isStickinessQuery } from '~/queries/utils'
 import {
     ActionFilter,

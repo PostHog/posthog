@@ -6,7 +6,6 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest,
          if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
   FROM events
   LEFT OUTER JOIN
@@ -35,8 +34,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest,
-         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
+         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -64,7 +63,6 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest,
          if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
   FROM events
   LEFT OUTER JOIN
@@ -110,8 +108,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest,
-         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
+         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -139,7 +137,6 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest,
          if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
   FROM events
   LEFT OUTER JOIN
@@ -169,7 +166,6 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest,
          if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
   FROM events
   LEFT OUTER JOIN
@@ -199,7 +195,6 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest,
          if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
   FROM events
   LEFT OUTER JOIN
@@ -245,7 +240,6 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest,
          if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
   FROM events
   LEFT OUTER JOIN
@@ -291,7 +285,6 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest,
          if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
   FROM events
   LEFT OUTER JOIN
@@ -320,7 +313,6 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest,
          if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
   FROM events
   LEFT OUTER JOIN
