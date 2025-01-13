@@ -94,17 +94,6 @@ const NEW_EXPERIMENT: Experiment = {
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
 }
-
-interface SecondaryMetricResult {
-    insightType: InsightType
-    result?: number
-}
-
-export interface TabularSecondaryMetricResults {
-    variant: string
-    results?: SecondaryMetricResult[]
-}
-
 export interface ExperimentResultCalculationError {
     detail: string
     statusCode: number
@@ -1610,43 +1599,6 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     return tabularResults
                 },
-        ],
-        tabularSecondaryMetricResults: [
-            (s) => [s.experiment, s.secondaryMetricResults, s.conversionRateForVariant, s.countDataForVariant],
-            (
-                experiment,
-                secondaryMetricResults,
-                conversionRateForVariant,
-                countDataForVariant
-            ): TabularSecondaryMetricResults[] => {
-                if (!secondaryMetricResults) {
-                    return []
-                }
-
-                const variantsWithResults: TabularSecondaryMetricResults[] = []
-                experiment?.feature_flag?.filters?.multivariate?.variants?.forEach((variant) => {
-                    const metricResults: SecondaryMetricResult[] = []
-                    experiment?.secondary_metrics?.forEach((metric, idx) => {
-                        let result
-                        if (metric.filters.insight === InsightType.FUNNELS) {
-                            result = conversionRateForVariant(secondaryMetricResults?.[idx], variant.key)
-                        } else {
-                            result = countDataForVariant(secondaryMetricResults?.[idx], variant.key, 'secondary')
-                        }
-
-                        metricResults.push({
-                            insightType: metric.filters.insight || InsightType.TRENDS,
-                            result: result || undefined,
-                        })
-                    })
-
-                    variantsWithResults.push({
-                        variant: variant.key,
-                        results: metricResults,
-                    })
-                })
-                return variantsWithResults
-            },
         ],
         sortedWinProbabilities: [
             (s) => [s.metricResults, s.conversionRateForVariant],

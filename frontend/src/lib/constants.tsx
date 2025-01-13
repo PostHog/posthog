@@ -218,7 +218,6 @@ export const FEATURE_FLAGS = {
     FEATURE_MANAGEMENT_UI: 'feature-management-ui', // owner: @haven #team-feature-flags
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
     METALYTICS: 'metalytics', // owner: @surbhi
-    EXPERIMENTS_MULTIPLE_METRICS: 'experiments-multiple-metrics', // owner: @jurajmajerik #team-experiments
     REMOTE_CONFIG: 'remote-config', // owner: @benjackwhite
     SITE_DESTINATIONS: 'site-destinations', // owner: @mariusandra #team-cdp
     SITE_APP_FUNCTIONS: 'site-app-functions', // owner: @mariusandra #team-cdp
