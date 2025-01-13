@@ -83,17 +83,17 @@ export function Products(): JSX.Element {
     const { selectedProducts, firstProductOnboarding } = useValues(productsLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full m-4 items-center justify-center bg-bg-3000">
+        <div className="flex flex-col flex-1 w-full p-4 items-center justify-center bg-bg-3000">
             <>
                 <div className="flex flex-col justify-center flex-grow items-center">
-                    <div className="mb-8">
+                    <div className="mb-2">
                         <h2 className="text-center text-4xl">Which products would you like to use?</h2>
                         <p className="text-center">
                             Don't worry &ndash; you can pick more than one! Please select all that apply.
                         </p>
                     </div>
-                    <div className="flex flex-col-reverse md:flex-col gap-12 justify-center flex-grow items-center">
-                        <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(4,_minmax(min-content,_160px))]">
+                    <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full max-w-[720px]">
+                        <div className="flex flex-wrap gap-4 items-center justify-center">
                             {Object.keys(availableOnboardingProducts).map((productKey) => (
                                 <SelectableProductCard
                                     product={availableOnboardingProducts[productKey]}
@@ -102,6 +102,7 @@ export function Products(): JSX.Element {
                                     onClick={() => {
                                         toggleSelectedProduct(productKey as ProductKey)
                                     }}
+                                    className="w-[160px]"
                                     selected={selectedProducts.includes(productKey as ProductKey)}
                                 />
                             ))}
