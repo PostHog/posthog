@@ -60,10 +60,10 @@ class ErrorTrackingIssueAssignment(UUIDModel):
     class Meta:
         constraints = [
             models.CheckConstraint(
-                check=Q(user__isnull=False) | Q(error_tracking_team__isnull=False), name="at_least_one_non_null"
+                check=Q(user__isnull=False) | Q(user_group__isnull=False), name="at_least_one_non_null"
             ),
             models.CheckConstraint(
-                check=~(Q(user__isnull=False) & Q(error_tracking_team__isnull=False)), name="only_one_non_null"
+                check=~(Q(user__isnull=False) & Q(user_group__isnull=False)), name="only_one_non_null"
             ),
             models.UniqueConstraint(fields=["issue"], name="unique_per_issue"),
         ]
