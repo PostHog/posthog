@@ -50,7 +50,7 @@ describe('TeamFilter', () => {
         teamManager = new TeamManager() as jest.Mocked<TeamManager>
         kafkaMetrics = new KafkaMetrics() as jest.Mocked<KafkaMetrics>
         kafkaParser = new KafkaParser(kafkaMetrics) as jest.Mocked<KafkaParser>
-        teamFilter = new TeamFilter(teamManager, kafkaMetrics, kafkaParser)
+        teamFilter = new TeamFilter(teamManager, kafkaParser)
     })
 
     describe('team token validation', () => {

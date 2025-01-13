@@ -75,6 +75,7 @@ export class KafkaParser {
                 offset: message.offset,
                 timestamp: message.timestamp,
             },
+            headers: message.headers,
             distinct_id: messagePayload.distinct_id,
             session_id: $session_id,
             eventsByWindowId: {

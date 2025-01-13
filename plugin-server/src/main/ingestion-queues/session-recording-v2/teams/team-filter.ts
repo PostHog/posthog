@@ -1,26 +1,17 @@
 import { Message, MessageHeader } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '../../../../utils/db/kafka-producer-wrapper'
 import { status } from '../../../../utils/status'
-import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'
-import { KafkaMetrics } from '../kafka/metrics'
 import { KafkaParser } from '../kafka/parser'
+import { BatchMessageParser } from '../types'
 import { TeamManager } from './team-manager'
 import { MessageWithTeam, Team } from './types'
 
-export class TeamFilter {
-    constructor(
-        private readonly teamManager: TeamManager,
-        private readonly metrics: KafkaMetrics,
-        private readonly parser: KafkaParser
-    ) {}
+export class TeamFilter implements BatchMessageParser {
+    constructor(private readonly teamManager: TeamManager, private readonly parser: KafkaParser) {}
 
-    public async parseMessage(
-        message: Message,
-        ingestionWarningProducer: KafkaProducerWrapper | undefined
-    ): Promise<MessageWithTeam | null> {
-        const team = await this.validateTeamToken(message, message.headers, ingestionWarningProducer)
+    public async parseMessage(message: Message): Promise<MessageWithTeam | null> {
+        const team = await this.validateTeamToken(message, message.headers)
         if (!team) {
             return null
         }
@@ -40,7 +31,7 @@ export class TeamFilter {
         const parsedMessages: MessageWithTeam[] = []
 
         for (const message of messages) {
-            const messageWithTeam = await this.parseMessage(message, undefined)
+            const messageWithTeam = await this.parseMessage(message)
             if (messageWithTeam) {
                 parsedMessages.push(messageWithTeam)
             }
@@ -49,12 +40,9 @@ export class TeamFilter {
         return parsedMessages
     }
 
-    private async validateTeamToken(
-        message: Message,
-        headers: MessageHeader[] | undefined,
-        ingestionWarningProducer: KafkaProducerWrapper | undefined
-    ): Promise<Team | null> {
+    private async validateTeamToken(message: Message, headers: MessageHeader[] | undefined): Promise<Team | null> {
         const dropMessage = (reason: string, extra?: Record<string, any>) => {
+            // TODO refactor
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
@@ -84,25 +72,6 @@ export class TeamFilter {
             return null
         }
 
-        if (!!ingestionWarningProducer) {
-            const libVersion = this.readLibVersionFromHeaders(headers)
-            const parsedVersion = this.parseVersion(libVersion)
-            if (parsedVersion && parsedVersion.major === 1 && parsedVersion.minor < 75) {
-                this.metrics.incrementLibVersionWarning()
-
-                await captureIngestionWarning(
-                    ingestionWarningProducer,
-                    team.teamId,
-                    'replay_lib_version_too_old',
-                    {
-                        libVersion,
-                        parsedVersion,
-                    },
-                    { key: libVersion || 'unknown' }
-                )
-            }
-        }
-
         return team
     }
 
@@ -111,35 +80,5 @@ export class TeamFilter {
         const token = typeof tokenHeader === 'string' ? tokenHeader : tokenHeader?.toString()
         const team = token ? await this.teamManager.getTeamByToken(token) : null
         return { token, team }
-    }
-
-    private readLibVersionFromHeaders(headers: MessageHeader[] | undefined): string | undefined {
-        const libVersionHeader = headers?.find((header) => header['lib_version'])?.['lib_version']
-        return typeof libVersionHeader === 'string' ? libVersionHeader : libVersionHeader?.toString()
-    }
-
-    private parseVersion(libVersion: string | undefined) {
-        try {
-            let majorString: string | undefined = undefined
-            let minorString: string | undefined = undefined
-            if (libVersion && libVersion.includes('.')) {
-                const splat = libVersion.split('.')
-                if (splat.length === 3) {
-                    majorString = splat[0]
-                    minorString = splat[1]
-                }
-            }
-            const validMajor = majorString && !isNaN(parseInt(majorString))
-            const validMinor = minorString && !isNaN(parseInt(minorString))
-            return validMajor && validMinor
-                ? {
-                      major: parseInt(majorString as string),
-                      minor: parseInt(minorString as string),
-                  }
-                : undefined
-        } catch (e) {
-            status.warn('⚠️', 'could_not_read_minor_lib_version', { libVersion })
-            return undefined
-        }
     }
 }

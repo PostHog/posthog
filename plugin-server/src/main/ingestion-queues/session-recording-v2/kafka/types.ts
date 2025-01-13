@@ -1,3 +1,5 @@
+import { MessageHeader } from 'node-rdkafka'
+
 import { RRWebEvent } from '../../../../types'
 
 export interface ParsedMessageData {
@@ -6,6 +8,7 @@ export interface ParsedMessageData {
     eventsByWindowId: { [key: string]: RRWebEvent[] }
     eventsRange: { start: number; end: number }
     snapshot_source?: string
+    headers?: MessageHeader[]
     metadata: {
         partition: number
         topic: string

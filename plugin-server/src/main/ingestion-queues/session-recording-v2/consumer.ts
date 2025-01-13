@@ -4,7 +4,9 @@ import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartit
 import { buildIntegerMatcher } from '../../../config/config'
 import { BatchConsumer } from '../../../kafka/batch-consumer'
 import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
+import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { status as logger } from '../../../utils/status'
+import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { BatchConsumerFactory } from './batch-consumer-factory'
@@ -21,7 +23,11 @@ import { PromiseScheduler } from './promise-scheduler'
 import { TeamFilter } from './teams/team-filter'
 import { TeamManager } from './teams/team-manager'
 import { MessageWithTeam } from './teams/types'
+import { BatchMessageParser } from './types'
+import { CaptureIngestionWarningFn } from './types'
 import { getPartitionsForTopic } from './utils'
+import { LibVersionMonitor } from './versions/lib-version-monitor'
+import { VersionMetrics } from './versions/version-metrics'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -41,7 +47,7 @@ export class SessionRecordingIngester {
     isStopping = false
 
     private isDebugLoggingEnabled: ValueMatcher<number>
-    private readonly teamFilter: TeamFilter
+    private readonly messageProcessor: BatchMessageParser
     private readonly metrics: SessionRecordingMetrics
     private readonly promiseScheduler: PromiseScheduler
     private readonly batchConsumerFactory: BatchConsumerFactory
@@ -49,16 +55,25 @@ export class SessionRecordingIngester {
     constructor(
         private config: PluginsServerConfig,
         private consumeOverflow: boolean,
-        batchConsumerFactory: BatchConsumerFactory
+        batchConsumerFactory: BatchConsumerFactory,
+        ingestionWarningProducer?: KafkaProducerWrapper
     ) {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
         const kafkaMetrics = KafkaMetrics.getInstance()
         const kafkaParser = new KafkaParser(kafkaMetrics)
         const teamManager = new TeamManager()
-        this.teamFilter = new TeamFilter(teamManager, kafkaMetrics, kafkaParser)
         this.metrics = SessionRecordingMetrics.getInstance()
         this.promiseScheduler = new PromiseScheduler()
         this.batchConsumerFactory = batchConsumerFactory
+
+        this.messageProcessor = new TeamFilter(teamManager, kafkaParser)
+
+        if (ingestionWarningProducer) {
+            const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
+                await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
+            }
+            this.messageProcessor = new LibVersionMonitor(captureWarning, VersionMetrics.getInstance())
+        }
 
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
@@ -100,7 +115,7 @@ export class SessionRecordingIngester {
                 await runInstrumentedFunction({
                     statsKey: `recordingingesterv2.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
-                        messagesWithTeam = await this.teamFilter.parseBatch(messages)
+                        messagesWithTeam = await this.messageProcessor.parseBatch(messages)
                     },
                 })
                 context.heartbeat()
