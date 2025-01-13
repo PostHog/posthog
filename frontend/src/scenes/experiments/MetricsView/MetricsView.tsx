@@ -104,17 +104,17 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
     const hasSomeResults = results?.some((result) => result?.insight)
 
     let metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
-    const savedMetrics = experiment.saved_metrics
-        .filter((savedMetric) => savedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary'))
-        .map((savedMetric) => ({
-            ...savedMetric.query,
-            name: savedMetric.name,
-            savedMetricId: savedMetric.saved_metric,
-            isSavedMetric: true,
+    const sharedMetrics = experiment.saved_metrics
+        .filter((sharedMetric) => sharedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary'))
+        .map((sharedMetric) => ({
+            ...sharedMetric.query,
+            name: sharedMetric.name,
+            sharedMetricId: sharedMetric.saved_metric,
+            isSharedMetric: true,
         }))
 
-    if (savedMetrics) {
-        metrics = [...metrics, ...savedMetrics]
+    if (sharedMetrics) {
+        metrics = [...metrics, ...sharedMetrics]
     }
 
     // Calculate the maximum absolute value across ALL metrics
