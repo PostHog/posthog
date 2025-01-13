@@ -52,7 +52,7 @@ class ErrorTrackingIssue(UUIDModel):
 
 
 class ErrorTrackingIssueAssignment(UUIDModel):
-    issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE)
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
     user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
