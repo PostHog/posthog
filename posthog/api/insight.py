@@ -4,6 +4,7 @@ import logging
 from typing import Any, Optional, Union, cast
 
 import posthoganalytics
+from pydantic import BaseModel
 import structlog
 from django.db import transaction
 from django.db.models import Count, Prefetch, QuerySet
@@ -1112,7 +1113,9 @@ When set, the specified dashboard's filters and date range override will be appl
         except ExposedHogQLError as e:
             raise ValidationError(str(e))
 
-        funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"].model_dump())
+        if isinstance(funnel, BaseModel):
+            funnel = funnel.model_dump()
+        funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])
         funnel["timings"] = [val.model_dump() for val in timings.to_list()]
 
         return Response(funnel)
