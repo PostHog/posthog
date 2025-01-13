@@ -10,8 +10,6 @@ import { range } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
-import { Resizer } from '../Resizer/Resizer'
-
 const SCROLL_TRIGGER_OFFSET = 100
 
 export type PlaylistSection<T> = {
@@ -113,43 +111,47 @@ export function Playlist<
     const activeItem = sections.flatMap((s) => s.items).find((i) => i.id === activeItemId) || null
 
     return (
-        <div
-            ref={playlistRef}
-            data-attr={dataAttr}
-            className={clsx('Playlist', {
-                'Playlist--wide': size !== 'small',
-                'Playlist--embedded': embedded,
-            })}
-        >
-            <div ref={playlistListRef} className={clsx('Playlist__list', listCollapsed && 'Playlist__list--collapsed')}>
-                {listCollapsed ? (
-                    <CollapsedList onClickOpen={() => setListCollapsed(false)} />
-                ) : (
-                    <List
-                        title={title}
-                        notebooksHref={notebooksHref}
-                        loading={loading}
-                        sections={sections}
-                        headerActions={headerActions}
-                        footerActions={footerActions}
-                        onScrollListEdge={onScrollListEdge}
-                        onClickCollapse={() => setListCollapsed(true)}
-                        activeItemId={activeItemId}
-                        setActiveItemId={onChangeActiveItem}
-                        onChangeSections={onChangeSections}
-                        emptyState={listEmptyState}
-                    />
-                )}
-                <Resizer
-                    logicKey="playlist-list"
-                    placement="right"
-                    containerRef={playlistListRef}
-                    closeThreshold={100}
-                    onToggleClosed={(value) => setListCollapsed(value)}
-                    onDoubleClick={() => setListCollapsed(!listCollapsed)}
-                />
+        <div className="flex flex-col lg:flex-row w-full gap-2 h-full">
+            <div
+                ref={playlistRef}
+                data-attr={dataAttr}
+                className={clsx('Playlist w-full lg:max-w-80 min-h-96', {
+                    'Playlist--wide': size !== 'small',
+                    'Playlist--embedded': embedded,
+                })}
+            >
+                <div
+                    ref={playlistListRef}
+                    className={clsx('Playlist__list w-full', listCollapsed && 'Playlist__list--collapsed')}
+                >
+                    {listCollapsed ? (
+                        <CollapsedList onClickOpen={() => setListCollapsed(false)} />
+                    ) : (
+                        <List
+                            title={title}
+                            notebooksHref={notebooksHref}
+                            loading={loading}
+                            sections={sections}
+                            headerActions={headerActions}
+                            footerActions={footerActions}
+                            onScrollListEdge={onScrollListEdge}
+                            onClickCollapse={() => setListCollapsed(true)}
+                            activeItemId={activeItemId}
+                            setActiveItemId={onChangeActiveItem}
+                            onChangeSections={onChangeSections}
+                            emptyState={listEmptyState}
+                        />
+                    )}
+                </div>
             </div>
-            {content && <div className="Playlist__main">{content({ activeItem })}</div>}
+            <div
+                className={clsx('Playlist h-full min-h-96 w-full min-w-96 order-first lg:order-none', {
+                    'Playlist--wide': size !== 'small',
+                    'Playlist--embedded': embedded,
+                })}
+            >
+                {content && <div className="Playlist__main h-full">{content({ activeItem })}</div>}
+            </div>
         </div>
     )
 }
@@ -250,7 +252,7 @@ function List<
     const initiallyOpenSections = sections.filter((s) => s.initiallyOpen).map((s) => s.key)
 
     return (
-        <div className="flex flex-col w-full bg-bg-light overflow-hidden border-r h-full">
+        <div className="flex flex-col w-full bg-bg-light overflow-hidden h-full">
             <DraggableToNotebook href={notebooksHref}>
                 <div className="flex flex-col gap-1">
                     <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
@@ -290,7 +292,7 @@ function List<
                     emptyState
                 )}
             </div>
-            <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-t">
+            <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap">
                 {footerActions}
             </div>
         </div>
