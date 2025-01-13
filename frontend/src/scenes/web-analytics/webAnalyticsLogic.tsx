@@ -720,7 +720,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
-                // TODO: Use actual web vitals tab, this is just a placeholder
                 if (featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && productTab === ProductTab.CORE_WEB_VITALS) {
                     const createSeries = (name: CoreWebVitalsMetric, math: PropertyMathType): AnyEntityNode => ({
                         kind: NodeKind.EventsNode,
@@ -763,11 +762,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
                                     compareFilter,
                                     filterTestAccounts,
-                                    conversionGoal: undefined, // TODO: Should we support conversion goals for core web vitals?
                                     properties: webAnalyticsFilters,
                                 },
                             },
-                            insightProps: createInsightProps(TileId.OVERVIEW),
+                            insightProps: {},
                             canOpenInsight: false,
                             canOpenModal: false,
                             showIntervalSelect: true,

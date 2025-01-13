@@ -26,7 +26,7 @@ import {
     NodeKind,
     QuerySchema,
     WebStatsBreakdown,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { ChartDisplayType, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
@@ -71,33 +71,33 @@ const VariationCell = (
             previous === 0 && current === 0 // Special case, render as flatline
                 ? 0
                 : current === null || !compareFilter || compareFilter.compare === false
-                    ? null
-                    : previous === null || previous === 0
-                        ? Infinity
-                        : current / previous - 1
+                ? null
+                : previous === null || previous === 0
+                ? Infinity
+                : current / previous - 1
 
         const trend =
             pctChangeFromPrevious === null
                 ? null
                 : pctChangeFromPrevious === 0
-                    ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
-                    : pctChangeFromPrevious > 0
-                        ? {
-                            Icon: IconTrending,
-                            color: reverseColors ? getColorVar('danger') : getColorVar('success'),
-                        }
-                        : {
-                            Icon: IconTrendingDown,
-                            color: reverseColors ? getColorVar('success') : getColorVar('danger'),
-                        }
+                ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
+                : pctChangeFromPrevious > 0
+                ? {
+                      Icon: IconTrending,
+                      color: reverseColors ? getColorVar('danger') : getColorVar('success'),
+                  }
+                : {
+                      Icon: IconTrendingDown,
+                      color: reverseColors ? getColorVar('success') : getColorVar('danger'),
+                  }
 
         // If current === previous, say "increased by 0%"
         const tooltip =
             pctChangeFromPrevious !== null
                 ? `${current >= previous ? 'Increased' : 'Decreased'} by ${percentage(
-                    Math.abs(pctChangeFromPrevious),
-                    0
-                )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
+                      Math.abs(pctChangeFromPrevious),
+                      0
+                  )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
                 : null
 
         return (
