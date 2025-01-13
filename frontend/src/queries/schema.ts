@@ -113,6 +113,7 @@ export enum NodeKind {
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
+    TracesQuery = 'TracesQuery',
 }
 
 export type AnyDataNode =
@@ -137,6 +138,7 @@ export type AnyDataNode =
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | RecordingsQuery
+    | TracesQuery
 
 /**
  * @discriminator kind
@@ -188,6 +190,7 @@ export type QuerySchema =
     | TeamTaxonomyQuery
     | EventTaxonomyQuery
     | ActorsPropertyTaxonomyQuery
+    | TracesQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -218,6 +221,7 @@ export type AnyResponseType =
     | EventsNode['response']
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
+    | TracesQueryResponse
 
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
@@ -637,6 +641,7 @@ export interface DataTableNode
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
+                    | TracesQuery
                 )['response']
             >
         >,
@@ -657,6 +662,7 @@ export interface DataTableNode
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
+        | TracesQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -2522,6 +2528,33 @@ export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxo
 export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
+
+export interface AISpan {
+    id: string
+    input: any[]
+    output: any[]
+}
+
+export interface AITrace {
+    id: string
+    spans: AISpan[]
+}
+
+export interface TracesQueryResponse extends AnalyticsQueryResponseBase<AITrace[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+
+export interface TracesQuery extends DataNode<TracesQueryResponse> {
+    kind: NodeKind.TracesQuery
+    trace_id?: string
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 
 export enum AssistantMessageType {
     Human = 'human',

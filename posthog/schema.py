@@ -12,6 +12,23 @@ class SchemaRoot(RootModel[Any]):
     root: Any
 
 
+class AISpan(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    input: list
+    output: list
+
+
+class AITrace(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    spans: list[AISpan]
+
+
 class ActionConversionGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1196,6 +1213,7 @@ class NodeKind(StrEnum):
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
+    TRACES_QUERY = "TracesQuery"
 
 
 class PathCleaningFilter(BaseModel):
@@ -1343,7 +1361,7 @@ class QueryResponseAlternative7(BaseModel):
     warnings: list[HogQLNotice]
 
 
-class QueryResponseAlternative36(BaseModel):
+class QueryResponseAlternative37(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2877,6 +2895,31 @@ class QueryResponseAlternative28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[AITrace]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative29(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -2895,7 +2938,7 @@ class QueryResponseAlternative28(BaseModel):
     )
 
 
-class QueryResponseAlternative29(BaseModel):
+class QueryResponseAlternative30(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2917,7 +2960,7 @@ class QueryResponseAlternative29(BaseModel):
     )
 
 
-class QueryResponseAlternative31(BaseModel):
+class QueryResponseAlternative32(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2938,7 +2981,7 @@ class QueryResponseAlternative31(BaseModel):
     )
 
 
-class QueryResponseAlternative34(BaseModel):
+class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2964,7 +3007,7 @@ class QueryResponseAlternative34(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative37(BaseModel):
+class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2985,7 +3028,7 @@ class QueryResponseAlternative37(BaseModel):
     )
 
 
-class QueryResponseAlternative38(BaseModel):
+class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3006,7 +3049,7 @@ class QueryResponseAlternative38(BaseModel):
     )
 
 
-class QueryResponseAlternative39(BaseModel):
+class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3022,6 +3065,31 @@ class QueryResponseAlternative39(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: ActorsPropertyTaxonomyResponse
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative41(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[AITrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -3363,6 +3431,31 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
     results: list
     timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class TracesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[AITrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -4379,6 +4472,40 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     )
 
 
+class CachedTracesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[AITrace]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4758,6 +4885,31 @@ class Response8(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[ErrorTrackingIssue]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class Response11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[AITrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -5428,7 +5580,7 @@ class QueryResponseAlternative9(BaseModel):
     )
 
 
-class QueryResponseAlternative30(BaseModel):
+class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5520,6 +5672,20 @@ class TeamTaxonomyQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[TeamTaxonomyQueryResponse] = None
+
+
+class TracesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["TracesQuery"] = "TracesQuery"
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    response: Optional[TracesQueryResponse] = None
+    trace_id: Optional[str] = None
 
 
 class VisualizationMessage(BaseModel):
@@ -5704,6 +5870,7 @@ class AnyResponseType(
             Any,
             EventsQueryResponse,
             ErrorTrackingQueryResponse,
+            TracesQueryResponse,
         ]
     ]
 ):
@@ -5716,6 +5883,7 @@ class AnyResponseType(
         Any,
         EventsQueryResponse,
         ErrorTrackingQueryResponse,
+        TracesQueryResponse,
     ]
 
 
@@ -6540,7 +6708,7 @@ class QueryResponseAlternative27(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
-class QueryResponseAlternative35(BaseModel):
+class QueryResponseAlternative36(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6587,12 +6755,14 @@ class QueryResponseAlternative(
             QueryResponseAlternative29,
             QueryResponseAlternative30,
             QueryResponseAlternative31,
-            QueryResponseAlternative34,
+            QueryResponseAlternative32,
             QueryResponseAlternative35,
             QueryResponseAlternative36,
             QueryResponseAlternative37,
             QueryResponseAlternative38,
             QueryResponseAlternative39,
+            QueryResponseAlternative40,
+            QueryResponseAlternative41,
         ]
     ]
 ):
@@ -6625,12 +6795,14 @@ class QueryResponseAlternative(
         QueryResponseAlternative29,
         QueryResponseAlternative30,
         QueryResponseAlternative31,
-        QueryResponseAlternative34,
+        QueryResponseAlternative32,
         QueryResponseAlternative35,
         QueryResponseAlternative36,
         QueryResponseAlternative37,
         QueryResponseAlternative38,
         QueryResponseAlternative39,
+        QueryResponseAlternative40,
+        QueryResponseAlternative41,
     ]
 
 
@@ -7013,6 +7185,7 @@ class DataTableNode(BaseModel):
             Response8,
             Response9,
             Response10,
+            Response11,
         ]
     ] = None
     showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
@@ -7055,6 +7228,7 @@ class DataTableNode(BaseModel):
         ErrorTrackingQuery,
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
+        TracesQuery,
     ] = Field(..., description="Source of the events")
 
 
@@ -7095,6 +7269,7 @@ class HogQLAutocomplete(BaseModel):
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
             RecordingsQuery,
+            TracesQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -7139,6 +7314,7 @@ class HogQLMetadata(BaseModel):
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
             RecordingsQuery,
+            TracesQuery,
         ]
     ] = Field(
         default=None,
@@ -7196,6 +7372,7 @@ class QueryRequest(BaseModel):
         TeamTaxonomyQuery,
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
+        TracesQuery,
     ] = Field(
         ...,
         description=(
@@ -7263,6 +7440,7 @@ class QuerySchemaRoot(
             TeamTaxonomyQuery,
             EventTaxonomyQuery,
             ActorsPropertyTaxonomyQuery,
+            TracesQuery,
         ]
     ]
 ):
@@ -7304,6 +7482,7 @@ class QuerySchemaRoot(
         TeamTaxonomyQuery,
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
+        TracesQuery,
     ] = Field(..., discriminator="kind")
 
 
