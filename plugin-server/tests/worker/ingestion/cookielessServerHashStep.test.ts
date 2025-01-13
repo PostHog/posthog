@@ -108,12 +108,13 @@ describe('cookielessServerHashStep', () => {
                     [COOKIELESS_MODE_FLAG_PROPERTY]: true,
                     $host: 'https://example.com',
                     $raw_user_agent: userAgent,
+                    $ip: '1.2.3.4',
                 },
-                ip: '1.2.3.4',
                 site_url: 'https://example.com',
                 team_id: teamId,
                 now: now.toISOString(),
                 uuid: new UUID7(now.getTime()).toString(),
+                ip: null,
             })
             eventABitLater = deepFreeze({
                 ...event,
@@ -127,7 +128,10 @@ describe('cookielessServerHashStep', () => {
             })
             eventOtherUser = deepFreeze({
                 ...event,
-                ip: '5.6.7.8',
+                properties: {
+                    ...event.properties,
+                    $ip: '5.6.7.8',
+                },
                 uuid: new UUID7(now.getTime()).toString(),
             })
             eventDifferentDay = deepFreeze({
@@ -143,12 +147,13 @@ describe('cookielessServerHashStep', () => {
                     $anon_distinct_id: COOKIELESS_SENTINEL_VALUE,
                     $host: 'https://example.com',
                     $raw_user_agent: userAgent,
+                    $ip: '1.2.3.4',
                 },
-                ip: '1.2.3.4',
                 site_url: 'https://example.com',
                 team_id: teamId,
                 now: now.toISOString(),
                 uuid: new UUID7(now.getTime()).toString(),
+                ip: null,
             })
             identifyEventABitLater = deepFreeze({
                 ...identifyEvent,
@@ -162,12 +167,13 @@ describe('cookielessServerHashStep', () => {
                     [COOKIELESS_MODE_FLAG_PROPERTY]: true,
                     $host: 'https://example.com',
                     $raw_user_agent: userAgent,
+                    $ip: '1.2.3.4',
                 },
-                ip: '1.2.3.4',
                 site_url: 'https://example.com',
                 team_id: teamId,
                 now: now.toISOString(),
                 uuid: new UUID7(now.getTime()).toString(),
+                ip: null,
             })
             aliasEvent = deepFreeze({
                 ...event,
