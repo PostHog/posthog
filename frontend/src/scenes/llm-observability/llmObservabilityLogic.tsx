@@ -30,6 +30,11 @@ export interface QueryTile {
     }
 }
 
+export enum LLMObservabilityTab {
+    Dashboard = 'dashboard',
+    Traces = 'traces',
+}
+
 const isDefinitionStale = (definition: EventDefinition): boolean => {
     const parsedLastSeen = definition.last_seen_at ? dayjs(definition.last_seen_at) : null
     return !!parsedLastSeen && dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
@@ -41,6 +46,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
+        setActiveTab: (activeTab: LLMObservabilityTab) => ({ activeTab }),
     }),
 
     reducers({
@@ -59,6 +65,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
             },
         ],
+        activeTab: [LLMObservabilityTab.Dashboard, { setActiveTab: (_, { activeTab }) => activeTab }],
     }),
 
     selectors({
