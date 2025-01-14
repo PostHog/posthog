@@ -1725,6 +1725,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ],
                     trendsFilter: {
                         display: ChartDisplayType.ActionsLineGraph,
+                        aggregationAxisFormat: coreWebVitalsTab === 'CLS' ? 'numeric' : 'duration_ms',
                         annotations: [
                             {
                                 label: 'Good',
@@ -1737,7 +1738,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 borderColor: 'rgb(255, 160, 0)',
                             },
                         ],
-                    },
+                    } as TrendsFilter,
                     filterTestAccounts,
                     properties: webAnalyticsFilters,
                 },
