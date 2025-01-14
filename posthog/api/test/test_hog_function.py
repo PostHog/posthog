@@ -264,11 +264,14 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name": "Fetch URL",
                 "description": "Test description",
                 "hog": "fetch(inputs.url);",
+                "inputs": {"url": {"value": "https://example.com"}},
                 "template_id": template_webhook.id,
                 "type": "destination",
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        assert response.json()["hog"] == "fetch(inputs.url);"
         assert response.json()["template"] == {
             "type": "destination",
             "name": template_webhook.name,
@@ -285,6 +288,29 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "mapping_templates": None,
             "sub_templates": response.json()["template"]["sub_templates"],
         }
+
+    def test_creates_with_template_values_if_not_provided(self, *args):
+        payload: dict = {
+            "name": "Fetch URL",
+            "description": "Test description",
+            "template_id": template_webhook.id,
+            "type": "destination",
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "attr": "inputs__url",
+            "code": "invalid_input",
+            "detail": "This field is required.",
+            "type": "validation_error",
+        }
+
+        payload["inputs"] = {"url": {"value": "https://example.com"}}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["hog"] == template_webhook.hog
+        assert response.json()["inputs_schema"] == template_webhook.inputs_schema
 
     def test_deletes_via_update(self, *args):
         response = self.client.post(
