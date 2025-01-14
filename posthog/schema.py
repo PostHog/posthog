@@ -5470,6 +5470,7 @@ class TracesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dateRange: Optional[DateRange] = None
     kind: Literal["TracesQuery"] = "TracesQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(

@@ -13092,6 +13092,9 @@
         "TracesQuery": {
             "additionalProperties": false,
             "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
                 "kind": {
                     "const": "TracesQuery",
                     "type": "string"

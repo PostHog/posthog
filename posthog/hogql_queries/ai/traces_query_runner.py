@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+from functools import cached_property
 from typing import cast
 from uuid import UUID
 
@@ -7,10 +8,13 @@ import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     CachedTracesQueryResponse,
+    IntervalType,
     LLMGeneration,
     LLMTrace,
     LLMTracePerson,
@@ -22,26 +26,25 @@ from posthog.schema import (
 logger = structlog.get_logger(__name__)
 
 
-"""
-select
-    properties.$ai_trace_id as trace_id,
-    min(timestamp) as trace_timestamp,
-    max(person.properties) as person,
-    sum(properties.$ai_latency) as total_latency,
-    sum(properties.$ai_input_tokens) as input_tokens,
-    sum(properties.$ai_output_tokens) as output_tokens,
-    sum(properties.$ai_input_cost_usd) as input_cost,
-    sum(properties.$ai_output_cost_usd) as output_cost,
-    sum(properties.$ai_total_cost_usd) as total_cost,
-    arraySort(x -> x.1, groupArray(tuple(timestamp, properties))) as events
-from events
-where
-    event = '$ai_generation'
-group by
-    trace_id
-order by
-    trace_timestamp desc
-"""
+class TracesQueryDateRange(QueryDateRange):
+    """
+    Extends the QueryDateRange to include a capture range of 10 minutes before and after the date range.
+    It's a naive assumption that a trace finishes generating within 10 minutes of the first event so we can apply the date filters.
+    """
+
+    CAPTURE_RANGE_MINUTES = 10
+
+    def date_from_for_filtering(self) -> datetime:
+        return super().date_from()
+
+    def date_to_for_filtering(self) -> datetime:
+        return super().date_to()
+
+    def date_from(self) -> datetime:
+        return super().date_from() - timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
+
+    def date_to(self) -> datetime:
+        return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
 
 class TracesQueryRunner(QueryRunner):
@@ -59,13 +62,9 @@ class TracesQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        return ast.SelectQuery(
-            select=self._get_select_fields(),
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=self._get_where_clause(),
-            order_by=self._get_order_by_clause(),
-            group_by=[ast.Field(chain=["id"])],
-        )
+        query = self._get_event_query()
+        query.where = self._get_where_clause()
+        return query
 
     def calculate(self):
         with self.timings.measure("traces_query_hogql_execute"):
@@ -90,6 +89,11 @@ class TracesQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
+    @cached_property
+    def _date_range(self):
+        # Minute-level precision for 10m capture range
+        return TracesQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
+
     def _map_results(self, columns: list[str], query_results: list):
         TRACE_FIELDS = {
             "id",
@@ -107,12 +111,21 @@ class TracesQueryRunner(QueryRunner):
         traces = []
 
         for result in mapped_results:
+            # Exclude traces that are outside of the capture range.
+            timestamp_dt = cast(datetime, result["trace_timestamp"])
+            if (
+                timestamp_dt < self._date_range.date_from_for_filtering()
+                or timestamp_dt > self._date_range.date_to_for_filtering()
+            ):
+                continue
+
             generations = []
             for uuid, timestamp, properties in result["events"]:
                 generations.append(self._map_generation(uuid, timestamp, properties))
+
             trace_dict = {
                 **result,
-                "created_at": cast(datetime, result["trace_timestamp"]).isoformat(),
+                "created_at": timestamp_dt.isoformat(),
                 "person": self._map_person(result["person"]),
                 "events": generations,
             }
@@ -160,95 +173,64 @@ class TracesQueryRunner(QueryRunner):
             uuid=str(uuid),
             distinct_id=str(distinct_id),
             created_at=created_at.isoformat(),
-            properties=orjson.loads(properties),
+            properties=orjson.loads(properties) if properties else {},
         )
 
-    def _get_select_fields(self) -> list[ast.Expr]:
-        return [
-            ast.Alias(expr=ast.Field(chain=["properties", "$ai_trace_id"]), alias="id"),
-            ast.Alias(expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]), alias="trace_timestamp"),
-            self._get_person_field(),
-            ast.Alias(
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_latency"])]),
-                alias="total_latency",
+    def _get_event_query(self) -> ast.SelectQuery:
+        query = parse_select(
+            """
+                SELECT
+                    properties.$ai_trace_id as id,
+                    min(timestamp) as trace_timestamp,
+                    tuple(max(person.id), max(distinct_id), max(person.created_at), max(person.properties)) as person,
+                    sum(properties.$ai_latency) as total_latency,
+                    sum(properties.$ai_input_tokens) as input_tokens,
+                    sum(properties.$ai_output_tokens) as output_tokens,
+                    sum(properties.$ai_input_cost_usd) as input_cost,
+                    sum(properties.$ai_output_cost_usd) as output_cost,
+                    sum(properties.$ai_total_cost_usd) as total_cost,
+                    arraySort(x -> x.2, groupArray(tuple(uuid, timestamp, properties))) as events
+                FROM
+                    events
+                GROUP BY
+                    id
+                ORDER BY
+                    trace_timestamp DESC
+            """
+        )
+        return cast(ast.SelectQuery, query)
+
+    def _get_where_clause(self):
+        timestamp_field = ast.Field(chain=["events", "timestamp"])
+
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value="$ai_generation"),
             ),
-            ast.Alias(
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_input_tokens"])]),
-                alias="input_tokens",
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=timestamp_field,
+                right=self._date_range.date_from_as_hogql(),
             ),
-            ast.Alias(
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_output_tokens"])]),
-                alias="output_tokens",
-            ),
-            ast.Alias(
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_input_cost_usd"])]),
-                alias="input_cost",
-            ),
-            ast.Alias(
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_output_cost_usd"])]),
-                alias="output_cost",
-            ),
-            ast.Alias(
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_total_cost_usd"])]),
-                alias="total_cost",
-            ),
-            ast.Alias(
-                expr=ast.Call(
-                    name="arraySort",
-                    args=[
-                        ast.Lambda(
-                            args=["x"],
-                            expr=ast.Call(name="tupleElement", args=[ast.Field(chain=["x"]), ast.Constant(value=2)]),
-                        ),
-                        ast.Call(
-                            name="groupArray",
-                            args=[
-                                ast.Tuple(
-                                    exprs=[
-                                        ast.Field(chain=["uuid"]),
-                                        ast.Field(chain=["timestamp"]),
-                                        ast.Field(chain=["properties"]),
-                                    ]
-                                )
-                            ],
-                        ),
-                    ],
-                ),
-                alias="events",
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=timestamp_field,
+                right=self._date_range.date_to_as_hogql(),
             ),
         ]
 
-    def _get_person_field(self):
-        return ast.Alias(
-            expr=ast.Tuple(
-                exprs=[
-                    ast.Call(name="max", args=[ast.Field(chain=["person", "id"])]),
-                    ast.Call(name="max", args=[ast.Field(chain=["distinct_id"])]),
-                    ast.Call(name="max", args=[ast.Field(chain=["person", "created_at"])]),
-                    ast.Call(name="max", args=[ast.Field(chain=["person", "properties"])]),
-                ],
-            ),
-            alias="person",
-        )
-
-    def _get_where_clause(self):
-        event_expr = ast.CompareOperation(
-            left=ast.Field(chain=["event"]),
-            op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value="$ai_generation"),
-        )
         if self.query.traceId is not None:
-            return ast.And(
-                exprs=[
-                    event_expr,
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["id"]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value=self.query.traceId),
-                    ),
-                ]
+            exprs.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["id"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=self.query.traceId),
+                ),
             )
-        return event_expr
+
+        return ast.And(exprs=exprs)
 
     def _get_order_by_clause(self):
         return [ast.OrderExpr(expr=ast.Field(chain=["trace_timestamp"]), order="DESC")]

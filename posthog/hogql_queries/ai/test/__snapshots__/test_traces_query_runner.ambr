@@ -10,7 +10,7 @@
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_cost,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_cost,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_cost,
-         arraySort(x -> tupleElement(x, 2), groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
+         arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -30,7 +30,7 @@
                                                            WHERE equals(person.team_id, 99999)
                                                            GROUP BY person.id
                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-08 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-17 00:09:59', 6, 'UTC'))))
   GROUP BY id
   ORDER BY trace_timestamp DESC
   LIMIT 101
@@ -54,7 +54,7 @@
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_cost,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_cost,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_cost,
-         arraySort(x -> tupleElement(x, 2), groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
+         arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -74,7 +74,7 @@
                                                            WHERE equals(person.team_id, 99999)
                                                            GROUP BY person.id
                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-06 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-15 00:09:59', 6, 'UTC'))))
   GROUP BY id
   ORDER BY trace_timestamp DESC
   LIMIT 5
@@ -98,7 +98,7 @@
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_cost,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_cost,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_cost,
-         arraySort(x -> tupleElement(x, 2), groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
+         arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -118,7 +118,7 @@
                                                            WHERE equals(person.team_id, 99999)
                                                            GROUP BY person.id
                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-06 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-15 00:09:59', 6, 'UTC'))))
   GROUP BY id
   ORDER BY trace_timestamp DESC
   LIMIT 5
@@ -142,7 +142,7 @@
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_cost,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_cost,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_cost,
-         arraySort(x -> tupleElement(x, 2), groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
+         arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -162,7 +162,7 @@
                                                            WHERE equals(person.team_id, 99999)
                                                            GROUP BY person.id
                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-06 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-15 00:09:59', 6, 'UTC'))))
   GROUP BY id
   ORDER BY trace_timestamp DESC
   LIMIT 5
@@ -186,7 +186,7 @@
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_cost,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_cost,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_cost,
-         arraySort(x -> tupleElement(x, 2), groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
+         arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -206,7 +206,7 @@
                                                            WHERE equals(person.team_id, 99999)
                                                            GROUP BY person.id
                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'), ifNull(equals(id, 'trace1'), 0))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-06 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-15 00:09:59', 6, 'UTC'))), ifNull(equals(id, 'trace1'), 0))
   GROUP BY id
   ORDER BY trace_timestamp DESC
   LIMIT 101

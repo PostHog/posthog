@@ -9,7 +9,7 @@ from freezegun import freeze_time
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.models import PropertyDefinition, Team
 from posthog.models.property_definition import PropertyType
-from posthog.schema import LLMGeneration, LLMTrace, TracesQuery
+from posthog.schema import DateRange, LLMGeneration, LLMTrace, TracesQuery
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -119,6 +119,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         for key, value in expected_event.items():
             self.assertEqual(event_dict[key], value, f"Field {key} does not match")
 
+    @freeze_time("2025-01-16T00:00:00Z")
     @snapshot_clickhouse_queries
     def test_field_mapping(self):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -315,17 +316,119 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             },
         )
 
+    @freeze_time("2025-01-01T00:00:00Z")
     def test_person_properties(self):
-        with freeze_time("2025-01-01T00:00:00Z"):
-            _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "test@posthog.com"})
-            _create_ai_generation_event(
-                distinct_id="person1",
-                trace_id="trace1",
-                team=self.team,
-            )
-
+        _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "test@posthog.com"})
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+        )
         response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].person.created_at, "2025-01-01T00:00:00+00:00")
         self.assertEqual(response.results[0].person.properties, {"email": "test@posthog.com"})
         self.assertEqual(response.results[0].person.distinct_id, "person1")
+
+    @freeze_time("2025-01-16T00:00:00Z")
+    def test_date_range(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace2",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace3",
+            team=self.team,
+            timestamp=datetime(2024, 11, 1),
+        )
+
+        response = TracesQueryRunner(
+            team=self.team, query=TracesQuery(dateRange=DateRange(date_from="-1m"))
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace1")
+
+        response = TracesQueryRunner(
+            team=self.team, query=TracesQuery(dateRange=DateRange(date_from="-2m"))
+        ).calculate()
+        self.assertEqual(len(response.results), 2)
+        self.assertEqual(response.results[0].id, "trace1")
+        self.assertEqual(response.results[1].id, "trace2")
+
+        response = TracesQueryRunner(
+            team=self.team, query=TracesQuery(dateRange=DateRange(date_from="-3m", date_to="-2m"))
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace3")
+
+    def test_capture_range(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 10),
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z")),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace1")
+
+        # Date is after the capture range
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace2",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 11),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace2",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 12),
+        )
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z")),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace1")
+
+        # Date is before the capture range
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace3",
+            team=self.team,
+            timestamp=datetime(2024, 11, 30, 23, 59),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace3",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z")),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace1")

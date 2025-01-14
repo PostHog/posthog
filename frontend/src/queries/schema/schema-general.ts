@@ -2199,6 +2199,7 @@ export interface TracesQueryResponse extends AnalyticsQueryResponseBase<LLMTrace
 export interface TracesQuery extends DataNode<TracesQueryResponse> {
     kind: NodeKind.TracesQuery
     traceId?: string
+    dateRange?: DateRange
     limit?: integer
     offset?: integer
 }
