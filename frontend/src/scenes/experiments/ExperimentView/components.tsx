@@ -1,4 +1,4 @@
-import { IconArchive, IconCheck, IconFlask, IconX } from '@posthog/icons'
+import { IconFlask, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -18,7 +18,6 @@ import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect, useState } from 'react'
@@ -33,7 +32,7 @@ import {
     InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { Experiment, Experiment as ExperimentType, ExperimentIdType, InsightShortId, InsightType } from '~/types'
+import { Experiment, Experiment as ExperimentType, ExperimentIdType, InsightShortId } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
@@ -214,127 +213,6 @@ export function ResultsHeader(): JSX.Element {
     )
 }
 
-export function NoResultsEmptyState({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
-    type ErrorCode = 'no-events' | 'no-flag-info' | 'no-control-variant' | 'no-test-variant'
-
-    const { metricResultsLoading, primaryMetricsResultErrors } = useValues(experimentLogic)
-    const metricError = primaryMetricsResultErrors?.[metricIndex]
-
-    function ChecklistItem({ errorCode, value }: { errorCode: ErrorCode; value: boolean }): JSX.Element {
-        const failureText = {
-            'no-events': 'Experiment events not received',
-            'no-flag-info': 'Feature flag information not present on the events',
-            'no-control-variant': 'Events with the control variant not received',
-            'no-test-variant': 'Events with at least one test variant not received',
-            'no-exposures': 'Exposure events not received',
-        }
-
-        const successText = {
-            'no-events': 'Experiment events have been received',
-            'no-flag-info': 'Feature flag information is present on the events',
-            'no-control-variant': 'Events with the control variant received',
-            'no-test-variant': 'Events with at least one test variant received',
-            'no-exposures': 'Exposure events have been received',
-        }
-
-        return (
-            <div className="flex items-center space-x-2">
-                {value === false ? (
-                    <>
-                        <IconCheck className="text-success" fontSize={16} />
-                        <span className="text-muted">{successText[errorCode]}</span>
-                    </>
-                ) : (
-                    <>
-                        <IconX className="text-danger" fontSize={16} />
-                        <span>{failureText[errorCode]}</span>
-                    </>
-                )}
-            </div>
-        )
-    }
-
-    if (metricResultsLoading) {
-        return <></>
-    }
-
-    // Validation errors return 400 and are rendered as a checklist
-    if (metricError?.statusCode === 400) {
-        if (!metricError.hasDiagnostics) {
-            return (
-                <div className="border rounded bg-bg-light p-4">
-                    <div className="font-semibold leading-tight text-base text-current">
-                        Experiment results could not be calculated
-                    </div>
-                    <div className="mt-2">{metricError.detail}</div>
-                </div>
-            )
-        }
-
-        const checklistItems = []
-        for (const [errorCode, value] of Object.entries(metricError.detail as Record<ErrorCode, boolean>)) {
-            checklistItems.push(<ChecklistItem key={errorCode} errorCode={errorCode as ErrorCode} value={value} />)
-        }
-
-        return (
-            <div>
-                <div className="border rounded bg-bg-light py-2">
-                    <div className="flex space-x-2">
-                        <div className="w-1/2 my-auto px-6 space-y-4 items-center">
-                            <div className="flex items-center">
-                                <div className="font-semibold leading-tight text-base text-current">
-                                    Experiment results are not yet available
-                                </div>
-                            </div>
-                            <div className="text-muted">
-                                Results will be calculated once we've received the necessary events. The checklist on
-                                the right shows what's still needed.
-                            </div>
-                        </div>
-                        <LemonDivider vertical />
-                        <div className="w-1/2 flex py-4 px-6 items-center">
-                            <div className="space-y-2">{checklistItems}</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
-    if (metricError?.statusCode === 504) {
-        return (
-            <div>
-                <div className="border rounded bg-bg-light py-10">
-                    <div className="flex flex-col items-center mx-auto text-muted space-y-2">
-                        <IconArchive className="text-4xl text-secondary-3000" />
-                        <h2 className="text-xl font-semibold leading-tight">Experiment results timed out</h2>
-                        {!!metricError && (
-                            <div className="text-sm text-center text-balance">
-                                This may occur when the experiment has a large amount of data or is particularly
-                                complex. We are actively working on fixing this. In the meantime, please try refreshing
-                                the experiment to retrieve the results.
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
-    // Other unexpected errors
-    return (
-        <div>
-            <div className="border rounded bg-bg-light py-10">
-                <div className="flex flex-col items-center mx-auto text-muted space-y-2">
-                    <IconArchive className="text-4xl text-secondary-3000" />
-                    <h2 className="text-xl font-semibold leading-tight">Experiment results could not be calculated</h2>
-                    {!!metricError && <div className="text-sm text-center text-balance">{metricError.detail}</div>}
-                </div>
-            </div>
-        </div>
-    )
-}
-
 export function EllipsisAnimation(): JSX.Element {
     const [ellipsis, setEllipsis] = useState('.')
 
@@ -424,25 +302,21 @@ export function PageHeaderCustom(): JSX.Element {
                                             >
                                                 {exposureCohortId ? 'View' : 'Create'} exposure cohort
                                             </LemonButton>
-                                            <LemonButton
-                                                onClick={() => loadMetricResults(true)}
-                                                fullWidth
-                                                data-attr="refresh-experiment"
-                                            >
-                                                Refresh primary metrics
-                                            </LemonButton>
-                                            <LemonButton
-                                                onClick={() => loadSecondaryMetricResults(true)}
-                                                fullWidth
-                                                data-attr="refresh-secondary-metrics"
-                                            >
-                                                Refresh secondary metrics
-                                            </LemonButton>
                                         </>
                                     }
                                 />
                                 <LemonDivider vertical />
                             </>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    loadMetricResults(true)
+                                    loadSecondaryMetricResults(true)
+                                }}
+                                data-attr="refresh-experiment"
+                                icon={<IconRefresh />}
+                                tooltip="Refresh experiment results"
+                            />
                             <ResetButton experimentId={experiment.id} />
                             {!experiment.end_date && (
                                 <LemonButton
@@ -611,202 +485,6 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
             </div>
         </LemonModal>
     )
-}
-
-export function ActionBanner(): JSX.Element {
-    const {
-        experiment,
-        _getMetricType,
-        metricResults,
-        experimentLoading,
-        metricResultsLoading,
-        isExperimentRunning,
-        isPrimaryMetricSignificant,
-        isExperimentStopped,
-        funnelResultsPersonsTotal,
-        actualRunningTime,
-        getHighestProbabilityVariant,
-        isSingleVariantShipped,
-        featureFlags,
-    } = useValues(experimentLogic)
-
-    const result = metricResults?.[0]
-    const { archiveExperiment } = useActions(experimentLogic)
-
-    const { aggregationLabel } = useValues(groupsModel)
-
-    const metricType = _getMetricType(experiment.metrics[0])
-
-    const aggregationTargetName =
-        experiment.filters.aggregation_group_type_index != null
-            ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
-            : 'users'
-
-    const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
-    const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
-
-    if (!experiment || experimentLoading || metricResultsLoading) {
-        return <></>
-    }
-
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENT_MAKE_DECISION]) {
-        if (isSingleVariantShipped) {
-            const shippedVariant = experiment.feature_flag?.filters.multivariate?.variants.find(
-                ({ rollout_percentage }) => rollout_percentage === 100
-            )
-            if (!shippedVariant) {
-                return <></>
-            }
-
-            return (
-                <LemonBanner type="info" className="mt-4">
-                    <span className="inline-flex items-center">
-                        <span
-                            className="border rounded px-2"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ backgroundColor: 'var(--bg-table)' }}
-                        >
-                            <VariantTag experimentId={experiment.id} variantKey={shippedVariant.key} />
-                        </span>
-                        &nbsp; has been released to 100% of {aggregationTargetName}.
-                    </span>
-                </LemonBanner>
-            )
-        }
-    }
-
-    // Draft
-    if (!isExperimentRunning) {
-        return (
-            <LemonBanner type="info" className="mt-4">
-                Your experiment is in draft mode. You can set the goal, edit the variants, adjust release conditions,
-                and{' '}
-                <Link className="font-semibold" to="https://posthog.com/docs/experiments/testing-and-launching">
-                    test your feature flag
-                </Link>
-                . Once everything works as expected, you can launch your experiment. From that point, any new experiment
-                events will be counted towards the results.
-            </LemonBanner>
-        )
-    }
-
-    // Running, results present, not significant
-    if (isExperimentRunning && result && !isExperimentStopped && !isPrimaryMetricSignificant(0)) {
-        // Results insignificant, but a large enough sample/running time has been achieved
-        // Further collection unlikely to change the result -> recommmend cutting the losses
-        if (
-            metricType === InsightType.FUNNELS &&
-            funnelResultsPersonsTotal(0) > Math.max(recommendedSampleSize, 500) &&
-            dayjs().diff(experiment.start_date, 'day') > 2 // at least 2 days running
-        ) {
-            return (
-                <LemonBanner type="warning" className="mt-4">
-                    You've reached a sufficient sample size for your experiment, but the results are still inconclusive.
-                    Continuing the experiment is unlikely to yield significant findings. It may be time to stop this
-                    experiment.
-                </LemonBanner>
-            )
-        }
-        if (metricType === InsightType.TRENDS && actualRunningTime > Math.max(recommendedRunningTime, 7)) {
-            return (
-                <LemonBanner type="warning" className="mt-4">
-                    Your experiment has been running long enough, but the results are still inconclusive. Continuing the
-                    experiment is unlikely to yield significant findings. It may be time to stop this experiment.
-                </LemonBanner>
-            )
-        }
-
-        return (
-            <LemonBanner type="info" className="mt-4">
-                Your experiment is live and collecting data, but hasn't yet reached the statistical significance needed
-                to make reliable decisions. It's important to wait for more data to avoid premature conclusions.
-            </LemonBanner>
-        )
-    }
-
-    // Running, results significant
-    if (isExperimentRunning && !isExperimentStopped && isPrimaryMetricSignificant(0) && result) {
-        const { probability } = result
-        const winningVariant = getHighestProbabilityVariant(result)
-        if (!winningVariant) {
-            return <></>
-        }
-
-        const winProbability = probability[winningVariant]
-
-        // Win probability only slightly over 0.9 and the recommended sample/time just met -> proceed with caution
-        if (
-            metricType === InsightType.FUNNELS &&
-            funnelResultsPersonsTotal(0) < recommendedSampleSize + 50 &&
-            winProbability < 0.93
-        ) {
-            return (
-                <LemonBanner type="info" className="mt-4">
-                    You've achieved significant results, however, the sample size barely meets the minimum requirements,
-                    and the win probability is marginally above 90%. To ensure more reliable outcomes, consider running
-                    the experiment longer.
-                </LemonBanner>
-            )
-        }
-
-        if (
-            metricType === InsightType.TRENDS &&
-            actualRunningTime < recommendedRunningTime + 2 &&
-            winProbability < 0.93
-        ) {
-            return (
-                <LemonBanner type="info" className="mt-4">
-                    You've achieved significant results, however, the running time barely meets the minimum
-                    requirements, and the win probability is marginally above 90%. To ensure more reliable outcomes,
-                    consider running the experiment longer.
-                </LemonBanner>
-            )
-        }
-
-        return (
-            <LemonBanner type="success" className="mt-4">
-                Good news! Your experiment has gathered enough data to reach statistical significance, providing
-                reliable results for decision making. Before taking any action, review relevant secondary metrics for
-                any unintended side effects. Once you're done, you can stop the experiment.
-            </LemonBanner>
-        )
-    }
-
-    // Stopped, results significant
-    if (isExperimentStopped && isPrimaryMetricSignificant(0)) {
-        return (
-            <LemonBanner type="success" className="mt-4">
-                You have stopped this experiment, and it is no longer collecting data. With significant results in hand,
-                you can now roll out the winning variant to all your users by adjusting the{' '}
-                <Link
-                    target="_blank"
-                    className="font-semibold"
-                    to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
-                >
-                    {experiment.feature_flag?.key}
-                </Link>{' '}
-                feature flag.
-            </LemonBanner>
-        )
-    }
-
-    // Stopped, results not significant
-    if (isExperimentStopped && result && !isPrimaryMetricSignificant(0)) {
-        return (
-            <LemonBanner type="info" className="mt-4">
-                You have stopped this experiment, and it is no longer collecting data. Because your results are not
-                significant, we don't recommend drawing any conclusions from them. You can reset the experiment
-                (deleting the data collected so far) and restart the experiment at any point again. If this experiment
-                is no longer relevant, you can{' '}
-                <Link className="font-semibold" onClick={() => archiveExperiment()}>
-                    archive it
-                </Link>
-                .
-            </LemonBanner>
-        )
-    }
-
-    return <></>
 }
 
 export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.Element => {
