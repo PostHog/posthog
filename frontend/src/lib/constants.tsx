@@ -167,6 +167,7 @@ export const FEATURE_FLAGS = {
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
+    SURVEYS_CUSTOM_FONTS: 'surveys-custom-fonts', // owner: #team-surveys
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: #team-replay

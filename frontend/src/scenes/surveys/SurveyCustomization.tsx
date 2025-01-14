@@ -2,6 +2,7 @@ import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from
 import { useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useFeatureFlagEnabled } from 'posthog-js/react'
 
@@ -36,7 +37,7 @@ export function Customization({
         : 'Please add more than one question to the survey to enable shuffling questions'
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
-    const isCustomFontsEnabled = useFeatureFlagEnabled('surveys-custom-fonts')
+    const isCustomFontsEnabled = useFeatureFlagEnabled(FEATURE_FLAGS.SURVEYS_CUSTOM_FONTS)
 
     return (
         <>
