@@ -6,7 +6,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AvailableFeature, SurveyAppearance as SurveyAppearanceType } from '~/types'
 
-import { defaultSurveyAppearance } from './constants'
+import { defaultSurveyAppearance, WEB_SAFE_FONTS } from './constants'
 import { surveysLogic } from './surveysLogic'
 
 interface CustomizationProps {
@@ -16,6 +16,7 @@ interface CustomizationProps {
     hasBranchingLogic: boolean
     deleteBranchingLogic?: () => void
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
+    isCustomFontsEnabled?: boolean
 }
 
 interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuestionItem'> {}
@@ -27,6 +28,7 @@ export function Customization({
     hasBranchingLogic,
     onAppearanceChange,
     deleteBranchingLogic,
+    isCustomFontsEnabled = false,
 }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const surveyShufflingQuestionsAvailable = true
@@ -34,6 +36,7 @@ export function Customization({
         ? ''
         : 'Please add more than one question to the survey to enable shuffling questions'
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
+
     return (
         <>
             <div className="flex flex-col font-semibold">
@@ -134,19 +137,35 @@ export function Customization({
                     />
                 </LemonField.Pure>
                 {customizePlaceholderText && (
-                    <>
-                        <LemonField.Pure className="mt-2" label="Placeholder text">
-                            <LemonInput
-                                value={
-                                    appearance?.placeholder !== undefined
-                                        ? appearance.placeholder
-                                        : defaultSurveyAppearance.placeholder
+                    <LemonField.Pure className="mt-2" label="Placeholder text">
+                        <LemonInput
+                            value={
+                                appearance?.placeholder !== undefined
+                                    ? appearance.placeholder
+                                    : defaultSurveyAppearance.placeholder
+                            }
+                            onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
+                            disabled={!surveysStylingAvailable}
+                        />
+                    </LemonField.Pure>
+                )}
+                {isCustomFontsEnabled && (
+                    <LemonField.Pure className="mt-2" label="Font family">
+                        <LemonSelect
+                            value={appearance?.fontFamily}
+                            onChange={(fontFamily) => onAppearanceChange({ ...appearance, fontFamily })}
+                            options={WEB_SAFE_FONTS.map((font) => {
+                                return {
+                                    label: (
+                                        <span className={font.toLowerCase().replace(/\s/g, '-')}>
+                                            {font} {font === 'system-ui' ? '(default)' : ''}
+                                        </span>
+                                    ),
+                                    value: font,
                                 }
-                                onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
-                                disabled={!surveysStylingAvailable}
-                            />
-                        </LemonField.Pure>
-                    </>
+                            })}
+                        />
+                    </LemonField.Pure>
                 )}
                 <div className="mt-4">
                     <LemonCheckbox
