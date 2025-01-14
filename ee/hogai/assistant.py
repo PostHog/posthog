@@ -91,7 +91,18 @@ class Assistant:
         self._chunks = AIMessageChunk(content="")
         self._state = None
         distinct_id = user.distinct_id if user else None
-        self._callback_handler = CallbackHandler(posthog_client, distinct_id) if posthog_client else None
+        self._callback_handler = (
+            CallbackHandler(
+                posthog_client,
+                distinct_id,
+                properties={
+                    "conversation_id": str(self._conversation.id),
+                    "is_first_conversation": is_new_conversation,
+                },
+            )
+            if posthog_client
+            else None
+        )
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
