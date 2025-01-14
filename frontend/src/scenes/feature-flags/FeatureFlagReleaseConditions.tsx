@@ -19,7 +19,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { capitalizeFirstLetter, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
+import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -209,18 +209,17 @@ export function FeatureFlagReleaseConditions({
                                                             property.operator
                                                         ) &&
                                                         dateStringToComponents(String(val)) // check it's a relative date
-                                                            ? ` ( $
-                                                            {dateFilterToText(
-                                                                String(val),
-                                                                undefined,
-                                                                '',
-                                                                [],
-                                                                false,
-                                                                String(val).slice(-1) === 'h'
-                                                                    ? 'MMMM D, YYYY HH:mm:ss'
-                                                                    : 'MMMM D, YYYY',
-                                                                true
-                                                            )}{' '}
+                                                            ? ` ( ${dateFilterToText(
+                                                                  String(val),
+                                                                  undefined,
+                                                                  '',
+                                                                  [],
+                                                                  false,
+                                                                  String(val).slice(-1) === 'h'
+                                                                      ? 'MMMM D, YYYY HH:mm:ss'
+                                                                      : 'MMMM D, YYYY',
+                                                                  true
+                                                              )}{' '}
                                                             )`
                                                             : ''}
                                                     </span>
