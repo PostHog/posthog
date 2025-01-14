@@ -1,30 +1,26 @@
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { DowngradeFeature, FeatureDowngradeModal } from 'lib/components/FeatureDowngradeModal/FeatureDowngradeModal'
 
 import { teamsDowngradeLogic } from './teamsDowngradeLogic'
+
+const TEAMS_FEATURES: DowngradeFeature[] = [
+    {
+        // Replace hardcoding here
+        title: '2FA Enforcement',
+    },
+]
 
 export function TeamsDowngradeModal(): JSX.Element {
     const { isTeamsDowngradeModalOpen } = useValues(teamsDowngradeLogic)
     const { hideTeamsDowngradeModal, handleTeamsDowngrade } = useActions(teamsDowngradeLogic)
 
     return (
-        <LemonModal
-            title="Unsubscribe from Teams"
-            description="You are about to lose access to the following features:"
+        <FeatureDowngradeModal
             isOpen={isTeamsDowngradeModalOpen}
             onClose={hideTeamsDowngradeModal}
-            footer={
-                <>
-                    <LemonButton type="secondary" onClick={hideTeamsDowngradeModal}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton type="primary" status="danger" onClick={handleTeamsDowngrade}>
-                        Continue Unsubscribing
-                    </LemonButton>
-                </>
-            }
-        >
-            <p>TODO: Add features that are currently being used</p>
-        </LemonModal>
+            onDowngrade={handleTeamsDowngrade}
+            title="Unsubscribe from Teams"
+            features={TEAMS_FEATURES}
+        />
     )
 }

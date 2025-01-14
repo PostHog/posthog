@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { useMemo } from 'react'
 import { teamsDowngradeLogic } from 'scenes/authentication/teamsDowngradeLogic'
+import { TeamsDowngradeModal } from 'scenes/authentication/TeamsDowngradeModal'
 
 import { BillingProductV2AddonType } from '~/types'
 
@@ -71,24 +72,27 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
             return null
         }
         return (
-            <More
-                overlay={
-                    <LemonButton
-                        fullWidth
-                        onClick={() => {
-                            if (featureFlags[FEATURE_FLAGS.TEAMS_DOWNGRADE_FLOW] === 'test') {
-                                showTeamsDowngradeModal(addon)
-                            } else {
-                                // Original behavior
-                                setSurveyResponse('$survey_response_1', addon.type)
-                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
-                            }
-                        }}
-                    >
-                        Remove add-on
-                    </LemonButton>
-                }
-            />
+            <>
+                <More
+                    overlay={
+                        <LemonButton
+                            fullWidth
+                            onClick={() => {
+                                if (featureFlags[FEATURE_FLAGS.TEAMS_DOWNGRADE_FLOW] === 'test') {
+                                    showTeamsDowngradeModal(addon)
+                                } else {
+                                    // Original behavior
+                                    setSurveyResponse('$survey_response_1', addon.type)
+                                    reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
+                                }
+                            }}
+                        >
+                            Remove add-on
+                        </LemonButton>
+                    }
+                />
+                <TeamsDowngradeModal />
+            </>
         )
     }
 
