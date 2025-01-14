@@ -3,6 +3,7 @@ import { ConfirmUpgradeModal } from 'lib/components/ConfirmUpgradeModal/ConfirmU
 import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddyWithLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
+import { TeamsDowngradeModal } from 'scenes/authentication/TeamsDowngradeModal'
 import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { CreateEnvironmentModal } from 'scenes/project/CreateEnvironmentModal'
@@ -70,6 +71,7 @@ export function GlobalModals(): JSX.Element {
             <PreviewingCustomCssModal />
             <TwoFactorSetupModal />
             <HedgehogBuddyWithLogic />
+            <TeamsDowngradeModal />
         </>
     )
 }
