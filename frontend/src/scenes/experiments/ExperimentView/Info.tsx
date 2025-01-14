@@ -11,7 +11,7 @@ import { ProgressStatus } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
-import { ActionBanner, ResultsTag, StatusTag } from './components'
+import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 
 export function Info(): JSX.Element {
@@ -34,12 +34,6 @@ export function Info(): JSX.Element {
                         <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
                         <StatusTag experiment={experiment} />
                     </div>
-                    {!featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] && (
-                        <div className="block">
-                            <div className="text-xs font-semibold uppercase tracking-wide">Significance</div>
-                            <ResultsTag />
-                        </div>
-                    )}
                     {experiment.feature_flag && (
                         <div className="block">
                             <div className="text-xs font-semibold uppercase tracking-wide">
@@ -123,7 +117,6 @@ export function Info(): JSX.Element {
                     compactButtons
                 />
             </div>
-            {!featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] && <ActionBanner />}
         </div>
     )
 }
