@@ -1,3 +1,8 @@
+from datetime import datetime
+from typing import cast
+from uuid import UUID
+
+import orjson
 import structlog
 
 from posthog.hogql import ast
@@ -5,6 +10,8 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
+    AIGeneration,
+    AITrace,
     CachedTracesQueryResponse,
     NodeKind,
     TracesQuery,
@@ -25,7 +32,7 @@ select
     sum(properties.$ai_input_cost_usd) as input_cost,
     sum(properties.$ai_output_cost_usd) as output_cost,
     sum(properties.$ai_total_cost_usd) as total_cost,
-    arraySort(x -> x.1, groupArray(tuple(timestamp, properties))) as spans
+    arraySort(x -> x.1, groupArray(tuple(timestamp, properties))) as events
 from events
 where
     event = '$ai_generation'
@@ -56,7 +63,7 @@ class TracesQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=self._get_where_clause(),
             order_by=self._get_order_by_clause(),
-            group_by=[ast.Field(chain=["trace_id"])],
+            group_by=[ast.Field(chain=["id"])],
         )
 
     def calculate(self):
@@ -83,12 +90,72 @@ class TracesQueryRunner(QueryRunner):
         )
 
     def _map_results(self, columns: list[str], query_results: list):
+        TRACE_FIELDS = {
+            "id",
+            "created_at",
+            "person",
+            "total_latency",
+            "input_tokens",
+            "output_tokens",
+            "input_cost",
+            "output_cost",
+            "total_cost",
+            "events",
+        }
         mapped_results = [dict(zip(columns, value)) for value in query_results]
-        return mapped_results
+        traces = []
+
+        for result in mapped_results:
+            generations = []
+            for uuid, timestamp, properties in result["events"]:
+                generations.append(self._map_generation(uuid, timestamp, properties))
+            trace_dict = {
+                **result,
+                "created_at": cast(datetime, result["trace_timestamp"]).isoformat(),
+                "person": orjson.loads(result["person"]),
+                "events": generations,
+            }
+            trace = AITrace.model_validate({key: value for key, value in trace_dict.items() if key in TRACE_FIELDS})
+            traces.append(trace)
+
+        return traces
+
+    def _map_generation(self, event_uuid: UUID, event_timestamp: datetime, event_properties: str) -> AIGeneration:
+        properties: dict = orjson.loads(event_properties)
+
+        GENERATION_MAPPING = {
+            "$ai_input": "input",
+            "$ai_latency": "latency",
+            "$ai_output": "output",
+            "$ai_provider": "provider",
+            "$ai_model": "model",
+            "$ai_input_tokens": "input_tokens",
+            "$ai_output_tokens": "output_tokens",
+            "$ai_input_cost_usd": "input_cost",
+            "$ai_output_cost_usd": "output_cost",
+            "$ai_total_cost_usd": "total_cost",
+            "$ai_http_status": "http_status",
+            "$ai_base_url": "base_url",
+        }
+        GENERATION_JSON_FIELDS = {"$ai_input", "$ai_output"}
+
+        generation = {
+            "id": str(event_uuid),
+            "created_at": event_timestamp.isoformat(),
+        }
+
+        for event_prop, model_prop in GENERATION_MAPPING.items():
+            if event_prop in properties:
+                if event_prop in GENERATION_JSON_FIELDS:
+                    generation[model_prop] = orjson.loads(properties[event_prop])
+                else:
+                    generation[model_prop] = properties[event_prop]
+
+        return AIGeneration.model_validate(generation)
 
     def _get_select_fields(self) -> list[ast.Expr]:
         return [
-            ast.Alias(expr=ast.Field(chain=["properties", "$ai_trace_id"]), alias="trace_id"),
+            ast.Alias(expr=ast.Field(chain=["properties", "$ai_trace_id"]), alias="id"),
             ast.Alias(expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]), alias="trace_timestamp"),
             ast.Alias(expr=ast.Call(name="max", args=[ast.Field(chain=["person", "properties"])]), alias="person"),
             ast.Alias(
@@ -125,11 +192,19 @@ class TracesQueryRunner(QueryRunner):
                         ),
                         ast.Call(
                             name="groupArray",
-                            args=[ast.Tuple(exprs=[ast.Field(chain=["timestamp"]), ast.Field(chain=["properties"])])],
+                            args=[
+                                ast.Tuple(
+                                    exprs=[
+                                        ast.Field(chain=["uuid"]),
+                                        ast.Field(chain=["timestamp"]),
+                                        ast.Field(chain=["properties"]),
+                                    ]
+                                )
+                            ],
                         ),
                     ],
                 ),
-                alias="spans",
+                alias="events",
             ),
         ]
 

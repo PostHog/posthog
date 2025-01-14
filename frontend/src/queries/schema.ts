@@ -568,6 +568,7 @@ export interface EventsQueryPersonColumn {
     }
     distinct_id: string
 }
+
 export interface EventsQuery extends DataNode<EventsQueryResponse> {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */
@@ -2529,15 +2530,34 @@ export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<Act
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
 
-export interface AISpan {
+export interface AIGeneration {
     id: string
+    created_at: string
     input: any[]
-    output: any[]
+    latency: number
+    output?: any[]
+    provider?: string
+    model?: string
+    input_tokens?: number
+    output_tokens?: number
+    input_cost?: number
+    output_cost?: number
+    total_cost?: number
+    http_status?: number
+    base_url?: string
 }
 
 export interface AITrace {
     id: string
-    spans: AISpan[]
+    created_at: string
+    person: Record<string, any>
+    total_latency: number
+    input_tokens: number
+    output_tokens: number
+    input_cost: number
+    output_cost: number
+    total_cost: number
+    events: AIGeneration[]
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase<AITrace[]> {

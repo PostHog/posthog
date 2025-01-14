@@ -12,21 +12,40 @@ class SchemaRoot(RootModel[Any]):
     root: Any
 
 
-class AISpan(BaseModel):
+class AIGeneration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    base_url: Optional[str] = None
+    created_at: str
+    http_status: Optional[float] = None
     id: str
     input: list
-    output: list
+    input_cost: Optional[float] = None
+    input_tokens: Optional[float] = None
+    latency: float
+    model: Optional[str] = None
+    output: Optional[list] = None
+    output_cost: Optional[float] = None
+    output_tokens: Optional[float] = None
+    provider: Optional[str] = None
+    total_cost: Optional[float] = None
 
 
 class AITrace(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    created_at: str
+    events: list[AIGeneration]
     id: str
-    spans: list[AISpan]
+    input_cost: float
+    input_tokens: float
+    output_cost: float
+    output_tokens: float
+    person: dict[str, Any]
+    total_cost: float
+    total_latency: float
 
 
 class ActionConversionGoal(BaseModel):
@@ -156,13 +175,6 @@ class AssistantGenericMultipleBreakdownFilter(BaseModel):
     type: AssistantEventMultipleBreakdownFilterType
 
 
-class Type(StrEnum):
-    EVENT = "event"
-    PERSON = "person"
-    SESSION = "session"
-    FEATURE = "feature"
-
-
 class AssistantGenericPropertyFilter2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -171,7 +183,7 @@ class AssistantGenericPropertyFilter2(BaseModel):
     operator: AssistantArrayPropertyFilterOperator = Field(
         ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
     )
-    type: Type
+    type: str
     value: list[str] = Field(
         ...,
         description=(
@@ -187,7 +199,7 @@ class AssistantGenericPropertyFilter3(BaseModel):
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
     operator: AssistantDateTimePropertyFilterOperator
-    type: Type
+    type: str
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
@@ -644,7 +656,7 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type4(StrEnum):
+class Type(StrEnum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
@@ -1380,8 +1392,9 @@ class QueryStatus(BaseModel):
         ),
     )
     dashboard_id: Optional[int] = None
-    end_time: Optional[AwareDatetime] = Field(
-        default=None, description="When did the query execution task finish (whether successfully or not)."
+    end_time: Optional[str] = Field(
+        default=None,
+        description="When did the query execution task finish (whether successfully or not). @format date-time",
     )
     error: Optional[bool] = Field(
         default=False,
@@ -1394,13 +1407,15 @@ class QueryStatus(BaseModel):
     id: str
     insight_id: Optional[int] = None
     labels: Optional[list[str]] = None
-    pickup_time: Optional[AwareDatetime] = Field(
-        default=None, description="When was the query execution task picked up by a worker."
+    pickup_time: Optional[str] = Field(
+        default=None, description="When was the query execution task picked up by a worker. @format date-time"
     )
     query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
     query_progress: Optional[ClickhouseQueryProgress] = None
     results: Optional[Any] = None
-    start_time: Optional[AwareDatetime] = Field(default=None, description="When was query execution task enqueued.")
+    start_time: Optional[str] = Field(
+        default=None, description="When was query execution task enqueued. @format date-time"
+    )
     task_id: Optional[str] = None
     team_id: int
 
@@ -1927,7 +1942,7 @@ class AssistantGenericPropertyFilter1(BaseModel):
             " matches the regex pattern. `not_regex` - does not match the regex pattern."
         ),
     )
-    type: Type
+    type: str
     value: str = Field(
         ...,
         description=(
@@ -1950,7 +1965,7 @@ class AssistantGenericPropertyFilter4(BaseModel):
             " collected."
         ),
     )
-    type: Type
+    type: str
 
 
 class AssistantGroupPropertyFilter1(BaseModel):
@@ -2238,7 +2253,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
-    type: Type4
+    type: Type
 
 
 class ElementPropertyFilter(BaseModel):

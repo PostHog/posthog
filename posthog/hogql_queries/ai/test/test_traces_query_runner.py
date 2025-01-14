@@ -1,7 +1,9 @@
+import json
 from typing import Any, Literal, TypedDict
 
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
-from posthog.models import Team
+from posthog.models import PropertyDefinition, Team
+from posthog.models.property_definition import PropertyType
 from posthog.schema import TracesQuery
 from posthog.test.base import (
     BaseTest,
@@ -31,8 +33,8 @@ def _calculate_tokens(messages: str | list[InputMessage] | list[OutputMessage]) 
 
 
 def _create_ai_generation_event(
-    input: str | list[InputMessage] | None = "What is the capital of Spain?",
-    output: str | list[OutputMessage] | None = "Madrid",
+    input: str | list[InputMessage] | None = "Foo",
+    output: str | list[OutputMessage] | None = "Bar",
     team: Team | None = None,
     distinct_id: str | None = None,
     trace_id: str | None = None,
@@ -40,9 +42,22 @@ def _create_ai_generation_event(
 ):
     input_tokens = _calculate_tokens(input)
     output_tokens = _calculate_tokens(output)
+
+    if isinstance(input, str):
+        input_messages = [{"role": "user", "content": input}]
+    else:
+        input_messages = input
+
+    if isinstance(output, str):
+        output_messages = [{"role": "assistant", "content": output}]
+    else:
+        output_messages = output
+
     props = {
         "$ai_trace_id": trace_id,
         "$ai_latency": 1,
+        "$ai_input": json.dumps(input_messages),
+        "$ai_output": json.dumps(output_messages),
         "$ai_input_tokens": input_tokens,
         "$ai_output_tokens": output_tokens,
         "$ai_input_cost_usd": input_tokens,
@@ -51,6 +66,7 @@ def _create_ai_generation_event(
     }
     if properties:
         props.update(properties)
+
     _create_event(
         event="$ai_generation",
         distinct_id=distinct_id,
@@ -60,6 +76,30 @@ def _create_ai_generation_event(
 
 
 class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        self._create_properties()
+
+    def _create_properties(self):
+        numeric_props = {
+            "$ai_latency",
+            "$ai_input_tokens",
+            "$ai_output_tokens",
+            "$ai_input_cost_usd",
+            "$ai_output_cost_usd",
+            "$ai_total_cost_usd",
+        }
+        models_to_create = []
+        for prop in numeric_props:
+            prop_model = PropertyDefinition(
+                team=self.team,
+                name=prop,
+                type=PropertyDefinition.Type.EVENT,
+                property_type=PropertyType.Numeric,
+            )
+            models_to_create.append(prop_model)
+        PropertyDefinition.objects.bulk_create(models_to_create)
+
     @snapshot_clickhouse_queries
     def test_traces_query_runner(self):
         _create_person(distinct_ids=["person1"], team=self.team)

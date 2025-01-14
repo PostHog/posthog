@@ -1,9 +1,18 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
-        "AISpan": {
+        "AIGeneration": {
             "additionalProperties": false,
             "properties": {
+                "base_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "http_status": {
+                    "type": "number"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -11,28 +20,87 @@
                     "items": {},
                     "type": "array"
                 },
+                "input_cost": {
+                    "type": "number"
+                },
+                "input_tokens": {
+                    "type": "number"
+                },
+                "latency": {
+                    "type": "number"
+                },
+                "model": {
+                    "type": "string"
+                },
                 "output": {
                     "items": {},
                     "type": "array"
+                },
+                "output_cost": {
+                    "type": "number"
+                },
+                "output_tokens": {
+                    "type": "number"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "total_cost": {
+                    "type": "number"
                 }
             },
-            "required": ["id", "input", "output"],
+            "required": ["id", "created_at", "input", "latency"],
             "type": "object"
         },
         "AITrace": {
             "additionalProperties": false,
             "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/AIGeneration"
+                    },
+                    "type": "array"
+                },
                 "id": {
                     "type": "string"
                 },
-                "spans": {
-                    "items": {
-                        "$ref": "#/definitions/AISpan"
-                    },
-                    "type": "array"
+                "input_cost": {
+                    "type": "number"
+                },
+                "input_tokens": {
+                    "type": "number"
+                },
+                "output_cost": {
+                    "type": "number"
+                },
+                "output_tokens": {
+                    "type": "number"
+                },
+                "person": {
+                    "type": "object"
+                },
+                "total_cost": {
+                    "type": "number"
+                },
+                "total_latency": {
+                    "type": "number"
                 }
             },
-            "required": ["id", "spans"],
+            "required": [
+                "id",
+                "created_at",
+                "person",
+                "total_latency",
+                "input_tokens",
+                "output_tokens",
+                "input_cost",
+                "output_cost",
+                "total_cost",
+                "events"
+            ],
             "type": "object"
         },
         "ActionConversionGoal": {
@@ -877,8 +945,27 @@
                             "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
                         },
                         "type": {
-                            "enum": ["event", "person", "session", "feature"],
-                            "type": "string"
+                            "anyOf": [
+                                {
+                                    "const": "event",
+                                    "description": "Event properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "person",
+                                    "description": "Person properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "session",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "feature",
+                                    "description": "Event property with \"$feature/\" prepended",
+                                    "type": "string"
+                                }
+                            ]
                         },
                         "value": {
                             "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value.",
@@ -900,8 +987,27 @@
                             "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
                         },
                         "type": {
-                            "enum": ["event", "person", "session", "feature"],
-                            "type": "string"
+                            "anyOf": [
+                                {
+                                    "const": "event",
+                                    "description": "Event properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "person",
+                                    "description": "Person properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "session",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "feature",
+                                    "description": "Event property with \"$feature/\" prepended",
+                                    "type": "string"
+                                }
+                            ]
                         },
                         "value": {
                             "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
@@ -925,8 +1031,27 @@
                             "$ref": "#/definitions/AssistantDateTimePropertyFilterOperator"
                         },
                         "type": {
-                            "enum": ["event", "person", "session", "feature"],
-                            "type": "string"
+                            "anyOf": [
+                                {
+                                    "const": "event",
+                                    "description": "Event properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "person",
+                                    "description": "Person properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "session",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "feature",
+                                    "description": "Event property with \"$feature/\" prepended",
+                                    "type": "string"
+                                }
+                            ]
                         },
                         "value": {
                             "description": "Value must be a date in ISO 8601 format.",
@@ -948,8 +1073,27 @@
                             "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
                         },
                         "type": {
-                            "enum": ["event", "person", "session", "feature"],
-                            "type": "string"
+                            "anyOf": [
+                                {
+                                    "const": "event",
+                                    "description": "Event properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "person",
+                                    "description": "Person properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "session",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "feature",
+                                    "description": "Event property with \"$feature/\" prepended",
+                                    "type": "string"
+                                }
+                            ]
                         }
                     },
                     "required": ["key", "operator", "type"],
@@ -11526,8 +11670,7 @@
                     "type": "integer"
                 },
                 "end_time": {
-                    "description": "When did the query execution task finish (whether successfully or not).",
-                    "format": "date-time",
+                    "description": "When did the query execution task finish (whether successfully or not). @format date-time",
                     "type": "string"
                 },
                 "error": {
@@ -11556,8 +11699,7 @@
                     "type": "array"
                 },
                 "pickup_time": {
-                    "description": "When was the query execution task picked up by a worker.",
-                    "format": "date-time",
+                    "description": "When was the query execution task picked up by a worker. @format date-time",
                     "type": "string"
                 },
                 "query_async": {
@@ -11571,8 +11713,7 @@
                 },
                 "results": {},
                 "start_time": {
-                    "description": "When was query execution task enqueued.",
-                    "format": "date-time",
+                    "description": "When was query execution task enqueued. @format date-time",
                     "type": "string"
                 },
                 "task_id": {
