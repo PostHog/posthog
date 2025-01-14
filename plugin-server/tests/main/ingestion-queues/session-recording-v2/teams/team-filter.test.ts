@@ -3,10 +3,10 @@ import { Message } from 'node-rdkafka'
 import { KafkaMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/metrics'
 import { KafkaParser } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/parser'
 import { TeamFilter } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/team-filter'
-import { TeamManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/team-manager'
+import { TeamService } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/team-service'
 import { Team } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/types'
 
-jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/teams/team-manager')
+jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/teams/team-service')
 jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/kafka/metrics')
 jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/kafka/parser')
 
@@ -41,16 +41,16 @@ const createParsedMessage = (offset = 0, timestamp = Date.now()) => ({
 
 describe('TeamFilter', () => {
     let teamFilter: TeamFilter
-    let teamManager: jest.Mocked<TeamManager>
+    let teamService: jest.Mocked<TeamService>
     let kafkaMetrics: jest.Mocked<KafkaMetrics>
     let kafkaParser: jest.Mocked<KafkaParser>
 
     beforeEach(() => {
         jest.clearAllMocks()
-        teamManager = new TeamManager() as jest.Mocked<TeamManager>
+        teamService = new TeamService() as jest.Mocked<TeamService>
         kafkaMetrics = new KafkaMetrics() as jest.Mocked<KafkaMetrics>
         kafkaParser = new KafkaParser(kafkaMetrics) as jest.Mocked<KafkaParser>
-        teamFilter = new TeamFilter(teamManager, kafkaParser)
+        teamFilter = new TeamFilter(teamService, kafkaParser)
     })
 
     describe('team token validation', () => {
@@ -58,14 +58,14 @@ describe('TeamFilter', () => {
             const message = createSessionRecordingMessage('valid-token')
             const parsedMessage = createParsedMessage()
 
-            teamManager.getTeamByToken.mockResolvedValueOnce(validTeam)
+            teamService.getTeamByToken.mockResolvedValueOnce(validTeam)
             kafkaParser.parseMessage.mockResolvedValueOnce(parsedMessage)
 
             const result = await teamFilter.parseBatch([message])
 
             expect(result).toEqual([{ team: validTeam, message: parsedMessage }])
-            expect(teamManager.getTeamByToken).toHaveBeenCalledWith('valid-token')
-            expect(teamManager.getTeamByToken).toHaveBeenCalledTimes(1)
+            expect(teamService.getTeamByToken).toHaveBeenCalledWith('valid-token')
+            expect(teamService.getTeamByToken).toHaveBeenCalledTimes(1)
         })
 
         it('drops messages with no token in header', async () => {
@@ -73,26 +73,26 @@ describe('TeamFilter', () => {
             const result = await teamFilter.parseBatch([message])
 
             expect(result).toEqual([])
-            expect(teamManager.getTeamByToken).not.toHaveBeenCalled()
+            expect(teamService.getTeamByToken).not.toHaveBeenCalled()
             expect(kafkaParser.parseMessage).not.toHaveBeenCalled()
         })
 
         it('drops messages with invalid team tokens', async () => {
             const message = createSessionRecordingMessage('invalid-token')
-            teamManager.getTeamByToken.mockResolvedValueOnce(null)
+            teamService.getTeamByToken.mockResolvedValueOnce(null)
 
             const result = await teamFilter.parseBatch([message])
 
             expect(result).toEqual([])
-            expect(teamManager.getTeamByToken).toHaveBeenCalledWith('invalid-token')
-            expect(teamManager.getTeamByToken).toHaveBeenCalledTimes(1)
+            expect(teamService.getTeamByToken).toHaveBeenCalledWith('invalid-token')
+            expect(teamService.getTeamByToken).toHaveBeenCalledTimes(1)
             expect(kafkaParser.parseMessage).not.toHaveBeenCalled()
         })
     })
 
     describe('message parsing', () => {
         beforeEach(() => {
-            teamManager.getTeamByToken.mockResolvedValue(validTeam)
+            teamService.getTeamByToken.mockResolvedValue(validTeam)
         })
 
         it('processes valid parsed messages', async () => {
@@ -103,8 +103,8 @@ describe('TeamFilter', () => {
             const result = await teamFilter.parseBatch([message])
 
             expect(result).toEqual([{ team: validTeam, message: parsedMessage }])
-            expect(teamManager.getTeamByToken).toHaveBeenCalledWith('token')
-            expect(teamManager.getTeamByToken).toHaveBeenCalledTimes(1)
+            expect(teamService.getTeamByToken).toHaveBeenCalledWith('token')
+            expect(teamService.getTeamByToken).toHaveBeenCalledTimes(1)
         })
 
         it('drops messages that fail parsing', async () => {
@@ -114,14 +114,14 @@ describe('TeamFilter', () => {
             const result = await teamFilter.parseBatch([message])
 
             expect(result).toEqual([])
-            expect(teamManager.getTeamByToken).toHaveBeenCalledWith('token')
-            expect(teamManager.getTeamByToken).toHaveBeenCalledTimes(1)
+            expect(teamService.getTeamByToken).toHaveBeenCalledWith('token')
+            expect(teamService.getTeamByToken).toHaveBeenCalledTimes(1)
         })
     })
 
     describe('batch processing', () => {
         beforeEach(() => {
-            teamManager.getTeamByToken.mockResolvedValue(validTeam)
+            teamService.getTeamByToken.mockResolvedValue(validTeam)
         })
 
         it('processes multiple messages in order', async () => {
@@ -141,9 +141,9 @@ describe('TeamFilter', () => {
                 { team: validTeam, message: parsedMessages[0] },
                 { team: validTeam, message: parsedMessages[1] },
             ])
-            expect(teamManager.getTeamByToken).toHaveBeenCalledWith('token1')
-            expect(teamManager.getTeamByToken).toHaveBeenCalledWith('token2')
-            expect(teamManager.getTeamByToken).toHaveBeenCalledTimes(2)
+            expect(teamService.getTeamByToken).toHaveBeenCalledWith('token1')
+            expect(teamService.getTeamByToken).toHaveBeenCalledWith('token2')
+            expect(teamService.getTeamByToken).toHaveBeenCalledTimes(2)
         })
 
         it('processes messages with different teams', async () => {
@@ -157,7 +157,7 @@ describe('TeamFilter', () => {
 
             const team2 = { ...validTeam, teamId: 2 }
 
-            teamManager.getTeamByToken.mockResolvedValueOnce(validTeam).mockResolvedValueOnce(team2)
+            teamService.getTeamByToken.mockResolvedValueOnce(validTeam).mockResolvedValueOnce(team2)
 
             kafkaParser.parseMessage.mockResolvedValueOnce(parsedMessages[0]).mockResolvedValueOnce(parsedMessages[1])
 
@@ -167,9 +167,9 @@ describe('TeamFilter', () => {
                 { team: validTeam, message: parsedMessages[0] },
                 { team: team2, message: parsedMessages[1] },
             ])
-            expect(teamManager.getTeamByToken).toHaveBeenCalledWith('token1')
-            expect(teamManager.getTeamByToken).toHaveBeenCalledWith('token2')
-            expect(teamManager.getTeamByToken).toHaveBeenCalledTimes(2)
+            expect(teamService.getTeamByToken).toHaveBeenCalledWith('token1')
+            expect(teamService.getTeamByToken).toHaveBeenCalledWith('token2')
+            expect(teamService.getTeamByToken).toHaveBeenCalledTimes(2)
         })
 
         it('handles mixed valid and invalid messages in batch', async () => {
@@ -186,9 +186,9 @@ describe('TeamFilter', () => {
             const result = await teamFilter.parseBatch(messages)
 
             expect(result).toHaveLength(2)
-            expect(teamManager.getTeamByToken).toHaveBeenCalledWith('token1')
-            expect(teamManager.getTeamByToken).toHaveBeenCalledWith('token2')
-            expect(teamManager.getTeamByToken).toHaveBeenCalledTimes(2)
+            expect(teamService.getTeamByToken).toHaveBeenCalledWith('token1')
+            expect(teamService.getTeamByToken).toHaveBeenCalledWith('token2')
+            expect(teamService.getTeamByToken).toHaveBeenCalledTimes(2)
         })
     })
 })

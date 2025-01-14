@@ -1,6 +1,6 @@
 import { Team } from './types'
 
-export class TeamManager {
+export class TeamService {
     constructor() {}
 
     public async getTeamByToken(_token: string): Promise<Team | null> {

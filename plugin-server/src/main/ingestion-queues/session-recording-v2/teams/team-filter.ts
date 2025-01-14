@@ -4,11 +4,11 @@ import { status } from '../../../../utils/status'
 import { eventDroppedCounter } from '../../metrics'
 import { KafkaParser } from '../kafka/parser'
 import { BatchMessageParser } from '../types'
-import { TeamManager } from './team-manager'
+import { TeamService } from './team-service'
 import { MessageWithTeam, Team } from './types'
 
 export class TeamFilter implements BatchMessageParser {
-    constructor(private readonly teamManager: TeamManager, private readonly parser: KafkaParser) {}
+    constructor(private readonly teamService: TeamService, private readonly parser: KafkaParser) {}
 
     public async parseMessage(message: Message): Promise<MessageWithTeam | null> {
         const team = await this.validateTeamToken(message, message.headers)
@@ -78,7 +78,7 @@ export class TeamFilter implements BatchMessageParser {
     private async readTokenFromHeaders(headers: MessageHeader[] | undefined) {
         const tokenHeader = headers?.find((header: MessageHeader) => header.token)?.token
         const token = typeof tokenHeader === 'string' ? tokenHeader : tokenHeader?.toString()
-        const team = token ? await this.teamManager.getTeamByToken(token) : null
+        const team = token ? await this.teamService.getTeamByToken(token) : null
         return { token, team }
     }
 }

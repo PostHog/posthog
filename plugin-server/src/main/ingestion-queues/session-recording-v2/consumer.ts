@@ -21,7 +21,7 @@ import { KafkaParser } from './kafka/parser'
 import { SessionRecordingMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
 import { TeamFilter } from './teams/team-filter'
-import { TeamManager } from './teams/team-manager'
+import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
 import { BatchMessageParser } from './types'
 import { CaptureIngestionWarningFn } from './types'
@@ -54,12 +54,12 @@ export class SessionRecordingIngester {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
         const kafkaMetrics = KafkaMetrics.getInstance()
         const kafkaParser = new KafkaParser(kafkaMetrics)
-        const teamManager = new TeamManager()
+        const teamService = new TeamService()
         this.metrics = SessionRecordingMetrics.getInstance()
         this.promiseScheduler = new PromiseScheduler()
         this.batchConsumerFactory = batchConsumerFactory
 
-        this.messageParser = new TeamFilter(teamManager, kafkaParser)
+        this.messageParser = new TeamFilter(teamService, kafkaParser)
 
         if (ingestionWarningProducer) {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
