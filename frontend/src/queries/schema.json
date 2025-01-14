@@ -1,124 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
-        "AIGeneration": {
-            "additionalProperties": false,
-            "properties": {
-                "base_url": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "http_status": {
-                    "type": "number"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "input": {
-                    "items": {},
-                    "type": "array"
-                },
-                "input_cost": {
-                    "type": "number"
-                },
-                "input_tokens": {
-                    "type": "number"
-                },
-                "latency": {
-                    "type": "number"
-                },
-                "model": {
-                    "type": "string"
-                },
-                "output": {},
-                "output_cost": {
-                    "type": "number"
-                },
-                "output_tokens": {
-                    "type": "number"
-                },
-                "provider": {
-                    "type": "string"
-                },
-                "total_cost": {
-                    "type": "number"
-                }
-            },
-            "required": ["id", "created_at", "input", "latency"],
-            "type": "object"
-        },
-        "AITrace": {
-            "additionalProperties": false,
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "events": {
-                    "items": {
-                        "$ref": "#/definitions/AIGeneration"
-                    },
-                    "type": "array"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "input_cost": {
-                    "type": "number"
-                },
-                "input_tokens": {
-                    "type": "number"
-                },
-                "output_cost": {
-                    "type": "number"
-                },
-                "output_tokens": {
-                    "type": "number"
-                },
-                "person": {
-                    "$ref": "#/definitions/AITracePerson"
-                },
-                "total_cost": {
-                    "type": "number"
-                },
-                "total_latency": {
-                    "type": "number"
-                }
-            },
-            "required": [
-                "id",
-                "created_at",
-                "person",
-                "total_latency",
-                "input_tokens",
-                "output_tokens",
-                "input_cost",
-                "output_cost",
-                "total_cost",
-                "events"
-            ],
-            "type": "object"
-        },
-        "AITracePerson": {
-            "additionalProperties": false,
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "distinct_id": {
-                    "type": "string"
-                },
-                "properties": {
-                    "type": "object"
-                },
-                "uuid": {
-                    "type": "string"
-                }
-            },
-            "required": ["uuid", "created_at", "properties", "distinct_id"],
-            "type": "object"
-        },
         "ActionConversionGoal": {
             "additionalProperties": false,
             "properties": {
@@ -961,27 +843,8 @@
                             "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "enum": ["event", "person", "session", "feature"],
+                            "type": "string"
                         },
                         "value": {
                             "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value.",
@@ -1003,27 +866,8 @@
                             "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "enum": ["event", "person", "session", "feature"],
+                            "type": "string"
                         },
                         "value": {
                             "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
@@ -1047,27 +891,8 @@
                             "$ref": "#/definitions/AssistantDateTimePropertyFilterOperator"
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "enum": ["event", "person", "session", "feature"],
+                            "type": "string"
                         },
                         "value": {
                             "description": "Value must be a date in ISO 8601 format.",
@@ -1089,27 +914,8 @@
                             "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "enum": ["event", "person", "session", "feature"],
+                            "type": "string"
                         }
                     },
                     "required": ["key", "operator", "type"],
@@ -3579,7 +3385,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/AITrace"
+                        "$ref": "#/definitions/LLMTrace"
                     },
                     "type": "array"
                 },
@@ -5058,7 +4864,7 @@
                                 },
                                 "results": {
                                     "items": {
-                                        "$ref": "#/definitions/AITrace"
+                                        "$ref": "#/definitions/LLMTrace"
                                     },
                                     "type": "array"
                                 },
@@ -8738,6 +8544,124 @@
             "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
         },
+        "LLMGeneration": {
+            "additionalProperties": false,
+            "properties": {
+                "base_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "http_status": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "input": {
+                    "items": {},
+                    "type": "array"
+                },
+                "input_cost": {
+                    "type": "number"
+                },
+                "input_tokens": {
+                    "type": "number"
+                },
+                "latency": {
+                    "type": "number"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "output": {},
+                "output_cost": {
+                    "type": "number"
+                },
+                "output_tokens": {
+                    "type": "number"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "total_cost": {
+                    "type": "number"
+                }
+            },
+            "required": ["id", "created_at", "input", "latency"],
+            "type": "object"
+        },
+        "LLMTrace": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/LLMGeneration"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "input_cost": {
+                    "type": "number"
+                },
+                "input_tokens": {
+                    "type": "number"
+                },
+                "output_cost": {
+                    "type": "number"
+                },
+                "output_tokens": {
+                    "type": "number"
+                },
+                "person": {
+                    "$ref": "#/definitions/LLMTracePerson"
+                },
+                "total_cost": {
+                    "type": "number"
+                },
+                "total_latency": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "id",
+                "created_at",
+                "person",
+                "total_latency",
+                "input_tokens",
+                "output_tokens",
+                "input_cost",
+                "output_cost",
+                "total_cost",
+                "events"
+            ],
+            "type": "object"
+        },
+        "LLMTracePerson": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "distinct_id": {
+                    "type": "string"
+                },
+                "properties": {
+                    "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["uuid", "created_at", "properties", "distinct_id"],
+            "type": "object"
+        },
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
@@ -11072,7 +10996,7 @@
                         },
                         "results": {
                             "items": {
-                                "$ref": "#/definitions/AITrace"
+                                "$ref": "#/definitions/LLMTrace"
                             },
                             "type": "array"
                         },
@@ -11531,7 +11455,7 @@
                         },
                         "results": {
                             "items": {
-                                "$ref": "#/definitions/AITrace"
+                                "$ref": "#/definitions/LLMTrace"
                             },
                             "type": "array"
                         },
@@ -11686,7 +11610,8 @@
                     "type": "integer"
                 },
                 "end_time": {
-                    "description": "When did the query execution task finish (whether successfully or not). @format date-time",
+                    "description": "When did the query execution task finish (whether successfully or not).",
+                    "format": "date-time",
                     "type": "string"
                 },
                 "error": {
@@ -11715,7 +11640,8 @@
                     "type": "array"
                 },
                 "pickup_time": {
-                    "description": "When was the query execution task picked up by a worker. @format date-time",
+                    "description": "When was the query execution task picked up by a worker.",
+                    "format": "date-time",
                     "type": "string"
                 },
                 "query_async": {
@@ -11729,7 +11655,8 @@
                 },
                 "results": {},
                 "start_time": {
-                    "description": "When was query execution task enqueued. @format date-time",
+                    "description": "When was query execution task enqueued.",
+                    "format": "date-time",
                     "type": "string"
                 },
                 "task_id": {
@@ -13257,7 +13184,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/AITrace"
+                        "$ref": "#/definitions/LLMTrace"
                     },
                     "type": "array"
                 },

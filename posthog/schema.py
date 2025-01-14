@@ -12,36 +12,6 @@ class SchemaRoot(RootModel[Any]):
     root: Any
 
 
-class AIGeneration(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    base_url: Optional[str] = None
-    created_at: str
-    http_status: Optional[float] = None
-    id: str
-    input: list
-    input_cost: Optional[float] = None
-    input_tokens: Optional[float] = None
-    latency: float
-    model: Optional[str] = None
-    output: Optional[Any] = None
-    output_cost: Optional[float] = None
-    output_tokens: Optional[float] = None
-    provider: Optional[str] = None
-    total_cost: Optional[float] = None
-
-
-class AITracePerson(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: str
-    distinct_id: str
-    properties: dict[str, Any]
-    uuid: str
-
-
 class ActionConversionGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -169,6 +139,13 @@ class AssistantGenericMultipleBreakdownFilter(BaseModel):
     type: AssistantEventMultipleBreakdownFilterType
 
 
+class Type(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    SESSION = "session"
+    FEATURE = "feature"
+
+
 class AssistantGenericPropertyFilter2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -177,7 +154,7 @@ class AssistantGenericPropertyFilter2(BaseModel):
     operator: AssistantArrayPropertyFilterOperator = Field(
         ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
     )
-    type: str
+    type: Type
     value: list[str] = Field(
         ...,
         description=(
@@ -193,7 +170,7 @@ class AssistantGenericPropertyFilter3(BaseModel):
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
     operator: AssistantDateTimePropertyFilterOperator
-    type: str
+    type: Type
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
@@ -650,7 +627,7 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type(StrEnum):
+class Type4(StrEnum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
@@ -1156,6 +1133,36 @@ class IntervalType(StrEnum):
     MONTH = "month"
 
 
+class LLMGeneration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    base_url: Optional[str] = None
+    created_at: str
+    http_status: Optional[float] = None
+    id: str
+    input: list
+    input_cost: Optional[float] = None
+    input_tokens: Optional[float] = None
+    latency: float
+    model: Optional[str] = None
+    output: Optional[Any] = None
+    output_cost: Optional[float] = None
+    output_tokens: Optional[float] = None
+    provider: Optional[str] = None
+    total_cost: Optional[float] = None
+
+
+class LLMTracePerson(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    distinct_id: str
+    properties: dict[str, Any]
+    uuid: str
+
+
 class LifecycleToggle(StrEnum):
     NEW = "new"
     RESURRECTING = "resurrecting"
@@ -1386,9 +1393,8 @@ class QueryStatus(BaseModel):
         ),
     )
     dashboard_id: Optional[int] = None
-    end_time: Optional[str] = Field(
-        default=None,
-        description="When did the query execution task finish (whether successfully or not). @format date-time",
+    end_time: Optional[AwareDatetime] = Field(
+        default=None, description="When did the query execution task finish (whether successfully or not)."
     )
     error: Optional[bool] = Field(
         default=False,
@@ -1401,15 +1407,13 @@ class QueryStatus(BaseModel):
     id: str
     insight_id: Optional[int] = None
     labels: Optional[list[str]] = None
-    pickup_time: Optional[str] = Field(
-        default=None, description="When was the query execution task picked up by a worker. @format date-time"
+    pickup_time: Optional[AwareDatetime] = Field(
+        default=None, description="When was the query execution task picked up by a worker."
     )
     query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
     query_progress: Optional[ClickhouseQueryProgress] = None
     results: Optional[Any] = None
-    start_time: Optional[str] = Field(
-        default=None, description="When was query execution task enqueued. @format date-time"
-    )
+    start_time: Optional[AwareDatetime] = Field(default=None, description="When was query execution task enqueued.")
     task_id: Optional[str] = None
     team_id: int
 
@@ -1786,22 +1790,6 @@ class NumericalKey(RootModel[str]):
     root: str
 
 
-class AITrace(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: str
-    events: list[AIGeneration]
-    id: str
-    input_cost: float
-    input_tokens: float
-    output_cost: float
-    output_tokens: float
-    person: AITracePerson
-    total_cost: float
-    total_latency: float
-
-
 class AlertCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1952,7 +1940,7 @@ class AssistantGenericPropertyFilter1(BaseModel):
             " matches the regex pattern. `not_regex` - does not match the regex pattern."
         ),
     )
-    type: str
+    type: Type
     value: str = Field(
         ...,
         description=(
@@ -1975,7 +1963,7 @@ class AssistantGenericPropertyFilter4(BaseModel):
             " collected."
         ),
     )
-    type: str
+    type: Type
 
 
 class AssistantGroupPropertyFilter1(BaseModel):
@@ -2263,7 +2251,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
-    type: Type
+    type: Type4
 
 
 class ElementPropertyFilter(BaseModel):
@@ -2449,6 +2437,22 @@ class InsightThreshold(BaseModel):
     )
     bounds: Optional[InsightsThresholdBounds] = None
     type: InsightThresholdType
+
+
+class LLMTrace(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    events: list[LLMGeneration]
+    id: str
+    input_cost: float
+    input_tokens: float
+    output_cost: float
+    output_tokens: float
+    person: LLMTracePerson
+    total_cost: float
+    total_latency: float
 
 
 class LifecycleFilter(BaseModel):
@@ -2935,7 +2939,7 @@ class QueryResponseAlternative28(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[AITrace]
+    results: list[LLMTrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -3114,7 +3118,7 @@ class QueryResponseAlternative41(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[AITrace]
+    results: list[LLMTrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -3480,7 +3484,7 @@ class TracesQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[AITrace]
+    results: list[LLMTrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -4524,7 +4528,7 @@ class CachedTracesQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[AITrace]
+    results: list[LLMTrace]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -4934,7 +4938,7 @@ class Response11(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[AITrace]
+    results: list[LLMTrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )

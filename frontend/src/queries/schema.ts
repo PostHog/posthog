@@ -2530,7 +2530,7 @@ export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<Act
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
 
-export interface AIGeneration {
+export interface LLMGeneration {
     id: string
     created_at: string
     input: any[]
@@ -2547,27 +2547,27 @@ export interface AIGeneration {
     base_url?: string
 }
 
-export interface AITracePerson {
+export interface LLMTracePerson {
     uuid: string
     created_at: string
     properties: Record<string, any>
     distinct_id: string
 }
 
-export interface AITrace {
+export interface LLMTrace {
     id: string
     created_at: string
-    person: AITracePerson
+    person: LLMTracePerson
     total_latency: number
     input_tokens: number
     output_tokens: number
     input_cost: number
     output_cost: number
     total_cost: number
-    events: AIGeneration[]
+    events: LLMGeneration[]
 }
 
-export interface TracesQueryResponse extends AnalyticsQueryResponseBase<AITrace[]> {
+export interface TracesQueryResponse extends AnalyticsQueryResponseBase<LLMTrace[]> {
     hasMore?: boolean
     limit?: integer
     offset?: integer

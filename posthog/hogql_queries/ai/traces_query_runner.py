@@ -10,10 +10,10 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
-    AIGeneration,
-    AITrace,
-    AITracePerson,
     CachedTracesQueryResponse,
+    LLMGeneration,
+    LLMTrace,
+    LLMTracePerson,
     NodeKind,
     TracesQuery,
     TracesQueryResponse,
@@ -116,12 +116,12 @@ class TracesQueryRunner(QueryRunner):
                 "person": self._map_person(result["person"]),
                 "events": generations,
             }
-            trace = AITrace.model_validate({key: value for key, value in trace_dict.items() if key in TRACE_FIELDS})
+            trace = LLMTrace.model_validate({key: value for key, value in trace_dict.items() if key in TRACE_FIELDS})
             traces.append(trace)
 
         return traces
 
-    def _map_generation(self, event_uuid: UUID, event_timestamp: datetime, event_properties: str) -> AIGeneration:
+    def _map_generation(self, event_uuid: UUID, event_timestamp: datetime, event_properties: str) -> LLMGeneration:
         properties: dict = orjson.loads(event_properties)
 
         GENERATION_MAPPING = {
@@ -152,11 +152,11 @@ class TracesQueryRunner(QueryRunner):
                 else:
                     generation[model_prop] = properties[event_prop]
 
-        return AIGeneration.model_validate(generation)
+        return LLMGeneration.model_validate(generation)
 
-    def _map_person(self, person: tuple[UUID, UUID, datetime, str]) -> AITracePerson:
+    def _map_person(self, person: tuple[UUID, UUID, datetime, str]) -> LLMTracePerson:
         uuid, distinct_id, created_at, properties = person
-        return AITracePerson(
+        return LLMTracePerson(
             uuid=str(uuid),
             distinct_id=str(distinct_id),
             created_at=created_at.isoformat(),
