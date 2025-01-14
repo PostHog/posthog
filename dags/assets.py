@@ -1,64 +1,34 @@
-import json
-import requests
-
-import pandas as pd
-
-from posthog.temporal.common.clickhouse import get_client
+import os
+import django
 
 from dagster import (
     Config,
     MaterializeResult,
-    MetadataValue,
     asset,
 )
 
-from asgiref.sync import async_to_sync
+# setup PostHog Django Project
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+django.setup()
+
+from posthog.clickhouse.client import sync_execute  # noqa
+
+
+class ClickHouseConfig(Config):
+    result_path: str = "/tmp/clickhouse_version.txt"
 
 
 @asset
-def get_clickhouse_version() -> MaterializeResult:
-    @async_to_sync
-    async def _get_version():
-        async with get_client() as connection:
-            version = await connection.apost_query("SELECT version()", query_id="version", query_parameters={})
-            return version[0][0]
-
-    version = _get_version()
-    return MaterializeResult(version)
+def get_clickhouse_version(config: ClickHouseConfig) -> MaterializeResult:
+    version = sync_execute("SELECT version()")[0][0]
+    with open(config.result_path, "w") as f:
+        f.write(version)
+    return MaterializeResult(metadata={"version": version})
 
 
-class HNStoriesConfig(Config):
-    top_stories_limit: int = 10
-    hn_top_story_ids_path: str = "hackernews_top_story_ids.json"
-    hn_top_stories_path: str = "hackernews_top_stories.csv"
-
-
-@asset
-def hackernews_top_story_ids(config: HNStoriesConfig):
-    """Get top stories from the HackerNews top stories endpoint."""
-    top_story_ids = requests.get("https://hacker-news.firebaseio.com/v0/topstories.json").json()
-
-    with open(config.hn_top_story_ids_path, "w") as f:
-        json.dump(top_story_ids[: config.top_stories_limit], f)
-
-
-@asset(deps=[hackernews_top_story_ids])
-def hackernews_top_stories(config: HNStoriesConfig) -> MaterializeResult:
-    """Get items based on story ids from the HackerNews items endpoint."""
-    with open(config.hn_top_story_ids_path) as f:
-        hackernews_top_story_ids = json.load(f)
-
-    results = []
-    for item_id in hackernews_top_story_ids:
-        item = requests.get(f"https://hacker-news.firebaseio.com/v0/item/{item_id}.json").json()
-        results.append(item)
-
-    df = pd.DataFrame(results)
-    df.to_csv(config.hn_top_stories_path)
-
-    return MaterializeResult(
-        metadata={
-            "num_records": len(df),
-            "preview": MetadataValue.md(str(df[["title", "by", "url"]].to_markdown())),
-        }
-    )
+@asset(deps=[get_clickhouse_version])
+def print_clickhouse_version(config: ClickHouseConfig):
+    with open(config.result_path) as f:
+        print(f.read())  # noqa
+    return MaterializeResult(metadata={"version": config.result_path})

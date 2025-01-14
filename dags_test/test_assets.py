@@ -1,43 +1,79 @@
-import os
-import unittest
+import pytest
+from unittest.mock import patch, mock_open
 
-from dagster_quickstart.assets import HNStoriesConfig, hackernews_top_story_ids, hackernews_top_stories
-from unittest import mock
+from dagster import build_op_context
 
-
-CONFIG = HNStoriesConfig(
-    hn_top_story_ids_path="dagster_quickstart_tests/hackernews_top_story_ids.json",
-    hn_top_stories_path="dagster_quickstart_tests/hackernews_top_stories.csv",
+from dags.assets import (
+    get_clickhouse_version,
+    print_clickhouse_version,
+    ClickHouseConfig,
 )
 
 
-@mock.patch("builtins.open")
-@mock.patch("requests.get")
-def test_hackernews_top_story_ids(mock_get, mock_open):
-    mock_response = mock.Mock()
-    mock_response.json.return_value = [1, 2, 3, 4, 5]
-    mock_get.return_value = mock_response
-
-    hackernews_top_story_ids(CONFIG)
-
-    mock_get.assert_called_with("https://hacker-news.firebaseio.com/v0/topstories.json")
-    mock_open.assert_called_with(CONFIG.hn_top_story_ids_path, "w")
+@pytest.fixture
+def mock_sync_execute():
+    with patch("dags.assets.sync_execute") as mock:
+        mock.return_value = [["23.8.1.2992"]]
+        yield mock
 
 
-@mock.patch("requests.get")
-def test_hackernews_top_stories(mock_get):
-    mock_response = mock.Mock()
-    mock_response.json.return_value = {
-        "title": "Mock Title",
-        "by": "John Smith",
-        "url": "www.example.com",
-    }
-    mock_get.return_value = mock_response
-
-    materialized_results = hackernews_top_stories(CONFIG)
-    assert materialized_results.metadata.get("num_records") == 10
-    os.remove("dagster_quickstart_tests/hackernews_top_stories.csv")
+@pytest.fixture
+def config():
+    return ClickHouseConfig(result_path="/tmp/test_clickhouse_version.txt")
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_get_clickhouse_version(mock_sync_execute, config):
+    # Create a test context with our config
+    context = build_op_context(resources={}, config=config)
+
+    # Mock the file write operation
+    mock_file = mock_open()
+    with patch("builtins.open", mock_file):
+        result = get_clickhouse_version(context)
+
+    # Verify the SQL query was executed
+    mock_sync_execute.assert_called_once_with("SELECT version()")
+
+    # Verify the version was written to file
+    mock_file().write.assert_called_once_with("23.8.1.2992")
+
+    # Verify the result metadata
+    assert result.metadata == {"version": "23.8.1.2992"}
+
+
+def test_print_clickhouse_version(config):
+    # Create a test context with our config
+    context = build_op_context(resources={}, config=config)
+
+    # Mock the file read operation
+    mock_file = mock_open(read_data="23.8.1.2992")
+    with patch("builtins.open", mock_file) as mock_open_:
+        with patch("builtins.print") as mock_print:
+            result = print_clickhouse_version(context)
+
+            # Verify the file was read
+            mock_open_.assert_called_once_with(config.result_path)
+
+            # Verify the version was printed
+            mock_print.assert_called_once_with("23.8.1.2992")
+
+            # Verify the result metadata
+            assert result.metadata == {"version": config.result_path}
+
+
+def test_assets_integration(mock_sync_execute, config):
+    """Test that both assets work together in sequence"""
+    context = build_op_context(resources={}, config=config)
+
+    # First run get_clickhouse_version
+    mock_write = mock_open()
+    with patch("builtins.open", mock_write):
+        get_clickhouse_version(context)
+        mock_write().write.assert_called_once_with("23.8.1.2992")
+
+    # Then run print_clickhouse_version
+    mock_read = mock_open(read_data="23.8.1.2992")
+    with patch("builtins.open", mock_read):
+        with patch("builtins.print") as mock_print:
+            print_clickhouse_version(context)
+            mock_print.assert_called_once_with("23.8.1.2992")

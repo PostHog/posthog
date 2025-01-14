@@ -105,3 +105,4 @@ combine-as-imports = true
 python_version = "3.11"
 module_name = "dags.definitions"
 code_location_name = "dags"
+home = "/tmp/posthog-dagster/"
