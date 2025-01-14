@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     ]
 
     # No operations here, since we don't want to delete the table
-    database_operations = []  # noqa
+    database_operations = []  # type: ignore
 
     state_operations = [migrations.DeleteModel("EarlyAccessFeature")]
 

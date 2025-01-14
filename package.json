@@ -116,6 +116,7 @@
         "chokidar": "^3.5.3",
         "classnames": "^2.5.1",
         "clsx": "^1.1.1",
+        "crypto-browserify": "^3.12.0",
         "core-js": "^3.32.0",
         "cors": "^2.8.5",
         "cssnano": "^6.0.3",
