@@ -236,3 +236,26 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 "http_status": None,
             },
         )
+
+    @snapshot_clickhouse_queries
+    def test_trace_id_filter(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_person(distinct_ids=["person2"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            input="Foo",
+            output="Bar",
+            team=self.team,
+        )
+        _create_ai_generation_event(
+            distinct_id="person2",
+            trace_id="trace2",
+            input="Foo",
+            output="Bar",
+            team=self.team,
+        )
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(traceId="trace1")).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace1")

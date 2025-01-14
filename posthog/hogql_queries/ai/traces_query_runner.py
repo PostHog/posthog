@@ -209,11 +209,23 @@ class TracesQueryRunner(QueryRunner):
         ]
 
     def _get_where_clause(self):
-        return ast.CompareOperation(
+        event_expr = ast.CompareOperation(
             left=ast.Field(chain=["event"]),
             op=ast.CompareOperationOp.Eq,
             right=ast.Constant(value="$ai_generation"),
         )
+        if self.query.traceId is not None:
+            return ast.And(
+                exprs=[
+                    event_expr,
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["id"]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=self.query.traceId),
+                    ),
+                ]
+            )
+        return event_expr
 
     def _get_order_by_clause(self):
         return [ast.OrderExpr(expr=ast.Field(chain=["trace_timestamp"]), order="DESC")]

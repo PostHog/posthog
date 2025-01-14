@@ -13195,7 +13195,7 @@
                 "response": {
                     "$ref": "#/definitions/TracesQueryResponse"
                 },
-                "trace_id": {
+                "traceId": {
                     "type": "string"
                 }
             },

@@ -5700,7 +5700,7 @@ class TracesQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[TracesQueryResponse] = None
-    trace_id: Optional[str] = None
+    traceId: Optional[str] = None
 
 
 class VisualizationMessage(BaseModel):

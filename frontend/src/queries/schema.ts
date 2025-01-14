@@ -2569,7 +2569,7 @@ export interface TracesQueryResponse extends AnalyticsQueryResponseBase<AITrace[
 
 export interface TracesQuery extends DataNode<TracesQueryResponse> {
     kind: NodeKind.TracesQuery
-    trace_id?: string
+    traceId?: string
     limit?: integer
     offset?: integer
 }
