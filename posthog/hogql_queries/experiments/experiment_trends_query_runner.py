@@ -38,6 +38,7 @@ from posthog.schema import (
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
     DateRange,
+    PropertyMathType,
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
@@ -127,6 +128,13 @@ class ExperimentTrendsQueryRunner(QueryRunner):
            to separate results for different experiment variants.
         """
         prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
+
+        uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(prepared_count_query)
+
+        # Only SUM is supported now, but some earlier experiments AVG. That does not
+        # make sense as input for experiment analysis, so we'll swithc that to SUM here
+        if uses_math_aggregation:
+            prepared_count_query.series[0].math = PropertyMathType.SUM
 
         prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
         prepared_count_query.dateRange = self._get_date_range()
@@ -307,7 +315,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         if count_result is None or exposure_result is None:
             raise ValueError("One or both query runners failed to produce a response")
 
-        self._validate_event_variants(count_result)
+        self._validate_event_variants(count_result, exposure_result)
 
         # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
@@ -369,21 +377,21 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             count = result.get("count", 0)
             breakdown_value = result.get("breakdown_value")
             if breakdown_value == CONTROL_VARIANT_KEY:
+                absolute_exposure = exposure_counts.get(breakdown_value, 0)
                 control_variant = ExperimentVariantTrendsBaseStats(
                     key=breakdown_value,
                     count=count,
                     exposure=1,
-                    # TODO: in the absence of exposure data, we should throw rather than default to 1
-                    absolute_exposure=exposure_counts.get(breakdown_value, 1),
+                    absolute_exposure=absolute_exposure,
                 )
             else:
+                absolute_exposure = exposure_counts.get(breakdown_value, 0)
                 test_variants.append(
                     ExperimentVariantTrendsBaseStats(
                         key=breakdown_value,
                         count=count,
-                        # TODO: in the absence of exposure data, we should throw rather than default to 1
-                        exposure=exposure_ratios.get(breakdown_value, 1),
-                        absolute_exposure=exposure_counts.get(breakdown_value, 1),
+                        exposure=exposure_ratios.get(breakdown_value, 0),
+                        absolute_exposure=absolute_exposure,
                     )
                 )
 
@@ -392,13 +400,19 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         return control_variant, test_variants
 
-    def _validate_event_variants(self, count_result: TrendsQueryResponse):
+    def _validate_event_variants(self, count_result: TrendsQueryResponse, exposure_result: TrendsQueryResponse):
         errors = {
+            ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
             ExperimentNoResultsErrorKeys.NO_EVENTS: True,
             ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
             ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
             ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
         }
+
+        # Don't throw right away because we want to validate metric events too
+        # If metric events pass, the end of the function will still throw an error
+        if exposure_result.results:
+            errors[ExperimentNoResultsErrorKeys.NO_EXPOSURES] = False
 
         if not count_result.results or not count_result.results[0]:
             raise ValidationError(code="no-results", detail=json.dumps(errors))

@@ -13,6 +13,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { hogqlQuery } from '~/queries/query'
@@ -23,7 +24,6 @@ import {
     CompareFilter,
     CustomEventConversionGoal,
     EventsNode,
-    HogQLQuery,
     NodeKind,
     QuerySchema,
     TrendsFilter,
@@ -32,10 +32,11 @@ import {
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
     WebStatsTableQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
     BaseMathType,
+    Breadcrumb,
     ChartDisplayType,
     EventDefinition,
     EventDefinitionType,
@@ -47,6 +48,7 @@ import {
     PluginType,
     PropertyDefinition,
     PropertyFilterType,
+    PropertyMathType,
     PropertyOperator,
     RecordingUniversalFilters,
     RetentionPeriod,
@@ -76,6 +78,12 @@ export enum TileId {
     REPLAY = 'REPLAY',
     ERROR_TRACKING = 'ERROR_TRACKING',
     GOALS = 'GOALS',
+    WEB_VITALS = 'WEB_VITALS',
+}
+
+export enum ProductTab {
+    ANALYTICS = 'analytics',
+    CORE_WEB_VITALS = 'core-web-vitals',
 }
 
 const loadPriorityMap: Record<TileId, number> = {
@@ -89,9 +97,10 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.REPLAY]: 8,
     [TileId.ERROR_TRACKING]: 9,
     [TileId.GOALS]: 10,
+    [TileId.WEB_VITALS]: 11,
 }
 
-interface BaseTile {
+export interface BaseTile {
     tileId: TileId
     layout: WebTileLayout
     docs?: Docs
@@ -102,6 +111,7 @@ export interface Docs {
     title: string
     description: string | JSX.Element
 }
+
 export interface QueryTile extends BaseTile {
     kind: 'query'
     title?: string
@@ -199,28 +209,27 @@ export enum GeographyTab {
     LANGUAGES = 'LANGUAGES',
 }
 
-export interface WebAnalyticsStatusCheck {
-    isSendingPageViews: boolean
-    isSendingPageLeaves: boolean
-    isSendingPageLeavesScroll: boolean
-    libSendingPageViewsWithoutSessionIds: string | undefined
-}
-
 export enum ConversionGoalWarning {
     CustomEventWithNoSessionId = 'CustomEventWithNoSessionId',
 }
 
-export const GEOIP_PLUGIN_URLS = [
+export interface WebAnalyticsStatusCheck {
+    isSendingPageViews: boolean
+    isSendingPageLeaves: boolean
+    isSendingPageLeavesScroll: boolean
+}
+
+const GEOIP_PLUGIN_URLS = [
     'https://github.com/PostHog/posthog-plugin-geoip',
     'https://www.npmjs.com/package/@posthog/geoip-plugin',
 ]
 
 export const WEB_ANALYTICS_DATA_COLLECTION_NODE_ID = 'web-analytics'
 
-export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
-const initialDateFrom = '-7d' as string | null
-const initialDateTo = null as string | null
-const initialInterval = getDefaultInterval(initialDateFrom, initialDateTo)
+const INITIAL_WEB_ANALYTICS_FILTER = [] as WebAnalyticsPropertyFilters
+const INITIAL_DATE_FROM = '-7d' as string | null
+const INITIAL_DATE_TO = null as string | null
+const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 
 const getDashboardItemId = (section: TileId, tab: string | undefined, isModal?: boolean): `new-${string}` => {
     // pretend to be a new-AdHoc to get the correct behaviour elsewhere
@@ -247,24 +256,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 pathTab?: string
                 geographyTab?: string
             }
-        ) => ({
-            type,
-            key,
-            value,
-            tabChange,
-        }),
-        setGraphsTab: (tab: string) => ({
-            tab,
-        }),
-        setSourceTab: (tab: string) => ({
-            tab,
-        }),
-        setDeviceTab: (tab: string) => ({
-            tab,
-        }),
-        setPathTab: (tab: string) => ({
-            tab,
-        }),
+        ) => ({ type, key, value, tabChange }),
+        setGraphsTab: (tab: string) => ({ tab }),
+        setSourceTab: (tab: string) => ({ tab }),
+        setDeviceTab: (tab: string) => ({ tab }),
+        setPathTab: (tab: string) => ({ tab }),
         setGeographyTab: (tab: string) => ({ tab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType) => ({ interval }),
@@ -274,26 +270,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             interval,
         }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
-        setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({
-            shouldFilterTestAccounts,
-        }),
-        setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({
-            shouldStripQueryParams,
-        }),
+        setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
+        setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
-        openModal: (tileId: TileId, tabId?: string) => {
-            return { tileId, tabId }
-        },
+        openModal: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
         closeModal: () => true,
-        openAsNewInsight: (tileId: TileId, tabId?: string) => {
-            return { tileId, tabId }
-        },
+        openAsNewInsight: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
+        setProductTab: (tab: ProductTab) => ({ tab }),
     }),
     reducers({
         webAnalyticsFilters: [
-            initialWebAnalyticsFilter,
+            INITIAL_WEB_ANALYTICS_FILTER,
             persistConfig,
             {
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
@@ -332,7 +321,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     return f
                                 }
                                 const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
-                                let newValue: (string | number)[]
+                                let newValue: (string | number | bigint)[]
                                 if (oldValue.includes(value)) {
                                     // If there are multiple values for this filter, reduce that to just the one being clicked
                                     if (oldValue.length > 1) {
@@ -423,9 +412,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         dateFilter: [
             {
-                dateFrom: initialDateFrom,
-                dateTo: initialDateTo,
-                interval: initialInterval,
+                dateFrom: INITIAL_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
+                interval: INITIAL_INTERVAL,
             },
             persistConfig,
             {
@@ -444,8 +433,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
                     if (!dateFrom && !dateTo) {
-                        dateFrom = initialDateFrom
-                        dateTo = initialDateTo
+                        dateFrom = INITIAL_DATE_FROM
+                        dateTo = INITIAL_DATE_TO
                     }
                     return {
                         dateTo,
@@ -489,8 +478,36 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setCompareFilter: (_, { compareFilter }) => compareFilter,
             },
         ],
+        productTab: [
+            ProductTab.ANALYTICS as ProductTab,
+            {
+                setProductTab: (_, { tab }) => tab,
+            },
+        ],
     }),
     selectors(({ actions, values }) => ({
+        breadcrumbs: [
+            (s) => [s.productTab],
+            (productTab: ProductTab): Breadcrumb[] => {
+                const breadcrumbs: Breadcrumb[] = [
+                    {
+                        key: Scene.WebAnalytics,
+                        name: `Web Analytics`,
+                        path: urls.webAnalytics(),
+                    },
+                ]
+
+                if (productTab === ProductTab.CORE_WEB_VITALS) {
+                    breadcrumbs.push({
+                        key: Scene.WebAnalyticsCoreWebVitals,
+                        name: `Core Web Vitals`,
+                        path: urls.webAnalyticsCoreWebVitals(),
+                    })
+                }
+
+                return breadcrumbs
+            },
+        ],
         graphsTab: [(s) => [s._graphsTab], (graphsTab: string | null) => graphsTab || GraphsTab.UNIQUE_USERS],
         sourceTab: [(s) => [s._sourceTab], (sourceTab: string | null) => sourceTab || SourceTab.CHANNEL],
         deviceTab: [(s) => [s._deviceTab], (deviceTab: string | null) => deviceTab || DeviceTab.DEVICE_TYPE],
@@ -533,8 +550,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }),
         ],
         tiles: [
-            (s) => [s.tabs, s.controls, s.filters, () => values.featureFlags, () => values.isGreaterThanMd],
+            (s) => [
+                s.productTab,
+                s.tabs,
+                s.controls,
+                s.filters,
+                () => values.featureFlags,
+                () => values.isGreaterThanMd,
+            ],
             (
+                productTab,
                 { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile },
                 { isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams },
                 {
@@ -547,23 +572,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 featureFlags,
                 isGreaterThanMd
             ): WebDashboardTile[] => {
-                const dateRange = {
-                    date_from: dateFrom,
-                    date_to: dateTo,
-                }
-
-                const sampling = {
-                    enabled: false,
-                    forceSamplingRate: { numerator: 1, denominator: 10 },
-                }
-
-                const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
-                    return {
-                        dashboardItemId: getDashboardItemId(tile, tab, false),
-                        loadPriority: loadPriorityMap[tile],
-                        dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                    }
-                }
+                const dateRange = { date_from: dateFrom, date_to: dateTo }
+                const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
                 const uniqueUserSeries: EventsNode = {
                     event: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? '$screen' : '$pageview',
@@ -572,16 +582,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     name: 'Pageview',
                     custom_name: 'Unique visitors',
                 }
+
                 const pageViewsSeries = {
                     ...uniqueUserSeries,
                     math: BaseMathType.TotalCount,
                     custom_name: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? 'Screen Views' : 'Page views',
                 }
+
                 const sessionsSeries = {
                     ...uniqueUserSeries,
                     math: BaseMathType.UniqueSessions,
                     custom_name: 'Sessions',
                 }
+
                 const uniqueConversionsSeries: ActionsNode | EventsNode | undefined = !conversionGoal
                     ? undefined
                     : 'actionId' in conversionGoal
@@ -607,6 +620,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                           custom_name: 'Total conversions',
                       }
                     : undefined
+
+                const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
+                    return {
+                        dashboardItemId: getDashboardItemId(tile, tab, false),
+                        loadPriority: loadPriorityMap[tile],
+                        dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                    }
+                }
 
                 const createGraphsTrendsTab = (
                     id: GraphsTab,
@@ -688,8 +709,80 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
-                const pathCleaningSettingsUrl = urls.settings('project-product-analytics', 'path-cleaning')
-                const customChannelTypesUrl = urls.settings('environment-web-analytics', 'channel-type')
+                // TODO: Use actual web vitals tab, this is just a placeholder
+                if (featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && productTab === ProductTab.CORE_WEB_VITALS) {
+                    return [
+                        {
+                            kind: 'query',
+                            tileId: TileId.WEB_VITALS,
+
+                            // TODO: Do we need title and docs? Likely not
+                            title: 'Core Web Vitals',
+                            docs: {
+                                title: 'Core Web Vitals',
+                                description: 'TODO',
+                                url: 'https://posthog.com/docs/web-analytics/web-vitals',
+                            },
+                            layout: {
+                                colSpanClassName: 'md:col-span-full',
+                                orderWhenLargeClassName: 'xxl:order-0',
+                            },
+                            query: {
+                                kind: NodeKind.InsightVizNode,
+                                source: {
+                                    kind: NodeKind.TrendsQuery,
+                                    dateRange,
+                                    interval,
+                                    series: [
+                                        {
+                                            kind: NodeKind.EventsNode,
+                                            event: '$web_vitals',
+                                            name: '$web_vitals',
+                                            custom_name: 'INP P90',
+                                            math: PropertyMathType.P90,
+                                            math_property: '$web_vitals_INP_value',
+                                        },
+                                        {
+                                            kind: NodeKind.EventsNode,
+                                            event: '$web_vitals',
+                                            name: '$web_vitals',
+                                            custom_name: 'LCP P90',
+                                            math: PropertyMathType.P90,
+                                            math_property: '$web_vitals_LCP_value',
+                                        },
+                                        {
+                                            kind: NodeKind.EventsNode,
+                                            event: '$web_vitals',
+                                            name: '$web_vitals',
+                                            custom_name: 'CLS P90',
+                                            math: PropertyMathType.P90,
+                                            math_property: '$web_vitals_CLS_value',
+                                        },
+                                        {
+                                            kind: NodeKind.EventsNode,
+                                            event: '$web_vitals',
+                                            name: '$web_vitals',
+                                            custom_name: 'FCP P90',
+                                            math: PropertyMathType.P90,
+                                            math_property: '$web_vitals_FCP_value',
+                                        },
+                                    ],
+                                    trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+                                    compareFilter,
+                                    filterTestAccounts,
+                                    conversionGoal: undefined, // TODO: Should we support conversion goals for core web vitals?
+                                    properties: webAnalyticsFilters,
+                                },
+                                hidePersonsModal: true,
+                                embedded: true,
+                            },
+                            insightProps: createInsightProps(TileId.OVERVIEW),
+                            canOpenInsight: false,
+                            canOpenModal: false,
+                            showIntervalSelect: true,
+                        },
+                    ]
+                }
 
                 const pathCleaningControl = (
                     <LemonSwitch
@@ -716,7 +809,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     size="small"
                                     noPadding={true}
                                     tooltip="Edit path cleaning settings"
-                                    to={pathCleaningSettingsUrl}
+                                    to={urls.settings('project-product-analytics', 'path-cleaning')}
                                 />
                             </div>
                         }
@@ -742,7 +835,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
-                            includeLCPScore: true,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenModal: false,
@@ -997,7 +1089,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                 size="small"
                                                 noPadding={true}
                                                 tooltip="Customize channel types"
-                                                to={customChannelTypesUrl}
+                                                to={urls.settings('environment-web-analytics', 'channel-type')}
                                             />
                                         </div>
                                     ),
@@ -1458,7 +1550,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return null
                 }
                 const { tileId, tabId } = modalTileAndTab
-                const tile = tiles.find((tile) => tile.tileId === tileId)
+                const tile: WebDashboardTile | undefined = tiles.find((tile) => tile.tileId === tileId)
                 if (!tile) {
                     return null
                 }
@@ -1608,10 +1700,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         return query
                     }
 
-                    const tile = tiles.find((tile) => tile.tileId === tileId)
+                    const tile: WebDashboardTile | undefined = tiles.find((tile) => tile.tileId === tileId)
                     if (!tile) {
                         return undefined
                     }
+
                     if (tile.kind === 'tabs') {
                         const tab = tile.tabs.find((tab) => tab.id === tabId)
                         if (!tab) {
@@ -1633,25 +1726,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         statusCheck: {
             __default: null as WebAnalyticsStatusCheck | null,
             loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
-                const [pageviewResult, pageleaveResult, pageleaveScroll, pageViewsWithoutSessionsResult] =
-                    await Promise.allSettled([
-                        api.eventDefinitions.list({
-                            event_type: EventDefinitionType.Event,
-                            search: '$pageview',
-                        }),
-                        api.eventDefinitions.list({
-                            event_type: EventDefinitionType.Event,
-                            search: '$pageleave',
-                        }),
-                        api.propertyDefinitions.list({
-                            event_names: ['$pageleave'],
-                            properties: ['$prev_pageview_max_content_percentage'],
-                        }),
-                        api.query<HogQLQuery>({
-                            kind: NodeKind.HogQLQuery,
-                            query: "SELECT events.properties.$lib as lib FROM events WHERE event='$pageview' AND or(events.$session_id IS NULL, events.$session_id = '') AND timestamp > today() LIMIT 1",
-                        }),
-                    ])
+                const [pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
+                    api.eventDefinitions.list({
+                        event_type: EventDefinitionType.Event,
+                        search: '$pageview',
+                    }),
+                    api.eventDefinitions.list({
+                        event_type: EventDefinitionType.Event,
+                        search: '$pageleave',
+                    }),
+                    api.propertyDefinitions.list({
+                        event_names: ['$pageleave'],
+                        properties: ['$prev_pageview_max_content_percentage'],
+                    }),
+                ])
 
                 // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
                 // going to add enough reserved event names that match this search term to cause problems
@@ -1670,10 +1758,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ? pageleaveScroll.value.results.find((r) => r.name === '$prev_pageview_max_content_percentage')
                         : undefined
 
-                const libSendingPageViewsWithoutSessionIds =
-                    pageViewsWithoutSessionsResult.status === 'fulfilled'
-                        ? pageViewsWithoutSessionsResult.value.results?.[0]?.[0]
-                        : undefined
                 const isSendingPageViews = !!pageviewEntry && !isDefinitionStale(pageviewEntry)
                 const isSendingPageLeaves = !!pageleaveEntry && !isDefinitionStale(pageleaveEntry)
                 const isSendingPageLeavesScroll = !!pageleaveScrollEntry && !isDefinitionStale(pageleaveScrollEntry)
@@ -1682,7 +1766,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     isSendingPageViews,
                     isSendingPageLeaves,
                     isSendingPageLeavesScroll,
-                    libSendingPageViewsWithoutSessionIds,
                 }
             },
         },
@@ -1746,6 +1829,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 isPathCleaningEnabled,
                 shouldFilterTestAccounts,
                 compareFilter,
+                productTab,
             } = values
 
             const urlParams = new URLSearchParams()
@@ -1759,7 +1843,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     urlParams.set('conversionGoal.customEventName', conversionGoal.customEventName)
                 }
             }
-            if (dateFrom !== initialDateFrom || dateTo !== initialDateTo || interval !== initialInterval) {
+            if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
                 urlParams.set('date_from', dateFrom ?? '')
                 urlParams.set('date_to', dateTo ?? '')
                 urlParams.set('interval', interval ?? '')
@@ -1788,7 +1872,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (compareFilter) {
                 urlParams.set('compare_filter', JSON.stringify(compareFilter))
             }
-            return `/web?${urlParams.toString()}`
+            if (productTab !== ProductTab.ANALYTICS) {
+                urlParams.set('product_tab', productTab)
+            }
+
+            const basePath = productTab === ProductTab.CORE_WEB_VITALS ? '/web/core-web-vitals' : '/web'
+            return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
 
         return {
@@ -1803,12 +1892,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setPathTab: stateToUrl,
             setGeographyTab: stateToUrl,
             setCompareFilter: stateToUrl,
+            setProductTab: stateToUrl,
         }
     }),
 
-    urlToAction(({ actions, values }) => ({
-        '/web': (
-            _,
+    urlToAction(({ actions, values }) => {
+        const toAction = (
+            { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
             {
                 filters,
                 'conversionGoal.actionId': conversionGoalActionId,
@@ -1824,8 +1914,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 path_cleaning,
                 filter_test_accounts,
                 compare_filter,
-            }
-        ) => {
+            }: Record<string, any>
+        ): void => {
             const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
 
             if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {
@@ -1873,8 +1963,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (compare_filter && !objectsEqual(compare_filter, values.compareFilter)) {
                 actions.setCompareFilter(compare_filter)
             }
-        },
-    })),
+            if (productTab && productTab !== values.productTab) {
+                actions.setProductTab(productTab)
+            }
+        }
+
+        return { '/web': toAction, '/web/:productTab': toAction }
+    }),
+
     listeners(({ values, actions }) => {
         const checkGraphsTabIsCompatibleWithConversionGoal = (
             tab: string,

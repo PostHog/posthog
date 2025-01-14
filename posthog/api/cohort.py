@@ -41,7 +41,6 @@ from posthog.client import sync_execute
 from posthog.constants import (
     INSIGHT_FUNNELS,
     INSIGHT_LIFECYCLE,
-    INSIGHT_PATHS,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
     LIMIT,
@@ -56,7 +55,6 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.cohort import CohortOrEmpty
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.person.sql import (
@@ -67,7 +65,6 @@ from posthog.queries.actor_base_query import (
     ActorBaseQuery,
     get_serialized_people,
 )
-from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.stickiness import StickinessActors
 from posthog.queries.trends.trends_actors import TrendsActors
@@ -574,10 +571,6 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict, *, team_id: 
             funnel_actor_class = get_funnel_actor_class(funnel_filter)
             query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
             context = funnel_filter.hogql_context
-        elif insight_type == INSIGHT_PATHS:
-            path_filter = PathFilter(data=filter_data, team=cohort.team)
-            query_builder = PathsActors(path_filter, cohort.team, funnel_filter=None)
-            context = path_filter.hogql_context
         elif insight_type == INSIGHT_LIFECYCLE:
             lifecycle_filter = LifecycleFilter(data=filter_data, team=cohort.team)
             query_builder = LifecycleActors(team=cohort.team, filter=lifecycle_filter)

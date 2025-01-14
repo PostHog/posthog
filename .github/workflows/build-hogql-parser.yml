@@ -96,7 +96,7 @@ jobs:
               env:
                   MACOSX_DEPLOYMENT_TARGET: '12' # A modern target allows us to use C++20
 
-            - uses: actions/upload-artifact@v3
+            - uses: actions/upload-artifact@v4
               with:
                   path: |
                       hogql_parser/dist/*.whl
@@ -112,7 +112,7 @@ jobs:
         runs-on: ubuntu-22.04
         steps:
             - name: Fetch wheels
-              uses: actions/download-artifact@v3
+              uses: actions/download-artifact@v4
               with:
                   name: artifact
                   path: dist/
