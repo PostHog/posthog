@@ -247,7 +247,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     if (group?.logic && group?.value) {
                         let items = group.logic.selectors[group.value]?.(state)
-                        // Handle paginated responses for cohorts
+                        // Handle paginated responses for cohorts, which return a CountedPaginatedResponse
                         if (items?.results) {
                             items = items.results
                         }

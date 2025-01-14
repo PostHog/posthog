@@ -1488,10 +1488,6 @@ const api = {
         async duplicate(cohortId: CohortType['id']): Promise<CohortType> {
             return await new ApiRequest().cohortsDuplicate(cohortId).get()
         },
-        async list(): Promise<CohortType[]> {
-            // TODO: Deprecate this in favor of listPaginated
-            return (await this.listPaginated({ limit: 600 })).results
-        },
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },

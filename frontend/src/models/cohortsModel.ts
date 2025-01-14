@@ -1,4 +1,4 @@
-import { actions, beforeUnmount, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
@@ -10,7 +10,7 @@ import { COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME } from 'scenes/cohorts/Cohort
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { personsManagementSceneLogic } from 'scenes/persons-management/personsManagementSceneLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -208,7 +208,7 @@ export const cohortsModel = kea<cohortsModelType>([
     listeners(({ actions }) => ({
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CountedPaginatedResponse<CohortType> }) => {
             const is_calculating = cohorts.results.filter((cohort) => cohort.is_calculating).length > 0
-            if (!is_calculating || !window.location.pathname.includes(urls.cohorts())) {
+            if (!is_calculating || !router.values.location.pathname.includes(urls.cohorts())) {
                 return
             }
             actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
@@ -274,10 +274,11 @@ export const cohortsModel = kea<cohortsModelType>([
     beforeUnmount(({ values }) => {
         clearTimeout(values.pollTimeout || undefined)
     }),
-    events(({ actions }) => ({
-        afterMount: () => {
+    afterMount(({ actions, values }) => {
+        if (isAuthenticatedTeam(values.currentTeam)) {
+            // Don't load on shared insights/dashboards
             actions.loadCohorts()
-        },
-    })),
+        }
+    }),
     permanentlyMount(),
 ])
