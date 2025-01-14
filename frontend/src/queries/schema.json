@@ -8566,13 +8566,13 @@
         "LLMGeneration": {
             "additionalProperties": false,
             "properties": {
-                "base_url": {
+                "baseUrl": {
                     "type": "string"
                 },
-                "created_at": {
+                "createdAt": {
                     "type": "string"
                 },
-                "http_status": {
+                "httpStatus": {
                     "type": "number"
                 },
                 "id": {
@@ -8582,10 +8582,10 @@
                     "items": {},
                     "type": "array"
                 },
-                "input_cost": {
+                "inputCost": {
                     "type": "number"
                 },
-                "input_tokens": {
+                "inputTokens": {
                     "type": "number"
                 },
                 "latency": {
@@ -8595,26 +8595,26 @@
                     "type": "string"
                 },
                 "output": {},
-                "output_cost": {
+                "outputCost": {
                     "type": "number"
                 },
-                "output_tokens": {
+                "outputTokens": {
                     "type": "number"
                 },
                 "provider": {
                     "type": "string"
                 },
-                "total_cost": {
+                "totalCost": {
                     "type": "number"
                 }
             },
-            "required": ["id", "created_at", "input", "latency"],
+            "required": ["id", "createdAt", "input", "latency"],
             "type": "object"
         },
         "LLMTrace": {
             "additionalProperties": false,
             "properties": {
-                "created_at": {
+                "createdAt": {
                     "type": "string"
                 },
                 "events": {
@@ -8626,38 +8626,38 @@
                 "id": {
                     "type": "string"
                 },
-                "input_cost": {
+                "inputCost": {
                     "type": "number"
                 },
-                "input_tokens": {
+                "inputTokens": {
                     "type": "number"
                 },
-                "output_cost": {
+                "outputCost": {
                     "type": "number"
                 },
-                "output_tokens": {
+                "outputTokens": {
                     "type": "number"
                 },
                 "person": {
                     "$ref": "#/definitions/LLMTracePerson"
                 },
-                "total_cost": {
+                "totalCost": {
                     "type": "number"
                 },
-                "total_latency": {
+                "totalLatency": {
                     "type": "number"
                 }
             },
             "required": [
                 "id",
-                "created_at",
+                "createdAt",
                 "person",
-                "total_latency",
-                "input_tokens",
-                "output_tokens",
-                "input_cost",
-                "output_cost",
-                "total_cost",
+                "totalLatency",
+                "inputTokens",
+                "outputTokens",
+                "inputCost",
+                "outputCost",
+                "totalCost",
                 "events"
             ],
             "type": "object"
@@ -8665,10 +8665,10 @@
         "LLMTracePerson": {
             "additionalProperties": false,
             "properties": {
-                "created_at": {
+                "createdAt": {
                     "type": "string"
                 },
-                "distinct_id": {
+                "distinctId": {
                     "type": "string"
                 },
                 "properties": {
@@ -8678,7 +8678,7 @@
                     "type": "string"
                 }
             },
-            "required": ["uuid", "created_at", "properties", "distinct_id"],
+            "required": ["uuid", "createdAt", "properties", "distinctId"],
             "type": "object"
         },
         "LifecycleFilter": {

@@ -2154,38 +2154,38 @@ export enum DefaultChannelTypes {
 
 export interface LLMGeneration {
     id: string
-    created_at: string
+    createdAt: string
     input: any[]
     latency: number
     output?: any
     provider?: string
     model?: string
-    input_tokens?: number
-    output_tokens?: number
-    input_cost?: number
-    output_cost?: number
-    total_cost?: number
-    http_status?: number
-    base_url?: string
+    inputTokens?: number
+    outputTokens?: number
+    inputCost?: number
+    outputCost?: number
+    totalCost?: number
+    httpStatus?: number
+    baseUrl?: string
 }
 
 export interface LLMTracePerson {
     uuid: string
-    created_at: string
+    createdAt: string
     properties: Record<string, any>
-    distinct_id: string
+    distinctId: string
 }
 
 export interface LLMTrace {
     id: string
-    created_at: string
+    createdAt: string
     person: LLMTracePerson
-    total_latency: number
-    input_tokens: number
-    output_tokens: number
-    input_cost: number
-    output_cost: number
-    total_cost: number
+    totalLatency: number
+    inputTokens: number
+    outputTokens: number
+    inputCost: number
+    outputCost: number
+    totalCost: number
     events: LLMGeneration[]
 }
 

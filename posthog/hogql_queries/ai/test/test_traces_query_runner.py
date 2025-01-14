@@ -158,16 +158,16 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             trace,
             {
                 "id": "trace1",
-                "created_at": datetime(2025, 1, 15, 0, tzinfo=UTC).isoformat(),
-                "total_latency": 2.0,
-                "input_tokens": 6.0,
-                "output_tokens": 6.0,
-                "input_cost": 6.0,
-                "output_cost": 6.0,
-                "total_cost": 12.0,
+                "createdAt": datetime(2025, 1, 15, 0, tzinfo=UTC).isoformat(),
+                "totalLatency": 2.0,
+                "inputTokens": 6.0,
+                "outputTokens": 6.0,
+                "inputCost": 6.0,
+                "outputCost": 6.0,
+                "totalCost": 12.0,
             },
         )
-        self.assertEqual(trace.person.distinct_id, "person1")
+        self.assertEqual(trace.person.distinctId, "person1")
 
         self.assertEqual(len(trace.events), 2)
         event = trace.events[0]
@@ -175,15 +175,15 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEventEqual(
             event,
             {
-                "created_at": datetime(2025, 1, 15, 0, tzinfo=UTC).isoformat(),
+                "createdAt": datetime(2025, 1, 15, 0, tzinfo=UTC).isoformat(),
                 "input": [{"role": "user", "content": "Foo"}],
                 "output": {"choices": [{"role": "assistant", "content": "Bar"}]},
                 "latency": 1,
-                "input_tokens": 3,
-                "output_tokens": 3,
-                "input_cost": 3,
-                "output_cost": 3,
-                "total_cost": 6,
+                "inputTokens": 3,
+                "outputTokens": 3,
+                "inputCost": 3,
+                "outputCost": 3,
+                "totalCost": 6,
             },
         )
 
@@ -192,17 +192,17 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEventEqual(
             event,
             {
-                "created_at": datetime(2025, 1, 15, 1, tzinfo=UTC).isoformat(),
+                "createdAt": datetime(2025, 1, 15, 1, tzinfo=UTC).isoformat(),
                 "input": [{"role": "user", "content": "Bar"}],
                 "output": {"choices": [{"role": "assistant", "content": "Baz"}]},
                 "latency": 1,
-                "input_tokens": 3,
-                "output_tokens": 3,
-                "input_cost": 3,
-                "output_cost": 3,
-                "total_cost": 6,
-                "base_url": None,
-                "http_status": None,
+                "inputTokens": 3,
+                "outputTokens": 3,
+                "inputCost": 3,
+                "outputCost": 3,
+                "totalCost": 6,
+                "baseUrl": None,
+                "httpStatus": None,
             },
         )
 
@@ -211,33 +211,33 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             trace,
             {
                 "id": "trace2",
-                "created_at": datetime(2025, 1, 14, tzinfo=UTC).isoformat(),
-                "total_latency": 1,
-                "input_tokens": 3,
-                "output_tokens": 3,
-                "input_cost": 3,
-                "output_cost": 3,
-                "total_cost": 6,
+                "createdAt": datetime(2025, 1, 14, tzinfo=UTC).isoformat(),
+                "totalLatency": 1,
+                "inputTokens": 3,
+                "outputTokens": 3,
+                "inputCost": 3,
+                "outputCost": 3,
+                "totalCost": 6,
             },
         )
-        self.assertEqual(trace.person.distinct_id, "person2")
+        self.assertEqual(trace.person.distinctId, "person2")
         self.assertEqual(len(trace.events), 1)
         event = trace.events[0]
         self.assertIsNotNone(event.id)
         self.assertEventEqual(
             event,
             {
-                "created_at": datetime(2025, 1, 14, tzinfo=UTC).isoformat(),
+                "createdAt": datetime(2025, 1, 14, tzinfo=UTC).isoformat(),
                 "input": [{"role": "user", "content": "Foo"}],
                 "output": {"choices": [{"role": "assistant", "content": "Bar"}]},
                 "latency": 1,
-                "input_tokens": 3,
-                "output_tokens": 3,
-                "input_cost": 3,
-                "output_cost": 3,
-                "total_cost": 6,
-                "base_url": None,
-                "http_status": None,
+                "inputTokens": 3,
+                "outputTokens": 3,
+                "inputCost": 3,
+                "outputCost": 3,
+                "totalCost": 6,
+                "baseUrl": None,
+                "httpStatus": None,
             },
         )
 
@@ -304,15 +304,15 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
-        self.assertEqual(response.results[0].total_latency, 10.5)
+        self.assertEqual(response.results[0].totalLatency, 10.5)
         self.assertEventEqual(
             response.results[0].events[0],
             {
                 "latency": 10.5,
                 "provider": "posthog",
                 "model": "hog-destroyer",
-                "http_status": 200,
-                "base_url": "https://us.posthog.com",
+                "httpStatus": 200,
+                "baseUrl": "https://us.posthog.com",
             },
         )
 
@@ -326,9 +326,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
         response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].person.created_at, "2025-01-01T00:00:00+00:00")
+        self.assertEqual(response.results[0].person.createdAt, "2025-01-01T00:00:00+00:00")
         self.assertEqual(response.results[0].person.properties, {"email": "test@posthog.com"})
-        self.assertEqual(response.results[0].person.distinct_id, "person1")
+        self.assertEqual(response.results[0].person.distinctId, "person1")
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_date_range(self):

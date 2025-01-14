@@ -1,6 +1,7 @@
 import './SavedInsights.scss'
 
 import {
+    IconAI,
     IconBrackets,
     IconCorrelationAnalysis,
     IconCursor,
@@ -315,7 +316,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.TracesQuery]: {
         name: 'LLM Observability Traces',
-        icon: IconHogQL,
+        icon: IconAI,
         inMenu: false,
     },
 }

@@ -95,17 +95,17 @@ class TracesQueryRunner(QueryRunner):
         return TracesQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
 
     def _map_results(self, columns: list[str], query_results: list):
-        TRACE_FIELDS = {
-            "id",
-            "created_at",
-            "person",
-            "total_latency",
-            "input_tokens",
-            "output_tokens",
-            "input_cost",
-            "output_cost",
-            "total_cost",
-            "events",
+        TRACE_FIELDS_MAPPING = {
+            "id": "id",
+            "created_at": "createdAt",
+            "person": "person",
+            "total_latency": "totalLatency",
+            "input_tokens": "inputTokens",
+            "output_tokens": "outputTokens",
+            "input_cost": "inputCost",
+            "output_cost": "outputCost",
+            "total_cost": "totalCost",
+            "events": "events",
         }
         mapped_results = [dict(zip(columns, value)) for value in query_results]
         traces = []
@@ -129,7 +129,10 @@ class TracesQueryRunner(QueryRunner):
                 "person": self._map_person(result["person"]),
                 "events": generations,
             }
-            trace = LLMTrace.model_validate({key: value for key, value in trace_dict.items() if key in TRACE_FIELDS})
+            # Remap keys from snake case to camel case
+            trace = LLMTrace.model_validate(
+                {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
+            )
             traces.append(trace)
 
         return traces
@@ -143,19 +146,19 @@ class TracesQueryRunner(QueryRunner):
             "$ai_output": "output",
             "$ai_provider": "provider",
             "$ai_model": "model",
-            "$ai_input_tokens": "input_tokens",
-            "$ai_output_tokens": "output_tokens",
-            "$ai_input_cost_usd": "input_cost",
-            "$ai_output_cost_usd": "output_cost",
-            "$ai_total_cost_usd": "total_cost",
-            "$ai_http_status": "http_status",
-            "$ai_base_url": "base_url",
+            "$ai_input_tokens": "inputTokens",
+            "$ai_output_tokens": "outputTokens",
+            "$ai_input_cost_usd": "inputCost",
+            "$ai_output_cost_usd": "outputCost",
+            "$ai_total_cost_usd": "totalCost",
+            "$ai_http_status": "httpStatus",
+            "$ai_base_url": "baseUrl",
         }
         GENERATION_JSON_FIELDS = {"$ai_input", "$ai_output"}
 
         generation = {
             "id": str(event_uuid),
-            "created_at": event_timestamp.isoformat(),
+            "createdAt": event_timestamp.isoformat(),
         }
 
         for event_prop, model_prop in GENERATION_MAPPING.items():
@@ -171,8 +174,8 @@ class TracesQueryRunner(QueryRunner):
         uuid, distinct_id, created_at, properties = person
         return LLMTracePerson(
             uuid=str(uuid),
-            distinct_id=str(distinct_id),
-            created_at=created_at.isoformat(),
+            distinctId=str(distinct_id),
+            createdAt=created_at.isoformat(),
             properties=orjson.loads(properties) if properties else {},
         )
 

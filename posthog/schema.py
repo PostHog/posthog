@@ -970,28 +970,28 @@ class LLMGeneration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    base_url: Optional[str] = None
-    created_at: str
-    http_status: Optional[float] = None
+    baseUrl: Optional[str] = None
+    createdAt: str
+    httpStatus: Optional[float] = None
     id: str
     input: list
-    input_cost: Optional[float] = None
-    input_tokens: Optional[float] = None
+    inputCost: Optional[float] = None
+    inputTokens: Optional[float] = None
     latency: float
     model: Optional[str] = None
     output: Optional[Any] = None
-    output_cost: Optional[float] = None
-    output_tokens: Optional[float] = None
+    outputCost: Optional[float] = None
+    outputTokens: Optional[float] = None
     provider: Optional[str] = None
-    total_cost: Optional[float] = None
+    totalCost: Optional[float] = None
 
 
 class LLMTracePerson(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    created_at: str
-    distinct_id: str
+    createdAt: str
+    distinctId: str
     properties: dict[str, Any]
     uuid: str
 
@@ -2219,16 +2219,16 @@ class LLMTrace(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    created_at: str
+    createdAt: str
     events: list[LLMGeneration]
     id: str
-    input_cost: float
-    input_tokens: float
-    output_cost: float
-    output_tokens: float
+    inputCost: float
+    inputTokens: float
+    outputCost: float
+    outputTokens: float
     person: LLMTracePerson
-    total_cost: float
-    total_latency: float
+    totalCost: float
+    totalLatency: float
 
 
 class LifecycleFilter(BaseModel):
