@@ -3,11 +3,11 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { status } from '../../../../utils/status'
 import { eventDroppedCounter } from '../../metrics'
 import { KafkaParser } from '../kafka/parser'
-import { BatchMessageParser } from '../types'
+import { BatchMessageProcessor } from '../types'
 import { TeamService } from './team-service'
 import { MessageWithTeam, Team } from './types'
 
-export class TeamFilter implements BatchMessageParser {
+export class TeamFilter implements BatchMessageProcessor<Message, MessageWithTeam> {
     constructor(private readonly teamService: TeamService, private readonly parser: KafkaParser) {}
 
     public async parseMessage(message: Message): Promise<MessageWithTeam | null> {

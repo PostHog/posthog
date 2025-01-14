@@ -23,7 +23,7 @@ import { PromiseScheduler } from './promise-scheduler'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
-import { BatchMessageParser } from './types'
+import { BatchMessageProcessor } from './types'
 import { CaptureIngestionWarningFn } from './types'
 import { getPartitionsForTopic } from './utils'
 import { LibVersionMonitor } from './versions/lib-version-monitor'
@@ -40,7 +40,7 @@ export class SessionRecordingIngester {
     isStopping = false
 
     private isDebugLoggingEnabled: ValueMatcher<number>
-    private readonly messageParser: BatchMessageParser
+    private readonly messageProcessor: BatchMessageProcessor<Message, MessageWithTeam>
     private readonly metrics: SessionRecordingMetrics
     private readonly promiseScheduler: PromiseScheduler
     private readonly batchConsumerFactory: BatchConsumerFactory
@@ -59,13 +59,19 @@ export class SessionRecordingIngester {
         this.promiseScheduler = new PromiseScheduler()
         this.batchConsumerFactory = batchConsumerFactory
 
-        this.messageParser = new TeamFilter(teamService, kafkaParser)
+        const teamFilter = new TeamFilter(teamService, kafkaParser)
+        this.messageProcessor = teamFilter
 
         if (ingestionWarningProducer) {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
                 await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
             }
-            this.messageParser = new LibVersionMonitor(captureWarning, VersionMetrics.getInstance())
+
+            this.messageProcessor = new LibVersionMonitor<Message>(
+                teamFilter,
+                captureWarning,
+                VersionMetrics.getInstance()
+            )
         }
 
         this.topic = consumeOverflow
@@ -106,7 +112,7 @@ export class SessionRecordingIngester {
                 const parsedMessages = await runInstrumentedFunction({
                     statsKey: `recordingingesterv2.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
-                        return this.messageParser.parseBatch(messages)
+                        return this.messageProcessor.parseBatch(messages)
                     },
                 })
                 context.heartbeat()

@@ -1,14 +1,18 @@
-import { MessageHeader } from 'node-rdkafka'
+import { Message, MessageHeader } from 'node-rdkafka'
 
 import { MessageWithTeam } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/types'
-import { CaptureIngestionWarningFn } from '../../../../../src/main/ingestion-queues/session-recording-v2/types'
+import {
+    BatchMessageProcessor,
+    CaptureIngestionWarningFn,
+} from '../../../../../src/main/ingestion-queues/session-recording-v2/types'
 import { LibVersionMonitor } from '../../../../../src/main/ingestion-queues/session-recording-v2/versions/lib-version-monitor'
 import { VersionMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/versions/version-metrics'
 
 describe('LibVersionMonitor', () => {
     let mockCaptureWarning: jest.MockedFunction<CaptureIngestionWarningFn>
     let mockMetrics: jest.Mocked<VersionMetrics>
-    let monitor: LibVersionMonitor
+    let mockSourceProcessor: jest.Mocked<BatchMessageProcessor<Message, MessageWithTeam>>
+    let monitor: LibVersionMonitor<Message>
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -16,12 +20,16 @@ describe('LibVersionMonitor', () => {
         mockMetrics = {
             incrementLibVersionWarning: jest.fn(),
         } as any
-        monitor = new LibVersionMonitor(mockCaptureWarning, mockMetrics)
+        mockSourceProcessor = {
+            parseBatch: jest.fn(),
+        }
+        monitor = new LibVersionMonitor(mockSourceProcessor, mockCaptureWarning, mockMetrics)
     })
 
     describe('parseBatch', () => {
         it('should process messages and return them unmodified', async () => {
-            const messages: MessageWithTeam[] = [
+            const inputMessages: Message[] = [{ partition: 1 } as Message]
+            const processedMessages: MessageWithTeam[] = [
                 {
                     team: { teamId: 1, consoleLogIngestionEnabled: true },
                     message: {
@@ -41,12 +49,16 @@ describe('LibVersionMonitor', () => {
                 },
             ]
 
-            const result = await monitor.parseBatch(messages)
-            expect(result).toBe(messages)
+            mockSourceProcessor.parseBatch.mockResolvedValue(processedMessages)
+
+            const result = await monitor.parseBatch(inputMessages)
+            expect(result).toBe(processedMessages)
+            expect(mockSourceProcessor.parseBatch).toHaveBeenCalledWith(inputMessages)
         })
 
         it('should trigger warning for old versions', async () => {
-            const messages: MessageWithTeam[] = [
+            const inputMessages: Message[] = [{ partition: 1 } as Message]
+            const processedMessages: MessageWithTeam[] = [
                 {
                     team: { teamId: 1, consoleLogIngestionEnabled: true },
                     message: {
@@ -66,7 +78,9 @@ describe('LibVersionMonitor', () => {
                 },
             ]
 
-            await monitor.parseBatch(messages)
+            mockSourceProcessor.parseBatch.mockResolvedValue(processedMessages)
+
+            await monitor.parseBatch(inputMessages)
 
             expect(mockMetrics.incrementLibVersionWarning).toHaveBeenCalled()
             expect(mockCaptureWarning).toHaveBeenCalledWith(
@@ -81,7 +95,8 @@ describe('LibVersionMonitor', () => {
         })
 
         it('should not trigger warning for newer versions', async () => {
-            const messages: MessageWithTeam[] = [
+            const inputMessages: Message[] = [{ partition: 1 } as Message]
+            const processedMessages: MessageWithTeam[] = [
                 {
                     team: { teamId: 1, consoleLogIngestionEnabled: true },
                     message: {
@@ -101,13 +116,17 @@ describe('LibVersionMonitor', () => {
                 },
             ]
 
-            await monitor.parseBatch(messages)
+            mockSourceProcessor.parseBatch.mockResolvedValue(processedMessages)
+
+            await monitor.parseBatch(inputMessages)
 
             expect(mockMetrics.incrementLibVersionWarning).not.toHaveBeenCalled()
+            expect(mockCaptureWarning).not.toHaveBeenCalled()
         })
 
         it('should handle invalid version formats', async () => {
-            const messages: MessageWithTeam[] = [
+            const inputMessages: Message[] = [{ partition: 1 } as Message]
+            const processedMessages: MessageWithTeam[] = [
                 {
                     team: { teamId: 1, consoleLogIngestionEnabled: true },
                     message: {
@@ -115,7 +134,7 @@ describe('LibVersionMonitor', () => {
                         session_id: 'test_session',
                         eventsByWindowId: {},
                         eventsRange: { start: 0, end: 0 },
-                        headers: [{ lib_version: 'invalid.version' }] as MessageHeader[],
+                        headers: [{ lib_version: 'invalid' }] as MessageHeader[],
                         metadata: {
                             partition: 0,
                             topic: 'test',
@@ -127,13 +146,17 @@ describe('LibVersionMonitor', () => {
                 },
             ]
 
-            await monitor.parseBatch(messages)
+            mockSourceProcessor.parseBatch.mockResolvedValue(processedMessages)
+
+            await monitor.parseBatch(inputMessages)
 
             expect(mockMetrics.incrementLibVersionWarning).not.toHaveBeenCalled()
+            expect(mockCaptureWarning).not.toHaveBeenCalled()
         })
 
         it('should handle missing version header', async () => {
-            const messages: MessageWithTeam[] = [
+            const inputMessages: Message[] = [{ partition: 1 } as Message]
+            const processedMessages: MessageWithTeam[] = [
                 {
                     team: { teamId: 1, consoleLogIngestionEnabled: true },
                     message: {
@@ -153,9 +176,12 @@ describe('LibVersionMonitor', () => {
                 },
             ]
 
-            await monitor.parseBatch(messages)
+            mockSourceProcessor.parseBatch.mockResolvedValue(processedMessages)
+
+            await monitor.parseBatch(inputMessages)
 
             expect(mockMetrics.incrementLibVersionWarning).not.toHaveBeenCalled()
+            expect(mockCaptureWarning).not.toHaveBeenCalled()
         })
     })
 })

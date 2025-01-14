@@ -2,8 +2,6 @@
 
 import { Message } from 'node-rdkafka'
 
-import { MessageWithTeam } from './teams/types'
-
 export type PersistedRecordingMessage = {
     window_id?: string
     data: any
@@ -18,6 +16,6 @@ export type CaptureIngestionWarningFn = (
     debounce?: { key?: string; alwaysSend?: boolean }
 ) => Promise<void>
 
-export interface BatchMessageParser {
-    parseBatch(messages: Message[] | MessageWithTeam[]): Promise<MessageWithTeam[]>
+export interface BatchMessageProcessor<TInput, TOutput> {
+    parseBatch(messages: TInput[]): Promise<TOutput[]>
 }
