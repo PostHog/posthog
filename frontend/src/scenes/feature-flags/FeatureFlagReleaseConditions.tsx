@@ -286,7 +286,7 @@ export function FeatureFlagReleaseConditions({
                                 Rolled out to{' '}
                                 {group.rollout_percentage != null ? <b>{group.rollout_percentage}</b> : <b>100</b>}
                                 <b>%</b>
-                                <span>of</span>
+                                <span> of </span>
                                 <b>{aggregationTargetName}</b> <span>in this set.</span>
                             </div>
                         </LemonTag>
