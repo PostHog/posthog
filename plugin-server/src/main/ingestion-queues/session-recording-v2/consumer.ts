@@ -16,6 +16,7 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from './constants'
+import { KafkaMetrics } from './kafka/metrics'
 import { KafkaParser } from './kafka/parser'
 import { SessionRecordingMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
@@ -51,7 +52,8 @@ export class SessionRecordingIngester {
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
-        const kafkaParser = new KafkaParser()
+        const kafkaMetrics = KafkaMetrics.getInstance()
+        const kafkaParser = new KafkaParser(kafkaMetrics)
         const teamService = new TeamService()
         this.metrics = SessionRecordingMetrics.getInstance()
         this.promiseScheduler = new PromiseScheduler()

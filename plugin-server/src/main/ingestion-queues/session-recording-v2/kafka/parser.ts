@@ -4,23 +4,18 @@ import { Message } from 'node-rdkafka'
 
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../../types'
 import { status } from '../../../../utils/status'
-import { eventDroppedCounter } from '../../metrics'
+import { KafkaMetrics } from './metrics'
 import { ParsedMessageData } from './types'
 
 const GZIP_HEADER = Buffer.from([0x1f, 0x8b, 0x08, 0x00])
 const do_unzip = promisify(unzip)
 
 export class KafkaParser {
-    constructor() {}
+    constructor(private readonly metrics: KafkaMetrics) {}
 
     public async parseMessage(message: Message): Promise<ParsedMessageData | null> {
         const dropMessage = (reason: string, extra?: Record<string, any>) => {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: reason,
-                })
-                .inc()
+            this.metrics.incrementMessageDropped('session_recordings_blob_ingestion', reason)
 
             status.warn('⚠️', 'invalid_message', {
                 reason,
