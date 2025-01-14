@@ -45,7 +45,7 @@ export class TemplateTester {
         this.executor = new HogExecutor(mockHub, mockHogFunctionManager)
     }
 
-    private createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobals {
+    createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobals {
         return {
             project: { id: 1, name: 'project-name', url: 'https://us.posthog.com/projects/1' },
             event: {
