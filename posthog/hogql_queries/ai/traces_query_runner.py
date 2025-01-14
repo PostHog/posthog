@@ -67,7 +67,7 @@ class TracesQueryRunner(QueryRunner):
         )
 
     def calculate(self):
-        with self.timings.measure("error_tracking_query_hogql_execute"):
+        with self.timings.measure("traces_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,

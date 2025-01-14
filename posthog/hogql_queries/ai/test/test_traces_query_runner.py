@@ -282,3 +282,45 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.hasMore, False)
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace_0")
+
+    def test_maps_all_fields(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            properties={
+                "$ai_latency": 10.5,
+                "$ai_provider": "posthog",
+                "$ai_model": "hog-destroyer",
+                "$ai_http_status": 200,
+                "$ai_base_url": "https://us.posthog.com",
+            },
+        )
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace1")
+        self.assertEqual(response.results[0].total_latency, 10.5)
+        self.assertEventEqual(
+            response.results[0].events[0],
+            {
+                "latency": 10.5,
+                "provider": "posthog",
+                "model": "hog-destroyer",
+                "http_status": 200,
+                "base_url": "https://us.posthog.com",
+            },
+        )
+
+    def test_person_properties(self):
+        _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "test@posthog.com"})
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+        )
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].person, {"email": "test@posthog.com"})
