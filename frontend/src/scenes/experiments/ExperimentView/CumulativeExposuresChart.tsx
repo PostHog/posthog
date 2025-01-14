@@ -4,7 +4,12 @@ import { useValues } from 'kea'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
-import { CachedExperimentTrendsQueryResponse, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
+import {
+    CachedExperimentTrendsQueryResponse,
+    InsightQueryNode,
+    InsightVizNode,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'

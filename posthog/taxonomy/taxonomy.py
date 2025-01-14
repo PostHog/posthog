@@ -180,6 +180,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Web vitals",
             "description": "Automatically captured web vitals data",
         },
+        "$ai_generation": {
+            "label": "AI Generation (LLM)",
+            "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
+        },
         "Application Opened": {
             "label": "Application Opened",
             "description": "When a user opens the mobile app either for the first time or from the foreground.",
@@ -292,6 +296,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Session Recording Recorder Version Server-Side",
             "description": "The version of the session recording recorder that is enabled server-side.",
             "examples": ["v2"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$session_is_sampled": {
+            "label": "Whether the session is sampled",
+            "description": "Whether the session is sampled for session recording.",
+            "examples": ["true", "false"],
             "system": True,
             "ignored_in_assistant": True,
         },
@@ -508,6 +519,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Approximated postal code matched to this event's IP address.",
             "examples": ["2000", "600004", "11211"],
         },
+        "$geoip_postal_code_confidence": {
+            "label": "Postal Code identification confidence score",
+            "description": "If provided by the licensed geoip database",
+            "examples": ["null", "0.1"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
         "$geoip_latitude": {
             "label": "Latitude",
             "description": "Approximated latitude matched to this event's IP address.",
@@ -540,6 +558,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$geoip_subdivision_2_code": {
             "label": "Subdivision 2 Code",
             "description": "Code of the second subdivision matched to this event's IP address.",
+        },
+        "$geoip_subdivision_2_confidence": {
+            "label": "Subdivision 2 identification confidence score",
+            "description": "If provided by the licensed geoip database",
+            "examples": ["null", "0.1"],
+            "ignored_in_assistant": True,
         },
         "$geoip_subdivision_3_name": {
             "label": "Subdivision 3 Name",
@@ -759,6 +783,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Browser Language",
             "description": "Language.",
             "examples": ["en", "en-US", "cn", "pl-PL"],
+        },
+        "$browser_language_prefix": {
+            "label": "Browser Language Prefix",
+            "description": "Language prefix.",
+            "examples": [
+                "en",
+                "ja",
+            ],
         },
         "$current_url": {
             "label": "Current URL",
@@ -1138,6 +1170,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
             "examples": [0],
         },
+        "$prev_pageview_id": {
+            "label": "Previous pageview ID",
+            "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
+            "examples": ["1"],
+            "system": True,
+        },
         "$prev_pageview_last_scroll_percentage": {
             "label": "Previous pageview last scroll percentage",
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
@@ -1245,6 +1283,64 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Dead click selection changed timeout",
             "description": "whether the dead click autocapture passed the threshold for waiting for a text selection change event",
             "system": True,
+        },
+        # AI
+        "$ai_base_url": {
+            "label": "AI Base URL (LLM)",
+            "description": "The base URL of the request made to the LLM API",
+            "examples": ["https://api.openai.com/v1/"],
+        },
+        "$ai_http_status": {
+            "label": "AI HTTP Status (LLM)",
+            "description": "The HTTP status code of the request made to the LLM API",
+            "examples": [200, 429],
+        },
+        "$ai_input": {
+            "label": "AI Input (LLM)",
+            "description": "The input JSON that was sent to the LLM API",
+            "examples": ['{"content": "Explain quantum computing in simple terms.", "role": "user"}'],
+        },
+        "$ai_input_tokens": {
+            "label": "AI Input Tokens (LLM)",
+            "description": "The number of tokens in the input prmopt that was sent to the LLM API",
+            "examples": [23],
+        },
+        "$ai_output": {
+            "label": "AI Output (LLM)",
+            "description": "The output JSON that was received from the LLM API",
+            "examples": [
+                '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
+            ],
+        },
+        "$ai_output_tokens": {
+            "label": "AI Output Tokens (LLM)",
+            "description": "The number of tokens in the output from the LLM API",
+            "examples": [23],
+        },
+        "$ai_latency": {
+            "label": "AI Latency (LLM)",
+            "description": "The latency of the request made to the LLM API, in seconds",
+            "examples": [1000],
+        },
+        "$ai_model": {
+            "label": "AI Model (LLM)",
+            "description": "The model used to generate the output from the LLM API",
+            "examples": ["gpt-4o-mini"],
+        },
+        "$ai_model_parameters": {
+            "label": "AI Model Parameters (LLM)",
+            "description": "The parameters used to configure the model in the LLM API, in JSON",
+            "examples": ['{"temperature": 0.5, "max_tokens": 50}'],
+        },
+        "$ai_provider": {
+            "label": "AI Provider (LLM)",
+            "description": "The provider of the AI model used to generate the output from the LLM API",
+            "examples": ["openai"],
+        },
+        "$ai_trace_id": {
+            "label": "AI Trace ID (LLM)",
+            "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace",
+            "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
         },
     },
     "numerical_event_properties": {},

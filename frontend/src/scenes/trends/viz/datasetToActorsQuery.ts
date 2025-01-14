@@ -1,4 +1,4 @@
-import { InsightActorsQuery, NodeKind } from '~/queries/schema'
+import { InsightActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { GraphDataset } from '~/types'
 
 interface DatasetToActorsQueryProps {
