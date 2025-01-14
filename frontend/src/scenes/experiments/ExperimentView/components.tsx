@@ -315,9 +315,8 @@ export function PageHeaderCustom(): JSX.Element {
                                 }}
                                 data-attr="refresh-experiment"
                                 icon={<IconRefresh />}
-                            >
-                                Refresh
-                            </LemonButton>
+                                tooltip="Refresh experiment results"
+                            />
                             <ResetButton experimentId={experiment.id} />
                             {!experiment.end_date && (
                                 <LemonButton
