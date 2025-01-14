@@ -102,7 +102,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     loaders({
         hasSentAiGenerationEvent: {
             __default: undefined as boolean | undefined,
-            loadAIEventDefinition: async (): Promise<boolean | undefined> => {
+            loadAIEventDefinition: async (): Promise<boolean> => {
                 const aiGenerationDefinition = await api.eventDefinitions.list({
                     event_type: EventDefinitionType.Event,
                     search: '$ai_generation',
@@ -111,13 +111,10 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
                 // going to add enough reserved event names that match this search term to cause problems
                 const definition = aiGenerationDefinition.results.find((r) => r.name === '$ai_generation')
-                if (definition) {
-                    if (!isDefinitionStale(definition)) {
-                        return true
-                    }
-                    return false
+                if (definition && !isDefinitionStale(definition)) {
+                    return true
                 }
-                return undefined
+                return false
             },
         },
     }),
