@@ -257,6 +257,7 @@ export function PageHeaderCustom(): JSX.Element {
         isSingleVariantShipped,
         featureFlags,
         hasGoalSet,
+        isCreatingExperimentDashboard,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -266,7 +267,9 @@ export function PageHeaderCustom(): JSX.Element {
         loadSecondaryMetricResults,
         createExposureCohort,
         openShipVariantModal,
+        createExperimentDashboard,
     } = useActions(experimentLogic)
+
     const exposureCohortId = experiment?.exposure_cohort
 
     return (
@@ -301,6 +304,13 @@ export function PageHeaderCustom(): JSX.Element {
                                                 targetBlank={!!exposureCohortId}
                                             >
                                                 {exposureCohortId ? 'View' : 'Create'} exposure cohort
+                                            </LemonButton>
+                                            <LemonButton
+                                                onClick={() => createExperimentDashboard()}
+                                                fullWidth
+                                                disabled={isCreatingExperimentDashboard}
+                                            >
+                                                Create dashboard
                                             </LemonButton>
                                             <LemonButton
                                                 onClick={() => loadMetricResults(true)}

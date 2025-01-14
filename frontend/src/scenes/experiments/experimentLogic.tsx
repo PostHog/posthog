@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -9,6 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import {
     indexToVariantKeyFeatureFlagPayloads,
     variantKeyToIndexFeatureFlagPayloads,
@@ -34,6 +35,8 @@ import {
     ExperimentFunnelsQuery,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
+    InsightQueryNode,
+    InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
@@ -42,6 +45,7 @@ import {
     ChartDisplayType,
     CohortType,
     CountPerActorMathType,
+    DashboardType,
     EntityTypes,
     Experiment,
     ExperimentResults,
@@ -146,6 +150,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentReleaseConditionsViewed',
                 'reportExperimentHoldoutAssigned',
                 'reportExperimentSharedMetricAssigned',
+                'reportExperimentDashboardCreated',
             ],
             teamLogic,
             ['addProductIntent'],
@@ -271,6 +276,8 @@ export const experimentLogic = kea<experimentLogicType>([
             metadata,
         }),
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
+        createExperimentDashboard: true,
+        setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
     }),
     reducers({
         experiment: [
@@ -557,6 +564,12 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openSecondarySharedMetricModal: () => true,
                 closeSecondarySharedMetricModal: () => false,
+            },
+        ],
+        isCreatingExperimentDashboard: [
+            false,
+            {
+                setIsCreatingExperimentDashboard: (_, { isCreating }) => isCreating,
             },
         ],
     }),
@@ -922,6 +935,76 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.closePrimarySharedMetricModal()
             actions.closeSecondarySharedMetricModal()
             actions.loadExperiment()
+        },
+        createExperimentDashboard: async () => {
+            actions.setIsCreatingExperimentDashboard(true)
+            try {
+                // 1. Create the dashboard
+                // 2. Create secondary metric insights in reverse order
+                // 3. Create primary metric insights in reverse order
+
+                const experimentUrl =
+                    window.location.origin + addProjectIdIfMissing(urls.experiment(values.experimentId))
+                const dashboard: DashboardType = await api.create(
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
+                    {
+                        name: values.experiment.name + ' Dashboard',
+                        description: `Dashboard for [${experimentUrl}](${experimentUrl})`,
+                    } as Partial<DashboardType>
+                )
+
+                // Reverse order because adding an insight to the dashboard
+                // places it at the beginning of the list
+                for (const type of ['secondary', 'primary']) {
+                    const singleMetrics =
+                        type === 'secondary' ? values.experiment.metrics_secondary : values.experiment.metrics
+                    const sharedMetrics = values.experiment?.saved_metrics.filter(
+                        (sharedMetric) => sharedMetric.metadata.type === type
+                    )
+                    const metrics = [
+                        ...singleMetrics,
+                        ...sharedMetrics.map((m) => ({ name: m.name, ...m.query })),
+                    ].reverse()
+                    if (metrics.length === 0) {
+                        return
+                    }
+                    for (const query of metrics) {
+                        const insightQuery: InsightVizNode = {
+                            kind: NodeKind.InsightVizNode,
+                            source: (query.kind === NodeKind.ExperimentTrendsQuery
+                                ? query.count_query
+                                : query.funnels_query) as InsightQueryNode,
+                        }
+                        await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, {
+                            name: query.name || undefined,
+                            query: insightQuery,
+                            dashboards: [dashboard.id],
+                        })
+                    }
+                }
+
+                actions.reportExperimentDashboardCreated(values.experiment, dashboard.id)
+
+                const dashboardUrl = window.location.origin + addProjectIdIfMissing(urls.dashboard(dashboard.id))
+                actions.updateExperiment({
+                    description:
+                        (values.experiment.description + `\n\n` || '') +
+                        `Dashboard: [${dashboardUrl}](${dashboardUrl})`,
+                })
+
+                lemonToast.success('Dashboard created successfully', {
+                    button: {
+                        label: 'View dashboard',
+                        action: () => router.actions.push(`/dashboard/${dashboard.id}`),
+                    },
+                })
+            } catch (error: any) {
+                if (!isBreakpoint(error)) {
+                    const message = error.code && error.detail ? `${error.code}: ${error.detail}` : error
+                    lemonToast.error(`Could not create dashboard: ${message}`)
+                }
+            }
+            actions.setIsCreatingExperimentDashboard(false)
         },
     })),
     loaders(({ actions, props, values }) => ({
