@@ -25,6 +25,8 @@ export const CAMPAIGN_PROPERTIES: string[] = [
     'igshid', // instagram
     'ttclid', // tiktok
     'rdt_cid', // reddit
+    'irclid', // impact
+    '_kx', // klaviyo
 ]
 
 // copy from https://github.com/PostHog/posthog/blob/29ac8d6b2ba5de4b65a148136b681b8e52e20429/plugin-server/src/utils/db/utils.ts#L44
@@ -68,6 +70,8 @@ export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
     'igshid',
     'ttclid',
     'rdt_cid',
+    'irclid',
+    '_kx',
 ])
 
 // changing values in here you need to sync to python posthog/posthog/taxonomy/taxonomy.py
@@ -1141,6 +1145,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         rdt_cid: {
             label: 'rdt_cid',
             description: 'Reddit Click ID',
+        },
+        irclid: {
+            label: 'irclid',
+            description: 'Impact Click ID',
+        },
+        _kx: {
+            label: '_kx',
+            description: 'Klaviyo Tracking ID',
         },
         gad_source: {
             label: 'gad_source',
