@@ -171,6 +171,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Web Vitals',
             description: 'Automatically captured web vitals data',
         },
+        $ai_generation: {
+            label: 'AI Generation (LLM)',
+            description: 'A call to an LLM model. Contains the input prompt, output, model used and costs.',
+        },
         // Mobile SDKs events
         'Application Opened': {
             label: 'Application Opened',
@@ -1332,6 +1336,65 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Dead click selection changed timeout',
             description:
                 'whether the dead click autocapture passed the threshold for waiting for a text selection change event',
+        },
+        // AI
+        $ai_base_url: {
+            label: 'AI Base URL (LLM)',
+            description: 'The base URL of the request made to the LLM API',
+            examples: ['https://api.openai.com/v1/'],
+        },
+        $ai_http_status: {
+            label: 'AI HTTP Status (LLM)',
+            description: 'The HTTP status code of the request made to the LLM API',
+            examples: [200, 429],
+        },
+        $ai_input: {
+            label: 'AI Input (LLM)',
+            description: 'The input JSON that was sent to the LLM API',
+            examples: ['{"content": "Explain quantum computing in simple terms.", "role": "user"}'],
+        },
+        $ai_input_tokens: {
+            label: 'AI Input Tokens (LLM)',
+            description: 'The number of tokens in the input prmopt that was sent to the LLM API',
+            examples: [23],
+        },
+        $ai_output: {
+            label: 'AI Output (LLM)',
+            description: 'The output JSON that was received from the LLM API',
+            examples: [
+                '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
+            ],
+        },
+        $ai_output_tokens: {
+            label: 'AI Output Tokens (LLM)',
+            description: 'The number of tokens in the output from the LLM API',
+            examples: [23],
+        },
+        $ai_latency: {
+            label: 'AI Latency (LLM)',
+            description: 'The latency of the request made to the LLM API, in seconds',
+            examples: [1000],
+        },
+        $ai_model: {
+            label: 'AI Model (LLM)',
+            description: 'The model used to generate the output from the LLM API',
+            examples: ['gpt-4o-mini'],
+        },
+        $ai_model_parameters: {
+            label: 'AI Model Parameters (LLM)',
+            description: 'The parameters used to configure the model in the LLM API, in JSON',
+            examples: ['{"temperature": 0.5, "max_tokens": 50}'],
+        },
+        $ai_provider: {
+            label: 'AI Provider (LLM)',
+            description: 'The provider of the AI model used to generate the output from the LLM API',
+            examples: ['openai'],
+        },
+        $ai_trace_id: {
+            label: 'AI Trace ID (LLM)',
+            description:
+                'The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace',
+            examples: ['c9222e05-8708-41b8-98ea-d4a21849e761'],
         },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
