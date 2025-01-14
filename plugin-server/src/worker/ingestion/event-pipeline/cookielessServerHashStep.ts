@@ -613,4 +613,9 @@ export function deleteAllLocalSalts(): void {
     }
 }
 
-setInterval(deleteExpiredLocalSalts, DELETE_EXPIRED_SALTS_INTERVAL_MS)
+// Periodically delete expired salts from the local cache. Note that this doesn't delete them from redis, but
+// that's handled by using redis TTLs. Deleting these salts is what allows us to use the hash of PII data in a
+// non PII way. Of course, these are also deleted when the node process restarts.
+// Call unref on the timer object, so that it doesn't prevent node from exiting.
+const interval = setInterval(deleteExpiredLocalSalts, DELETE_EXPIRED_SALTS_INTERVAL_MS)
+interval.unref()
