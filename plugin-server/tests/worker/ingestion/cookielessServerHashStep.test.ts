@@ -68,27 +68,28 @@ describe('cookielessServerHashStep', () => {
             expect(result).toEqual('2025-01-01')
         })
         it('should handle a positive time zone', () => {
-            const timezone = 'Europe/Talinn' // +2 ish
-            const date = new Date('2025-01-01T23:00:00Z').getTime()
+            const timezone = 'Asia/Tehran' // +3:30
+            const date = new Date('2025-01-01T20:30:01Z').getTime()
             const result = toYYYYMMDDInTimezoneSafe(date, timezone, timezone)
             expect(result).toEqual('2025-01-02')
         })
         it('should handle a large positive time zone', () => {
-            const timezone = 'Pacific/Tongatapu' // + 14 ish
+            const timezone = 'Pacific/Tongatapu' // + 14
             const date = new Date('2025-01-01T12:00:00Z').getTime()
             const result = toYYYYMMDDInTimezoneSafe(date, timezone, timezone)
             expect(result).toEqual('2025-01-02')
         })
         it('should handle a negative time zone', () => {
             const timezone = 'America/Sao_Paulo' // -3
-            const date = new Date('2025-01-01T01:00:00Z').getTime()
+            const date = new Date('2025-01-01T02:59:00Z').getTime()
             const result = toYYYYMMDDInTimezoneSafe(date, timezone, timezone)
-            expect(result).toEqual('2025-01-02')
+            expect(result).toEqual('2024-12-31')
         })
         it('should handle a large negative time zone', () => {
-            const date = new Date('2025-01-01T12:00:00Z').getTime()
-            const result = toYYYYMMDDInTimezoneSafe(date, 'Pacific/Tongatapu', 'Pacific/Tongatapu')
-            expect(result).toEqual('2025-01-02')
+            const timezone = 'Pacific/Midway' // -11
+            const date = new Date('2025-01-01T10:59:00Z').getTime()
+            const result = toYYYYMMDDInTimezoneSafe(date, timezone, timezone)
+            expect(result).toEqual('2024-12-31')
         })
         it('should prefer the event time zone over the team time zone', () => {
             const date = new Date('2025-01-01T12:00:00Z').getTime()
