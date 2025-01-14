@@ -40,7 +40,7 @@ export class SessionRecordingIngester {
     isStopping = false
 
     private isDebugLoggingEnabled: ValueMatcher<number>
-    private readonly messageProcessor: BatchMessageParser
+    private readonly messageParser: BatchMessageParser
     private readonly metrics: SessionRecordingMetrics
     private readonly promiseScheduler: PromiseScheduler
     private readonly batchConsumerFactory: BatchConsumerFactory
@@ -59,13 +59,13 @@ export class SessionRecordingIngester {
         this.promiseScheduler = new PromiseScheduler()
         this.batchConsumerFactory = batchConsumerFactory
 
-        this.messageProcessor = new TeamFilter(teamManager, kafkaParser)
+        this.messageParser = new TeamFilter(teamManager, kafkaParser)
 
         if (ingestionWarningProducer) {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
                 await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
             }
-            this.messageProcessor = new LibVersionMonitor(captureWarning, VersionMetrics.getInstance())
+            this.messageParser = new LibVersionMonitor(captureWarning, VersionMetrics.getInstance())
         }
 
         this.topic = consumeOverflow
@@ -103,12 +103,10 @@ export class SessionRecordingIngester {
                     messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
                 )
 
-                let messagesWithTeam: MessageWithTeam[]
-
-                await runInstrumentedFunction({
+                const parsedMessages = await runInstrumentedFunction({
                     statsKey: `recordingingesterv2.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
-                        messagesWithTeam = await this.messageProcessor.parseBatch(messages)
+                        return this.messageParser.parseBatch(messages)
                     },
                 })
                 context.heartbeat()
@@ -117,9 +115,9 @@ export class SessionRecordingIngester {
                     statsKey: `recordingingesterv2.handleEachBatch.consumeBatch`,
                     func: async () => {
                         if (this.config.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
-                            await Promise.all(messagesWithTeam.map((x) => this.consume(x)))
+                            await Promise.all(parsedMessages.map((m) => this.consume(m)))
                         } else {
-                            for (const message of messagesWithTeam) {
+                            for (const message of parsedMessages) {
                                 await this.consume(message)
                             }
                         }
