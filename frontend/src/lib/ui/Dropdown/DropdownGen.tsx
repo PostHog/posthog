@@ -8,6 +8,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
@@ -16,57 +17,88 @@ import {
 } from '../Dropdown/Dropdown'
 
 type DropdownItem = {
-    type?: 'dropdown' | 'combobox'
-    label: string
+    type?: 'dropdown' | 'combobox' | 'label' | 'divider'
+    trigger?: string | React.ReactNode
     value?: any
-    items?: DropdownItem[]
+    label?: string | React.ReactNode
+    dropdownItems?: DropdownItem[]
     placeholder?: string
     defaultValue?: string
     onClick?: (value: any) => void
+    disabled?: boolean
     buttonProps?: Omit<React.ComponentPropsWithoutRef<typeof Button>, 'children' | 'onClick'>
+    sideAction?: {
+        icon: React.ReactNode
+        tooltip?: string
+        tooltipPlacement?: 'top' | 'right' | 'bottom' | 'left'
+        onClick: () => void
+        disabled?: boolean
+        disabledReason?: string
+    }
+    commandProps?: {
+        placeholder?: string
+        autoFocus?: boolean
+        onSearch?: (value: string) => void
+        emptyState?: React.ReactNode
+    }
 }
+
 type DropdownGenProps = React.ComponentPropsWithoutRef<typeof DropdownMenuContent> & {
-    button: React.ReactNode
+    trigger: React.ReactNode
     items: DropdownItem[]
     id: string
 }
 
-const DropdownGen = ({ button, items, id }: DropdownGenProps): JSX.Element => {
+const filterItems = (items: (DropdownItem | false | undefined | null)[]): DropdownItem[] => {
+    return items.filter((item): item is DropdownItem => !!item)
+}
+
+const DropdownGen = ({ trigger, items: dropdownItems, id, ...props }: DropdownGenProps): JSX.Element => {
     const renderItems = (items: DropdownItem[]): JSX.Element[] => {
         return items.map((item, index): JSX.Element => {
             if (item.type === 'combobox') {
                 return (
                     <DropdownMenuSub key={index}>
+                        {item.label && <DropdownMenuLabel>{item.label}</DropdownMenuLabel>}
                         <DropdownMenuSubTrigger
                             buttonProps={{
                                 hasIconLeft: item.buttonProps?.iconLeft ? true : false,
                                 iconLeft: item.buttonProps?.iconLeft ? item.buttonProps?.iconLeft : undefined,
                                 ...item.buttonProps,
                             }}
+                            disabled={item.buttonProps?.disabled}
                         >
-                            {item.label}
+                            {item.trigger || '<empty item.buttonText>'}
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent>
                             <Command>
                                 <CommandInput
-                                    placeholder={item.placeholder}
+                                    placeholder={item.commandProps?.placeholder || 'Search...'}
                                     autoFocus
                                     id={`${id}-${index}-combobox-input`}
                                 />
                                 <CommandList>
-                                    <CommandEmpty>No results found.</CommandEmpty>
+                                    <CommandEmpty>{item.commandProps?.emptyState || 'No items found'}</CommandEmpty>
                                     <CommandGroup>
-                                        {item.items?.map((subItem, subIndex) => (
-                                            <CommandItem
-                                                key={subIndex}
-                                                onSelect={() => subItem.onClick?.(subItem.value)}
-                                                buttonProps={{
-                                                    ...subItem.buttonProps,
-                                                }}
-                                            >
-                                                {subItem.label}
-                                            </CommandItem>
-                                        ))}
+                                        {item.dropdownItems &&
+                                            filterItems(item.dropdownItems).map((subItem, subIndex) => (
+                                                <React.Fragment key={subIndex}>
+                                                    {subItem.type === 'divider' ? (
+                                                        <DropdownMenuSeparator className="relative" />
+                                                    ) : (
+                                                        <CommandItem
+                                                            key={subIndex}
+                                                            onSelect={() => subItem.onClick?.(subItem.value)}
+                                                            buttonProps={{
+                                                                ...subItem.buttonProps,
+                                                            }}
+                                                            disabled={subItem.buttonProps?.disabled}
+                                                        >
+                                                            {subItem.trigger}
+                                                        </CommandItem>
+                                                    )}
+                                                </React.Fragment>
+                                            ))}
                                     </CommandGroup>
                                 </CommandList>
                             </Command>
@@ -75,21 +107,31 @@ const DropdownGen = ({ button, items, id }: DropdownGenProps): JSX.Element => {
                 )
             }
 
-            if (item.items) {
+            if (item.dropdownItems) {
                 return (
                     <DropdownMenuSub key={index}>
+                        {item.label && <DropdownMenuLabel>{item.label}</DropdownMenuLabel>}
                         <DropdownMenuSubTrigger
+                            disabled={item.buttonProps?.disabled}
                             buttonProps={{
                                 hasIconLeft: item.buttonProps?.iconLeft ? true : false,
                                 iconLeft: item.buttonProps?.iconLeft ? item.buttonProps?.iconLeft : undefined,
                                 ...item.buttonProps,
                             }}
                         >
-                            {item.label}
+                            {item.trigger}
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent>{renderItems(item.items)}</DropdownMenuSubContent>
+                        <DropdownMenuSubContent>{renderItems(filterItems(item.dropdownItems))}</DropdownMenuSubContent>
                     </DropdownMenuSub>
                 )
+            }
+
+            if (item.type === 'label') {
+                return <DropdownMenuLabel key={index}>{item.label}</DropdownMenuLabel>
+            }
+
+            if (item.type === 'divider') {
+                return <DropdownMenuSeparator key={index} />
             }
 
             return (
@@ -101,8 +143,9 @@ const DropdownGen = ({ button, items, id }: DropdownGenProps): JSX.Element => {
                         iconLeft: item.buttonProps?.iconLeft ? item.buttonProps?.iconLeft : undefined,
                         ...item.buttonProps,
                     }}
+                    disabled={item.buttonProps?.disabled}
                 >
-                    {item.label}
+                    {item.trigger}
                 </DropdownMenuItem>
             )
         })
@@ -110,13 +153,10 @@ const DropdownGen = ({ button, items, id }: DropdownGenProps): JSX.Element => {
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
-            <DropdownMenuContent>
-                {items.map((section, index) => (
-                    <React.Fragment key={index}>
-                        {index > 0 && <DropdownMenuSeparator />}
-                        {renderItems([section])}
-                    </React.Fragment>
+            <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+            <DropdownMenuContent {...props}>
+                {filterItems(dropdownItems).map((section, index) => (
+                    <React.Fragment key={index}>{renderItems([section])}</React.Fragment>
                 ))}
             </DropdownMenuContent>
         </DropdownMenu>

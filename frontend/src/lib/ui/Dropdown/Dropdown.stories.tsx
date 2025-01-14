@@ -70,7 +70,7 @@ export const DropdownGenExample: Story = () => {
                         hasIcon: true,
                         iconLeft: <IconAIText />,
                     },
-                    items: [
+                    dropdownItems: [
                         {
                             label: 'Link to',
                             buttonProps: {
@@ -102,7 +102,7 @@ export const DropdownGenExample: Story = () => {
                     label: 'Item 2',
                     type: 'combobox',
                     placeholder: 'Search for a fruit',
-                    items: [
+                    dropdownItems: [
                         { label: 'you say', value: 'potatoes' },
                         { label: 'I say', value: 'tomatoes', onClick: (value) => alert(value) },
                     ],

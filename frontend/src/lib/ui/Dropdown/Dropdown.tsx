@@ -202,9 +202,17 @@ const DropdownMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTML
 }
 DropdownMenuShortcut.displayName = 'DropdownMenuShortcut'
 
+const DropdownMenuFooter = React.forwardRef<HTMLElement, React.HTMLAttributes<HTMLElement>>(
+    ({ className, ...props }, ref): JSX.Element => (
+        <footer ref={ref} className={cn('element-dropdown-menu-footer', className)} {...props} />
+    )
+)
+DropdownMenuFooter.displayName = 'DropdownMenuFooter'
+
 export {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuFooter,
     DropdownMenuGroup,
     DropdownMenuItem,
     // DropdownMenuCheckboxItem,

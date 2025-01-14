@@ -1,7 +1,6 @@
 import './TopBar.scss'
 
 import {
-    IconCheckCircle,
     IconChevronDown,
     IconConfetti,
     IconDay,
@@ -36,8 +35,7 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from 'lib/ui/Dropdown/Dropdown'
-import { removeFlagIdIfPresent, removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import { useMemo } from 'react'
+import DropdownGen from 'lib/ui/Dropdown/DropdownGen'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -48,14 +46,12 @@ import { globalModalsLogic } from '~/layout/GlobalModals'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/OrganizationSwitcher'
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '~/lib/ui/Command/Command'
+import { ProductLayoutTopbarTab } from '~/layout/navigation/TopBar/productLayoutLogic'
 import { AvailableFeature, SidePanelTab, TeamBasicType } from '~/types'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { sidePanelStateLogic } from '../sidepanel/sidePanelStateLogic'
 import { themeLogic } from '../themeLogic'
-import { ProductLayoutTopbarTab } from '~/layout/navigation/TopBar/productLayoutLogic'
-import { productLayoutLogic } from '~/layout/navigation/TopBar/productLayoutLogic'
 
 function TopBarNavButton({
     to,
@@ -111,52 +107,51 @@ function NavAccountItem(): JSX.Element {
     )
 }
 
-function OtherProjectButton({ team, disabled }: { team: TeamBasicType; disabled?: boolean }): JSX.Element {
-    const { location } = useValues(router)
+// function OtherProjectButton({ team, disabled }: { team: TeamBasicType; disabled?: boolean }): JSX.Element {
+//     const { location } = useValues(router)
 
-    const relativeOtherProjectPath = useMemo(() => {
-        // NOTE: There is a tradeoff here - because we choose keep the whole path it could be that the
-        // project switch lands on something like insight/abc that won't exist.
-        // On the other hand, if we remove the ID, it could be that someone opens a page, realizes they're in the wrong project
-        // and after switching is on a different page than before.
-        let route = removeProjectIdIfPresent(location.pathname)
-        route = removeFlagIdIfPresent(route)
+//     const relativeOtherProjectPath = useMemo(() => {
+//         // NOTE: There is a tradeoff here - because we choose keep the whole path it could be that the
+//         // project switch lands on something like insight/abc that won't exist.
+//         // On the other hand, if we remove the ID, it could be that someone opens a page, realizes they're in the wrong project
+//         // and after switching is on a different page than before.
+//         let route = removeProjectIdIfPresent(location.pathname)
+//         route = removeFlagIdIfPresent(route)
 
-        // List of routes that should redirect to project home
-        // instead of keeping the current path.
-        const redirectToHomeRoutes = ['/products', '/onboarding']
+//         // List of routes that should redirect to project home
+//         // instead of keeping the current path.
+//         const redirectToHomeRoutes = ['/products', '/onboarding']
 
-        const shouldRedirectToHome = redirectToHomeRoutes.some((redirectRoute) => route.includes(redirectRoute))
+//         const shouldRedirectToHome = redirectToHomeRoutes.some((redirectRoute) => route.includes(redirectRoute))
 
-        if (shouldRedirectToHome) {
-            return urls.project(team.id) // Go to project home
-        }
+//         if (shouldRedirectToHome) {
+//             return urls.project(team.id) // Go to project home
+//         }
 
-        return urls.project(team.id, route)
-    }, [location.pathname, team.id])
+//         return urls.project(team.id, route)
+//     }, [location.pathname, team.id])
 
-    return (
-        <CommandItem
-            key={team.name}
-            value={team.name}
-            disabled={disabled}
-            asChild
-            buttonProps={{
-                to: relativeOtherProjectPath,
-            }}
-        >
-            <ProjectName team={team} />
-        </CommandItem>
-    )
-}
+//     return (
+//         <CommandItem
+//             key={team.name}
+//             value={team.name}
+//             disabled={disabled}
+//             asChild
+//             buttonProps={{
+//                 to: relativeOtherProjectPath,
+//             }}
+//         >
+//             <ProjectName team={team} />
+//         </CommandItem>
+//     )
+// }
 
 function TopBarTabs(): JSX.Element {
     // const { productLayoutTabs } = useValues(productLayoutLogic)
-    const { productLayoutTabs, productBaseUrl } = useValues(breadcrumbsLogic)
+    const { productLayoutTabs } = useValues(breadcrumbsLogic)
     if (!productLayoutTabs || productLayoutTabs.length === 0) {
         return <></>
     }
-    console.log('productBaseUrl', productBaseUrl)
 
     const lemonTabs = productLayoutTabs.map((tab: ProductLayoutTopbarTab) => ({
         key: tab.key,
@@ -174,7 +169,9 @@ function TopBarTabs(): JSX.Element {
             activeKey={productLayoutTabs[0].key}
             onChange={(newKey) => {
                 // setActiveTab(newKey)
-                router.actions.push(productLayoutTabs.find((tab: ProductLayoutTopbarTab) => tab.key === newKey)?.url || '')
+                router.actions.push(
+                    productLayoutTabs.find((tab: ProductLayoutTopbarTab) => tab.key === newKey)?.url || ''
+                )
                 // if (tabs.find((tab) => tab.key === newKey)?.removeNewWhenVisited) {
                 //     hideNewBadge()
                 // }
@@ -200,8 +197,11 @@ export function TopNav(): JSX.Element {
     return (
         <>
             <div className="h-[42px] flex justify-between items-center gap-2 px-2 token-surface-3000-tertiary">
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+                <DropdownGen
+                    id="organization-team-dropdown"
+                    align="start"
+                    alignOffset={0}
+                    trigger={
                         <Button
                             intent="muted-darker"
                             aria-label="Account"
@@ -215,217 +215,126 @@ export function TopNav(): JSX.Element {
                                 />
                             }
                         >
-                            {currentOrganization?.name}
+                            {currentOrganization?.name} / {currentTeam?.name}
                         </Button>
-                    </DropdownMenuTrigger>
-                    {currentOrganization && (
-                        <DropdownMenuContent side="bottom" align="start" className="min-w-56" loop>
-                            <DropdownMenuLabel>Organizations</DropdownMenuLabel>
-                            <DropdownMenuSub>
-                                <DropdownMenuSubTrigger>
+                    }
+                    items={[
+                        {
+                            trigger: (
+                                <>
                                     {currentOrganization?.name}
-                                    <AccessLevelIndicator organization={currentOrganization} />
-                                </DropdownMenuSubTrigger>
-                                <DropdownMenuPortal>
-                                    <DropdownMenuSubContent loop>
-                                        {currentOrganization && (
-                                            <DropdownMenuItem
-                                                disabled
-                                                buttonProps={{
-                                                    tooltip: `This is your current organization`,
-                                                    tooltipPlacement: 'right',
-                                                }}
-                                            >
-                                                {currentOrganization.name}
+                                    {currentOrganization && <AccessLevelIndicator organization={currentOrganization} />}
+                                </>
+                            ),
+                            label: 'Current Organization',
+                            dropdownItems: [
+                                {
+                                    label: 'Organizations',
+                                    type: 'label',
+                                },
+                                {
+                                    trigger: (
+                                        <>
+                                            {currentOrganization?.name}
+                                            {currentOrganization && (
                                                 <AccessLevelIndicator organization={currentOrganization} />
-                                            </DropdownMenuItem>
-                                        )}
-
-                                        {otherOrganizations.map((otherOrganization) => (
-                                            <>
-                                                {/* <OtherOrganizationButton key={otherOrganization.id} organization={otherOrganization} index={i} /> */}
-                                                <DropdownMenuItem
-                                                    key={otherOrganization.id}
-                                                    buttonProps={{
-                                                        hasIcon: true,
-                                                        iconLeft: (
-                                                            <UploadedLogo
-                                                                name={otherOrganization.name}
-                                                                entityId={otherOrganization.id}
-                                                                mediaId={otherOrganization.logo_media_id}
-                                                            />
-                                                        ),
-                                                        tooltip: `Switch to organization ${otherOrganization.name}`,
-                                                        tooltipPlacement: 'right',
-                                                        onClick: () => updateUser({ theme_mode: 'light' }),
-                                                    }}
-                                                >
-                                                    {otherOrganization.name}
-                                                </DropdownMenuItem>
-                                            </>
-                                        ))}
-
-                                        {/* {preflight?.can_create_org && (
-                                            <DropdownMenuItem
-                                                buttonProps={{
-                                                    hasIcon: true,
-                                                    onClick: () =>
-                                                        guardAvailableFeature(
-                                                            AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                                            () => {
-                                                                showCreateOrganizationModal()
-                                                            },
-                                                            {
-                                                                guardOnCloud: false,
-                                                            }
-                                                        ),
-                                                }}
-                                            >
-                                                New organization
-                                            </DropdownMenuItem>
-                                        )} */}
-                                    </DropdownMenuSubContent>
-                                </DropdownMenuPortal>
-                            </DropdownMenuSub>
-
-                            {preflight?.can_create_org && (
-                                <DropdownMenuItem
-                                    buttonProps={{
+                                            )}
+                                        </>
+                                    ),
+                                    buttonProps: {
+                                        disabled: true,
                                         hasIcon: true,
-                                        iconLeft: <IconPlus />,
-                                        onClick: () =>
-                                            guardAvailableFeature(
-                                                AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                                () => {
-                                                    showCreateOrganizationModal()
-                                                },
-                                                {
-                                                    guardOnCloud: false,
-                                                }
-                                            ),
-                                    }}
-                                >
-                                    New organization
-                                </DropdownMenuItem>
-                            )}
-
-                            <DropdownMenuSeparator />
-
-                            <DropdownMenuLabel>Projects for {currentOrganization?.name}</DropdownMenuLabel>
-
-                            <DropdownMenuSub>
-                                <DropdownMenuSubTrigger
-                                    buttonProps={{
+                                        iconLeft: (
+                                            <UploadedLogo
+                                                name={currentOrganization?.name || ''}
+                                                entityId={currentOrganization?.id || ''}
+                                                mediaId={currentOrganization?.logo_media_id || ''}
+                                            />
+                                        ),
+                                    },
+                                },
+                                ...otherOrganizations.map((org) => ({
+                                    trigger: org.name,
+                                    buttonProps: {
                                         hasIcon: true,
-                                        iconLeft: <IconCheckCircle className="size-4" />,
-                                    }}
-                                >
-                                    <ProjectName team={currentTeam as TeamBasicType} />
-                                </DropdownMenuSubTrigger>
-                                <DropdownMenuSubContent loop>
-                                    <Command loop>
-                                        <CommandInput
-                                            placeholder="Search projects..."
-                                            id="project-search"
-                                            autoFocus={true}
-                                        />
-                                        <CommandList>
-                                            <CommandEmpty>No projects found.</CommandEmpty>
-                                            <CommandGroup>
-                                                {currentOrganization.teams
-                                                    .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
-                                                    .map((team) => (
-                                                        // <CommandItem
-                                                        //     key={team.name}
-                                                        //     value={team.name}
-                                                        //     onSelect={(value) => {
-                                                        //         const selectedTeam = currentOrganization.teams.find((t) => t.name === value)
-                                                        //         if (!selectedTeam) {
-                                                        //             return
-                                                        //         }
-                                                        //         const route = removeProjectIdIfPresent(window.location.pathname)
-                                                        //         const redirectToHomeRoutes = ['/products', '/onboarding']
-                                                        //         const shouldRedirectToHome = redirectToHomeRoutes.some((r) => route.includes(r))
-                                                        //         const path = shouldRedirectToHome ? urls.project(selectedTeam.id) : urls.project(selectedTeam.id, route)
-                                                        //         router.actions.push(path)
-                                                        //     }}
-                                                        // >
-                                                        //     <ProjectName team={team as TeamBasicType} />
-                                                        // </CommandItem>
-                                                        <OtherProjectButton
-                                                            key={team.id}
-                                                            team={team}
-                                                            disabled={team.id === currentTeam?.id}
-                                                        />
-                                                    ))}
-                                            </CommandGroup>
-                                        </CommandList>
-                                    </Command>
-                                </DropdownMenuSubContent>
-                            </DropdownMenuSub>
+                                        iconLeft: (
+                                            <UploadedLogo
+                                                name={org.name}
+                                                entityId={org.id}
+                                                mediaId={org.logo_media_id}
+                                            />
+                                        ),
+                                        tooltip: `Switch to organization ${org.name}`,
+                                        tooltipPlacement: 'right' as const, // Type assertion to fix placement error
+                                    },
+                                    onClick: () => updateUser({ theme_mode: 'light' }),
+                                })),
+                            ],
+                        },
+                        ...(preflight?.can_create_org
+                            ? [
+                                  {
+                                      trigger: 'New organization',
+                                      buttonProps: {
+                                          hasIcon: true,
+                                          iconLeft: <IconPlus />,
+                                          tooltip: 'Create a new organization',
+                                          tooltipPlacement: 'right' as const,
+                                      },
+                                      onClick: () =>
+                                          guardAvailableFeature(
+                                              AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                              showCreateOrganizationModal,
+                                              { guardOnCloud: false }
+                                          ),
+                                  },
+                              ]
+                            : []),
+                        {
+                            type: 'divider',
+                        },
+                        {
+                            type: 'combobox',
+                            trigger: <ProjectName team={currentTeam as TeamBasicType} />,
+                            commandProps: {
+                                placeholder: 'Search projects...',
+                                autoFocus: true,
+                                emptyState: 'No projects found.',
+                            },
+                            label: `Current Project`,
+                            dropdownItems: [
+                                ...(currentOrganization?.teams ?? [])
+                                    .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                    .map((team) => ({
+                                        trigger: <ProjectName team={team} />,
+                                        buttonProps: {
+                                            disabled: team.id === currentTeam?.id,
+                                            tooltip:
+                                                team.id === currentTeam?.id ? 'Current project' : 'Switch to project',
+                                            tooltipPlacement: 'right' as const,
+                                        },
+                                        onClick: () => {
+                                            // Project switching logic
+                                        },
+                                    })),
+                            ],
+                        },
 
-                            <DropdownMenuGroup>
-                                <div className="hidden">
-                                    {/* Current project */}
-                                    <DropdownMenuItem
-                                        buttonProps={{
-                                            tooltip: 'This is your current project',
-                                            tooltipPlacement: 'right',
-                                            // TODO: Add side action to button
-                                            // sideAction: {
-                                            //     icon: <IconGear className="text-muted-alt" />,
-                                            //     tooltip: `Go to ${currentTeam.name} settings`,
-                                            //     onClick: () => {
-                                            //         push(urls.settings('project'))
-                                            //     },
-                                            // },
-                                        }}
-                                    >
-                                        <ProjectName team={currentTeam as TeamBasicType} />
-                                    </DropdownMenuItem>
-
-                                    {/* Other projects */}
-                                    {/* {currentOrganization?.teams &&
-                                        currentOrganization.teams
-                                            .filter((team) => team.id !== currentTeam?.id)
-                                            .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
-                                            .map((team) => <OtherProjectButton key={team.id} team={team} />)} */}
-                                </div>
-
-                                {/* New project */}
-                                <DropdownMenuItem
-                                    data-attr="new-project-button"
-                                    buttonProps={{
-                                        hasIcon: true,
-                                        iconLeft: <IconPlus />,
-                                        tooltip: 'Create a new project',
-                                        tooltipPlacement: 'right',
-                                        onClick: () =>
-                                            guardAvailableFeature(
-                                                AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                                () => {
-                                                    showCreateProjectModal()
-                                                },
-                                                {
-                                                    guardOnCloud: false,
-                                                }
-                                            ),
-                                        // TODO: Add side action to button
-                                        // sideAction: {
-                                        //     icon: <IconGear className="text-muted-alt" />,
-                                        //     tooltip: `Go to ${currentTeam.name} settings`,
-                                        //     onClick: () => {
-                                        //         push(urls.settings('project'))
-                                        //     },
-                                        // },
-                                    }}
-                                >
-                                    New project
-                                </DropdownMenuItem>
-                            </DropdownMenuGroup>
-                        </DropdownMenuContent>
-                    )}
-                </DropdownMenu>
+                        {
+                            trigger: 'New project',
+                            buttonProps: {
+                                hasIcon: true,
+                                iconLeft: <IconPlus />,
+                                tooltip: 'Create a new project',
+                                tooltipPlacement: 'right' as const,
+                            },
+                            onClick: () =>
+                                guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
+                                    guardOnCloud: false,
+                                }),
+                        },
+                    ]}
+                />
 
                 <ul className="flex gap-2 self-end">
                     {topBarNavbarItems.map((item) => (
