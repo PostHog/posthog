@@ -1,6 +1,7 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { BillingProductV2AddonType } from '~/types'
 
@@ -12,6 +13,15 @@ export interface TeamsDowngradeModalProps {
 
 export const teamsDowngradeLogic = kea<teamsDowngradeLogicType>([
     path(['scenes', 'authentication', 'teamsDowngradeLogic']),
+    connect({
+        values: [organizationLogic, ['currentOrganization']],
+    }),
+    selectors({
+        enforce2FA: [
+            (s) => [s.currentOrganization],
+            (currentOrganization) => currentOrganization?.enforce_2fa || false,
+        ],
+    }),
     actions({
         showTeamsDowngradeModal: (addon: BillingProductV2AddonType) => ({ addon }),
         hideTeamsDowngradeModal: true,
