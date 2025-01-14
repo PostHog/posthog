@@ -15,8 +15,7 @@ import { HogFunctionType, HogFunctionTypeType } from '~/types'
 
 import type { hogFunctionListLogicType } from './hogFunctionListLogicType'
 
-const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
-
+export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<HogFunctionType> {}
 
@@ -142,8 +141,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
                 const { search, showPaused } = filters
 
                 return (search ? hogFunctionsFuse.search(search).map((x) => x.item) : hogFunctions).filter((x) => {
-                    console.log(user)
-                    if (x.name.includes(CDP_TEST_HIDDEN_FLAG) && !user.is_impersonated && !user.is_staff) {
+                    if (x.name.includes(CDP_TEST_HIDDEN_FLAG) && !user?.is_impersonated && !user?.is_staff) {
                         return false
                     }
 
