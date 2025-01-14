@@ -132,9 +132,9 @@ async def assert_clickhouse_records_in_bigquery(
                 continue
 
             if k in json_columns:
-                assert (
-                    isinstance(v, dict) or v is None
-                ), f"Expected '{k}' to be JSON, but it was not deserialized to dict"
+                assert isinstance(v, dict) or v is None, (
+                    f"Expected '{k}' to be JSON, but it was not deserialized to dict"
+                )
 
             inserted_record[k] = v
 
@@ -179,6 +179,15 @@ async def assert_clickhouse_records_in_bigquery(
                         continue
 
                     if k in json_columns and v is not None:
+                        # We remove unpaired surrogates in BigQuery, so we have to remove them here to so
+                        # that comparison doesn't fail. The problem is that at some point our unpaired surrogate gets
+                        # escaped (which is correct, as unpaired surrogates are not valid). But then the
+                        # comparison fails as in BigQuery we remove unpaired surrogates, not just escape them.
+                        # So, we hardcode replace the test properties. Not ideal, but this works as we get the
+                        # expected result in BigQuery and the comparison is still useful.
+                        v = v.replace("\\ud83e\\udd23\\udd23", "\\ud83e\\udd23").replace(
+                            "\\ud83e\\udd23\\ud83e", "\\ud83e\\udd23"
+                        )
                         expected_record[k] = json.loads(v)
                     elif isinstance(v, dt.datetime):
                         expected_record[k] = v.replace(tzinfo=dt.UTC)
@@ -214,9 +223,9 @@ async def assert_clickhouse_records_in_bigquery(
     assert inserted_records == expected_records
 
     if len(inserted_bq_ingested_timestamp) > 0:
-        assert (
-            min_ingested_timestamp is not None
-        ), "Must set `min_ingested_timestamp` for comparison with exported value"
+        assert min_ingested_timestamp is not None, (
+            "Must set `min_ingested_timestamp` for comparison with exported value"
+        )
         assert all(ts >= min_ingested_timestamp for ts in inserted_bq_ingested_timestamp)
 
 
@@ -316,6 +325,38 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("use_json_type", [False, True], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
+@pytest.mark.parametrize(
+    "test_properties",
+    [
+        {
+            "$browser": "Chrome",
+            "$os": "Mac OS X",
+            "emoji": "🤣",
+            "newline": "\n",
+            "emoji_with_high_surrogate": "🤣\ud83e",
+            "emoji_with_low_surrogate": "🤣\udd23",
+            "emoji_with_high_surrogate_and_newline": "🤣\ud83e\n",
+            "emoji_with_low_surrogate_and_newline": "🤣\udd23\n",
+        }
+    ],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "test_person_properties",
+    [
+        {
+            "utm_medium": "referral",
+            "$initial_os": "Linux",
+            "emoji": "🤣",
+            "newline": "\n",
+            "emoji_with_high_surrogate": "🤣\ud83e",
+            "emoji_with_low_surrogate": "🤣\udd23",
+            "emoji_with_high_surrogate_and_newline": "🤣\ud83e\n",
+            "emoji_with_low_surrogate_and_newline": "🤣\udd23\n",
+        }
+    ],
+    indirect=True,
+)
 async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     clickhouse_client,
     activity_environment,

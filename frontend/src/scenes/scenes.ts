@@ -280,6 +280,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Data warehouse table',
         defaultDocsPath: '/docs/data-warehouse',
     },
+    [Scene.LLMObservability]: {
+        projectBased: true,
+        name: 'LLM observability',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/ai-engineering/observability',
+    },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
@@ -653,4 +659,5 @@ export const routes: Record<string, Scene> = {
     [urls.messagingBroadcasts()]: Scene.MessagingBroadcasts,
     [urls.messagingBroadcast(':id')]: Scene.MessagingBroadcasts,
     [urls.messagingBroadcastNew()]: Scene.MessagingBroadcasts,
+    [urls.llmObservability()]: Scene.LLMObservability,
 }

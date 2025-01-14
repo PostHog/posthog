@@ -35,7 +35,7 @@ import {
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
     BreakdownAttributionType,
@@ -94,17 +94,6 @@ const NEW_EXPERIMENT: Experiment = {
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
 }
-
-interface SecondaryMetricResult {
-    insightType: InsightType
-    result?: number
-}
-
-export interface TabularSecondaryMetricResults {
-    variant: string
-    results?: SecondaryMetricResult[]
-}
-
 export interface ExperimentResultCalculationError {
     detail: string
     statusCode: number
@@ -156,6 +145,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentResultsLoadingTimeout',
                 'reportExperimentReleaseConditionsViewed',
                 'reportExperimentHoldoutAssigned',
+                'reportExperimentSharedMetricAssigned',
             ],
             teamLogic,
             ['addProductIntent'],
@@ -273,11 +263,11 @@ export const experimentLogic = kea<experimentLogicType>([
         closePrimarySharedMetricModal: true,
         openSecondarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => ({ sharedMetricId }),
         closeSecondarySharedMetricModal: true,
-        addSharedMetricToExperiment: (
-            sharedMetricId: SharedMetric['id'],
+        addSharedMetricsToExperiment: (
+            sharedMetricIds: SharedMetric['id'][],
             metadata: { type: 'primary' | 'secondary' }
         ) => ({
-            sharedMetricId,
+            sharedMetricIds,
             metadata,
         }),
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
@@ -746,29 +736,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.loadExperiment()
             }
         },
-        closePrimaryMetricModal: () => {
-            actions.loadExperiment()
-        },
-        closeSecondaryMetricModal: () => {
-            actions.loadExperiment()
-        },
-        closePrimarySharedMetricModal: () => {
-            actions.loadExperiment()
-        },
-        closeSecondarySharedMetricModal: () => {
-            actions.loadExperiment()
-        },
         resetRunningExperiment: async () => {
             actions.updateExperiment({ start_date: null, end_date: null, archived: false })
             values.experiment && actions.reportExperimentReset(values.experiment)
             actions.loadMetricResultsSuccess([])
             actions.loadSecondaryMetricResultsSuccess([])
         },
-        updateExperimentSuccess: async ({ experiment }) => {
+        updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
             if (experiment.start_date) {
-                actions.loadMetricResults()
-                actions.loadSecondaryMetricResults()
+                const forceRefresh = payload?.start_date !== undefined
+                actions.loadMetricResults(forceRefresh)
+                actions.loadSecondaryMetricResults(forceRefresh)
             }
         },
         setExperiment: async ({ experiment }) => {
@@ -906,15 +885,23 @@ export const experimentLogic = kea<experimentLogicType>([
                 holdout_id: values.experiment.holdout_id,
             })
         },
-        addSharedMetricToExperiment: async ({ sharedMetricId, metadata }) => {
-            const sharedMetricsIds = values.experiment.saved_metrics.map((sharedMetric) => ({
+        addSharedMetricsToExperiment: async ({ sharedMetricIds, metadata }) => {
+            const existingMetricsIds = values.experiment.saved_metrics.map((sharedMetric) => ({
                 id: sharedMetric.saved_metric,
-                metadata,
+                metadata: sharedMetric.metadata,
             }))
-            sharedMetricsIds.push({ id: sharedMetricId, metadata })
+
+            const newMetricsIds = sharedMetricIds.map((id: SharedMetric['id']) => ({ id, metadata }))
+            newMetricsIds.forEach((metricId) => {
+                const metric = values.sharedMetrics.find((m: SharedMetric) => m.id === metricId.id)
+                if (metric) {
+                    actions.reportExperimentSharedMetricAssigned(values.experimentId, metric)
+                }
+            })
+            const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: sharedMetricsIds,
+                saved_metrics_ids: combinedMetricsIds,
             })
 
             actions.closePrimarySharedMetricModal()
@@ -1610,43 +1597,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     return tabularResults
                 },
         ],
-        tabularSecondaryMetricResults: [
-            (s) => [s.experiment, s.secondaryMetricResults, s.conversionRateForVariant, s.countDataForVariant],
-            (
-                experiment,
-                secondaryMetricResults,
-                conversionRateForVariant,
-                countDataForVariant
-            ): TabularSecondaryMetricResults[] => {
-                if (!secondaryMetricResults) {
-                    return []
-                }
-
-                const variantsWithResults: TabularSecondaryMetricResults[] = []
-                experiment?.feature_flag?.filters?.multivariate?.variants?.forEach((variant) => {
-                    const metricResults: SecondaryMetricResult[] = []
-                    experiment?.secondary_metrics?.forEach((metric, idx) => {
-                        let result
-                        if (metric.filters.insight === InsightType.FUNNELS) {
-                            result = conversionRateForVariant(secondaryMetricResults?.[idx], variant.key)
-                        } else {
-                            result = countDataForVariant(secondaryMetricResults?.[idx], variant.key, 'secondary')
-                        }
-
-                        metricResults.push({
-                            insightType: metric.filters.insight || InsightType.TRENDS,
-                            result: result || undefined,
-                        })
-                    })
-
-                    variantsWithResults.push({
-                        variant: variant.key,
-                        results: metricResults,
-                    })
-                })
-                return variantsWithResults
-            },
-        ],
         sortedWinProbabilities: [
             (s) => [s.metricResults, s.conversionRateForVariant],
             (
@@ -1730,15 +1680,33 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         hasGoalSet: [
-            (s) => [s.experiment],
-            (experiment): boolean => {
-                return !!experiment.metrics[0]
+            (s) => [s.primaryMetricsLengthWithSharedMetrics],
+            (primaryMetricsLengthWithSharedMetrics): boolean => {
+                return primaryMetricsLengthWithSharedMetrics > 0
             },
         ],
         experimentStatsVersion: [
             (s) => [s.experiment],
             (experiment: Experiment): number => {
                 return experiment.stats_config?.version || 1
+            },
+        ],
+        primaryMetricsLengthWithSharedMetrics: [
+            (s) => [s.experiment],
+            (experiment: Experiment): number => {
+                return (
+                    experiment.metrics.length +
+                    experiment.saved_metrics.filter((savedMetric) => savedMetric.metadata.type === 'primary').length
+                )
+            },
+        ],
+        secondaryMetricsLengthWithSharedMetrics: [
+            (s) => [s.experiment],
+            (experiment: Experiment): number => {
+                return (
+                    experiment.metrics_secondary.length +
+                    experiment.saved_metrics.filter((savedMetric) => savedMetric.metadata.type === 'secondary').length
+                )
             },
         ],
     }),

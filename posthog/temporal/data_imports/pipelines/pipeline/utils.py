@@ -67,6 +67,13 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
                     )
                     table = table.cast(new_schema)
 
+            # If the deltalake schema has a different type to the pyarrows table, then cast to the deltalake field type
+            py_arrow_table_column = table.column(field.name)
+            if field.type != py_arrow_table_column.type:
+                table = table.set_column(
+                    table.schema.get_field_index(field.name), field.name, table.column(field.name).cast(field.type)
+                )
+
     # Change types based on what deltalake tables support
     return table.cast(ensure_delta_compatible_arrow_schema(table.schema))
 

@@ -25,6 +25,8 @@ export const CAMPAIGN_PROPERTIES: string[] = [
     'igshid', // instagram
     'ttclid', // tiktok
     'rdt_cid', // reddit
+    'irclid', // impact
+    '_kx', // klaviyo
 ]
 
 // copy from https://github.com/PostHog/posthog/blob/29ac8d6b2ba5de4b65a148136b681b8e52e20429/plugin-server/src/utils/db/utils.ts#L44
@@ -68,6 +70,8 @@ export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
     'igshid',
     'ttclid',
     'rdt_cid',
+    'irclid',
+    '_kx',
 ])
 
 // changing values in here you need to sync to python posthog/posthog/taxonomy/taxonomy.py
@@ -171,6 +175,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Web Vitals',
             description: 'Automatically captured web vitals data',
         },
+        $ai_generation: {
+            label: 'AI Generation',
+            description: 'A call to a generative AI model, e.g. an LLM',
+        },
         // Mobile SDKs events
         'Application Opened': {
             label: 'Application Opened',
@@ -244,6 +252,35 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     event_properties: {
         distinct_id: {} as CoreFilterDefinition, // Copied from `metadata` down below
         $session_duration: {} as CoreFilterDefinition, // Copied from `sessions` down below
+        $session_is_sampled: {
+            label: 'Whether the session is sampled',
+            description: 'Whether the session is sampled for session recording.',
+            examples: ['true', 'false'],
+            system: true,
+        },
+        $geoip_postal_code_confidence: {
+            label: 'Postal Code identification confidence score',
+            description: 'If provided by the licensed geoip database',
+            examples: ['null', '0.1'],
+            system: true,
+        },
+        $geoip_subdivision_2_confidence: {
+            label: 'Subdivision 2 identification confidence score',
+            description: 'If provided by the licensed geoip database',
+            examples: ['null', '0.1'],
+            system: true,
+        },
+        $browser_language_prefix: {
+            label: 'Browser Language Prefix',
+            description: 'Language prefix.',
+            examples: ['en', 'ja'],
+        },
+        $prev_pageview_id: {
+            label: 'Previous pageview ID',
+            description: 'posthog-js adds these to the page leave event, they are used in web analytics calculations',
+            examples: ['1'],
+            system: true,
+        },
         $copy_type: {
             label: 'Copy Type',
             description: 'Type of copy event.',
@@ -1109,6 +1146,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'rdt_cid',
             description: 'Reddit Click ID',
         },
+        irclid: {
+            label: 'irclid',
+            description: 'Impact Click ID',
+        },
+        _kx: {
+            label: '_kx',
+            description: 'Klaviyo Tracking ID',
+        },
         gad_source: {
             label: 'gad_source',
             description: 'Google Ads Source',
@@ -1303,6 +1348,80 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Dead click selection changed timeout',
             description:
                 'whether the dead click autocapture passed the threshold for waiting for a text selection change event',
+        },
+        // AI
+        $ai_base_url: {
+            label: 'AI Base URL (LLM)',
+            description: 'The base URL of the request made to the LLM API',
+            examples: ['https://api.openai.com/v1/'],
+        },
+        $ai_http_status: {
+            label: 'AI HTTP Status (LLM)',
+            description: 'The HTTP status code of the request made to the LLM API',
+            examples: [200, 429],
+        },
+        $ai_input: {
+            label: 'AI Input (LLM)',
+            description: 'The input JSON that was sent to the LLM API',
+            examples: ['{"content": "Explain quantum computing in simple terms.", "role": "user"}'],
+        },
+        $ai_input_tokens: {
+            label: 'AI Input Tokens (LLM)',
+            description: 'The number of tokens in the input prmopt that was sent to the LLM API',
+            examples: [23],
+        },
+        $ai_output: {
+            label: 'AI Output (LLM)',
+            description: 'The output JSON that was received from the LLM API',
+            examples: [
+                '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
+            ],
+        },
+        $ai_output_tokens: {
+            label: 'AI Output Tokens (LLM)',
+            description: 'The number of tokens in the output from the LLM API',
+            examples: [23],
+        },
+        $ai_input_cost_usd: {
+            label: 'AI Input Cost USD (LLM)',
+            description: 'The cost in USD of the input tokens sent to the LLM API',
+            examples: [0.0017],
+        },
+        $ai_output_cost_usd: {
+            label: 'AI Output Cost USD (LLM)',
+            description: 'The cost in USD of the output tokens received from the LLM API',
+            examples: [0.0024],
+        },
+        $ai_total_cost_usd: {
+            label: 'AI Total Cost USD (LLM)',
+            description: 'The total cost in USD of the request made to the LLM API (input + output costs)',
+            examples: [0.0041],
+        },
+        $ai_latency: {
+            label: 'AI Latency (LLM)',
+            description: 'The latency of the request made to the LLM API, in seconds',
+            examples: [0.361],
+        },
+        $ai_model: {
+            label: 'AI Model (LLM)',
+            description: 'The model used to generate the output from the LLM API',
+            examples: ['gpt-4o-mini'],
+        },
+        $ai_model_parameters: {
+            label: 'AI Model Parameters (LLM)',
+            description: 'The parameters used to configure the model in the LLM API, in JSON',
+            examples: ['{"temperature": 0.5, "max_tokens": 50}'],
+        },
+        $ai_provider: {
+            label: 'AI Provider (LLM)',
+            description: 'The provider of the AI model used to generate the output from the LLM API',
+            examples: ['openai'],
+        },
+        $ai_trace_id: {
+            label: 'AI Trace ID (LLM)',
+            description:
+                'The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace',
+            examples: ['c9222e05-8708-41b8-98ea-d4a21849e761'],
         },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below

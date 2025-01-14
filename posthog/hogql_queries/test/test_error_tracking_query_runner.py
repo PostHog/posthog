@@ -285,7 +285,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "users",
                 "last_seen",
                 "first_seen",
-                "earliest",
                 "id",
             ],
         )
@@ -309,8 +308,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "users",
                 "last_seen",
                 "first_seen",
-                "earliest",
                 "id",
+                "earliest",
             ],
         )
 

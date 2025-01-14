@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, queryExportContext } from '~/queries/query'
-import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema'
+import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 

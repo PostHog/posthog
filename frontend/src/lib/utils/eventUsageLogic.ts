@@ -15,6 +15,7 @@ import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
 import { objectClean } from 'lib/utils'
 import posthog from 'posthog-js'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
+import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { isFilterWithDisplay, isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
@@ -337,6 +338,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 type?: EntityType
             }>
         ) => ({ filters }),
+        reportInsightWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
         reportEntityFilterVisibilitySet: (index: number, visible: boolean) => ({ index, visible }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportPropertyGroupFilterAdded: true,
@@ -494,7 +496,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId: ExperimentIdType
             holdoutId: Holdout['id']
         }) => ({ experimentId, holdoutId }),
-
+        reportExperimentSharedMetricCreated: (sharedMetric: SharedMetric) => ({ sharedMetric }),
+        reportExperimentSharedMetricAssigned: (experimentId: ExperimentIdType, sharedMetric: SharedMetric) => ({
+            experimentId,
+            sharedMetric,
+        }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -831,6 +837,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightFilterSet: async ({ filters }) => {
             posthog.capture('filters set', { filters })
         },
+        reportInsightWhitelabelToggled: async ({ isWhiteLabelled }) => {
+            posthog.capture(`insight whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
+        },
         reportEntityFilterVisibilitySet: async ({ index, visible }) => {
             posthog.capture('entity filter visbility set', { index, visible })
         },
@@ -1092,6 +1101,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment holdout assigned', {
                 experiment_id: experimentId,
                 holdout_id: holdoutId,
+            })
+        },
+        reportExperimentSharedMetricCreated: ({ sharedMetric }) => {
+            posthog.capture('experiment shared metric created', {
+                name: sharedMetric.name,
+                id: sharedMetric.id,
+                kind: sharedMetric.query.kind,
+            })
+        },
+        reportExperimentSharedMetricAssigned: ({ experimentId, sharedMetric }) => {
+            posthog.capture('experiment shared metric assigned', {
+                experiment_id: experimentId,
+                shared_metric_name: sharedMetric.name,
+                shared_metric_id: sharedMetric.id,
+                shared_metric_kind: sharedMetric.query.kind,
             })
         },
         reportPropertyGroupFilterAdded: () => {
