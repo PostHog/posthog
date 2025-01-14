@@ -257,7 +257,7 @@ export const notebookLogic = kea<notebookLogicType>([
                                 'If-None-Match': values.notebook?.version,
                             })
                         } catch (e: any) {
-                            if (e.status === 403) {
+                            if (e.status === 403 && e.code === 'permission_denied') {
                                 actions.setAccessDeniedToNotebook()
                             } else if (e.status === 304) {
                                 // Indicates nothing has changed

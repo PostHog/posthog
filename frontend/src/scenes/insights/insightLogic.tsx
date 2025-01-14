@@ -119,7 +119,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
 
                         return insight
                     } catch (error: any) {
-                        if (error.status === 403) {
+                        if (error.status === 403 && error.code === 'permission_denied') {
                             actions.setAccessDeniedToInsight()
                         }
                         throw error

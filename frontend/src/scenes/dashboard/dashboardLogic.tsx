@@ -303,7 +303,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (error.status === 404) {
                             return null
                         }
-                        if (error.status === 403) {
+                        if (error.status === 403 && error.code === 'permission_denied') {
                             actions.setAccessDeniedToDashboard()
                         }
                         throw error
