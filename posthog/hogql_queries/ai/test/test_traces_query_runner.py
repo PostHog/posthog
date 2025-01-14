@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal, TypedDict
 from uuid import UUID
@@ -58,7 +59,7 @@ def _create_ai_generation_event(
         output_messages = output
 
     props = {
-        "$ai_trace_id": trace_id,
+        "$ai_trace_id": trace_id or str(uuid.uuid4()),
         "$ai_latency": 1,
         "$ai_input": json.dumps(input_messages),
         "$ai_output": json.dumps({"choices": output_messages}),
@@ -241,21 +242,43 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
     def test_trace_id_filter(self):
         _create_person(distinct_ids=["person1"], team=self.team)
         _create_person(distinct_ids=["person2"], team=self.team)
-        _create_ai_generation_event(
-            distinct_id="person1",
-            trace_id="trace1",
-            input="Foo",
-            output="Bar",
-            team=self.team,
-        )
-        _create_ai_generation_event(
-            distinct_id="person2",
-            trace_id="trace2",
-            input="Foo",
-            output="Bar",
-            team=self.team,
-        )
+        _create_ai_generation_event(distinct_id="person1", trace_id="trace1", team=self.team)
+        _create_ai_generation_event(distinct_id="person2", trace_id="trace2", team=self.team)
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery(traceId="trace1")).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
+
+    @snapshot_clickhouse_queries
+    def test_pagination(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_person(distinct_ids=["person2"], team=self.team)
+        for i in range(11):
+            _create_ai_generation_event(
+                distinct_id="person1" if i % 2 == 0 else "person2",
+                team=self.team,
+                trace_id=f"trace_{i}",
+            )
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=0)).calculate()
+        self.assertEqual(response.hasMore, True)
+        self.assertEqual(len(response.results), 5)
+        self.assertEqual(response.results[0].id, "trace_10")
+        self.assertEqual(response.results[1].id, "trace_9")
+        self.assertEqual(response.results[2].id, "trace_8")
+        self.assertEqual(response.results[3].id, "trace_7")
+        self.assertEqual(response.results[4].id, "trace_6")
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=5)).calculate()
+        self.assertEqual(response.hasMore, True)
+        self.assertEqual(len(response.results), 5)
+        self.assertEqual(response.results[0].id, "trace_5")
+        self.assertEqual(response.results[1].id, "trace_4")
+        self.assertEqual(response.results[2].id, "trace_3")
+        self.assertEqual(response.results[3].id, "trace_2")
+        self.assertEqual(response.results[4].id, "trace_1")
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=10)).calculate()
+        self.assertEqual(response.hasMore, False)
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace_0")
