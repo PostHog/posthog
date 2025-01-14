@@ -233,7 +233,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     connect((props: FeatureFlagLogicProps) => ({
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeam', 'currentTeamId'],
             projectLogic,
             ['currentProjectId'],
             groupsModel,
@@ -314,12 +314,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         },
     })),
-    reducers({
+    reducers(({ values }) => ({
         featureFlag: [
             { ...NEW_FLAG } as FeatureFlagType,
             {
                 setFeatureFlag: (_, { featureFlag }) => {
                     return featureFlag
+                },
+                setFeatureFlagDefaults: () => {
+                    return {
+                        ...NEW_FLAG,
+                        ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
+                    }
                 },
                 setFeatureFlagFilters: (state, { filters }) => {
                     return { ...state, filters }
@@ -519,7 +525,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setScheduledChangeOperation: (_, { changeType }) => changeType,
             },
         ],
-    }),
+    })),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
@@ -1053,6 +1059,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()
+        } else {
+            actions.setFeatureFlagDefaults()
         }
     }),
 ])
