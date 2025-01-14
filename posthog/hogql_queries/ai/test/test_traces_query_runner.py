@@ -9,7 +9,7 @@ from freezegun import freeze_time
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.models import PropertyDefinition, Team
 from posthog.models.property_definition import PropertyType
-from posthog.schema import AIGeneration, AITrace, TracesQuery
+from posthog.schema import LLMGeneration, LLMTrace, TracesQuery
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -109,12 +109,12 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             models_to_create.append(prop_model)
         PropertyDefinition.objects.bulk_create(models_to_create)
 
-    def assertTraceEqual(self, trace: AITrace, expected_trace: dict):
+    def assertTraceEqual(self, trace: LLMTrace, expected_trace: dict):
         trace_dict = trace.model_dump()
         for key, value in expected_trace.items():
             self.assertEqual(trace_dict[key], value, f"Field {key} does not match")
 
-    def assertEventEqual(self, event: AIGeneration, expected_event: dict):
+    def assertEventEqual(self, event: LLMGeneration, expected_event: dict):
         event_dict = event.model_dump()
         for key, value in expected_event.items():
             self.assertEqual(event_dict[key], value, f"Field {key} does not match")
