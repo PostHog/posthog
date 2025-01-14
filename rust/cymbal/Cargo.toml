@@ -29,6 +29,7 @@ aws-sdk-s3 = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 moka = { workspace = true }
+rdkafka = { workspace = true }
 
 [dev-dependencies]
 httpmock = { workspace = true }
