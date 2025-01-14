@@ -202,8 +202,11 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "--dry-run",
-            type=bool,
+            action="store_true",
             help="If set, will not actually perform the migration, but will print out what would have been done",
+        )
+        parser.add_argument(
+            "--inert", action="store_true", help="Create inert HogFunctions that will not fetch but just print"
         )
         parser.add_argument("--action-ids", type=str, help="Comma separated list of action ids to sync")
         parser.add_argument("--team-ids", type=str, help="Comma separated list of team ids to sync")
@@ -212,6 +215,9 @@ class Command(BaseCommand):
         dry_run = options["dry_run"]
         action_ids = options["action_ids"]
         team_ids = options["team_ids"]
+        inert = options["inert"]
+
+        print(f"Migrating action webhooks with options: {options}")  # noqa: T201
 
         if action_ids and team_ids:
             print("Please provide either action_ids or team_ids, not both")  # noqa: T201
@@ -221,4 +227,5 @@ class Command(BaseCommand):
             action_ids=[int(x) for x in action_ids.split(",")] if action_ids else [],
             team_ids=[int(x) for x in team_ids.split(",")] if team_ids else [],
             dry_run=dry_run,
+            inert=inert,
         )

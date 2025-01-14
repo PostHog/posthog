@@ -1,6 +1,6 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 
-import { NodeKind, TrendsQuery } from '~/queries/schema'
+import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { PropertyMathType } from '~/types'
 
 import type { llmObservabilityLogicType } from './llmObservabilityLogicType'
