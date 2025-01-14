@@ -14,23 +14,23 @@ from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 
 
 class Command(BaseCommand):
-    help = "Execute Temporal Workflow"
+    help = "Start Temporal Workflow"
 
     def add_arguments(self, parser):
-        parser.add_argument("workflow", metavar="<WORKFLOW>", help="The name of the workflow to execute")
+        parser.add_argument("workflow", metavar="<WORKFLOW>", help="The name of the workflow to start")
         parser.add_argument(
             "inputs",
             metavar="INPUTS",
             nargs="*",
-            help="Inputs for the workflow to execute",
+            help="Inputs for the workflow to start",
         )
         parser.add_argument(
             "--workflow-id",
             default=str(uuid4()),
             help=(
                 "Optionally, set an id for this workflow. If the ID is already in use, "
-                "the workflow will not execute unless it failed. If not used, a random UUID "
-                "will be used as the workflow ID, which means the workflow will always execute. "
+                "the workflow will not start unless it failed. If not used, a random UUID "
+                "will be used as the workflow ID, which means the workflow will always start. "
                 "Set an ID in order to limit concurrency."
             ),
         )
@@ -112,12 +112,12 @@ class Command(BaseCommand):
             raise ValueError(f"No workflow with name '{workflow_name}'")
         except AttributeError:
             raise TypeError(
-                f"Workflow '{workflow_name}' is not a `PostHogWorkflow` that can invoked by `execute_temporal_workflow`."
+                f"Workflow '{workflow_name}' is not a `PostHogWorkflow` that can invoked by `start_temporal_workflow`."
             )
 
-        logging.info("Executing Temporal Workflow %s with ID %s", workflow_name, workflow_id)
-        result = asyncio.run(
-            client.execute_workflow(
+        logging.info("Starting Temporal Workflow %s with ID %s", workflow_name, workflow_id)
+        asyncio.run(
+            client.start_workflow(
                 workflow_name,
                 workflow.parse_inputs(options["inputs"]),
                 id=workflow_id,
@@ -126,4 +126,3 @@ class Command(BaseCommand):
                 retry_policy=retry_policy,
             )
         )
-        logging.info("Workflow output: %s", result)
