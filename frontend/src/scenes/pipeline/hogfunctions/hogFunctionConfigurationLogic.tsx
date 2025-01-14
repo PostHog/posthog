@@ -845,7 +845,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (configuration) => {
                 // NOTE: Bit hacky but works good enough...
                 const configStr = JSON.stringify(configuration)
-                return configStr.includes('{groups')
+                return configStr.includes('groups.') || configStr.includes('{groups}')
             },
         ],
     })),
