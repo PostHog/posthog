@@ -217,17 +217,17 @@ export function LemonMenuSectionList({
 
 interface LemonMenuItemListProps {
     items: LemonMenuItem[]
-    buttonSize: 'xsmall' | 'small' | 'medium'
-    tooltipPlacement: TooltipProps['placement'] | undefined
-    itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
+    buttonSize?: 'xsmall' | 'small' | 'medium'
+    tooltipPlacement?: TooltipProps['placement'] | undefined
+    itemsRef?: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
     itemIndexOffset?: number
 }
 
 export function LemonMenuItemList({
     items,
-    buttonSize,
+    buttonSize = 'small',
     itemIndexOffset = 0,
-    tooltipPlacement,
+    tooltipPlacement = 'right',
     itemsRef,
 }: LemonMenuItemListProps): JSX.Element {
     let rollingItemIndex = 0
