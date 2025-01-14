@@ -12,6 +12,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     AIGeneration,
     AITrace,
+    AITracePerson,
     CachedTracesQueryResponse,
     NodeKind,
     TracesQuery,
@@ -112,7 +113,7 @@ class TracesQueryRunner(QueryRunner):
             trace_dict = {
                 **result,
                 "created_at": cast(datetime, result["trace_timestamp"]).isoformat(),
-                "person": orjson.loads(result["person"]),
+                "person": self._map_person(result["person"]),
                 "events": generations,
             }
             trace = AITrace.model_validate({key: value for key, value in trace_dict.items() if key in TRACE_FIELDS})
@@ -153,11 +154,20 @@ class TracesQueryRunner(QueryRunner):
 
         return AIGeneration.model_validate(generation)
 
+    def _map_person(self, person: tuple[UUID, UUID, datetime, str]) -> AITracePerson:
+        uuid, distinct_id, created_at, properties = person
+        return AITracePerson(
+            uuid=str(uuid),
+            distinct_id=str(distinct_id),
+            created_at=created_at.isoformat(),
+            properties=orjson.loads(properties),
+        )
+
     def _get_select_fields(self) -> list[ast.Expr]:
         return [
             ast.Alias(expr=ast.Field(chain=["properties", "$ai_trace_id"]), alias="id"),
             ast.Alias(expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]), alias="trace_timestamp"),
-            ast.Alias(expr=ast.Call(name="max", args=[ast.Field(chain=["person", "properties"])]), alias="person"),
+            self._get_person_field(),
             ast.Alias(
                 expr=ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_latency"])]),
                 alias="total_latency",
@@ -207,6 +217,19 @@ class TracesQueryRunner(QueryRunner):
                 alias="events",
             ),
         ]
+
+    def _get_person_field(self):
+        return ast.Alias(
+            expr=ast.Tuple(
+                exprs=[
+                    ast.Call(name="max", args=[ast.Field(chain=["person", "id"])]),
+                    ast.Call(name="max", args=[ast.Field(chain=["distinct_id"])]),
+                    ast.Call(name="max", args=[ast.Field(chain=["person", "created_at"])]),
+                    ast.Call(name="max", args=[ast.Field(chain=["person", "properties"])]),
+                ],
+            ),
+            alias="person",
+        )
 
     def _get_where_clause(self):
         event_expr = ast.CompareOperation(

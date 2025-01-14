@@ -32,20 +32,14 @@ class AIGeneration(BaseModel):
     total_cost: Optional[float] = None
 
 
-class AITrace(BaseModel):
+class AITracePerson(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     created_at: str
-    events: list[AIGeneration]
-    id: str
-    input_cost: float
-    input_tokens: float
-    output_cost: float
-    output_tokens: float
-    person: dict[str, Any]
-    total_cost: float
-    total_latency: float
+    distinct_id: str
+    properties: dict[str, Any]
+    uuid: str
 
 
 class ActionConversionGoal(BaseModel):
@@ -1790,6 +1784,22 @@ class YAxisSettings(BaseModel):
 
 class NumericalKey(RootModel[str]):
     root: str
+
+
+class AITrace(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    events: list[AIGeneration]
+    id: str
+    input_cost: float
+    input_tokens: float
+    output_cost: float
+    output_tokens: float
+    person: AITracePerson
+    total_cost: float
+    total_latency: float
 
 
 class AlertCondition(BaseModel):

@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from typing import Any, Literal, TypedDict
 from uuid import UUID
 
+from freezegun import freeze_time
+
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.models import PropertyDefinition, Team
 from posthog.models.property_definition import PropertyType
@@ -162,9 +164,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 "input_cost": 6.0,
                 "output_cost": 6.0,
                 "total_cost": 12.0,
-                "person": {},
             },
         )
+        self.assertEqual(trace.person.distinct_id, "person1")
 
         self.assertEqual(len(trace.events), 2)
         event = trace.events[0]
@@ -215,9 +217,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 "input_cost": 3,
                 "output_cost": 3,
                 "total_cost": 6,
-                "person": {},
             },
         )
+        self.assertEqual(trace.person.distinct_id, "person2")
         self.assertEqual(len(trace.events), 1)
         event = trace.events[0]
         self.assertIsNotNone(event.id)
@@ -314,13 +316,16 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
     def test_person_properties(self):
-        _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "test@posthog.com"})
-        _create_ai_generation_event(
-            distinct_id="person1",
-            trace_id="trace1",
-            team=self.team,
-        )
+        with freeze_time("2025-01-01T00:00:00Z"):
+            _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "test@posthog.com"})
+            _create_ai_generation_event(
+                distinct_id="person1",
+                trace_id="trace1",
+                team=self.team,
+            )
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].person, {"email": "test@posthog.com"})
+        self.assertEqual(response.results[0].person.created_at, "2025-01-01T00:00:00+00:00")
+        self.assertEqual(response.results[0].person.properties, {"email": "test@posthog.com"})
+        self.assertEqual(response.results[0].person.distinct_id, "person1")

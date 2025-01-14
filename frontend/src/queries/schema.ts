@@ -2547,10 +2547,17 @@ export interface AIGeneration {
     base_url?: string
 }
 
+export interface AITracePerson {
+    uuid: string
+    created_at: string
+    properties: Record<string, any>
+    distinct_id: string
+}
+
 export interface AITrace {
     id: string
     created_at: string
-    person: Record<string, any>
+    person: AITracePerson
     total_latency: number
     input_tokens: number
     output_tokens: number

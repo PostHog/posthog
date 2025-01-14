@@ -77,7 +77,7 @@
                     "type": "number"
                 },
                 "person": {
-                    "type": "object"
+                    "$ref": "#/definitions/AITracePerson"
                 },
                 "total_cost": {
                     "type": "number"
@@ -98,6 +98,25 @@
                 "total_cost",
                 "events"
             ],
+            "type": "object"
+        },
+        "AITracePerson": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "distinct_id": {
+                    "type": "string"
+                },
+                "properties": {
+                    "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["uuid", "created_at", "properties", "distinct_id"],
             "type": "object"
         },
         "ActionConversionGoal": {
