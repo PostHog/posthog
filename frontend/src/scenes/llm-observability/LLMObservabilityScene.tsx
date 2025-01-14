@@ -6,6 +6,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 
@@ -21,9 +22,15 @@ const Filters = (): JSX.Element => {
         shouldFilterTestAccounts,
     } = useValues(llmObservabilityLogic)
     const { setDates, setShouldFilterTestAccounts } = useActions(llmObservabilityLogic)
+    const { mobileLayout } = useValues(navigationLogic)
 
     return (
-        <div className="mb-4 flex justify-between items-center">
+        <div
+            className={clsx(
+                'sticky flex justify-between items-center py-2 -mt-2 mb-2 bg-bg-3000 border-b z-20',
+                mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
+            )}
+        >
             <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
             <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
         </div>
@@ -77,7 +84,6 @@ export function LLMObservabilityScene(): JSX.Element {
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID }}>
             <IngestionStatusCheck />
-
             <Filters />
             <Tiles />
         </BindLogic>
