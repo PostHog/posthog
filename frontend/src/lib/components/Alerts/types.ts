@@ -4,7 +4,7 @@ import {
     AlertState,
     InsightThreshold,
     TrendsAlertConfig,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
 export type AlertConfig = TrendsAlertConfig

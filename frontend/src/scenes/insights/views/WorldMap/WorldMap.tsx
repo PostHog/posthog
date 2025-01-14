@@ -9,7 +9,7 @@ import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
-import { InsightQueryNode, NodeKind } from '~/queries/schema'
+import { InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ChartParams, TrendResult } from '~/types'
 
 import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
