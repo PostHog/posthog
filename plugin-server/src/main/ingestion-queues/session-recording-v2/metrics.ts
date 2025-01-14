@@ -1,4 +1,4 @@
-import { Gauge, Histogram, Summary } from 'prom-client'
+import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
 const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 
@@ -10,6 +10,7 @@ export class SessionRecordingMetrics {
     private readonly kafkaBatchSize: Histogram<string>
     private readonly kafkaBatchSizeKb: Histogram<string>
     private readonly sessionInfo: Summary<string>
+    private readonly messageReceived: Counter<string>
 
     private constructor() {
         this.sessionsHandled = new Gauge({
@@ -60,6 +61,12 @@ export class SessionRecordingMetrics {
             help: 'Size of aggregated session information being processed',
             percentiles: [0.1, 0.25, 0.5, 0.9, 0.99],
         })
+
+        this.messageReceived = new Counter({
+            name: 'recording_blob_ingestion_v2_kafka_message_received',
+            help: 'The number of messages we have received from Kafka',
+            labelNames: ['partition'],
+        })
     }
 
     public static getInstance(): SessionRecordingMetrics {
@@ -87,5 +94,9 @@ export class SessionRecordingMetrics {
 
     public observeSessionInfo(bytes: number): void {
         this.sessionInfo.observe(bytes)
+    }
+
+    public incrementMessageReceived(partition: number): void {
+        this.messageReceived.inc({ partition })
     }
 }

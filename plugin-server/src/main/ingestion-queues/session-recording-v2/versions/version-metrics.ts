@@ -6,7 +6,7 @@ export class VersionMetrics {
 
     public constructor() {
         this.libVersionWarningCounter = new Counter({
-            name: 'lib_version_warning_counter',
+            name: 'recording_blob_ingestion_v2_lib_version_warning_counter',
             help: 'the number of times we have seen a message with a lib version that is too old, each _might_ cause an ingestion warning if not debounced',
         })
     }

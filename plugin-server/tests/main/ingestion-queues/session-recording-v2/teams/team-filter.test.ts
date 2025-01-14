@@ -1,13 +1,11 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/metrics'
 import { KafkaParser } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/parser'
 import { TeamFilter } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/team-filter'
 import { TeamService } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/team-service'
 import { Team } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/types'
 
 jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/teams/team-service')
-jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/kafka/metrics')
 jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/kafka/parser')
 
 const validTeam: Team = {
@@ -42,14 +40,12 @@ const createParsedMessage = (offset = 0, timestamp = Date.now()) => ({
 describe('TeamFilter', () => {
     let teamFilter: TeamFilter
     let teamService: jest.Mocked<TeamService>
-    let kafkaMetrics: jest.Mocked<KafkaMetrics>
     let kafkaParser: jest.Mocked<KafkaParser>
 
     beforeEach(() => {
         jest.clearAllMocks()
         teamService = new TeamService() as jest.Mocked<TeamService>
-        kafkaMetrics = new KafkaMetrics() as jest.Mocked<KafkaMetrics>
-        kafkaParser = new KafkaParser(kafkaMetrics) as jest.Mocked<KafkaParser>
+        kafkaParser = new KafkaParser() as jest.Mocked<KafkaParser>
         teamFilter = new TeamFilter(teamService, kafkaParser)
     })
 

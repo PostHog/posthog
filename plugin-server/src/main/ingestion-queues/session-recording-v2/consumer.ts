@@ -16,7 +16,6 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from './constants'
-import { KafkaMetrics } from './kafka/metrics'
 import { KafkaParser } from './kafka/parser'
 import { SessionRecordingMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
@@ -52,8 +51,7 @@ export class SessionRecordingIngester {
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
-        const kafkaMetrics = KafkaMetrics.getInstance()
-        const kafkaParser = new KafkaParser(kafkaMetrics)
+        const kafkaParser = new KafkaParser()
         const teamService = new TeamService()
         this.metrics = SessionRecordingMetrics.getInstance()
         this.promiseScheduler = new PromiseScheduler()
@@ -104,6 +102,11 @@ export class SessionRecordingIngester {
             statsKey: `recordingingesterv2.handleEachBatch`,
             sendTimeoutGuardToSentry: false,
             func: async () => {
+                // Increment message received counter for each message
+                for (const message of messages) {
+                    this.metrics.incrementMessageReceived(message.partition)
+                }
+
                 this.metrics.observeKafkaBatchSize(messages.length)
                 this.metrics.observeKafkaBatchSizeKb(
                     messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
