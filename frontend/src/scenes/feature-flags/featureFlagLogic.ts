@@ -290,7 +290,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
-            defaults: { ...NEW_FLAG },
+            defaults: {
+                ...NEW_FLAG,
+                ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
+            },
             errors: ({ key, filters }) => {
                 return {
                     key: validateFeatureFlagKey(key),
@@ -314,18 +317,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         },
     })),
-    reducers(({ values }) => ({
+    reducers(() => ({
         featureFlag: [
             { ...NEW_FLAG } as FeatureFlagType,
             {
                 setFeatureFlag: (_, { featureFlag }) => {
                     return featureFlag
-                },
-                setFeatureFlagDefaults: () => {
-                    return {
-                        ...NEW_FLAG,
-                        ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
-                    }
                 },
                 setFeatureFlagFilters: (state, { filters }) => {
                     return { ...state, filters }
@@ -538,7 +535,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         throw e
                     }
                 }
-                return NEW_FLAG
+                return {
+                    ...NEW_FLAG,
+                    ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                }
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 const { created_at, id, ...flag } = updatedFlag
@@ -1059,8 +1059,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()
-        } else {
-            actions.setFeatureFlagDefaults()
         }
     }),
 ])
