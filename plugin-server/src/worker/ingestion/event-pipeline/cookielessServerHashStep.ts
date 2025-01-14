@@ -337,6 +337,7 @@ export async function getSaltForDay(
     eventTimeZone: string | undefined,
     teamtimeZone: string
 ): Promise<Uint32Array> {
+    console.log(localSaltMap)
     // get the day based on the timezone
     const yyyymmdd = toYYYYMMDDInTimezoneSafe(timestamp, eventTimeZone, teamtimeZone)
 
@@ -391,17 +392,40 @@ export async function getSaltForDay(
             if (!saltBase64Retry) {
                 throw new Error('Failed to get salt from redis')
             }
-            return base64StringToUint32Array(saltBase64Retry)
+
+            const salt = base64StringToUint32Array(saltBase64Retry)
+            localSaltMap[yyyymmdd] = salt
+
+            return salt
         },
         priority: timestamp,
     })
 }
 
 export function base64StringToUint32Array(base64: string): Uint32Array {
-    return new Uint32Array(Buffer.from(base64, 'base64').buffer)
+    const buffer = Buffer.from(base64, 'base64')
+    const dataView = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+    const length = buffer.byteLength / 4
+    const result = new Uint32Array(length)
+
+    for (let i = 0; i < length; i++) {
+        // explicitly set little-endian
+        result[i] = dataView.getUint32(i * 4, true)
+    }
+
+    return result
 }
+
 export function uint32ArrayToBase64String(uint32Array: Uint32Array): string {
-    return Buffer.from(uint32Array.buffer).toString('base64')
+    const buffer = new ArrayBuffer(uint32Array.length * 4)
+    const dataView = new DataView(buffer)
+
+    for (let i = 0; i < uint32Array.length; i++) {
+        // explicitly set little-endian
+        dataView.setUint32(i * 4, uint32Array[i], true)
+    }
+
+    return Buffer.from(buffer).toString('base64')
 }
 
 export function createRandomUint32x4(): Uint32Array {
@@ -574,7 +598,7 @@ export function sessionStateToBuffer({ sessionId, lastActivityTimestamp }: Sessi
     return buffer
 }
 
-export function deleteExpiredSalts(): void {
+export function deleteExpiredLocalSalts(): void {
     for (const key in localSaltMap) {
         if (!isCalendarDateValid(key)) {
             delete localSaltMap[key]
@@ -582,4 +606,10 @@ export function deleteExpiredSalts(): void {
     }
 }
 
-setInterval(deleteExpiredSalts, DELETE_EXPIRED_SALTS_INTERVAL_MS)
+export function deleteAllLocalSalts(): void {
+    for (const key in localSaltMap) {
+        delete localSaltMap[key]
+    }
+}
+
+setInterval(deleteExpiredLocalSalts, DELETE_EXPIRED_SALTS_INTERVAL_MS)
