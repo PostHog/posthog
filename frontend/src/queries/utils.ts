@@ -7,6 +7,7 @@ import {
     ActionsNode,
     ActorsQuery,
     BreakdownFilter,
+    ChartAnnotation,
     CompareFilter,
     CoreWebVitalsQuery,
     DatabaseSchemaQuery,
@@ -342,6 +343,13 @@ export const getYAxisScaleType = (query: InsightQueryNode): string | undefined =
 export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.resultCustomizationBy
+    }
+    return undefined
+}
+
+export const getAnnotations = (query: InsightQueryNode): ChartAnnotation[] | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.annotations
     }
     return undefined
 }

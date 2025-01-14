@@ -56,6 +56,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'series',
                 'formula',
                 'display',
+                'annotations',
                 'compareFilter',
                 'interval',
                 'enabledIntervals',

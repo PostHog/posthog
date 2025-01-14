@@ -2,7 +2,7 @@ import * as d3 from 'd3'
 import { actions, afterMount, connect, kea, key, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { GoalLine } from '~/queries/schema'
+import { ChartAnnotation } from '~/queries/schema'
 
 import { dataVisualizationLogic } from './dataVisualizationLogic'
 import type { displayLogicType } from './displayLogicType'
@@ -27,11 +27,11 @@ export const displayLogic = kea<displayLogicType>([
             value,
         }),
         removeGoalLine: (goalLineIndex: number) => ({ goalLineIndex }),
-        setGoalLines: (goalLines: GoalLine[]) => ({ goalLines }),
+        setGoalLines: (goalLines: ChartAnnotation[]) => ({ goalLines }),
     })),
     reducers({
         goalLines: [
-            [] as GoalLine[],
+            [] as ChartAnnotation[],
             {
                 addGoalLine: (state, { yData }) => {
                     const yDataFlat = yData?.flatMap((n) => n.data) ?? []
@@ -80,7 +80,7 @@ export const displayLogic = kea<displayLogicType>([
         }
     }),
     subscriptions(({ values, actions }) => ({
-        goalLines: (value: GoalLine[]) => {
+        goalLines: (value: ChartAnnotation[]) => {
             const goalLines = value.length > 0 ? value : undefined
 
             actions.setQuery({
