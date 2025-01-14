@@ -88,31 +88,48 @@ class TracesQueryRunner(QueryRunner):
 
     def _get_select_fields(self) -> list[ast.Expr]:
         return [
-            ast.Field(chain=["properties", "$ai_trace_id"]),
-            ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]),
-            ast.Call(name="max", args=[ast.Field(chain=["person", "properties"])]),
-            ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_latency"])]),
-            ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_input_tokens"])]),
-            ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_output_tokens"])]),
-            ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_input_cost_usd"])]),
-            ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_output_cost_usd"])]),
-            ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_total_cost_usd"])]),
-            ast.Call(
-                name="arraySort",
-                args=[
-                    ast.Lambda(args=["x"], expr=ast.Field(chain=["x", "1"])),
-                    ast.Call(
-                        name="groupArray",
-                        args=[
-                            ast.Tuple(
-                                exprs=[
-                                    ast.Field(chain=["timestamp"]),
-                                    ast.Field(chain=["properties"]),
-                                ]
-                            )
-                        ],
-                    ),
-                ],
+            ast.Alias(expr=ast.Field(chain=["properties", "$ai_trace_id"]), alias="trace_id"),
+            ast.Alias(expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]), alias="trace_timestamp"),
+            ast.Alias(expr=ast.Call(name="max", args=[ast.Field(chain=["person", "properties"])]), alias="person"),
+            ast.Alias(
+                expr=ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_latency"])]),
+                alias="total_latency",
+            ),
+            ast.Alias(
+                expr=ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_input_tokens"])]),
+                alias="input_tokens",
+            ),
+            ast.Alias(
+                expr=ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_output_tokens"])]),
+                alias="output_tokens",
+            ),
+            ast.Alias(
+                expr=ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_input_cost_usd"])]),
+                alias="input_cost",
+            ),
+            ast.Alias(
+                expr=ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_output_cost_usd"])]),
+                alias="output_cost",
+            ),
+            ast.Alias(
+                expr=ast.Call(name="sum", args=[ast.Field(chain=["properties", "$ai_total_cost_usd"])]),
+                alias="total_cost",
+            ),
+            ast.Alias(
+                expr=ast.Call(
+                    name="arraySort",
+                    args=[
+                        ast.Lambda(
+                            args=["x"],
+                            expr=ast.Call(name="tupleElement", args=[ast.Field(chain=["x"]), ast.Constant(value=1)]),
+                        ),
+                        ast.Call(
+                            name="groupArray",
+                            args=[ast.Tuple(exprs=[ast.Field(chain=["timestamp"]), ast.Field(chain=["properties"])])],
+                        ),
+                    ],
+                ),
+                alias="spans",
             ),
         ]
 
@@ -124,4 +141,4 @@ class TracesQueryRunner(QueryRunner):
         )
 
     def _get_order_by_clause(self):
-        return [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")]
+        return [ast.OrderExpr(expr=ast.Field(chain=["trace_timestamp"]), order="DESC")]
