@@ -62,7 +62,7 @@ export const FiltersPanel = (): JSX.Element => {
 
     return (
         <>
-            <div className="px-2 space-y-1 bg-bg-light border-b py-2">
+            <div className="px-2 space-y-1 bg-bg-light border-b py-2 Playlist__filters">
                 <div className="flex items-center justify-between">
                     <h3 className="px-2 truncate" title="Filters">
                         Filters

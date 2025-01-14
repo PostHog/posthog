@@ -106,7 +106,9 @@ export function Playlist({
                 })}
             >
                 <div ref={playlistListRef} className={clsx('Playlist__list w-full', 'Playlist__list--collapsed')}>
-                    <FiltersPanel />
+                    <DraggableToNotebook href={notebooksHref}>
+                        <FiltersPanel />
+                    </DraggableToNotebook>
 
                     <List
                         title={title}
@@ -220,7 +222,7 @@ const List = ({
     const initiallyOpenSections = sections.filter((s) => s.initiallyOpen).map((s) => s.key)
 
     return (
-        <div className="flex flex-col w-full bg-bg-light overflow-hidden h-full">
+        <div className="flex flex-col w-full bg-bg-light overflow-hidden h-full Playlist__list">
             <DraggableToNotebook href={notebooksHref}>
                 <div className="flex flex-col gap-1">
                     <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
