@@ -337,7 +337,6 @@ export async function getSaltForDay(
     eventTimeZone: string | undefined,
     teamtimeZone: string
 ): Promise<Uint32Array> {
-    console.log(localSaltMap)
     // get the day based on the timezone
     const yyyymmdd = toYYYYMMDDInTimezoneSafe(timestamp, eventTimeZone, teamtimeZone)
 
@@ -510,7 +509,7 @@ export function toYYYYMMDDInTimezoneSafe(
     eventTimeZone: string | undefined,
     teamTimeZone: string
 ): string {
-    let dateObj: { year: number; month: number; day: number }
+    let dateObj: { year: number; month: number; day: number } | undefined
     if (eventTimeZone) {
         try {
             dateObj = toYearMonthDayInTimezone(timestamp, eventTimeZone)
@@ -518,10 +517,12 @@ export function toYYYYMMDDInTimezoneSafe(
             // pass
         }
     }
-    try {
-        dateObj = toYearMonthDayInTimezone(timestamp, teamTimeZone)
-    } catch {
-        dateObj = toYearMonthDayInTimezone(timestamp, TIMEZONE_FALLBACK)
+    if (!dateObj) {
+        try {
+            dateObj = toYearMonthDayInTimezone(timestamp, teamTimeZone)
+        } catch {
+            dateObj = toYearMonthDayInTimezone(timestamp, TIMEZONE_FALLBACK)
+        }
     }
     return `${dateObj.year}-${dateObj.month.toString().padStart(2, '0')}-${dateObj.day.toString().padStart(2, '0')}`
 }
