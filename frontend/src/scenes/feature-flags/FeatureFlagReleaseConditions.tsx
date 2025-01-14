@@ -19,7 +19,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
+import { capitalizeFirstLetter, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -203,21 +203,27 @@ export function FeatureFlagReleaseConditions({
                                             (val, idx) => (
                                                 <LemonSnack key={idx}>
                                                     {val}
-                                                    {isPropertyFilterWithOperator(property) &&
-                                                    ['is_date_before', 'is_date_after'].includes(property.operator) &&
-                                                    dateStringToComponents(String(val)) // check it's a relative date
-                                                        ? ` ( ${dateFilterToText(
-                                                              String(val),
-                                                              undefined,
-                                                              '',
-                                                              [],
-                                                              false,
-                                                              String(val).slice(-1) === 'h'
-                                                                  ? 'MMMM D, YYYY HH:mm:ss'
-                                                                  : 'MMMM D, YYYY',
-                                                              true
-                                                          )} )`
-                                                        : ''}
+                                                    <span>
+                                                        {isPropertyFilterWithOperator(property) &&
+                                                        ['is_date_before', 'is_date_after'].includes(
+                                                            property.operator
+                                                        ) &&
+                                                        dateStringToComponents(String(val)) // check it's a relative date
+                                                            ? ` ( $
+                                                            {dateFilterToText(
+                                                                String(val),
+                                                                undefined,
+                                                                '',
+                                                                [],
+                                                                false,
+                                                                String(val).slice(-1) === 'h'
+                                                                    ? 'MMMM D, YYYY HH:mm:ss'
+                                                                    : 'MMMM D, YYYY',
+                                                                true
+                                                            )}{' '}
+                                                            )`
+                                                            : ''}
+                                                    </span>
                                                 </LemonSnack>
                                             )
                                         )
@@ -279,8 +285,10 @@ export function FeatureFlagReleaseConditions({
                         >
                             <div className="text-sm ">
                                 Rolled out to{' '}
-                                <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
-                                <b>{aggregationTargetName}</b> in this set.{' '}
+                                {group.rollout_percentage != null ? <b>{group.rollout_percentage}</b> : <b>100</b>}
+                                <b>%</b>
+                                <span>of</span>
+                                <b>{aggregationTargetName}</b> <span>in this set.</span>
                             </div>
                         </LemonTag>
                     ) : (
@@ -344,7 +352,7 @@ export function FeatureFlagReleaseConditions({
                                     }
                                     return ''
                                 })()}{' '}
-                                of total {aggregationTargetName}.
+                                <span>of total {aggregationTargetName}.</span>
                             </div>
                         </div>
                     )}
