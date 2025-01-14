@@ -158,6 +158,11 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
         return session_recording_list_instance.run()
 
+    def _assert_query_matches_session_ids(self, query: dict | None, expected: list[str]) -> None:
+        (session_recordings, more_recordings_available, _) = self._filter_recordings_by(query)
+        assert sorted([sr["session_id"] for sr in session_recordings]) == expected
+        assert more_recordings_available is False
+
     @property
     def an_hour_ago(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
@@ -4238,7 +4243,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="1",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
-            ensure_analytics_event_in_session=False,
         )
         # the session needs to have multiple matching or not matching events
         for _ in range(10):
@@ -4258,7 +4262,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
             click_count=10,
-            ensure_analytics_event_in_session=False,
         )
 
         for _ in range(10):
@@ -4277,13 +4280,11 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             click_count=10,
-            ensure_analytics_event_in_session=False,
         )
 
         # there are 2 pageviews
-        (session_recordings, _, _) = self._filter_recordings_by(
+        self._assert_query_matches_session_ids(
             {
-                # pageview that matches the hogql test_accounts filter
                 "events": [
                     {
                         "id": "$pageview",
@@ -4293,16 +4294,25 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                     }
                 ],
                 "filter_test_accounts": False,
-            }
+            },
+            ["1", "2"],
         )
-        self.assertEqual(len(session_recordings), 2)
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    }
+                ],
                 # only 1 pageview that matches the test_accounts filter
                 "filter_test_accounts": True,
             }
         )
+
         assert session_recordings == [
             {
                 "active_seconds": 0.0,
@@ -4417,9 +4427,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"properties": properties})
-
-        assert sorted([sr["session_id"] for sr in session_recordings]) == expected
+        self._assert_query_matches_session_ids({"properties": properties}, expected)
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
@@ -4477,16 +4485,15 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        self._assert_query_matches_session_ids(
             {
                 "properties": [
                     {"type": "event", "key": "probe-one", "operator": "is_not", "value": ["val"]},
                     {"type": "event", "key": "probe-two", "operator": "is_not", "value": ["val"]},
                 ]
-            }
+            },
+            ["3", "4"],
         )
-
-        assert sorted([sr["session_id"] for sr in session_recordings]) == ["3", "4"]
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
@@ -4541,7 +4548,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        self._assert_query_matches_session_ids(
             {
                 "properties": [
                     {
@@ -4551,10 +4558,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                         "type": "event",
                     },
                 ]
-            }
+            },
+            ["1", "4"],
         )
-
-        assert sorted([sr["session_id"] for sr in session_recordings]) == ["1", "4"]
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
@@ -4609,7 +4615,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        self._assert_query_matches_session_ids(
             {
                 "properties": [
                     {
@@ -4619,7 +4625,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                         "type": "event",
                     },
                 ]
-            }
+            },
+            ["1", "4"],
         )
-
-        assert sorted([sr["session_id"] for sr in session_recordings]) == ["1", "4"]
