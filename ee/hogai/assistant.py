@@ -5,11 +5,10 @@ from uuid import uuid4
 
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
-from langfuse.callback import CallbackHandler
 from langgraph.graph.state import CompiledStateGraph
+from posthoganalytics.ai.langchain import CallbackHandler
 from pydantic import BaseModel
 
-from ee import settings
 from ee.hogai.funnels.nodes import FunnelGeneratorNode
 from ee.hogai.graph import AssistantGraph
 from ee.hogai.memory.nodes import MemoryInitializerNode
@@ -32,6 +31,7 @@ from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssis
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
+from posthog.ph_client import get_ph_client
 from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -44,13 +44,7 @@ from posthog.schema import (
 )
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
-if settings.LANGFUSE_PUBLIC_KEY:
-    langfuse_handler = CallbackHandler(
-        public_key=settings.LANGFUSE_PUBLIC_KEY, secret_key=settings.LANGFUSE_SECRET_KEY, host=settings.LANGFUSE_HOST
-    )
-else:
-    langfuse_handler = None
-
+posthog_client = get_ph_client()
 
 VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
@@ -77,6 +71,7 @@ class Assistant:
     _conversation: Conversation
     _latest_message: HumanMessage
     _state: Optional[AssistantState]
+    _callback_handler: Optional[CallbackHandler]
 
     def __init__(
         self,
@@ -94,6 +89,8 @@ class Assistant:
         self._graph = AssistantGraph(team).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
         self._state = None
+        distinct_id = user.distinct_id if user else None
+        self._callback_handler = CallbackHandler(posthog_client, distinct_id) if posthog_client is not None else None
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -147,7 +144,7 @@ class Assistant:
         return AssistantState(messages=[self._latest_message], start_id=self._latest_message.id)
 
     def _get_config(self) -> RunnableConfig:
-        callbacks = [langfuse_handler] if langfuse_handler else []
+        callbacks = [self._callback_handler] if self._callback_handler is not None else []
         config: RunnableConfig = {
             "recursion_limit": 24,
             "callbacks": callbacks,
