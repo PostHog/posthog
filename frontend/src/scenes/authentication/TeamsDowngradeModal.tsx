@@ -1,18 +1,21 @@
 import { useActions, useValues } from 'kea'
 import { DowngradeFeature, FeatureDowngradeModal } from 'lib/components/FeatureDowngradeModal/FeatureDowngradeModal'
 
+import { AvailableFeature } from '~/types'
+
 import { teamsDowngradeLogic } from './teamsDowngradeLogic'
 
-const TEAMS_FEATURES: DowngradeFeature[] = [
-    {
-        // Replace hardcoding here
-        title: '2FA Enforcement',
-    },
-]
-
 export function TeamsDowngradeModal(): JSX.Element {
-    const { isTeamsDowngradeModalOpen } = useValues(teamsDowngradeLogic)
+    const { isTeamsDowngradeModalOpen, enforce2FA } = useValues(teamsDowngradeLogic)
     const { hideTeamsDowngradeModal, handleTeamsDowngrade } = useActions(teamsDowngradeLogic)
+
+    const teamFeatures: DowngradeFeature[] = []
+
+    if (enforce2FA) {
+        teamFeatures.push({
+            title: AvailableFeature.TWOFA_ENFORCEMENT,
+        })
+    }
 
     return (
         <FeatureDowngradeModal
@@ -20,7 +23,7 @@ export function TeamsDowngradeModal(): JSX.Element {
             onClose={hideTeamsDowngradeModal}
             onDowngrade={handleTeamsDowngrade}
             title="Unsubscribe from Teams"
-            features={TEAMS_FEATURES}
+            features={teamFeatures}
         />
     )
 }
