@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { getTracesQuery } from 'scenes/llm-observability/queries'
 
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import {
@@ -47,6 +48,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setActiveTab: (activeTab: LLMObservabilityTab) => ({ activeTab }),
+        loadMoreTraces: true,
     }),
 
     reducers({
@@ -66,6 +68,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             },
         ],
         activeTab: [LLMObservabilityTab.Dashboard, { setActiveTab: (_, { activeTab }) => activeTab }],
+        queryLimit: [30, { setQueryLimit: (_, { queryLimit }) => queryLimit + 30 }],
     }),
 
     selectors({
@@ -238,6 +241,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 },
             ],
         ],
+        query: [(s) => [s.queryLimit], (queryLimit) => getTracesQuery({ limit: queryLimit })],
     }),
     loaders({
         hasSentAiGenerationEvent: {

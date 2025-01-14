@@ -130,6 +130,7 @@ export type AnyDataNode =
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | RecordingsQuery
+    | TracesQuery
 
 /**
  * @discriminator kind
@@ -630,6 +631,7 @@ export interface DataTableNode
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
+                    | TracesQuery
                 )['response']
             >
         >,
@@ -650,6 +652,7 @@ export interface DataTableNode
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
+        | TracesQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
