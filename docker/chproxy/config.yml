@@ -1,0 +1,19 @@
+hack_me_please: true
+log_debug: true
+allow_ping: true
+
+server:
+    http:
+        listen_addr: ':8123'
+
+users:
+    - name: ${CLICKHOUSE_USER}
+      to_user: ${CLICKHOUSE_USER}
+      to_cluster: ${CLICKHOUSE_CLUSTER}
+
+# by default each cluster has `default` user which can be overridden by section `users`
+clusters:
+    - name: ${CLICKHOUSE_CLUSTER}
+      nodes: ['clickhouse:8123']
+      users:
+          - name: ${CLICKHOUSE_USER}
