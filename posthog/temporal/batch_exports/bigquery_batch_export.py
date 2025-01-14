@@ -326,6 +326,11 @@ class BigQueryClient(bigquery.Client):
         else:
             fields_to_cast = set()
 
+        # The following `REGEXP_REPLACE` functions are used to clean-up un-paired
+        # surrogates, as they are rejected by `PARSE_JSON`. Since BigQuery's regex
+        # engine has no lookahead / lookback, we instead use an OR to match both
+        # valid pairs and invalid single high or low surrogates, and replacing only
+        # with the valid pair in both cases.
         stage_table_fields = ",".join(
             f"""
             PARSE_JSON(
@@ -395,6 +400,11 @@ class BigQueryClient(bigquery.Client):
                 values += ", "
                 field_names += ", "
 
+            # The following `REGEXP_REPLACE` functions are used to clean-up un-paired
+            # surrogates, as they are rejected by `PARSE_JSON`. Since BigQuery's regex
+            # engine has no lookahead / lookback, we instead use an OR to match both
+            # valid pairs and invalid single high or low surrogates, and replacing only
+            # with the valid pair in both cases.
             stage_field = (
                 f"""
                 PARSE_JSON(
