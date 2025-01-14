@@ -131,7 +131,6 @@ export type AnyDataNode =
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | RecordingsQuery
-    | TracesQuery
 
 /**
  * @discriminator kind
@@ -214,7 +213,6 @@ export type AnyResponseType =
     | EventsNode['response']
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
-    | TracesQueryResponse
 
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
@@ -635,7 +633,6 @@ export interface DataTableNode
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
-                    | TracesQuery
                 )['response']
             >
         >,
@@ -656,7 +653,6 @@ export interface DataTableNode
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
-        | TracesQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
