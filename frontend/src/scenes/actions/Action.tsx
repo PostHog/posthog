@@ -7,7 +7,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ActionType } from '~/types'
 
 import { ActionEdit } from './ActionEdit'

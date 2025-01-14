@@ -1,5 +1,6 @@
 import { IconGear, IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -8,6 +9,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useState } from 'react'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -58,6 +60,7 @@ export function ProjectNotice(): JSX.Element | null {
     const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
+    const { sceneConfig } = useValues(sceneLogic)
 
     if (!projectNoticeVariant) {
         return null
@@ -169,10 +172,13 @@ export function ProjectNotice(): JSX.Element | null {
 
     const relevantNotice = NOTICES[projectNoticeVariant]
 
+    const requiresHorizontalMargin =
+        sceneConfig?.layout && ['app-raw', 'app-raw-no-header'].includes(sceneConfig.layout)
+
     return (
         <LemonBanner
             type={relevantNotice.type || 'info'}
-            className="my-4"
+            className={clsx('my-4', requiresHorizontalMargin && 'mx-4')}
             action={relevantNotice.action}
             onClose={relevantNotice.closeable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >

@@ -8,6 +8,7 @@ import {
     IconTrending,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -108,8 +109,8 @@ export function DeltaChart({
     const {
         openPrimaryMetricModal,
         openSecondaryMetricModal,
-        openPrimarySavedMetricModal,
-        openSecondarySavedMetricModal,
+        openPrimarySharedMetricModal,
+        openSecondarySharedMetricModal,
     } = useActions(experimentLogic)
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
@@ -136,6 +137,7 @@ export function DeltaChart({
     const HORIZONTAL_PADDING = 20
     const CONVERSION_RATE_RECT_WIDTH = 2
     const TICK_FONT_SIZE = 9
+    const CHART_MAX_WIDTH = 1000
 
     const { isDarkModeOn } = useValues(themeLogic)
     const COLORS = {
@@ -160,8 +162,6 @@ export function DeltaChart({
     }
 
     const metricTitlePanelWidth = '20%'
-    const variantsPanelWidth = '10%'
-    const detailedResultsPanelWidth = '125px'
 
     const ticksSvgRef = useRef<SVGSVGElement>(null)
     const chartSvgRef = useRef<SVGSVGElement>(null)
@@ -200,10 +200,10 @@ export function DeltaChart({
     }, [])
 
     return (
-        <div className="w-full rounded bg-[var(--bg-table)]">
+        <div className="rounded bg-[var(--bg-table)]">
             {/* Metric title panel */}
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div style={{ display: 'inline-block', width: metricTitlePanelWidth, verticalAlign: 'top' }}>
+            <div style={{ width: metricTitlePanelWidth, verticalAlign: 'top', display: 'inline-block' }}>
                 {isFirstMetric && (
                     <svg
                         // eslint-disable-next-line react/forbid-dom-props
@@ -214,10 +214,10 @@ export function DeltaChart({
                 <div
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: `${chartSvgHeight}px`, borderRight: `1px solid ${COLORS.BOUNDARY_LINES}` }}
-                    className="p-1 overflow-auto"
+                    className="p-2 overflow-auto"
                 >
                     <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
-                        <div className="space-y-1 pl-1">
+                        <div className="space-y-1">
                             <div className="flex items-center gap-2">
                                 <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
                                     <span className="mr-1">{metricIndex + 1}.</span>
@@ -229,11 +229,11 @@ export function DeltaChart({
                                     size="xsmall"
                                     icon={<IconPencil fontSize="12" />}
                                     onClick={() => {
-                                        if (metric.isSavedMetric) {
+                                        if (metric.isSharedMetric) {
                                             if (isSecondary) {
-                                                openSecondarySavedMetricModal(metric.savedMetricId)
+                                                openSecondarySharedMetricModal(metric.sharedMetricId)
                                             } else {
-                                                openPrimarySavedMetricModal(metric.savedMetricId)
+                                                openPrimarySharedMetricModal(metric.sharedMetricId)
                                             }
                                             return
                                         }
@@ -247,7 +247,7 @@ export function DeltaChart({
                                 <LemonTag type="muted" size="small">
                                     {metric.kind === 'ExperimentFunnelsQuery' ? 'Funnel' : 'Trend'}
                                 </LemonTag>
-                                {metric.isSavedMetric && (
+                                {metric.isSharedMetric && (
                                     <LemonTag type="option" size="small">
                                         Shared
                                     </LemonTag>
@@ -257,286 +257,262 @@ export function DeltaChart({
                     </div>
                 </div>
             </div>
-            {/* Detailed results panel */}
+            {/* SVGs container */}
             <div
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    display: 'inline-block',
-                    width: detailedResultsPanelWidth,
+                    width: `calc(100% - ${metricTitlePanelWidth})`,
                     verticalAlign: 'top',
+                    display: 'inline-block',
+                    minWidth: '780px',
                 }}
             >
+                {/* Ticks */}
                 {isFirstMetric && (
-                    <svg
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: `${ticksSvgHeight}px`, width: '100%' }}
-                    />
+                    <div className="flex justify-center">
+                        <svg
+                            ref={ticksSvgRef}
+                            viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT}`}
+                            preserveAspectRatio="xMidYMid meet"
+                            className="ml-12"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ minHeight: `${TICK_PANEL_HEIGHT}px`, maxWidth: `${CHART_MAX_WIDTH}px` }}
+                        >
+                            {tickValues.map((value, index) => {
+                                const x = valueToX(value)
+                                return (
+                                    <g key={index}>
+                                        <text
+                                            x={x}
+                                            y={TICK_PANEL_HEIGHT / 2}
+                                            textAnchor="middle"
+                                            dominantBaseline="middle"
+                                            fontSize={TICK_FONT_SIZE}
+                                            fill={COLORS.TICK_TEXT_COLOR}
+                                            fontWeight="600"
+                                        >
+                                            {formatTickValue(value)}
+                                        </text>
+                                    </g>
+                                )
+                            })}
+                        </svg>
+                    </div>
                 )}
                 {isFirstMetric && <div className="w-full border-t border-border" />}
-                {result && (
-                    <div
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            height: `${chartSvgHeight}px`,
-                            borderRight: result ? `1px solid ${COLORS.BOUNDARY_LINES}` : 'none',
-                            display: 'flex',
-                            flexDirection: 'column',
-                        }}
-                    >
-                        <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
-                        {experiment.metrics.length > 1 && (
-                            <div className="flex justify-center">
+                {/* Chart */}
+                {result ? (
+                    <div className="relative">
+                        {/* Chart is z-index 100, so we need to be above it */}
+                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                        <div className="absolute top-2 left-2" style={{ zIndex: 102 }}>
+                            <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
+                        </div>
+                        {(isSecondary || (!isSecondary && experiment.metrics.length > 1)) && (
+                            <div
+                                className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)]"
+                                // Chart is z-index 100, so we need to be above it
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ zIndex: 101 }}
+                            >
                                 <LemonButton
-                                    className="mt-1"
                                     type="secondary"
                                     size="xsmall"
                                     icon={<IconGraph />}
                                     onClick={() => setIsModalOpen(true)}
                                 >
-                                    Detailed results
+                                    Details
                                 </LemonButton>
                             </div>
                         )}
-                    </div>
-                )}
-            </div>
-            {/* Variants panel */}
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div style={{ display: 'inline-block', width: variantsPanelWidth, verticalAlign: 'top' }}>
-                {isFirstMetric && (
-                    <svg
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: `${ticksSvgHeight}px`, width: '100%' }}
-                    />
-                )}
-                {isFirstMetric && <div className="w-full border-t border-border" />}
-                {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div style={{ height: `${chartSvgHeight}px` }}>
-                    {result &&
-                        variants.map((variant) => (
-                            <div
-                                key={variant.key}
+                        <div className="flex justify-center">
+                            <svg
+                                ref={chartSvgRef}
+                                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
+                                preserveAspectRatio="xMidYMid meet"
+                                className="ml-12"
                                 // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    height: `${100 / variants.length}%`,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    paddingLeft: '10px',
-                                    position: 'relative',
-                                    minWidth: 0,
-                                    overflow: 'hidden',
-                                }}
+                                style={{ minHeight: `${chartHeight}px`, maxWidth: `${CHART_MAX_WIDTH}px` }}
                             >
-                                <div
-                                    className="absolute inset-0"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{
-                                        backgroundColor: 'var(--bg-light)',
-                                        opacity: 0.4,
-                                        pointerEvents: 'none',
-                                    }}
-                                />
-                                <div className="w-full overflow-hidden whitespace-nowrap">
-                                    <VariantTag
-                                        experimentId={experimentId}
-                                        variantKey={variant.key}
-                                        fontSize={11}
-                                        muted
-                                    />
-                                </div>
-                            </div>
-                        ))}
-                </div>
-            </div>
-            {/* SVGs container */}
-            <div
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    display: 'inline-block',
-                    width: `calc(100% - ${metricTitlePanelWidth} - ${variantsPanelWidth} - ${detailedResultsPanelWidth})`,
-                    verticalAlign: 'top',
-                }}
-            >
-                {/* Ticks */}
-                {isFirstMetric && (
-                    <svg
-                        ref={ticksSvgRef}
-                        viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT}`}
-                        preserveAspectRatio="xMidYMid meet"
-                    >
-                        {tickValues.map((value, index) => {
-                            const x = valueToX(value)
-                            return (
-                                <g key={index}>
-                                    <text
-                                        x={x}
-                                        y={TICK_PANEL_HEIGHT / 2}
-                                        textAnchor="middle"
-                                        dominantBaseline="middle"
-                                        fontSize={TICK_FONT_SIZE}
-                                        fill={COLORS.TICK_TEXT_COLOR}
-                                        fontWeight="600"
-                                    >
-                                        {formatTickValue(value)}
-                                    </text>
-                                </g>
-                            )
-                        })}
-                    </svg>
-                )}
-                {isFirstMetric && <div className="w-full border-t border-border" />}
-                {/* Chart */}
-                {result ? (
-                    <svg
-                        ref={chartSvgRef}
-                        viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
-                        preserveAspectRatio="xMidYMid meet"
-                    >
-                        {/* Vertical grid lines */}
-                        {tickValues.map((value, index) => {
-                            const x = valueToX(value)
-                            return (
-                                <line
-                                    key={index}
-                                    x1={x}
-                                    y1={0}
-                                    x2={x}
-                                    y2={chartSvgHeight + 20}
-                                    stroke={value === 0 ? COLORS.ZERO_LINE : COLORS.BOUNDARY_LINES}
-                                    strokeWidth={value === 0 ? 1 : 0.5}
-                                />
-                            )
-                        })}
+                                {/* Vertical grid lines */}
+                                {tickValues.map((value, index) => {
+                                    const x = valueToX(value)
+                                    return (
+                                        <line
+                                            key={index}
+                                            x1={x}
+                                            y1={0}
+                                            x2={x}
+                                            y2={chartSvgHeight + 20}
+                                            stroke={value === 0 ? COLORS.ZERO_LINE : COLORS.BOUNDARY_LINES}
+                                            strokeWidth={value === 0 ? 1 : 0.5}
+                                        />
+                                    )
+                                })}
 
-                        {variants.map((variant, index) => {
-                            const interval = credibleIntervalForVariant(result, variant.key, metricType)
-                            const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
+                                {variants.map((variant, index) => {
+                                    const interval = credibleIntervalForVariant(result, variant.key, metricType)
+                                    const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
 
-                            let delta: number
-                            if (metricType === InsightType.TRENDS) {
-                                const controlVariant = result.variants.find(
-                                    (v: TrendExperimentVariant) => v.key === 'control'
-                                ) as TrendExperimentVariant
+                                    let delta: number
+                                    if (metricType === InsightType.TRENDS) {
+                                        const controlVariant = result.variants.find(
+                                            (v: TrendExperimentVariant) => v.key === 'control'
+                                        ) as TrendExperimentVariant
 
-                                const variantData = result.variants.find(
-                                    (v: TrendExperimentVariant) => v.key === variant.key
-                                ) as TrendExperimentVariant
+                                        const variantData = result.variants.find(
+                                            (v: TrendExperimentVariant) => v.key === variant.key
+                                        ) as TrendExperimentVariant
 
-                                if (
-                                    !variantData?.count ||
-                                    !variantData?.absolute_exposure ||
-                                    !controlVariant?.count ||
-                                    !controlVariant?.absolute_exposure
-                                ) {
-                                    delta = 0
-                                } else {
-                                    const controlMean = controlVariant.count / controlVariant.absolute_exposure
-                                    const variantMean = variantData.count / variantData.absolute_exposure
-                                    delta = (variantMean - controlMean) / controlMean
-                                }
-                            } else {
-                                const variantRate = conversionRateForVariant(result, variant.key)
-                                const controlRate = conversionRateForVariant(result, 'control')
-                                delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
-                            }
+                                        if (
+                                            !variantData?.count ||
+                                            !variantData?.absolute_exposure ||
+                                            !controlVariant?.count ||
+                                            !controlVariant?.absolute_exposure
+                                        ) {
+                                            delta = 0
+                                        } else {
+                                            const controlMean = controlVariant.count / controlVariant.absolute_exposure
+                                            const variantMean = variantData.count / variantData.absolute_exposure
+                                            delta = (variantMean - controlMean) / controlMean
+                                        }
+                                    } else {
+                                        const variantRate = conversionRateForVariant(result, variant.key)
+                                        const controlRate = conversionRateForVariant(result, 'control')
+                                        delta =
+                                            variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
+                                    }
 
-                            const y = BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * index
-                            const x1 = valueToX(lower)
-                            const x2 = valueToX(upper)
-                            const deltaX = valueToX(delta)
+                                    const y = BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * index
+                                    const x1 = valueToX(lower)
+                                    const x2 = valueToX(upper)
+                                    const deltaX = valueToX(delta)
 
-                            return (
-                                <g
-                                    key={variant.key}
-                                    onMouseEnter={(e) => {
-                                        const rect = e.currentTarget.getBoundingClientRect()
-                                        setTooltipData({
-                                            x: rect.left + rect.width / 2,
-                                            y: rect.top - 10,
-                                            variant: variant.key,
-                                        })
-                                    }}
-                                    onMouseLeave={() => setTooltipData(null)}
-                                >
-                                    {variant.key === 'control' ? (
-                                        // Control variant - single gray bar
-                                        <>
-                                            <rect x={x1} y={y} width={x2 - x1} height={BAR_HEIGHT} fill="transparent" />
-                                            <rect
-                                                x={x1}
-                                                y={y}
-                                                width={x2 - x1}
-                                                height={BAR_HEIGHT}
-                                                fill={COLORS.BAR_CONTROL}
-                                                stroke={COLORS.BOUNDARY_LINES}
-                                                strokeWidth={1}
-                                                strokeDasharray="2,2"
-                                                rx={4}
-                                                ry={4}
-                                            />
-                                        </>
-                                    ) : (
-                                        // Test variants - split into positive and negative sections if needed
-                                        <>
-                                            <rect x={x1} y={y} width={x2 - x1} height={BAR_HEIGHT} fill="transparent" />
-                                            {lower < 0 && upper > 0 ? (
-                                                // Bar spans across zero - need to split
+                                    return (
+                                        <g
+                                            key={variant.key}
+                                            onMouseEnter={(e) => {
+                                                const rect = e.currentTarget.getBoundingClientRect()
+                                                setTooltipData({
+                                                    x: rect.left + rect.width / 2,
+                                                    y: rect.top - 10,
+                                                    variant: variant.key,
+                                                })
+                                            }}
+                                            onMouseLeave={() => setTooltipData(null)}
+                                        >
+                                            {/* Add variant name using VariantTag */}
+                                            <foreignObject
+                                                x={x1 - 8} // Keep same positioning as the text element
+                                                y={y + BAR_HEIGHT / 2 - 10}
+                                                width="90"
+                                                height="16"
+                                                transform="translate(-90, 0)" // Move left to accommodate tag width
+                                            >
+                                                <VariantTag
+                                                    className="justify-end mt-0.5"
+                                                    experimentId={experimentId}
+                                                    variantKey={variant.key}
+                                                    fontSize={10}
+                                                    muted
+                                                />
+                                            </foreignObject>
+
+                                            {variant.key === 'control' ? (
+                                                // Control variant - single gray bar
                                                 <>
-                                                    <path
-                                                        d={`
-                                                            M ${x1 + 4} ${y}
-                                                            H ${valueToX(0)}
-                                                            V ${y + BAR_HEIGHT}
-                                                            H ${x1 + 4}
-                                                            Q ${x1} ${y + BAR_HEIGHT} ${x1} ${y + BAR_HEIGHT - 4}
-                                                            V ${y + 4}
-                                                            Q ${x1} ${y} ${x1 + 4} ${y}
-                                                        `}
-                                                        fill={COLORS.BAR_NEGATIVE}
+                                                    <rect
+                                                        x={x1}
+                                                        y={y}
+                                                        width={x2 - x1}
+                                                        height={BAR_HEIGHT}
+                                                        fill="transparent"
                                                     />
-                                                    <path
-                                                        d={`
-                                                            M ${valueToX(0)} ${y}
-                                                            H ${x2 - 4}
-                                                            Q ${x2} ${y} ${x2} ${y + 4}
-                                                            V ${y + BAR_HEIGHT - 4}
-                                                            Q ${x2} ${y + BAR_HEIGHT} ${x2 - 4} ${y + BAR_HEIGHT}
-                                                            H ${valueToX(0)}
-                                                            V ${y}
-                                                        `}
-                                                        fill={COLORS.BAR_POSITIVE}
+                                                    <rect
+                                                        x={x1}
+                                                        y={y}
+                                                        width={x2 - x1}
+                                                        height={BAR_HEIGHT}
+                                                        fill={COLORS.BAR_CONTROL}
+                                                        stroke={COLORS.BOUNDARY_LINES}
+                                                        strokeWidth={1}
+                                                        strokeDasharray="2,2"
+                                                        rx={4}
+                                                        ry={4}
                                                     />
                                                 </>
                                             ) : (
-                                                // Bar is entirely positive or negative
-                                                <rect
-                                                    x={x1}
-                                                    y={y}
-                                                    width={x2 - x1}
-                                                    height={BAR_HEIGHT}
-                                                    fill={upper <= 0 ? COLORS.BAR_NEGATIVE : COLORS.BAR_POSITIVE}
-                                                    rx={4}
-                                                    ry={4}
-                                                />
+                                                // Test variants - split into positive and negative sections if needed
+                                                <>
+                                                    <rect
+                                                        x={x1}
+                                                        y={y}
+                                                        width={x2 - x1}
+                                                        height={BAR_HEIGHT}
+                                                        fill="transparent"
+                                                    />
+                                                    {lower < 0 && upper > 0 ? (
+                                                        // Bar spans across zero - need to split
+                                                        <>
+                                                            <path
+                                                                d={`
+                                                                M ${x1 + 4} ${y}
+                                                                H ${valueToX(0)}
+                                                                V ${y + BAR_HEIGHT}
+                                                                H ${x1 + 4}
+                                                                Q ${x1} ${y + BAR_HEIGHT} ${x1} ${y + BAR_HEIGHT - 4}
+                                                                V ${y + 4}
+                                                                Q ${x1} ${y} ${x1 + 4} ${y}
+                                                            `}
+                                                                fill={COLORS.BAR_NEGATIVE}
+                                                            />
+                                                            <path
+                                                                d={`
+                                                                M ${valueToX(0)} ${y}
+                                                                H ${x2 - 4}
+                                                                Q ${x2} ${y} ${x2} ${y + 4}
+                                                                V ${y + BAR_HEIGHT - 4}
+                                                                Q ${x2} ${y + BAR_HEIGHT} ${x2 - 4} ${y + BAR_HEIGHT}
+                                                                H ${valueToX(0)}
+                                                                V ${y}
+                                                            `}
+                                                                fill={COLORS.BAR_POSITIVE}
+                                                            />
+                                                        </>
+                                                    ) : (
+                                                        // Bar is entirely positive or negative
+                                                        <rect
+                                                            x={x1}
+                                                            y={y}
+                                                            width={x2 - x1}
+                                                            height={BAR_HEIGHT}
+                                                            fill={
+                                                                upper <= 0 ? COLORS.BAR_NEGATIVE : COLORS.BAR_POSITIVE
+                                                            }
+                                                            rx={4}
+                                                            ry={4}
+                                                        />
+                                                    )}
+                                                </>
                                             )}
-                                        </>
-                                    )}
-                                    {/* Delta marker */}
-                                    <rect
-                                        x={deltaX - CONVERSION_RATE_RECT_WIDTH / 2}
-                                        y={y}
-                                        width={CONVERSION_RATE_RECT_WIDTH}
-                                        height={BAR_HEIGHT}
-                                        fill={
-                                            variant.key === 'control'
-                                                ? COLORS.BAR_MIDDLE_POINT_CONTROL
-                                                : COLORS.BAR_MIDDLE_POINT
-                                        }
-                                    />
-                                </g>
-                            )
-                        })}
-                    </svg>
+                                            {/* Delta marker */}
+                                            <rect
+                                                x={deltaX - CONVERSION_RATE_RECT_WIDTH / 2}
+                                                y={y}
+                                                width={CONVERSION_RATE_RECT_WIDTH}
+                                                height={BAR_HEIGHT}
+                                                fill={
+                                                    variant.key === 'control'
+                                                        ? COLORS.BAR_MIDDLE_POINT_CONTROL
+                                                        : COLORS.BAR_MIDDLE_POINT
+                                                }
+                                            />
+                                        </g>
+                                    )
+                                })}
+                            </svg>
+                        </div>
+                    </div>
                 ) : metricResultsLoading ? (
                     <svg
                         ref={chartSvgRef}
@@ -606,14 +582,17 @@ export function DeltaChart({
                                             <span className="font-semibold">
                                                 {(() => {
                                                     try {
-                                                        const detail = JSON.parse(error.detail)
-                                                        return Object.values(detail).filter((v) => v === false).length
+                                                        return Object.values(error.detail).filter((v) => v === false)
+                                                            .length
                                                     } catch {
                                                         return '0'
                                                     }
                                                 })()}
                                             </span>
-                                            /<span className="font-semibold">4</span>
+                                            /
+                                            <span className="font-semibold">
+                                                {metricType === InsightType.TRENDS ? '5' : '4'}
+                                            </span>
                                         </LemonTag>
                                     ) : (
                                         <LemonTag size="small" type="danger" className="mr-1">
@@ -668,7 +647,13 @@ export function DeltaChart({
                             {metricType === InsightType.TRENDS ? (
                                 <>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">Count:</span>
+                                        <span className="text-muted font-semibold">
+                                            {metricType === InsightType.TRENDS &&
+                                            result.exposure_query?.series?.[0]?.math
+                                                ? 'Total'
+                                                : 'Count'}
+                                            :
+                                        </span>
                                         <span className="font-semibold">
                                             {(() => {
                                                 const count = countDataForVariant(result, tooltipData.variant)
@@ -845,9 +830,11 @@ export function DeltaChart({
 function SignificanceHighlight({
     metricIndex = 0,
     isSecondary = false,
+    className = '',
 }: {
     metricIndex?: number
     isSecondary?: boolean
+    className?: string
 }): JSX.Element {
     const { isPrimaryMetricSignificant, isSecondaryMetricSignificant, significanceDetails } = useValues(experimentLogic)
     const isSignificant = isSecondary
@@ -858,12 +845,12 @@ function SignificanceHighlight({
         : { color: 'primary', label: 'Not significant' }
 
     const inner = isSignificant ? (
-        <div className="bg-success-highlight text-success p-1 flex items-center gap-1">
+        <div className="bg-success-highlight text-success-dark px-1.5 py-0.5 flex items-center gap-1 rounded border border-success-light">
             <IconTrending fontSize={20} fontWeight={600} />
             <span className="text-xs font-semibold">{result.label}</span>
         </div>
     ) : (
-        <div className="bg-warning-highlight text-warning p-1 flex items-center gap-1">
+        <div className="bg-warning-highlight text-warning-dark px-1.5 py-0.5 flex items-center gap-1 rounded border border-warning">
             <IconMinus fontSize={20} fontWeight={600} />
             <span className="text-xs font-semibold">{result.label}</span>
         </div>
@@ -873,9 +860,17 @@ function SignificanceHighlight({
 
     return details ? (
         <Tooltip title={details}>
-            <div className="cursor-default">{inner}</div>
+            <div
+                className={clsx({
+                    'cursor-default': true,
+                    'bg-[var(--bg-table)]': true,
+                    [className]: true,
+                })}
+            >
+                {inner}
+            </div>
         </Tooltip>
     ) : (
-        <div>{inner}</div>
+        <div className={clsx({ 'bg-[var(--bg-table)]': true, [className]: true })}>{inner}</div>
     )
 }

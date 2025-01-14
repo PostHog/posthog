@@ -20,6 +20,7 @@ import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
+import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
@@ -46,6 +47,7 @@ import {
     WebSnippet,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { UserGroups } from './environment/UserGroups'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
@@ -192,6 +194,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <IPCapture />,
             },
             {
+                id: 'human-friendly-comparison-periods',
+                title: 'Human friendly comparison periods',
+                component: <HumanFriendlyComparisonPeriodsSetting />,
+            },
+            {
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
@@ -292,7 +299,20 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
-
+    {
+        level: 'environment',
+        id: 'environment-error-tracking',
+        title: 'Error tracking',
+        flag: 'ERROR_TRACKING',
+        settings: [
+            {
+                id: 'error-tracking-user-groups',
+                title: 'User groups',
+                description: 'Allow collections of users to be assigned to issues',
+                component: <UserGroups />,
+            },
+        ],
+    },
     {
         level: 'environment',
         id: 'environment-toolbar',

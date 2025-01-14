@@ -51,6 +51,21 @@ def process_incremental_last_value(value: Any | None, field_type: IncrementalFie
         return parser.parse(value).date()
 
 
+def _trim_source_job_inputs(source: ExternalDataSource) -> None:
+    if not source.job_inputs:
+        return
+
+    did_update_inputs = False
+    for key, value in source.job_inputs.items():
+        if isinstance(value, str):
+            if value.startswith(" ") or value.endswith(" "):
+                source.job_inputs[key] = value.strip()
+                did_update_inputs = True
+
+    if did_update_inputs:
+        source.save()
+
+
 @activity.defn
 def import_data_activity_sync(inputs: ImportDataActivityInputs):
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
@@ -72,6 +87,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             job_type=ExternalDataSource.Type(model.pipeline.source_type),
             dataset_name=model.folder_path(),
         )
+
+        _trim_source_job_inputs(model.pipeline)
 
         reset_pipeline = model.pipeline.job_inputs.get("reset_pipeline", "False") == "True"
 
@@ -511,7 +528,7 @@ def _run(
     reset_pipeline: bool,
 ):
     if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
-        pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental)
+        pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental, reset_pipeline)
         pipeline.run()
         del pipeline
     else:
@@ -526,4 +543,5 @@ def _run(
 
     source = ExternalDataSource.objects.get(id=inputs.source_id)
     source.job_inputs.pop("reset_pipeline", None)
+
     source.save()
