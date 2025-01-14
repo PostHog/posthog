@@ -1,4 +1,4 @@
-import { LemonFileInput, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonDivider, LemonFileInput, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 import { Form, Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -6,6 +6,7 @@ import { SourceConfig, SourceFieldConfig } from '~/types'
 
 import { SOURCE_DETAILS, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
+import { parseConnectionString } from './parseConnectionString'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -14,6 +15,43 @@ export interface SourceFormProps {
 }
 
 const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConfig, lastValue?: any): JSX.Element => {
+    if (field.type === 'text' && field.name === 'connection_string') {
+        return (
+            <>
+                <LemonField key={field.name} name={field.name} label={field.label}>
+                    {({ onChange }) => (
+                        <LemonInput
+                            key={field.name}
+                            className="ph-connection-string"
+                            data-attr={field.name}
+                            placeholder={field.placeholder}
+                            type="text"
+                            onChange={(updatedConnectionString) => {
+                                onChange(updatedConnectionString)
+                                const { host, port, database, user, password, isValid } =
+                                    parseConnectionString(updatedConnectionString)
+
+                                if (isValid) {
+                                    // fix uncontrolled input issue here
+                                    sourceWizardLogic.actions.setSourceConnectionDetailsValues({
+                                        payload: {
+                                            dbname: database || '',
+                                            host: host || '',
+                                            user: user || '',
+                                            port: port || 5432,
+                                            password: password || '',
+                                        },
+                                    })
+                                }
+                            }}
+                        />
+                    )}
+                </LemonField>
+                <LemonDivider />
+            </>
+        )
+    }
+
     if (field.type === 'switch-group') {
         return (
             <LemonField key={field.name} name={[field.name, 'enabled']} label={field.label}>
@@ -113,13 +151,17 @@ const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConf
 
     return (
         <LemonField key={field.name} name={field.name} label={field.label}>
-            <LemonInput
-                className="ph-ignore-input"
-                data-attr={field.name}
-                placeholder={field.placeholder}
-                type={field.type}
-                defaultValue={lastValue}
-            />
+            {({ value, onChange }) => (
+                <LemonInput
+                    className="ph-ignore-input"
+                    data-attr={field.name}
+                    placeholder={field.placeholder}
+                    type={field.type as 'text'}
+                    defaultValue={lastValue}
+                    value={value ?? ''}
+                    onChange={onChange}
+                />
+            )}
         </LemonField>
     )
 }
@@ -136,9 +178,9 @@ export function SourceFormComponent({ sourceConfig, showPrefix = true, jobInputs
     return (
         <div className="space-y-4">
             <Group name="payload">
-                {SOURCE_DETAILS[sourceConfig.name].fields.map((field) =>
-                    sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name])
-                )}
+                {SOURCE_DETAILS[sourceConfig.name].fields
+                    // .filter(filed => filed.name !== 'connection_string')
+                    .map((field) => sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name]))}
             </Group>
             {showPrefix && (
                 <LemonField name="prefix" label="Table Prefix (optional)">

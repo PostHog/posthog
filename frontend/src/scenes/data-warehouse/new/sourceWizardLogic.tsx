@@ -68,7 +68,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Hubspot: {
         name: 'Hubspot',
         fields: [],
-        caption: 'Succesfully authenticated with Hubspot. Please continue here to complete the source setup',
+        caption: 'Successfully authenticated with Hubspot. Please continue here to complete the source setup',
         oauthPayload: ['code'],
     },
     Postgres: {
@@ -80,6 +80,13 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             </>
         ),
         fields: [
+            {
+                name: 'connection_string',
+                label: 'Connection String',
+                type: 'text',
+                required: false,
+                placeholder: 'postgresql://user:password@localhost:5432/database',
+            },
             {
                 name: 'host',
                 label: 'Host',
@@ -754,7 +761,7 @@ export const buildKeaFormDefaultFromSourceDetails = (
     }
 
     const sourceDetailsKeys = Object.keys(sourceDetails)
-    const formDefault = sourceDetailsKeys.reduce(
+    return sourceDetailsKeys.reduce(
         (defaults, cur) => {
             const fields = sourceDetails[cur].fields
             fields.forEach((f) => fieldDefaults(f, defaults['payload']))
@@ -763,8 +770,6 @@ export const buildKeaFormDefaultFromSourceDetails = (
         },
         { prefix: '', payload: {} } as Record<string, any>
     )
-
-    return formDefault
 }
 
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
@@ -814,6 +819,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         setManualLinkingProvider: (provider: ManualLinkSourceType) => ({ provider }),
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
+        updateDependentFields: (connectionString: string) => ({ connectionString }),
     }),
     connect({
         values: [
