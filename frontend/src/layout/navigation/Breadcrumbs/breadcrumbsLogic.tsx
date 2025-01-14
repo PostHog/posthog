@@ -17,6 +17,8 @@ import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { Breadcrumb } from '~/types'
 
 import type { breadcrumbsLogicType } from './breadcrumbsLogicType'
+import { ProductLayoutTopbarTab } from '../TopBar/productLayoutLogic'
+
 
 export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
     path(['layout', 'navigation', 'Breadcrumbs', 'breadcrumbsLogic']),
@@ -223,12 +225,39 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 ].join(' • '),
         ],
 
-        productLayoutTabs: [
+        // NEW
+        productLayoutTabConfig: [
             (s) => [s.activeScene, s.sceneConfig],
             () => {
                 const currentScene = sceneLogic.findMounted()?.values
-                const currentSceneTabs = currentScene?.activeSceneLogic?.values.productLayoutTabs
-                return currentSceneTabs
+                const currentProductLayoutTabConfig = currentScene?.activeSceneLogic?.values.productLayoutTabConfig
+                return currentProductLayoutTabConfig
+            },
+        ],
+        // NEW
+        productBaseUrl: [
+            (s) => [s.activeScene, s.sceneConfig],
+            () => {
+                const currentScene = sceneLogic.findMounted()?.values
+                const currentSceneBaseUrl = currentScene?.activeSceneLogic?.values.productBaseUrl
+                return currentSceneBaseUrl
+            },
+        ],
+        productLayoutTabs: [
+            () => [
+                (state, props): ProductLayoutTopbarTab[] => {
+                    const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
+
+                    if (activeSceneLogic && 'productLayoutTabs' in activeSceneLogic.selectors) {
+                        const currentSceneProductLayoutTabs = activeSceneLogic.selectors.productLayoutTabs(state, props)
+                        return currentSceneProductLayoutTabs
+                    }
+                    return []
+                }
+            ],
+            (sceneTabs: ProductLayoutTopbarTab[]) => {
+                console.log('sceneTabs', sceneTabs)
+                return sceneTabs
             },
         ],
     })),

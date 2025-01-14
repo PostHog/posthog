@@ -17,7 +17,7 @@ import { GlobalModals } from '~/layout/GlobalModals'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { topbarLogic } from '~/layout/navigation-3000/topbarLogic'
+import { productLayoutLogic } from '~/layout/navigation/TopBar/productLayoutLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 
@@ -110,7 +110,6 @@ function LoadedSceneLogics(): JSX.Element {
 
 function AppScene(): JSX.Element | null {
     useMountedLogic(breadcrumbsLogic)
-    useMountedLogic(topbarLogic)
     const { user } = useValues(userLogic)
     const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)

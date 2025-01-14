@@ -7,10 +7,10 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { topbarLogic, TopbarTab } from '~/layout/navigation-3000/topbarLogic'
 import { ActivityScope, Breadcrumb, ReplayTabs } from '~/types'
-
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import type { sessionReplaySceneLogicType } from './sessionReplaySceneLogicType'
+import { productLayoutLogic, ProductLayoutConfig } from '~/layout/navigation/TopBar/productLayoutLogic'
 
 export const humanFriendlyTabName = (tab: ReplayTabs): string => {
     switch (tab) {
@@ -25,26 +25,29 @@ export const humanFriendlyTabName = (tab: ReplayTabs): string => {
     }
 }
 
-const tabConfigs: TopbarTab[] = [
-    {
-        key: ReplayTabs.Home,
-        label: humanFriendlyTabName(ReplayTabs.Home),
-        url: urls.replay(ReplayTabs.Home),
-        default: true,
-    },
-    {
-        key: ReplayTabs.Playlists,
-        label: humanFriendlyTabName(ReplayTabs.Playlists),
-        url: urls.replay(ReplayTabs.Playlists),
-        isNew: true,
-    },
-    {
-        key: ReplayTabs.Templates,
-        label: humanFriendlyTabName(ReplayTabs.Templates),
-        url: urls.replay(ReplayTabs.Templates),
-        isNew: true,
-    },
-]
+const tabConfigs: ProductLayoutConfig = {
+    baseUrl: '/replay',
+    baseTabs: [
+        {
+            key: ReplayTabs.Home,
+            label: humanFriendlyTabName(ReplayTabs.Home),
+            url: urls.replay(ReplayTabs.Home),
+            default: true,
+        },
+        {
+            key: ReplayTabs.Playlists,
+            label: humanFriendlyTabName(ReplayTabs.Playlists),
+            url: urls.replay(ReplayTabs.Playlists),
+            isNew: true,
+        },
+        {
+            key: ReplayTabs.Templates,
+            label: humanFriendlyTabName(ReplayTabs.Templates),
+            url: urls.replay(ReplayTabs.Templates),
+            isNew: true,
+        },
+    ]
+}
 
 export const PLAYLIST_LIMIT_REACHED_MESSAGE = `You have reached the free limit of ${SESSION_RECORDINGS_PLAYLIST_FREE_COUNT} saved playlists`
 
@@ -52,7 +55,9 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     path(() => ['scenes', 'session-recordings', 'sessionReplaySceneLogic']),
     connect({
         values: [featureFlagLogic, ['featureFlags']],
-        actions: [topbarLogic, ['setTopBarTabs']],
+        actions: [
+            productLayoutLogic, ['setProductLayoutConfig']
+        ],
     }),
     actions({
         setTab: (tab: ReplayTabs = ReplayTabs.Home) => ({ tab }),
@@ -82,21 +87,32 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
         },
     })),
 
+
     actionToUrl(({ values }) => {
         return {
             setTab: () => [urls.replay(values.tab), router.values.searchParams],
         }
     }),
 
+
     selectors(() => ({
         productLayoutTabs: [
             (s) => [s.featureFlags],
             (featureFlags) => {
                 const hasTemplates = !!featureFlags[FEATURE_FLAGS.REPLAY_TEMPLATES]
-
-                return tabConfigs.filter((tab) => (tab.key == ReplayTabs.Templates ? hasTemplates : true))
+                const tabs = tabConfigs.baseTabs.filter((tab) => (tab.key == ReplayTabs.Templates ? hasTemplates : true))
+                return tabs
             },
         ],
+
+        // NEW
+        productBaseUrl: [
+            (s) => [s.tab],
+            () => {
+                return tabConfigs.baseUrl
+            },
+        ],
+
         tabs: [
             (s) => [s.featureFlags],
             (featureFlags) => {
@@ -147,6 +163,6 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     }),
 
     afterMount(({ actions }) => {
-        actions.setTopBarTabs(tabConfigs)
+        actions.setProductLayoutConfig(tabConfigs)
     }),
 ])

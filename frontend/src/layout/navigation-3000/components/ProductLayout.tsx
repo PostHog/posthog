@@ -54,7 +54,8 @@ import { AvailableFeature, SidePanelTab, TeamBasicType } from '~/types'
 import { navigation3000Logic } from '../navigationLogic'
 import { sidePanelStateLogic } from '../sidepanel/sidePanelStateLogic'
 import { themeLogic } from '../themeLogic'
-import { TopbarTab } from '../topbarLogic'
+import { ProductLayoutTopbarTab } from '~/layout/navigation/TopBar/productLayoutLogic'
+import { productLayoutLogic } from '~/layout/navigation/TopBar/productLayoutLogic'
 
 function TopBarNavButton({
     to,
@@ -150,13 +151,14 @@ function OtherProjectButton({ team, disabled }: { team: TeamBasicType; disabled?
 }
 
 function TopBarTabs(): JSX.Element {
-    const { productLayoutTabs } = useValues(breadcrumbsLogic)
-
+    // const { productLayoutTabs } = useValues(productLayoutLogic)
+    const { productLayoutTabs, productBaseUrl } = useValues(breadcrumbsLogic)
     if (!productLayoutTabs || productLayoutTabs.length === 0) {
         return <></>
     }
+    console.log('productBaseUrl', productBaseUrl)
 
-    const lemonTabs = productLayoutTabs.map((tab: TopbarTab) => ({
+    const lemonTabs = productLayoutTabs.map((tab: ProductLayoutTopbarTab) => ({
         key: tab.key,
         label: (
             <>
@@ -172,7 +174,7 @@ function TopBarTabs(): JSX.Element {
             activeKey={productLayoutTabs[0].key}
             onChange={(newKey) => {
                 // setActiveTab(newKey)
-                router.actions.push(productLayoutTabs.find((tab: TopbarTab) => tab.key === newKey)?.url || '')
+                router.actions.push(productLayoutTabs.find((tab: ProductLayoutTopbarTab) => tab.key === newKey)?.url || '')
                 // if (tabs.find((tab) => tab.key === newKey)?.removeNewWhenVisited) {
                 //     hideNewBadge()
                 // }
