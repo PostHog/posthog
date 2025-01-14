@@ -1,11 +1,16 @@
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { LLMObservabilityTab, urls } from 'scenes/urls'
 
-import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { groupsModel } from '~/models/groupsModel'
+import { DataTableNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import {
+    AnyPropertyFilter,
     BaseMathType,
     ChartDisplayType,
     EventDefinition,
@@ -39,11 +44,19 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     path(['scenes', 'llm-observability', 'llmObservabilityLogic']),
 
     actions({
+        setActiveTab: (activeTab: LLMObservabilityTab) => ({ activeTab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
+        setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
     }),
 
     reducers({
+        activeTab: [
+            'dashboard' as LLMObservabilityTab,
+            {
+                setActiveTab: (_, { activeTab }) => activeTab,
+            },
+        ],
         dateFilter: [
             {
                 dateFrom: INITIAL_DATE_FROM,
@@ -59,12 +72,38 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
             },
         ],
+        propertyFilters: [
+            [] as AnyPropertyFilter[],
+            {
+                setPropertyFilters: (_, { propertyFilters }) => propertyFilters,
+            },
+        ],
+    }),
+
+    loaders({
+        hasSentAiGenerationEvent: {
+            __default: undefined as boolean | undefined,
+            loadAIEventDefinition: async (): Promise<boolean> => {
+                const aiGenerationDefinition = await api.eventDefinitions.list({
+                    event_type: EventDefinitionType.Event,
+                    search: '$ai_generation',
+                })
+
+                // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
+                // going to add enough reserved event names that match this search term to cause problems
+                const definition = aiGenerationDefinition.results.find((r) => r.name === '$ai_generation')
+                if (definition && !isDefinitionStale(definition)) {
+                    return true
+                }
+                return false
+            },
+        },
     }),
 
     selectors({
         tiles: [
-            (s) => [s.dateFilter, s.shouldFilterTestAccounts],
-            (dateFilter, shouldFilterTestAccounts): QueryTile[] => [
+            (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
+            (dateFilter, shouldFilterTestAccounts, propertyFilters): QueryTile[] => [
                 {
                     title: 'Generative AI users',
                     description: 'To count users, set `distinct_id` in LLM tracking.',
@@ -78,6 +117,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             },
                         ],
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
@@ -94,6 +134,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             },
                         ],
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
@@ -115,6 +156,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             display: ChartDisplayType.BoldNumber,
                         },
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
@@ -142,6 +184,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             decimalPlaces: 2,
                         },
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
@@ -168,6 +211,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             showValuesOnSeries: true,
                         },
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
@@ -182,6 +226,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             },
                         ],
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
@@ -206,6 +251,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             yAxisScaleType: 'log10',
                         },
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
@@ -226,31 +272,69 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             display: ChartDisplayType.ActionsBarValue,
                         },
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
             ],
         ],
+        generationsQuery: [
+            (s) => [
+                s.dateFilter,
+                s.shouldFilterTestAccounts,
+                s.propertyFilters,
+                groupsModel.selectors.groupsTaxonomicTypes,
+            ],
+            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes): DataTableNode => ({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: [
+                        '*',
+                        'uuid',
+                        'person',
+                        'properties.$ai_trace_id -- Trace ID',
+                        "f'${round(toFloat(properties.$ai_total_cost_usd), 4)}' -- Total cost",
+                        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {properties.$ai_input_tokens + properties.$ai_output_tokens})' -- Token usage",
+                        "f'{properties.$ai_latency} s' -- Latency",
+                        'timestamp',
+                    ],
+                    orderBy: ['timestamp DESC'],
+                    after: dateFilter.dateFrom || undefined,
+                    before: dateFilter.dateTo || undefined,
+                    filterTestAccounts: shouldFilterTestAccounts,
+                    event: '$ai_generation',
+                    properties: propertyFilters,
+                },
+                showDateRange: true,
+                showReload: true,
+                showSearch: true,
+                showTestAccountFilters: true,
+                showPropertyFilter: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ],
+                showExport: true,
+            }),
+        ],
     }),
-    loaders({
-        hasSentAiGenerationEvent: {
-            __default: undefined as boolean | undefined,
-            loadAIEventDefinition: async (): Promise<boolean> => {
-                const aiGenerationDefinition = await api.eventDefinitions.list({
-                    event_type: EventDefinitionType.Event,
-                    search: '$ai_generation',
-                })
 
-                // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
-                // going to add enough reserved event names that match this search term to cause problems
-                const definition = aiGenerationDefinition.results.find((r) => r.name === '$ai_generation')
-                if (definition && !isDefinitionStale(definition)) {
-                    return true
-                }
-                return false
-            },
+    urlToAction(({ actions, values }) => ({
+        [urls.llmObservability('dashboard')]: () => {
+            if (values.activeTab !== 'dashboard') {
+                actions.setActiveTab('dashboard')
+            }
         },
-    }),
+        [urls.llmObservability('generations')]: () => {
+            if (values.activeTab !== 'generations') {
+                actions.setActiveTab('generations')
+            }
+        },
+    })),
+
     afterMount(({ actions }) => {
         actions.loadAIEventDefinition()
     }),

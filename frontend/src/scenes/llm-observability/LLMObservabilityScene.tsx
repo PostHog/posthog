@@ -1,14 +1,18 @@
-import { LemonBanner, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTabs, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { isEventsQuery } from '~/queries/utils'
 
 import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from './llmObservabilityLogic'
 
@@ -20,18 +24,22 @@ const Filters = (): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
         shouldFilterTestAccounts,
+        generationsQuery,
+        propertyFilters,
     } = useValues(llmObservabilityLogic)
-    const { setDates, setShouldFilterTestAccounts } = useActions(llmObservabilityLogic)
-    const { mobileLayout } = useValues(navigationLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
 
     return (
-        <div
-            className={clsx(
-                'sticky flex justify-between items-center py-2 -mt-2 mb-2 bg-bg-3000 border-b z-20',
-                mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
-            )}
-        >
-            <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+        <div className="flex justify-between items-center gap-4 py-4 -mt-4 mb-4 border-b">
+            <div className="flex items-center gap-4">
+                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                <PropertyFilters
+                    propertyFilters={propertyFilters}
+                    taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
+                    onChange={setPropertyFilters}
+                    pageKey="llm-observability"
+                />
+            </div>
             <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
         </div>
     )
@@ -80,12 +88,62 @@ const IngestionStatusCheck = (): JSX.Element | null => {
     )
 }
 
+function LLMObservabilityDashboard(): JSX.Element {
+    return (
+        <>
+            <Filters />
+            <Tiles />
+        </>
+    )
+}
+
+function LLMObservabilityGenerations(): JSX.Element {
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
+    const { generationsQuery } = useValues(llmObservabilityLogic)
+
+    return (
+        <DataTable
+            query={generationsQuery}
+            setQuery={(query) => {
+                if (!isEventsQuery(query.source)) {
+                    throw new Error('Invalid query')
+                }
+                setDates(query.source.after || null, query.source.before || null)
+                setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
+                setPropertyFilters(query.source.properties || [])
+            }}
+            context={{
+                emptyStateHeading: 'There were no generations in this period',
+                emptyStateDetail: 'Try changing the date range or filters.',
+            }}
+            uniqueKey="llm-observability-generations"
+        />
+    )
+}
+
 export function LLMObservabilityScene(): JSX.Element {
+    const { activeTab } = useValues(llmObservabilityLogic)
+
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID }}>
             <IngestionStatusCheck />
-            <Filters />
-            <Tiles />
+            <LemonTabs
+                activeKey={activeTab}
+                tabs={[
+                    {
+                        key: 'dashboard',
+                        label: 'Dashboard',
+                        content: <LLMObservabilityDashboard />,
+                        link: urls.llmObservability('dashboard'),
+                    },
+                    {
+                        key: 'generations',
+                        label: 'Generations',
+                        content: <LLMObservabilityGenerations />,
+                        link: urls.llmObservability('generations'),
+                    },
+                ]}
+            />
         </BindLogic>
     )
 }
