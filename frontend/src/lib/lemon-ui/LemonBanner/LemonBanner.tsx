@@ -1,6 +1,6 @@
 import './LemonBanner.scss'
 
-import { IconX } from '@posthog/icons'
+import { IconInfo, IconWarning, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonButton, SideAction } from 'lib/lemon-ui/LemonButton'
@@ -60,7 +60,12 @@ export function LemonBanner({
             )}
         >
             <div className="flex items-center gap-2 grow @md:px-1">
-                {!hideIcon && (type === 'warning' || type === 'error' ? 'Foo' : 'Bar')}
+                {!hideIcon &&
+                    (type === 'warning' || type === 'error' ? (
+                        <IconWarning className="LemonBanner__icon hidden @md:block" />
+                    ) : (
+                        <IconInfo className="LemonBanner__icon hidden @md:block" />
+                    ))}
                 <div className="grow overflow-hidden">{children}</div>
                 {action && <LemonButton className="hidden @md:flex" type="secondary" {...action} />}
                 {showCloseButton && <LemonButton size="small" icon={<IconX />} onClick={_onClose} aria-label="close" />}
