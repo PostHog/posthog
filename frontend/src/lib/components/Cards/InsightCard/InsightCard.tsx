@@ -25,7 +25,7 @@ import {
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import { InsightMeta } from './InsightMeta'
 
-export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLDivElement> {
+export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
     insight: QueryBasedInsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
@@ -63,6 +63,8 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     doNotLoad?: boolean
     /** Dashboard variables to override the ones in the insight */
     variablesOverride?: Record<string, HogQLVariable>
+    className?: string
+    style?: React.CSSProperties
 }
 
 function InsightCardInternal(
@@ -88,7 +90,6 @@ function InsightCardInternal(
         duplicate,
         moveToDashboard,
         className,
-        children,
         moreButtons,
         placement,
         loadPriority,
@@ -168,7 +169,6 @@ function InsightCardInternal(
                         {canResizeWidth ? <ResizeHandle2D /> : null}
                     </>
                 )}
-                {children /* Extras, such as resize handles */}
             </ErrorBoundary>
         </div>
     )

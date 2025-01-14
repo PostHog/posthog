@@ -528,7 +528,7 @@ regex==2023.12.25
     # via
     #   -c /Users/james/opt/ph/posthog/requirements.txt
     #   tiktoken
-requests==2.32.0
+requests==2.32.3
     # via
     #   -c /Users/james/opt/ph/posthog/requirements.txt
     #   datasets

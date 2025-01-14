@@ -554,6 +554,9 @@ export default function SurveyEdit(): JSX.Element {
                                                           onAppearanceChange={(appearance) => {
                                                               onChange(appearance)
                                                           }}
+                                                          isCustomFontsEnabled={
+                                                              !!featureFlags[FEATURE_FLAGS.SURVEYS_CUSTOM_FONTS]
+                                                          }
                                                       />
                                                   </>
                                               )}
