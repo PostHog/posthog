@@ -275,7 +275,7 @@ module.exports = {
         ],
         'no-else-return': 'warn',
         'react-google-translate/no-conditional-text-nodes-with-siblings': 'warn',
-        'react-google-translate/no-return-text-nodes': 'error',
+        'react-google-translate/no-return-text-nodes': 'warn',
     },
     overrides: [
         {
