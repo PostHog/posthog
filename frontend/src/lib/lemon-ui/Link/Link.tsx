@@ -16,15 +16,20 @@ import { SidePanelTab } from '~/types'
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
 
-const linkStyles = cva('element-link', {
+const linkStyles = cva('', {
     variants: {
         intent: {
             primary: ['element-link-primary'],
             secondary: ['element-link-secondary'],
         },
+        isButton: {
+            true: ['element-button'],
+            false: ['element-link'],
+        },
     },
     defaultVariants: {
         intent: 'primary',
+        isButton: false,
     },
 })
 
@@ -101,6 +106,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             children,
             disabled,
             disabledReason,
+            isButton,
             targetBlankIcon = typeof children === 'string',
             ...props
         },

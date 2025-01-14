@@ -231,9 +231,11 @@
     --fill-button-muted-darker-hover: var(
         --primitive-neutral-250
     ); /* Hover state of muted fill for button on a darker background */
+
     --fill-button-muted-darker-active: var(
         --primitive-neutral-250
     ); /* Active state of muted fill for button on a darker background */
+
     --fill-danger: var(--primitive-red-500); /* Fill for danger */
     --fill-danger-overlay: var(--primitive-red-500); /* Overlay fill for danger */
     --fill-success: var(--primitive-green-500); /* Fill for success */
@@ -298,6 +300,7 @@
 
     // Border radius
     // //////////////////////////////////////////////////////////
+    --border-radius-sm: 3px;
     --border-radius-base: 4px;
 
     // Opacity
@@ -523,11 +526,52 @@
         }
 
         &-has-icon-only {
+            place-items: center center;
             width: var(--button-height);
 
             svg {
                 width: var(--button-icon-size);
                 height: var(--button-icon-size);
+            }
+        }
+
+        // Wraps the button and the side action
+        &-side-action-container {
+            position: relative;
+
+            &:focus-within {
+                + .element-button-is-side-action {
+                    position: absolute;
+                }
+            }
+        }
+
+        &-has-side-action {
+            padding-top: 0 !important;
+            padding-right: calc(var(--button-height) + theme('spacing.2')) !important;
+            padding-bottom: 0 !important;
+
+            .element-button {
+                padding-right: 2px;
+            }
+        }
+
+        &-is-side-action {
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            border-radius: 0 var(--border-radius-sm) var(--border-radius-sm) 0;
+
+            &::before {
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 1px;
+                height: 50%;
+                content: '';
+                background-color: var(--primitive-neutral-500);
+                transform: translateY(-50%);
             }
         }
 

@@ -59,6 +59,10 @@ export const buttonStyles = cva(
                 true: ['element-button-inside-input'],
                 false: [''],
             },
+            hasSideAction: {
+                true: ['element-button-has-side-action'],
+                false: [''],
+            },
         },
         defaultVariants: {
             active: false,
@@ -113,6 +117,12 @@ export const buttonStyles = cva(
     }
 )
 
+export type ButtonSideAction = {
+    icon?: React.ReactNode
+    to?: string
+    onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void
+}
+
 export type ButtonVariantProps = VariantProps<typeof buttonStyles> & {
     children: React.ReactNode
     className?: string
@@ -132,13 +142,7 @@ export type ButtonVariantProps = VariantProps<typeof buttonStyles> & {
     //TODO: on surface prop (so we can style the button based on the surface it sits on)
 
     //TODO: add sideAction
-    // sideAction?: {
-    //     tooltip?: TooltipProps['title']
-    //     tooltipPlacement?: TooltipProps['placement']
-    //     icon?: React.ReactNode
-    //     to?: string
-    //     onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void
-    // }
+    sideAction?: ButtonVariantProps
 }
 
 export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVariantProps>(
@@ -160,7 +164,7 @@ export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVa
             iconOnly,
             onClick,
             insideInput,
-            // sideAction,
+            sideAction,
             ...rest
         },
         ref
@@ -190,6 +194,11 @@ export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVa
                   target: targetBlank ? '_blank' : undefined,
                   to: !disabled ? to : undefined,
                   insideButton: true,
+                  isButton: true,
+                  // className: buttonStyles({
+                  //     intent,
+                  //     iconOnly,
+                  // }),
               }
             : { type: type }
 
@@ -204,16 +213,17 @@ export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVa
                         iconOnly,
                         disabled,
                         insideInput,
+                        hasSideAction: sideAction ? true : false,
                         ...rest,
                     }),
                     className
                 )}
                 disabled={disabled}
-                {...linkDependentProps}
-                {...rest}
                 onClick={(e) => {
                     onClick && onClick(e as React.MouseEvent<HTMLButtonElement>)
                 }}
+                {...linkDependentProps}
+                {...rest}
             >
                 {iconLeft && (
                     <span className={cn('element-button-icon', insideInput && 'element-button-icon-inside-input')}>
@@ -243,33 +253,20 @@ export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVa
             )
         }
 
-        // if (sideAction) {
-        //     workingButton = (
-        //         <div className={cn(
-        //             buttonStyles({
-        //                 intent,
-        //                 hasIconLeft: Boolean(iconLeft),
-        //                 hasIconRight: Boolean(iconRight),
-        //                 iconOnly,
-        //                 disabled,
-        //                 insideInput,
-        //                 ...rest,
-        //             }),
-        //             className
-        //         )}>
-        //             {workingButton}
-        //             <ButtonComponent
-        //                 className="element-button-side-action"
-        //                 onClick={(event: React.MouseEvent<HTMLElement>) => {
-        //                     sideAction.onClick?.(event as React.MouseEvent<HTMLButtonElement>)
-        //                 }}
-        //                 to={sideAction.to}
-        //             >
-        //                 {sideAction.icon}
-        //             </ButtonComponent>
-        //         </div>
-        //     )
-        // }
+        if (sideAction) {
+            workingButton = (
+                <div className="element-button-side-action-container">
+                    {workingButton}
+                    <Button
+                        className="element-button-is-side-action"
+                        intent="muted"
+                        iconOnly
+                        size="xs"
+                        {...sideAction}
+                    />
+                </div>
+            )
+        }
 
         return workingButton
     }
