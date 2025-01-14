@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -21,7 +22,7 @@ const Filters = (): JSX.Element => {
     const { setDates, setShouldFilterTestAccounts } = useActions(llmObservabilityLogic)
 
     return (
-        <div className="flex justify-between items-center">
+        <div className="mb-4 flex justify-between items-center">
             <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
             <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
         </div>
@@ -32,12 +33,14 @@ const Tiles = (): JSX.Element => {
     const { tiles } = useValues(llmObservabilityLogic)
 
     return (
-        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-4">
-            {tiles.map(({ title, query }, i) => (
+        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4">
+            {tiles.map(({ title, description, query }, i) => (
                 <QueryCard
                     key={i}
                     title={title}
+                    description={description}
                     query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
+                    className={clsx('h-96', i < 3 || i >= 5 ? 'xl:col-span-2' : 'xl:col-span-3')}
                 />
             ))}
         </div>

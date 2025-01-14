@@ -1,7 +1,7 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { PropertyMathType } from '~/types'
+import { BaseMathType, ChartDisplayType, HogQLMathType, PropertyMathType } from '~/types'
 
 import type { llmObservabilityLogicType } from './llmObservabilityLogicType'
 
@@ -12,6 +12,7 @@ const INITIAL_DATE_TO = null as string | null
 
 export interface QueryTile {
     title: string
+    description?: string
     query: TrendsQuery
     layout?: {
         className?: string
@@ -46,23 +47,42 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
 
     selectors({
         tiles: [
-            (s) => [s.dateFilter],
-            (dateFilter): QueryTile[] => [
+            (s) => [s.dateFilter, s.shouldFilterTestAccounts],
+            (dateFilter, shouldFilterTestAccounts): QueryTile[] => [
                 {
-                    title: 'Generations over time',
+                    title: 'Generative AI users',
+                    description: 'To count users, set `distinct_id` in LLM tracking.',
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [
                             {
                                 event: '$ai_generation',
                                 kind: NodeKind.EventsNode,
+                                math: BaseMathType.UniqueUsers,
                             },
                         ],
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
                 {
-                    title: 'Costs over time (USD)',
+                    title: 'Traces',
+                    query: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                event: '$ai_generation',
+                                kind: NodeKind.EventsNode,
+                                math: HogQLMathType.HogQL,
+                                math_hogql: 'COUNT(DISTINCT properties.$ai_trace_id)',
+                            },
+                        ],
+                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                },
+                {
+                    title: 'Total cost (USD)',
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [
@@ -73,17 +93,90 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                                 math_property: '$ai_total_cost_usd',
                             },
                         ],
+                        trendsFilter: {
+                            aggregationAxisPrefix: '$',
+                            decimalPlaces: 4,
+                            display: ChartDisplayType.BoldNumber,
+                        },
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
                 {
-                    title: 'Average latency (ms)',
+                    title: 'Cost per user (USD)',
+                    description: "Average cost for each generative AI user active in the data point's period.",
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [
                             {
                                 event: '$ai_generation',
-                                math: PropertyMathType.Average,
+                                math: PropertyMathType.Sum,
+                                kind: NodeKind.EventsNode,
+                                math_property: '$ai_total_cost_usd',
+                            },
+                            {
+                                event: '$ai_generation',
+                                kind: NodeKind.EventsNode,
+                                math: BaseMathType.UniqueUsers,
+                            },
+                        ],
+                        trendsFilter: {
+                            formula: 'A / B',
+                            aggregationAxisPrefix: '$',
+                            decimalPlaces: 2,
+                        },
+                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                },
+                {
+                    title: 'Cost by model (USD)',
+                    query: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                event: '$ai_generation',
+                                math: PropertyMathType.Sum,
+                                kind: NodeKind.EventsNode,
+                                math_property: '$ai_total_cost_usd',
+                            },
+                        ],
+                        breakdownFilter: {
+                            breakdown_type: 'event',
+                            breakdown: '$ai_model',
+                        },
+                        trendsFilter: {
+                            aggregationAxisPrefix: '$',
+                            decimalPlaces: 2,
+                            display: ChartDisplayType.ActionsBarValue,
+                            showValuesOnSeries: true,
+                        },
+                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                },
+                {
+                    title: 'Generation calls',
+                    query: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                event: '$ai_generation',
+                                kind: NodeKind.EventsNode,
+                            },
+                        ],
+                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                },
+                {
+                    title: 'Generation latency by model (median)',
+                    query: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                event: '$ai_generation',
+                                math: PropertyMathType.Median,
                                 kind: NodeKind.EventsNode,
                                 math_property: '$ai_latency',
                             },
@@ -91,7 +184,33 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         breakdownFilter: {
                             breakdown: '$ai_model',
                         },
+                        trendsFilter: {
+                            aggregationAxisPostfix: ' s',
+                            decimalPlaces: 3,
+                            yAxisScaleType: 'log10',
+                        },
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                },
+                {
+                    title: 'Generations by HTTP status',
+                    query: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                event: '$ai_generation',
+                                kind: NodeKind.EventsNode,
+                            },
+                        ],
+                        breakdownFilter: {
+                            breakdown: '$ai_http_status',
+                        },
+                        trendsFilter: {
+                            display: ChartDisplayType.ActionsBarValue,
+                        },
+                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
             ],
