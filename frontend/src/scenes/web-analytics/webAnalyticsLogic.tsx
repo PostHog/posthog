@@ -223,6 +223,14 @@ export interface WebAnalyticsStatusCheck {
     isSendingPageLeavesScroll: boolean
 }
 
+export type CoreWebVitalsThreshold = { good: number; poor: number; end: number }
+export const CORE_WEB_VITALS_THRESHOLDS: Record<CoreWebVitalsMetric, CoreWebVitalsThreshold> = {
+    INP: { good: 200, poor: 500, end: 550 },
+    LCP: { good: 2500, poor: 4000, end: 4400 },
+    CLS: { good: 0.1, poor: 0.25, end: 0.3 },
+    FCP: { good: 1800, poor: 3000, end: 3300 },
+}
+
 const GEOIP_PLUGIN_URLS = [
     'https://github.com/PostHog/posthog-plugin-geoip',
     'https://www.npmjs.com/package/@posthog/geoip-plugin',
@@ -491,7 +499,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         coreWebVitalsPercentile: [
-            PropertyMathType.P75 as CoreWebVitalsPercentile,
+            PropertyMathType.P90 as CoreWebVitalsPercentile,
             persistConfig,
             {
                 setCoreWebVitalsPercentile: (_, { percentile }) => percentile,
@@ -1717,19 +1725,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ],
                     trendsFilter: {
                         display: ChartDisplayType.ActionsLineGraph,
+                        annotations: [
+                            {
+                                label: 'Good',
+                                value: CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab].good,
+                                borderColor: 'rgb(45, 200, 100)',
+                            },
+                            {
+                                label: 'Poor',
+                                value: CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab].poor,
+                                borderColor: 'rgb(255, 160, 0)',
+                            },
+                        ],
                     },
                     filterTestAccounts,
                     properties: webAnalyticsFilters,
                 },
                 embedded: false,
-                chartSettings: {
-                    goalLines: [
-                        {
-                            label: 'Good',
-                            value: 25,
-                        },
-                    ],
-                },
             }),
         ],
         getNewInsightUrl: [

@@ -4,7 +4,12 @@ import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { clsx } from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
-import { CoreWebVitalsPercentile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import {
+    CORE_WEB_VITALS_THRESHOLDS,
+    CoreWebVitalsPercentile,
+    CoreWebVitalsThreshold,
+    webAnalyticsLogic,
+} from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { Query } from '~/queries/Query/Query'
 import {
@@ -17,14 +22,6 @@ import {
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-
-type Threshold = { good: number; poor: number; end: number }
-const THRESHOLDS: Record<CoreWebVitalsMetric, Threshold> = {
-    INP: { good: 200, poor: 500, end: 550 },
-    LCP: { good: 2500, poor: 4000, end: 4400 },
-    CLS: { good: 0.1, poor: 0.25, end: 0.3 },
-    FCP: { good: 1800, poor: 3000, end: 3300 },
-}
 
 const getMetric = (
     results: CoreWebVitalsItem[] | undefined,
@@ -143,7 +140,7 @@ const getValueWithUnit = (value: number | undefined, inSeconds: boolean): ValueW
 }
 
 type Color = 'muted' | 'success' | 'warning' | 'danger'
-const getThresholdColor = (value: number | undefined, threshold: Threshold): Color => {
+const getThresholdColor = (value: number | undefined, threshold: CoreWebVitalsThreshold): Color => {
     if (value === undefined) {
         return 'muted'
     }
@@ -180,7 +177,7 @@ function CoreWebVitalsTab({
     const newValue = true ? (inSeconds ? Math.random() * 10000 : Math.random()) : value
     const { value: parsedValue, unit } = getValueWithUnit(newValue, inSeconds)
 
-    const threshold = THRESHOLDS[metric]
+    const threshold = CORE_WEB_VITALS_THRESHOLDS[metric]
     const thresholdColor = getThresholdColor(newValue, threshold)
 
     return (
@@ -210,7 +207,7 @@ function CoreWebVitalsTab({
 
 interface ProgressBarProps {
     value: number
-    threshold: Threshold
+    threshold: CoreWebVitalsThreshold
 }
 
 export function ProgressBar({ value, threshold }: ProgressBarProps): JSX.Element {
