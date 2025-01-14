@@ -3,10 +3,11 @@ from collections.abc import Generator, Iterator
 from typing import Any, Optional, cast
 from uuid import uuid4
 
+from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
-from posthoganalytics.ai.langchain import CallbackHandler
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
 from ee.hogai.funnels.nodes import FunnelGeneratorNode
@@ -71,7 +72,7 @@ class Assistant:
     _conversation: Conversation
     _latest_message: HumanMessage
     _state: Optional[AssistantState]
-    _callback_handler: Optional[CallbackHandler]
+    _callback_handler: Optional[BaseCallbackHandler]
 
     def __init__(
         self,
@@ -90,7 +91,7 @@ class Assistant:
         self._chunks = AIMessageChunk(content="")
         self._state = None
         distinct_id = user.distinct_id if user else None
-        self._callback_handler = CallbackHandler(posthog_client, distinct_id) if posthog_client is not None else None
+        self._callback_handler = CallbackHandler(posthog_client, distinct_id) if posthog_client else None
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -144,7 +145,7 @@ class Assistant:
         return AssistantState(messages=[self._latest_message], start_id=self._latest_message.id)
 
     def _get_config(self) -> RunnableConfig:
-        callbacks = [self._callback_handler] if self._callback_handler is not None else []
+        callbacks = [self._callback_handler] if self._callback_handler else None
         config: RunnableConfig = {
             "recursion_limit": 24,
             "callbacks": callbacks,
