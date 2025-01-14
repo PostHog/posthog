@@ -515,8 +515,8 @@ class DashboardsViewSet(
                 ),
             )
 
-            # Add access level filtering for list actions
-            queryset = self._filter_queryset_by_access_level(queryset)
+        # Add access level filtering for list actions
+        queryset = self._filter_queryset_by_access_level(queryset)
 
         return queryset
 
