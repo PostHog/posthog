@@ -5,7 +5,7 @@ export function NoResultEmptyState({ error }: { error: any }): JSX.Element {
         return <></>
     }
 
-    type ErrorCode = 'no-events' | 'no-flag-info' | 'no-control-variant' | 'no-test-variant'
+    type ErrorCode = 'no-events' | 'no-flag-info' | 'no-control-variant' | 'no-test-variant' | 'no-exposures'
 
     const { statusCode, hasDiagnostics } = error
 
@@ -15,6 +15,7 @@ export function NoResultEmptyState({ error }: { error: any }): JSX.Element {
             'no-flag-info': 'Feature flag information not present on the events',
             'no-control-variant': 'Events with the control variant not received',
             'no-test-variant': 'Events with at least one test variant not received',
+            'no-exposures': 'Exposure events not received',
         }
 
         const successText = {
@@ -22,6 +23,7 @@ export function NoResultEmptyState({ error }: { error: any }): JSX.Element {
             'no-flag-info': 'Feature flag information is present on the events',
             'no-control-variant': 'Events with the control variant received',
             'no-test-variant': 'Events with at least one test variant received',
+            'no-exposures': 'Exposure events have been received',
         }
 
         return (

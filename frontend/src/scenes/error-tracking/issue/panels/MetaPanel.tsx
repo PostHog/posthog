@@ -1,6 +1,7 @@
 import { TZLabel } from '@posthog/apps-common'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { humanFriendlyLargeNumber } from 'lib/utils'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 
 export const MetaPanel = (): JSX.Element => {
@@ -19,18 +20,24 @@ export const MetaPanel = (): JSX.Element => {
                     {issue ? <TZLabel time={issue.last_seen} className="border-dotted border-b" /> : <LemonSkeleton />}
                 </div>
             </div>
-            <div className="flex space-x-2">
-                <div className="flex-1">
+            <div className="flex space-x-2 justify-between mr-6">
+                <div>
                     <div className="text-muted text-xs">Occurrences</div>
-                    <div className="text-2xl font-semibold">{issue?.occurrences}</div>
+                    <div className="text-2xl font-semibold">
+                        {issue?.occurrences ? humanFriendlyLargeNumber(issue.occurrences) : null}
+                    </div>
                 </div>
-                <div className="flex-1">
+                <div>
                     <div className="text-muted text-xs">Sessions</div>
-                    <div className="text-2xl font-semibold">{issue?.sessions}</div>
+                    <div className="text-2xl font-semibold">
+                        {issue?.sessions ? humanFriendlyLargeNumber(issue.sessions) : null}
+                    </div>
                 </div>
-                <div className="flex-1">
+                <div>
                     <div className="text-muted text-xs">Users</div>
-                    <div className="text-2xl font-semibold">{issue?.users}</div>
+                    <div className="text-2xl font-semibold">
+                        {issue?.users ? humanFriendlyLargeNumber(issue.users) : null}
+                    </div>
                 </div>
             </div>
         </div>

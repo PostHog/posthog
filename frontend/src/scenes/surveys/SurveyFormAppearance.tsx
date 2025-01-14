@@ -20,7 +20,11 @@ export function SurveyFormAppearance({
 }: SurveyFormAppearanceProps): JSX.Element {
     return survey.type !== SurveyType.API ? (
         <div className="survey-view max-w-72">
-            <SurveyAppearancePreview survey={survey as Survey} previewPageIndex={previewPageIndex} />
+            <SurveyAppearancePreview
+                survey={survey as Survey}
+                previewPageIndex={previewPageIndex}
+                onPreviewSubmit={() => handleSetSelectedPageIndex(previewPageIndex + 1)}
+            />
             <LemonSelect
                 onChange={(pageIndex) => handleSetSelectedPageIndex(pageIndex)}
                 className="mt-4 whitespace-nowrap"

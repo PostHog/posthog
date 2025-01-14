@@ -6,6 +6,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { humanFriendlyLargeNumber } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -42,9 +43,9 @@ export function ErrorTrackingScene(): JSX.Element {
                 width: '50%',
                 render: CustomGroupTitleColumn,
             },
-            occurrences: { align: 'center' },
-            sessions: { align: 'center' },
-            users: { align: 'center' },
+            occurrences: { align: 'center', render: CountColumn },
+            sessions: { align: 'center', render: CountColumn },
+            users: { align: 'center', render: CountColumn },
             volume: { renderTitle: CustomVolumeColumnHeader },
             assignee: { render: AssigneeColumn },
         },
@@ -160,6 +161,10 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     )
 }
 
+const CountColumn: QueryContextColumnComponent = ({ value }) => {
+    return <>{humanFriendlyLargeNumber(value as number)}</>
+}
+
 const AssigneeColumn: QueryContextColumnComponent = (props) => {
     const { assignIssue } = useActions(errorTrackingDataNodeLogic)
 
@@ -188,6 +193,9 @@ const Header = (): JSX.Element => {
                             Send an exception
                         </LemonButton>
                     ) : null}
+                    <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
+                        Documentation
+                    </LemonButton>
                     <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
                         Configure
                     </LemonButton>
