@@ -23,6 +23,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
     }),
 
     reducers({
@@ -35,6 +36,12 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
             },
         ],
+        shouldFilterTestAccounts: [
+            false,
+            {
+                setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
+            },
+        ],
     }),
 
     selectors({
@@ -42,7 +49,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             (s) => [s.dateFilter],
             (dateFilter): QueryTile[] => [
                 {
-                    title: 'LLM generations',
+                    title: 'Generations over time',
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [
@@ -55,7 +62,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     },
                 },
                 {
-                    title: 'LLM costs (USD)',
+                    title: 'Costs over time (USD)',
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [
