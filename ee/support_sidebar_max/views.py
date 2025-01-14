@@ -10,7 +10,8 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 import anthropic
-import json
+from asgiref.sync import sync_to_async
+import asyncio
 from datetime import datetime, UTC
 
 from rest_framework.authentication import SessionAuthentication
@@ -52,97 +53,66 @@ class MaxChatViewSet(viewsets.ViewSet):
         """Retrieve endpoint - not used but required by DRF"""
         return Response({"detail": "Retrieve operation not supported"}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    def create(self, request: Request, **kwargs: Any) -> Response:
-        django_logger.info("✨🦔 Starting chat endpoint execution")
-        try:
-            # Initialize Anthropic client
-            django_logger.info("✨🦔 Initializing Anthropic client")
-            try:
-                django_logger.debug(f"✨🦔 ANTHROPIC_API_KEY exists: {bool(settings.ANTHROPIC_API_KEY)}")
-                client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-                django_logger.debug("✨🦔 Anthropic client initialized successfully")
-            except Exception as e:
-                django_logger.error(f"✨🦔 Error initializing Anthropic client: {str(e)}", exc_info=True)
-                raise
+    async def async_send_message(self, client: anthropic.Anthropic, tools, system_prompt, messages):
+        """Async wrapper for send_message"""
 
-            django_logger.info("✨🦔 Checking request data")
-            django_logger.debug(f"✨🦔 Request data: {json.dumps(request.data, indent=2)}")
-            django_logger.debug(f"✨🦔 Request content type: {request.content_type}")
-            django_logger.debug(f"✨🦔 Request headers: {dict(request.headers)}")
+        @sync_to_async(thread_sensitive=False)
+        def _send_message():
+            return self.send_message(client, tools, system_prompt, messages)
+
+        return await _send_message()
+
+    async def async_create(self, request: Request, **kwargs: Any) -> Response:
+        """Async version of create method"""
+        try:
+            # Initialize Anthropic client (non-blocking)
+            client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
             data = request.data
-            if not data:
-                django_logger.warning("✨🦔 Invalid request: Empty request body")
-                return Response({"error": "Empty request body"}, status=status.HTTP_400_BAD_REQUEST)
-            if "message" not in data:
-                django_logger.warning(f"✨🦔 Invalid request: No 'message' in data. Keys present: {data.keys()}")
+            if not data or "message" not in data:
                 return Response({"error": "No message provided"}, status=status.HTTP_400_BAD_REQUEST)
 
             user_input = data["message"]
-            django_logger.info(f"✨🦔 User input received: {user_input}")
-
-            # Use session_id from request if provided, otherwise use Django session
-            session_id = data.get("session_id")
+            session_id = data.get("session_id") or request.session.session_key
             if not session_id:
-                try:
-                    session_id = request.session.session_key
-                    if not session_id:
-                        request.session.create()
-                        session_id = request.session.session_key
-                        if not session_id:
-                            raise ValueError("Failed to create session key")
-                    django_logger.debug(f"✨🦔 Session initialized successfully: {session_id}")
-                except Exception as e:
-                    django_logger.error(f"✨🦔 Session creation failed: {str(e)}", exc_info=True)
-                    return Response(
-                        {"error": "Session initialization failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                    )
+                request.session.create()
+                session_id = request.session.session_key
 
-            django_logger.info("✨🦔 Getting conversation history")
             history = ConversationHistory.get_from_cache(session_id)
             system_prompt = self._format_system_prompt(get_system_prompt())
-            django_logger.debug(f"✨🦔 System prompt: {json.dumps(system_prompt, indent=2)}")
 
             if not user_input.strip():
-                django_logger.info("✨🦔 Empty input, sending default greeting")
                 history.add_turn_user("Hello!")
-                result = self.send_message(client, [max_search_tool_tool], system_prompt, history.get_turns())
+                result = await self.async_send_message(
+                    client, [max_search_tool_tool], system_prompt, history.get_turns()
+                )
                 if isinstance(result, Response):  # Error response
                     return result
                 if "content" in result:
-                    django_logger.debug(f"✨🦔 Greeting response: {result['content']}")
                     history.add_turn_assistant(result["content"])
                     history.save_to_cache(session_id, timeout=self.CONVERSATION_TIMEOUT)
                     return Response({"content": result["content"]})
 
-            # Add user message with proper structure
             history.add_turn_user(user_input)
             messages = history.get_turns()
-            django_logger.debug(f"✨🦔 Messages to send: {json.dumps(messages, indent=2)}")
             full_response = ""
 
-            # Send message with full history
-            django_logger.info("✨🦔 Sending initial message to Anthropic API")
-            result = self.send_message(client, [max_search_tool_tool], system_prompt, messages)
+            result = await self.async_send_message(client, [max_search_tool_tool], system_prompt, messages)
             if isinstance(result, Response):  # Error response
                 return result
-            django_logger.debug(f"✨🦔 Initial response from send_message: {json.dumps(result, indent=2)}")
 
             while result and "content" in result:
                 if result.get("stop_reason") == "tool_use":
-                    django_logger.info("✨🦔 Processing tool use response")
-                    # Handle tool use with dedicated method
                     response_part, tool_result = self._handle_tool_use(result, history)
                     full_response += response_part
                     messages.append(tool_result)
 
-                    # Get next response after tool use
-                    django_logger.info("✨🦔 Sending follow-up message after tool use")
-                    result = self.send_message(client, [max_search_tool_tool], system_prompt, history.get_turns())
+                    result = await self.async_send_message(
+                        client, [max_search_tool_tool], system_prompt, history.get_turns()
+                    )
                     if isinstance(result, Response):  # Error response
                         return result
                 else:
-                    django_logger.info("✨🦔 Processing final response")
                     if isinstance(result["content"], list):
                         for block in result["content"]:
                             if block["type"] == "text":
@@ -153,18 +123,16 @@ class MaxChatViewSet(viewsets.ViewSet):
                         history.add_turn_assistant(result["content"])
                     break
 
-            # Save the updated history to cache
             history.save_to_cache(session_id, timeout=self.CONVERSATION_TIMEOUT)
-
-            django_logger.info("✨🦔 Response successfully processed")
-            django_logger.debug(
-                f"✨🦔 Final response: {json.dumps({'content': full_response.strip(), 'session_id': session_id}, indent=2)}"
-            )
             return Response({"content": full_response.strip(), "session_id": session_id})
 
         except Exception as e:
             django_logger.error(f"✨🦔 Error in chat endpoint: {str(e)}", exc_info=True)
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """Synchronous wrapper for async_create"""
+        return asyncio.run(self.async_create(request, **kwargs))
 
     @action(methods=["POST"], detail=False, url_path="chat", url_name="chat")
     def chat(self, request: Request, **kwargs: Any) -> Response:
