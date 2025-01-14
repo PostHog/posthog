@@ -244,8 +244,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if is_create:
             if not attrs.get("hog"):
                 raise serializers.ValidationError({"hog": "Required."})
-            if not attrs.get("inputs_schema"):
-                raise serializers.ValidationError({"inputs_schema": "Required."})
 
         return super().validate(attrs)
 

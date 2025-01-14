@@ -316,10 +316,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                "type": "destination",
+                **EXAMPLE_FULL,
                 "name": "Fetch URL",
-                "description": "Test description",
-                "hog": "fetch(inputs.url);",
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -666,8 +664,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                "type": "destination",
-                "name": "Fetch URL",
+                **EXAMPLE_FULL,
                 "hog": "let i := 0;\nwhile(i < 3) {\n  i := i + 1;\n  fetch(inputs.url, {\n    'headers': {\n      'x-count': f'{i}'\n    },\n    'body': inputs.payload,\n    'method': inputs.method\n  });\n}",
             },
         )
@@ -908,7 +905,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_functions/",
-                    data={"type": "destination", "name": "Fetch URL", "hog": "fetch(inputs.url);", "enabled": True},
+                    data={
+                        **EXAMPLE_FULL,
+                        "name": "Fetch URL",
+                    },
                 )
                 id = response.json()["id"]
 
@@ -1136,11 +1136,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_cannot_modify_type_of_existing_hog_function(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "name": "Site Destination Function",
-                "hog": "export function onLoad() { console.log('Hello, site_destination'); }",
-                "type": "site_destination",
-            },
+            data=EXAMPLE_FULL,
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -1160,11 +1156,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_transpiled_field_not_populated_for_other_types(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "name": "Regular Function",
-                "hog": "fetch(inputs.url);",
-                "type": "destination",
-            },
+            data=EXAMPLE_FULL,
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
