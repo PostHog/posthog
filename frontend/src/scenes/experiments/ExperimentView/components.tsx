@@ -1,4 +1,4 @@
-import { IconFlask } from '@posthog/icons'
+import { IconFlask, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -312,25 +312,21 @@ export function PageHeaderCustom(): JSX.Element {
                                             >
                                                 Create dashboard
                                             </LemonButton>
-                                            <LemonButton
-                                                onClick={() => loadMetricResults(true)}
-                                                fullWidth
-                                                data-attr="refresh-experiment"
-                                            >
-                                                Refresh primary metrics
-                                            </LemonButton>
-                                            <LemonButton
-                                                onClick={() => loadSecondaryMetricResults(true)}
-                                                fullWidth
-                                                data-attr="refresh-secondary-metrics"
-                                            >
-                                                Refresh secondary metrics
-                                            </LemonButton>
                                         </>
                                     }
                                 />
                                 <LemonDivider vertical />
                             </>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    loadMetricResults(true)
+                                    loadSecondaryMetricResults(true)
+                                }}
+                                data-attr="refresh-experiment"
+                                icon={<IconRefresh />}
+                                tooltip="Refresh experiment results"
+                            />
                             <ResetButton experimentId={experiment.id} />
                             {!experiment.end_date && (
                                 <LemonButton

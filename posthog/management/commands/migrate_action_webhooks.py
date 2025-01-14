@@ -196,6 +196,43 @@ def get_all_inert_hogfunctions() -> QuerySet[HogFunction, HogFunction]:
     return HogFunction.objects.filter(name__startswith="[CDP-TEST-HIDDEN]")
 
 
+def migrate_all_teams_action_webhooks(dry_run=False, inert=False):
+    """Migrate actions for all teams in the system."""
+    print("Starting migration of actions for all teams")  # noqa: T201
+
+    query = Action.objects.select_related("team").filter(post_to_slack=True, deleted=False).order_by("id")
+
+    paginator = Paginator(query.all(), 100)
+    for page_number in paginator.page_range:
+        page = paginator.page(page_number)
+        hog_functions: list[HogFunction] = []
+        actions_to_update: list[Action] = []
+
+        for action in page.object_list:
+            if len(action.steps) == 0:
+                continue
+
+            try:
+                hog_function = convert_to_hog_function(action, inert)
+                if hog_function:
+                    hog_functions.append(hog_function)
+                    if not inert:
+                        action.post_to_slack = False
+                        actions_to_update.append(action)
+            except Exception as e:
+                print(f"Failed to migrate action {action.id}: {e}")  # noqa: T201
+
+        if not dry_run:
+            HogFunction.objects.bulk_create(hog_functions)
+            if actions_to_update:
+                Action.objects.bulk_update(actions_to_update, ["post_to_slack"])
+        else:
+            print(f"Would have created {len(hog_functions)} HogFunctions")  # noqa: T201
+
+    if not dry_run:
+        reload_all_hog_functions_on_workers()
+
+
 class Command(BaseCommand):
     help = "Migrate action webhooks to HogFunctions"
 
@@ -208,6 +245,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--inert", action="store_true", help="Create inert HogFunctions that will not fetch but just print"
         )
+        parser.add_argument("--migrate-all-teams-actions", action="store_true", help="Migrate actions for all teams")
         parser.add_argument("--action-ids", type=str, help="Comma separated list of action ids to sync")
         parser.add_argument("--team-ids", type=str, help="Comma separated list of team ids to sync")
 
@@ -216,16 +254,20 @@ class Command(BaseCommand):
         action_ids = options["action_ids"]
         team_ids = options["team_ids"]
         inert = options["inert"]
+        migrate_all_teams = options["migrate_all_teams_actions"]
 
         print(f"Migrating action webhooks with options: {options}")  # noqa: T201
 
-        if action_ids and team_ids:
-            print("Please provide either action_ids or team_ids, not both")  # noqa: T201
+        if sum(bool(x) for x in [action_ids, team_ids, migrate_all_teams]) > 1:
+            print("Please provide only one of: action_ids, team_ids, or migrate-all-teams-actions")  # noqa: T201
             return
 
-        migrate_action_webhooks(
-            action_ids=[int(x) for x in action_ids.split(",")] if action_ids else [],
-            team_ids=[int(x) for x in team_ids.split(",")] if team_ids else [],
-            dry_run=dry_run,
-            inert=inert,
-        )
+        if migrate_all_teams:
+            migrate_all_teams_action_webhooks(dry_run=dry_run, inert=inert)
+        else:
+            migrate_action_webhooks(
+                action_ids=[int(x) for x in action_ids.split(",")] if action_ids else [],
+                team_ids=[int(x) for x in team_ids.split(",")] if team_ids else [],
+                dry_run=dry_run,
+                inert=inert,
+            )
