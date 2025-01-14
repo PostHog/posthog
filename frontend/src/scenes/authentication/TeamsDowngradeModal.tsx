@@ -1,26 +1,50 @@
+import { IconWarning } from '@posthog/icons'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { DowngradeFeature, FeatureDowngradeModal } from 'lib/components/FeatureDowngradeModal/FeatureDowngradeModal'
+import { DowngradeFeature } from 'lib/components/FeatureDowngradeModal/FeatureDowngradeModal'
+
+import { AvailableFeature } from '~/types'
 
 import { teamsDowngradeLogic } from './teamsDowngradeLogic'
 
-const TEAMS_FEATURES: DowngradeFeature[] = [
-    {
-        // Replace hardcoding here
-        title: '2FA Enforcement',
-    },
-]
-
 export function TeamsDowngradeModal(): JSX.Element {
-    const { isTeamsDowngradeModalOpen } = useValues(teamsDowngradeLogic)
+    const { isTeamsDowngradeModalOpen, enforce2FA } = useValues(teamsDowngradeLogic)
     const { hideTeamsDowngradeModal, handleTeamsDowngrade } = useActions(teamsDowngradeLogic)
 
+    const teamFeatures: DowngradeFeature[] = []
+
+    if (enforce2FA) {
+        teamFeatures.push({
+            title: AvailableFeature.TWOFA_ENFORCEMENT,
+        })
+    }
+
     return (
-        <FeatureDowngradeModal
+        <LemonModal
+            title="Unsubscribe from Teams"
+            description="Your team is currently using the following features and will lose access to them if you unsubscribe:"
             isOpen={isTeamsDowngradeModalOpen}
             onClose={hideTeamsDowngradeModal}
-            onDowngrade={handleTeamsDowngrade}
-            title="Unsubscribe from Teams"
-            features={TEAMS_FEATURES}
-        />
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={hideTeamsDowngradeModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton type="primary" status="danger" onClick={handleTeamsDowngrade}>
+                        Continue Unsubscribing
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="space-y-2">
+                <p>TODO: Add features that are currently being used</p>
+                {enforce2FA && (
+                    <div className="flex items-center gap-2">
+                        <IconWarning className="text-warning" />
+                        <span>Enforced 2FA</span>
+                    </div>
+                )}
+            </div>
+        </LemonModal>
     )
 }

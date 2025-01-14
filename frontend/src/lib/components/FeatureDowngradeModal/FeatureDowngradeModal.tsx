@@ -3,7 +3,6 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 export interface DowngradeFeature {
     title: string
-    warning?: boolean
 }
 
 interface FeatureDowngradeModalProps {
