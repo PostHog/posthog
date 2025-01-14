@@ -284,6 +284,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'LLM observability',
         layout: 'app-container',
+        defaultDocsPath: '/docs/ai-engineering/observability',
     },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
