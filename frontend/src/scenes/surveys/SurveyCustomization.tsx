@@ -2,9 +2,7 @@ import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from
 import { useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { useFeatureFlagEnabled } from 'posthog-js/react'
 
 import { AvailableFeature, SurveyAppearance as SurveyAppearanceType } from '~/types'
 
@@ -18,6 +16,7 @@ interface CustomizationProps {
     hasBranchingLogic: boolean
     deleteBranchingLogic?: () => void
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
+    isCustomFontsEnabled?: boolean
 }
 
 interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuestionItem'> {}
@@ -29,6 +28,7 @@ export function Customization({
     hasBranchingLogic,
     onAppearanceChange,
     deleteBranchingLogic,
+    isCustomFontsEnabled = false,
 }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const surveyShufflingQuestionsAvailable = true
@@ -36,8 +36,6 @@ export function Customization({
         ? ''
         : 'Please add more than one question to the survey to enable shuffling questions'
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
-
-    const isCustomFontsEnabled = useFeatureFlagEnabled(FEATURE_FLAGS.SURVEYS_CUSTOM_FONTS)
 
     return (
         <>
