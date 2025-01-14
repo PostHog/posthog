@@ -11,45 +11,126 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveConstraint(
-            model_name="errortrackingissueassignment",
-            name="unique_on_user_and_issue",
-        ),
-        migrations.AddField(
-            model_name="errortrackingissueassignment",
-            name="user_group",
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.usergroup"),
-        ),
-        migrations.AlterField(
-            model_name="errortrackingissueassignment",
-            name="issue",
-            field=models.OneToOneField(
-                on_delete=django.db.models.deletion.CASCADE, related_name="assignment", to="posthog.errortrackingissue"
-            ),
-        ),
-        migrations.AlterField(
-            model_name="errortrackingissueassignment",
-            name="user",
-            field=models.ForeignKey(
-                null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="errortrackingissueassignment",
-            constraint=models.CheckConstraint(
-                check=models.Q(("user__isnull", False), ("user_group__isnull", False), _connector="OR"),
-                name="at_least_one_non_null",
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="errortrackingissueassignment",
-            constraint=models.CheckConstraint(
-                check=models.Q(("user__isnull", False), ("user_group__isnull", False), _negated=True),
-                name="only_one_non_null",
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="errortrackingissueassignment",
-            constraint=models.UniqueConstraint(fields=("issue",), name="unique_per_issue"),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveConstraint(
+                    model_name="errortrackingissueassignment",
+                    name="unique_on_user_and_issue",
+                ),
+                migrations.AddField(
+                    model_name="errortrackingissueassignment",
+                    name="user_group",
+                    field=models.ForeignKey(
+                        null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.usergroup"
+                    ),
+                ),
+                migrations.AlterField(
+                    model_name="errortrackingissueassignment",
+                    name="issue",
+                    field=models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="assignment",
+                        to="posthog.errortrackingissue",
+                    ),
+                ),
+                migrations.AlterField(
+                    model_name="errortrackingissueassignment",
+                    name="user",
+                    field=models.ForeignKey(
+                        null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
+                    ),
+                ),
+                migrations.AddConstraint(
+                    model_name="errortrackingissueassignment",
+                    constraint=models.CheckConstraint(
+                        check=models.Q(("user__isnull", False), ("user_group__isnull", False), _connector="OR"),
+                        name="at_least_one_non_null",
+                    ),
+                ),
+                migrations.AddConstraint(
+                    model_name="errortrackingissueassignment",
+                    constraint=models.CheckConstraint(
+                        check=models.Q(("user__isnull", False), ("user_group__isnull", False), _negated=True),
+                        name="only_one_non_null",
+                    ),
+                ),
+                migrations.AddConstraint(
+                    model_name="errortrackingissueassignment",
+                    constraint=models.UniqueConstraint(fields=("issue",), name="unique_per_issue"),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "unique_on_user_and_issue"; -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "unique_on_user_and_issue" UNIQUE ("issue_id", "user_id");
+                    """,
+                ),
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_errortrackingissueassignment" ADD COLUMN "user_group_id" uuid NULL CONSTRAINT "posthog_errortrackin_user_group_id_459a0006_fk_posthog_u" REFERENCES "posthog_usergroup"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    SET CONSTRAINTS "posthog_errortrackin_user_group_id_459a0006_fk_posthog_u" IMMEDIATE; -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_errortrackingissueassignment" DROP COLUMN "user_group_id" CASCADE;
+                    """,
+                ),
+                migrations.RunSQL(
+                    """
+                    SET CONSTRAINTS "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" IMMEDIATE; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e"; -- existing-table-constraint-ignore
+                    DROP INDEX IF EXISTS "posthog_errortrackingissueassignment_issue_id_d9cce9cb"; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackingissueassignment_issue_id_d9cce9cb_uniq" UNIQUE ("issue_id"); -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" FOREIGN KEY ("issue_id") REFERENCES "posthog_errortrackingissue" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        SET CONSTRAINTS "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" IMMEDIATE;
+                        ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e";
+                        CREATE INDEX "posthog_errortrackingissueassignment_issue_id_d9cce9cb" ON "posthog_errortrackingissueassignment" ("issue_id");
+                        ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" FOREIGN KEY ("issue_id") REFERENCES "posthog_errortrackingissue" ("id") DEFERRABLE INITIALLY DEFERRED;
+                    """,
+                ),
+                migrations.RunSQL(
+                    """
+                    SET CONSTRAINTS "posthog_errortrackin_user_id_83f2e696_fk_posthog_u" IMMEDIATE; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "posthog_errortrackin_user_id_83f2e696_fk_posthog_u"; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_errortrackingissueassignment" ALTER COLUMN "user_id" DROP NOT NULL; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_user_id_83f2e696_fk_posthog_u" FOREIGN KEY ("user_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        SET CONSTRAINTS "posthog_errortrackin_user_id_83f2e696_fk_posthog_u" IMMEDIATE;
+                        ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "posthog_errortrackin_user_id_83f2e696_fk_posthog_u";
+                        ALTER TABLE "posthog_errortrackingissueassignment" ALTER COLUMN "user_id" SET NOT NULL;
+                        ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_user_id_83f2e696_fk_posthog_u" FOREIGN KEY ("user_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED;
+                    """,
+                ),
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "at_least_one_non_null" CHECK (("user_id" IS NOT NULL OR "user_group_id" IS NOT NULL)); -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "at_least_one_non_null";
+                    """,
+                ),
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "only_one_non_null" CHECK (NOT ("user_id" IS NOT NULL AND "user_group_id" IS NOT NULL)); -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "only_one_non_null";
+                    """,
+                ),
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "unique_per_issue" UNIQUE ("issue_id"); -- existing-table-constraint-ignore
+                    CREATE INDEX "posthog_errortrackingissueassignment_user_group_id_459a0006" ON "posthog_errortrackingissueassignment" ("user_group_id"); -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "unique_per_issue";
+                    """,
+                ),
+            ],
         ),
     ]
