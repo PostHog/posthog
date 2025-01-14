@@ -12,6 +12,7 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -20,46 +21,36 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import {
-    CachedExperimentFunnelsQueryResponse,
-    CachedExperimentTrendsQueryResponse,
     ExperimentFunnelsQueryResponse,
     ExperimentTrendsQueryResponse,
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
-} from '~/queries/schema'
-import {
-    Experiment,
-    Experiment as ExperimentType,
-    ExperimentIdType,
-    ExperimentResults,
-    InsightShortId,
-    InsightType,
-} from '~/types'
+} from '~/queries/schema/schema-general'
+import { Experiment, Experiment as ExperimentType, ExperimentIdType, InsightShortId, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
-import { getExperimentInsightColour, transformResultFilters } from '../utils'
+import { getExperimentInsightColour } from '../utils'
 
 export function VariantTag({
     experimentId,
     variantKey,
     muted = false,
     fontSize,
+    className,
 }: {
     experimentId: ExperimentIdType
     variantKey: string
     muted?: boolean
     fontSize?: number
+    className?: string
 }): JSX.Element {
     const { experiment, getIndexForVariant, metricResults } = useValues(experimentLogic({ experimentId }))
 
@@ -69,30 +60,32 @@ export function VariantTag({
 
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
         return (
-            <span className="flex items-center space-x-2">
+            <span className={clsx('flex items-center min-w-0', className)}>
                 <div
-                    className="w-2 h-2 rounded-full mr-0.5"
+                    className="w-2 h-2 rounded-full shrink-0"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         backgroundColor: getExperimentInsightColour(getIndexForVariant(metricResults[0], variantKey)),
                     }}
                 />
-                <LemonTag type="option">{experiment.holdout.name}</LemonTag>
+                <LemonTag type="option" className="ml-2">
+                    {experiment.holdout.name}
+                </LemonTag>
             </span>
         )
     }
 
     return (
-        <span className="flex items-center space-x-2">
+        <span className={clsx('flex items-center min-w-0', className)}>
             <div
-                className="w-2 h-2 rounded-full mr-0.5"
+                className="w-2 h-2 rounded-full shrink-0"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     backgroundColor: getExperimentInsightColour(getIndexForVariant(metricResults[0], variantKey)),
                 }}
             />
             <span
-                className={`font-semibold ${muted ? 'text-[var(--text-secondary-3000)]' : ''}`}
+                className={`ml-2 font-semibold truncate ${muted ? 'text-[var(--text-secondary-3000)]' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
             >
@@ -126,79 +119,39 @@ export function ResultsTag({ metricIndex = 0 }: { metricIndex?: number }): JSX.E
 }
 
 export function ResultsQuery({
-    targetResults,
+    result,
     showTable,
 }: {
-    targetResults: ExperimentResults['result'] | ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
+    result: ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
     showTable: boolean
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-        const newQueryResults = targetResults as unknown as
-            | CachedExperimentTrendsQueryResponse
-            | CachedExperimentFunnelsQueryResponse
-
-        const query =
-            newQueryResults.kind === NodeKind.ExperimentTrendsQuery
-                ? newQueryResults.count_query
-                : newQueryResults.funnels_query
-        const fakeInsightId = Math.random().toString(36).substring(2, 15)
-
-        return (
-            <Query
-                query={{
-                    kind: NodeKind.InsightVizNode,
-                    source: query,
-                    showTable,
-                    showLastComputation: true,
-                    showLastComputationRefresh: false,
-                }}
-                context={{
-                    insightProps: {
-                        dashboardItemId: fakeInsightId as InsightShortId,
-                        cachedInsight: {
-                            short_id: fakeInsightId as InsightShortId,
-                            query: {
-                                kind: NodeKind.InsightVizNode,
-                                source: query,
-                            } as InsightVizNode,
-                            result: newQueryResults?.insight,
-                            disable_baseline: true,
-                        },
-                        doNotLoad: true,
-                    },
-                }}
-                readOnly
-            />
-        )
-    }
-
-    const oldQueryResults = targetResults as ExperimentResults['result']
-
-    if (!oldQueryResults?.filters) {
+    if (!result) {
         return <></>
     }
+
+    const query = result.kind === NodeKind.ExperimentTrendsQuery ? result.count_query : result.funnels_query
+    const fakeInsightId = Math.random().toString(36).substring(2, 15)
 
     return (
         <Query
             query={{
                 kind: NodeKind.InsightVizNode,
-                source: filtersToQueryNode(transformResultFilters(oldQueryResults?.filters ?? {})),
+                source: query,
                 showTable,
                 showLastComputation: true,
                 showLastComputationRefresh: false,
             }}
             context={{
                 insightProps: {
-                    dashboardItemId: oldQueryResults?.fakeInsightId as InsightShortId,
+                    dashboardItemId: fakeInsightId as InsightShortId,
                     cachedInsight: {
-                        short_id: oldQueryResults?.fakeInsightId as InsightShortId,
-                        query: oldQueryResults?.filters
-                            ? queryFromFilters(transformResultFilters(oldQueryResults.filters))
-                            : null,
-                        result: oldQueryResults?.insight,
+                        short_id: fakeInsightId as InsightShortId,
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: query,
+                        } as InsightVizNode,
+                        result: result?.insight,
                         disable_baseline: true,
-                        last_refresh: oldQueryResults?.last_refresh,
                     },
                     doNotLoad: true,
                 },
@@ -209,15 +162,12 @@ export function ResultsQuery({
 }
 
 export function ExploreButton({
-    metricIndex = 0,
-    isSecondary = false,
+    result,
+    size = 'small',
 }: {
-    metricIndex?: number
-    isSecondary?: boolean
+    result: ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
+    size?: 'xsmall' | 'small' | 'large'
 }): JSX.Element {
-    const { metricResults, secondaryMetricResults } = useValues(experimentLogic)
-    const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
-
     if (!result) {
         return <></>
     }
@@ -232,10 +182,11 @@ export function ExploreButton({
     return (
         <LemonButton
             className="ml-auto -translate-y-2"
-            size="xsmall"
+            size={size}
             type="primary"
             icon={<IconAreaChart />}
             to={urls.insightNew(undefined, undefined, query)}
+            targetBlank
         >
             Explore as Insight
         </LemonButton>
@@ -257,7 +208,7 @@ export function ResultsHeader(): JSX.Element {
             </div>
 
             <div className="w-1/2 flex flex-col justify-end">
-                <div className="ml-auto">{result && <ExploreButton />}</div>
+                <div className="ml-auto">{result && <ExploreButton result={result} />}</div>
             </div>
         </div>
     )
@@ -275,6 +226,7 @@ export function NoResultsEmptyState({ metricIndex = 0 }: { metricIndex?: number 
             'no-flag-info': 'Feature flag information not present on the events',
             'no-control-variant': 'Events with the control variant not received',
             'no-test-variant': 'Events with at least one test variant not received',
+            'no-exposures': 'Exposure events not received',
         }
 
         const successText = {
@@ -282,6 +234,7 @@ export function NoResultsEmptyState({ metricIndex = 0 }: { metricIndex?: number 
             'no-flag-info': 'Feature flag information is present on the events',
             'no-control-variant': 'Events with the control variant received',
             'no-test-variant': 'Events with at least one test variant received',
+            'no-exposures': 'Exposure events have been received',
         }
 
         return (
@@ -577,12 +530,17 @@ export function PageHeaderCustom(): JSX.Element {
 }
 
 export function ShipVariantModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, sortedWinProbabilities, isShipVariantModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { experiment, isShipVariantModalOpen } = useValues(experimentLogic({ experimentId }))
     const { closeShipVariantModal, shipVariant } = useActions(experimentLogic({ experimentId }))
     const { aggregationLabel } = useValues(groupsModel)
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
-    useEffect(() => setSelectedVariantKey(sortedWinProbabilities(0)[0]?.key), [sortedWinProbabilities(0)])
+    useEffect(() => {
+        if (experiment.parameters?.feature_flag_variants?.length > 1) {
+            // First test variant selected by default
+            setSelectedVariantKey(experiment.parameters.feature_flag_variants[1].key)
+        }
+    }, [experiment])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
@@ -622,20 +580,19 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
                             className="w-full"
                             data-attr="metrics-selector"
                             value={selectedVariantKey}
-                            onChange={(variantKey) => setSelectedVariantKey(variantKey)}
-                            options={sortedWinProbabilities(0).map(({ key }) => ({
-                                value: key,
-                                label: (
-                                    <div className="space-x-2 inline-flex">
-                                        <VariantTag experimentId={experimentId} variantKey={key} />
-                                        {key === sortedWinProbabilities(0)[0]?.key && (
-                                            <LemonTag type="success">
-                                                <b className="uppercase">Winning</b>
-                                            </LemonTag>
-                                        )}
-                                    </div>
-                                ),
-                            }))}
+                            onChange={(variantKey) => {
+                                setSelectedVariantKey(variantKey)
+                            }}
+                            options={
+                                experiment.parameters?.feature_flag_variants?.map(({ key }) => ({
+                                    value: key,
+                                    label: (
+                                        <div className="space-x-2 inline-flex">
+                                            <VariantTag experimentId={experimentId} variantKey={key} />
+                                        </div>
+                                    ),
+                                })) || []
+                            }
                         />
                     </div>
                 </div>
@@ -659,7 +616,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
 export function ActionBanner(): JSX.Element {
     const {
         experiment,
-        getMetricType,
+        _getMetricType,
         metricResults,
         experimentLoading,
         metricResultsLoading,
@@ -678,7 +635,7 @@ export function ActionBanner(): JSX.Element {
 
     const { aggregationLabel } = useValues(groupsModel)
 
-    const metricType = getMetricType(0)
+    const metricType = _getMetricType(experiment.metrics[0])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null

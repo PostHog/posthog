@@ -1,4 +1,4 @@
-import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { ExperimentFunnelsQuery } from '~/queries/schema'
@@ -18,16 +18,14 @@ export function MetricModal({
     const {
         experiment,
         experimentLoading,
-        getMetricType,
-        getSecondaryMetricType,
+        _getMetricType,
         isPrimaryMetricModalOpen,
         isSecondaryMetricModalOpen,
         editingPrimaryMetricIndex,
         editingSecondaryMetricIndex,
     } = useValues(experimentLogic({ experimentId }))
-    const { updateExperimentGoal, setExperiment, closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(
-        experimentLogic({ experimentId })
-    )
+    const { updateExperimentGoal, setExperiment, closePrimaryMetricModal, closeSecondaryMetricModal, loadExperiment } =
+        useActions(experimentLogic({ experimentId }))
 
     const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
@@ -36,15 +34,21 @@ export function MetricModal({
         return <></>
     }
 
-    const metricType = isSecondary ? getSecondaryMetricType(metricIdx) : getMetricType(metricIdx)
     const metrics = experiment[metricsField]
     const metric = metrics[metricIdx]
+    const metricType = _getMetricType(metric)
     const funnelStepsLength = (metric as ExperimentFunnelsQuery)?.funnels_query?.series?.length || 0
+
+    const onClose = (): void => {
+        // :KLUDGE: Removes any local changes and resets the experiment to the server state
+        loadExperiment()
+        isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
+    }
 
     return (
         <LemonModal
             isOpen={isSecondary ? isSecondaryMetricModalOpen : isPrimaryMetricModalOpen}
-            onClose={isSecondary ? closeSecondaryMetricModal : closePrimaryMetricModal}
+            onClose={onClose}
             width={1000}
             title="Edit experiment metric"
             footer={
@@ -53,21 +57,33 @@ export function MetricModal({
                         type="secondary"
                         status="danger"
                         onClick={() => {
-                            const newMetrics = metrics.filter((_, idx) => idx !== metricIdx)
-                            setExperiment({
-                                [metricsField]: newMetrics,
+                            LemonDialog.open({
+                                title: 'Delete this metric?',
+                                content: <div className="text-sm text-muted">This action cannot be undone.</div>,
+                                primaryButton: {
+                                    children: 'Delete',
+                                    type: 'primary',
+                                    onClick: () => {
+                                        const newMetrics = metrics.filter((_, idx) => idx !== metricIdx)
+                                        setExperiment({
+                                            [metricsField]: newMetrics,
+                                        })
+                                        updateExperimentGoal()
+                                    },
+                                    size: 'small',
+                                },
+                                secondaryButton: {
+                                    children: 'Cancel',
+                                    type: 'tertiary',
+                                    size: 'small',
+                                },
                             })
-                            updateExperimentGoal()
                         }}
                     >
                         Delete
                     </LemonButton>
                     <div className="flex items-center gap-2 ml-auto">
-                        <LemonButton
-                            form="edit-experiment-goal-form"
-                            type="secondary"
-                            onClick={isSecondary ? closeSecondaryMetricModal : closePrimaryMetricModal}
-                        >
+                        <LemonButton form="edit-experiment-goal-form" type="secondary" onClick={onClose}>
                             Cancel
                         </LemonButton>
                         <LemonButton

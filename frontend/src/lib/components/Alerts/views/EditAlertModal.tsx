@@ -20,12 +20,18 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { alphabet, formatDate } from 'lib/utils'
+import { useCallback } from 'react'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType } from '~/queries/schema'
+import {
+    AlertCalculationInterval,
+    AlertConditionType,
+    AlertState,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
 import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { alertFormLogic } from '../alertFormLogic'
+import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
 import { SnoozeButton } from '../SnoozeButton'
 import { AlertType } from '../types'
@@ -87,9 +93,17 @@ export function EditAlertModal({
     onClose,
     onEditSuccess,
 }: EditAlertModalProps): JSX.Element {
-    const { alert, alertLoading } = useValues(alertLogic({ alertId }))
+    const _alertLogic = alertLogic({ alertId })
+    const { alert, alertLoading } = useValues(_alertLogic)
+    const { loadAlert } = useActions(_alertLogic)
 
-    const formLogicProps = { alert, insightId, onEditSuccess }
+    // need to reload edited alert as well
+    const _onEditSuccess = useCallback(() => {
+        loadAlert()
+        onEditSuccess()
+    }, [loadAlert, onEditSuccess])
+
+    const formLogicProps = { alert, insightId, onEditSuccess: _onEditSuccess }
     const formLogic = alertFormLogic(formLogicProps)
     const { alertForm, isAlertFormSubmitting, alertFormChanged } = useValues(formLogic)
     const { deleteAlert, snoozeAlert, clearSnooze } = useActions(formLogic)
@@ -100,10 +114,7 @@ export function EditAlertModal({
 
     const creatingNewAlert = alertForm.id === undefined
     // can only check ongoing interval for absolute value/increase alerts with upper threshold
-    const can_check_ongoing_interval =
-        (alertForm?.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
-            alertForm?.condition.type === AlertConditionType.RELATIVE_INCREASE) &&
-        alertForm.threshold.configuration.bounds?.upper != null
+    const can_check_ongoing_interval = canCheckOngoingInterval(alertForm)
 
     return (
         <LemonModal onClose={onClose} isOpen={isOpen} width={600} simple title="">
@@ -167,14 +178,18 @@ export function EditAlertModal({
                                                 <LemonSelect
                                                     fullWidth
                                                     data-attr="alertForm-series-index"
-                                                    options={alertSeries?.map(({ event }, index) => ({
-                                                        label: isBreakdownValid
-                                                            ? 'any breakdown value'
-                                                            : formula
-                                                            ? `Formula (${formula})`
-                                                            : `${alphabet[index]} - ${event}`,
-                                                        value: isBreakdownValid || formula ? 0 : index,
-                                                    }))}
+                                                    options={alertSeries?.map(
+                                                        ({ custom_name, name, event }, index) => ({
+                                                            label: isBreakdownValid
+                                                                ? 'any breakdown value'
+                                                                : formula
+                                                                ? `Formula (${formula})`
+                                                                : `${alphabet[index]} - ${
+                                                                      custom_name ?? name ?? event
+                                                                  }`,
+                                                            value: isBreakdownValid || formula ? 0 : index,
+                                                        })
+                                                    )}
                                                     disabledReason={
                                                         (isBreakdownValid &&
                                                             `For trends with breakdown, the alert will fire if any of the breakdown

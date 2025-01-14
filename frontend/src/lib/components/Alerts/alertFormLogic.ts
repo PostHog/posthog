@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema'
+import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
@@ -25,6 +25,15 @@ export type AlertFormType = Pick<
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
     insight?: QueryBasedInsightModel['id']
+}
+
+export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): boolean {
+    return (
+        (alert?.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
+            alert?.condition.type === AlertConditionType.RELATIVE_INCREASE) &&
+        alert?.threshold.configuration.bounds?.upper != null &&
+        !isNaN(alert?.threshold.configuration.bounds.upper)
+    )
 }
 
 export interface AlertFormLogicProps {
@@ -85,11 +94,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     // can only check ongoing interval for absolute value/increase alerts with upper threshold
                     config: {
                         ...alert.config,
-                        check_ongoing_interval:
-                            (alert.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
-                                alert.condition.type === AlertConditionType.RELATIVE_INCREASE) &&
-                            alert.threshold.configuration.bounds?.upper != null &&
-                            alert.config.check_ongoing_interval,
+                        check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
                 }
 
