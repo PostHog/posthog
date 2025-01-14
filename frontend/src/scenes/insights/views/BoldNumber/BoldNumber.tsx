@@ -123,7 +123,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                 ref={valueRef}
                 onMouseEnter={() => setIsTooltipShown(true)}
             >
-                <Textfit min={32} max={120}>
+                <Textfit min={32} max={64}>
                     {formatAggregationAxisValue(trendsFilter, resultSeries.aggregated_value)}
                 </Textfit>
             </div>
