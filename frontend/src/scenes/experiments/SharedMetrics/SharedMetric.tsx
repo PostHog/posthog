@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
 import { SharedFunnelsMetricForm } from './SharedFunnelsMetricForm'

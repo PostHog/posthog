@@ -2,7 +2,7 @@ import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { ResultCustomizationBy } from '~/queries/schema'
+import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
 

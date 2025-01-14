@@ -15,12 +15,10 @@ import {
     AssistantMessageType,
     FailureMessage,
     HumanMessage,
-    NodeKind,
     ReasoningMessage,
-    RefreshType,
     RootAssistantMessage,
-    SuggestedQuestionsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-assistant-messages'
+import { NodeKind, RefreshType, SuggestedQuestionsQuery } from '~/queries/schema/schema-general'
 import { Conversation } from '~/types'
 
 import type { maxLogicType } from './maxLogicType'

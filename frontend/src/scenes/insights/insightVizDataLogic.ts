@@ -35,7 +35,7 @@ import {
     NodeKind,
     TrendsFilter,
     TrendsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     filterKeyForQuery,
