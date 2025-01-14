@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestTracesQueryRunner.test_traces_query_runner
+# name: TestTracesQueryRunner.test_field_mapping
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
          min(toTimeZone(events.timestamp, 'UTC')) AS trace_timestamp,
@@ -10,7 +10,7 @@
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_cost,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_cost,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_cost,
-         arraySort(x -> tupleElement(x, 1), groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS spans
+         arraySort(x -> tupleElement(x, 2), groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,

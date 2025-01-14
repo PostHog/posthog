@@ -2535,7 +2535,7 @@ export interface AIGeneration {
     created_at: string
     input: any[]
     latency: number
-    output?: any[]
+    output?: any
     provider?: string
     model?: string
     input_tokens?: number

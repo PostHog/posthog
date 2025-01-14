@@ -25,7 +25,7 @@ class AIGeneration(BaseModel):
     input_tokens: Optional[float] = None
     latency: float
     model: Optional[str] = None
-    output: Optional[list] = None
+    output: Optional[Any] = None
     output_cost: Optional[float] = None
     output_tokens: Optional[float] = None
     provider: Optional[str] = None

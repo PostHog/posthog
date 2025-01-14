@@ -32,10 +32,7 @@
                 "model": {
                     "type": "string"
                 },
-                "output": {
-                    "items": {},
-                    "type": "array"
-                },
+                "output": {},
                 "output_cost": {
                     "type": "number"
                 },

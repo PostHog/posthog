@@ -188,7 +188,7 @@ class TracesQueryRunner(QueryRunner):
                     args=[
                         ast.Lambda(
                             args=["x"],
-                            expr=ast.Call(name="tupleElement", args=[ast.Field(chain=["x"]), ast.Constant(value=1)]),
+                            expr=ast.Call(name="tupleElement", args=[ast.Field(chain=["x"]), ast.Constant(value=2)]),
                         ),
                         ast.Call(
                             name="groupArray",
