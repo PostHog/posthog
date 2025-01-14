@@ -1,6 +1,6 @@
 import os
 
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.settings.utils import get_from_env, get_list
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
 TEMPORAL_TASK_QUEUE: str = os.getenv("TEMPORAL_TASK_QUEUE", "no-sandbox-python-django")
@@ -66,7 +66,6 @@ CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
 )
 CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
 
+# What percentage of teams should use events_recent for batch exports (should be a value from 0 to 1 and we only support increments of 0.1)
 # TODO - remove this once migration is complete
-BATCH_EXPORT_USE_EVENTS_RECENT_FOR_ALL: bool = get_from_env(
-    "BATCH_EXPORT_USE_EVENTS_RECENT_FOR_ALL", False, type_cast=str_to_bool
-)
+BATCH_EXPORT_EVENTS_RECENT_ROLLOUT: float = get_from_env("BATCH_EXPORT_EVENTS_RECENT_ROLLOUT", 0.0, type_cast=float)

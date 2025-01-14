@@ -507,10 +507,21 @@ def is_5_min_batch_export(full_range: tuple[dt.datetime | None, dt.datetime]) ->
     return False
 
 
-def use_events_recent(full_range: tuple[dt.datetime | None, dt.datetime], is_backfill: bool) -> bool:
-    interval_is_5_min = is_5_min_batch_export(full_range)
-    use_events_recent_for_all = settings.BATCH_EXPORT_USE_EVENTS_RECENT_FOR_ALL
-    return (use_events_recent_for_all or interval_is_5_min) and not is_backfill
+def use_events_recent(full_range: tuple[dt.datetime | None, dt.datetime], is_backfill: bool, team_id: int) -> bool:
+    if is_backfill:
+        return False
+    if is_5_min_batch_export(full_range):
+        return True
+
+    events_recent_rollout: float = settings.BATCH_EXPORT_EVENTS_RECENT_ROLLOUT
+    # sanity check
+    if events_recent_rollout < 0:
+        events_recent_rollout = 0
+    elif events_recent_rollout > 1:
+        events_recent_rollout = 1
+
+    bucket = team_id % 10
+    return bucket < events_recent_rollout * 10
 
 
 class Producer:
@@ -574,7 +585,7 @@ class Producer:
             else:
                 parameters["include_events"] = []
 
-            if use_events_recent(full_range, is_backfill):
+            if use_events_recent(full_range=full_range, is_backfill=is_backfill, team_id=team_id):
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
                 query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
@@ -649,7 +660,7 @@ class Producer:
                 this number of records.
         """
         clickhouse_url = None
-        if use_events_recent(full_range, is_backfill):
+        if use_events_recent(full_range=full_range, is_backfill=is_backfill, team_id=team_id):
             clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
 
         # data can sometimes take a while to settle, so for 5 min batch exports
