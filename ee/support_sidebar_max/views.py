@@ -1,3 +1,7 @@
+"""
+ViewSet for Max Support Sidebar Chat Assistant.
+"""
+
 from typing import Any
 from django.conf import settings
 import logging
@@ -5,8 +9,6 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
-import threading
-import time
 import anthropic
 import json
 from datetime import datetime, UTC
@@ -40,8 +42,6 @@ class MaxChatViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
     CONVERSATION_TIMEOUT = 300  # 5 minutes in seconds
-    conversation_histories: dict[str, ConversationHistory] = {}
-    _cleanup_lock = threading.Lock()
     basename = "max"
 
     def list(self, request: Request, **kwargs: Any) -> Response:
@@ -99,7 +99,7 @@ class MaxChatViewSet(viewsets.ViewSet):
                     )
 
             django_logger.info("✨🦔 Getting conversation history")
-            history = self._get_conversation(session_id)
+            history = ConversationHistory.get_from_cache(session_id)
             system_prompt = self._format_system_prompt(get_system_prompt())
             django_logger.debug(f"✨🦔 System prompt: {json.dumps(system_prompt, indent=2)}")
 
@@ -112,6 +112,7 @@ class MaxChatViewSet(viewsets.ViewSet):
                 if "content" in result:
                     django_logger.debug(f"✨🦔 Greeting response: {result['content']}")
                     history.add_turn_assistant(result["content"])
+                    history.save_to_cache(session_id, timeout=self.CONVERSATION_TIMEOUT)
                     return Response({"content": result["content"]})
 
             # Add user message with proper structure
@@ -152,6 +153,9 @@ class MaxChatViewSet(viewsets.ViewSet):
                         history.add_turn_assistant(result["content"])
                     break
 
+            # Save the updated history to cache
+            history.save_to_cache(session_id, timeout=self.CONVERSATION_TIMEOUT)
+
             django_logger.info("✨🦔 Response successfully processed")
             django_logger.debug(
                 f"✨🦔 Final response: {json.dumps({'content': full_response.strip(), 'session_id': session_id}, indent=2)}"
@@ -171,27 +175,6 @@ class MaxChatViewSet(viewsets.ViewSet):
         headers = REQUIRED_HEADERS.copy()
         headers["container_hostname"] = settings.CONTAINER_HOSTNAME
         return headers
-
-    def _cleanup_old_conversations(self):
-        """Remove conversations older than CONVERSATION_TIMEOUT"""
-        with self._cleanup_lock:
-            current_time = time.time()
-            expired = [
-                session_id
-                for session_id, history in self.conversation_histories.items()
-                if (current_time - history.last_access) > self.CONVERSATION_TIMEOUT
-            ]
-            for session_id in expired:
-                del self.conversation_histories[session_id]
-
-    def _get_conversation(self, session_id: str) -> ConversationHistory:
-        """Get or create conversation history with cleanup check"""
-        self._cleanup_old_conversations()
-        if session_id not in self.conversation_histories:
-            self.conversation_histories[session_id] = ConversationHistory()
-        history = self.conversation_histories[session_id]
-        history.touch()  # Update last access time
-        return history
 
     def _format_system_prompt(self, prompt: str) -> list:
         """Format system prompt with cache control."""

@@ -1,5 +1,6 @@
 import time
 import logging
+from django.core.cache import caches
 
 
 class ConversationHistory:
@@ -47,6 +48,22 @@ class ConversationHistory:
     def get_turns(self):
         self.touch()  # Update timestamp on activity
         return self.turns
+
+    @classmethod
+    def get_from_cache(cls, session_id: str):
+        """Get conversation history from cache"""
+        cache = caches["default"]
+        key = f"max_conversation_{session_id}"
+        history = cache.get(key)
+        if history is None:
+            history = cls()
+        return history
+
+    def save_to_cache(self, session_id: str, timeout: int = 300):  # 5 minutes default
+        """Save conversation history to cache"""
+        cache = caches["default"]
+        key = f"max_conversation_{session_id}"
+        cache.set(key, self, timeout=timeout)
 
 
 # Active logging configuration used by ViewSet
