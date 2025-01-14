@@ -232,10 +232,12 @@ describe('cookielessServerHashStep', () => {
             aliasEvent = deepFreeze({
                 ...event,
                 event: '$create_alias',
+                uuid: new UUID7(now.getTime()).toString(),
             })
             mergeDangerouslyEvent = deepFreeze({
                 ...event,
                 event: '$merge_dangerously',
+                uuid: new UUID7(now.getTime()).toString(),
             })
             nonCookielessEvent = deepFreeze({
                 ...event,
@@ -243,6 +245,7 @@ describe('cookielessServerHashStep', () => {
                     $host: 'https://example.com',
                     $raw_user_agent: userAgent,
                 },
+                uuid: new UUID7(now.getTime()).toString(),
             })
             eventWithExtra = deepFreeze({
                 ...event,
@@ -250,6 +253,7 @@ describe('cookielessServerHashStep', () => {
                     ...event.properties,
                     $cookieless_extra: 'extra',
                 },
+                uuid: new UUID7(now.getTime()).toString(),
             })
         })
 
