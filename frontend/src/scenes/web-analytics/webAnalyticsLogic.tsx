@@ -217,6 +217,7 @@ export enum ConversionGoalWarning {
 }
 
 export interface WebAnalyticsStatusCheck {
+    isSendingWebVitals: boolean
     isSendingPageViews: boolean
     isSendingPageLeaves: boolean
     isSendingPageLeavesScroll: boolean
@@ -1715,7 +1716,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         statusCheck: {
             __default: null as WebAnalyticsStatusCheck | null,
             loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
-                const [pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
+                const [webVitalsResult, pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
+                    api.eventDefinitions.list({
+                        event_type: EventDefinitionType.Event,
+                        search: '$web_vitals',
+                    }),
                     api.eventDefinitions.list({
                         event_type: EventDefinitionType.Event,
                         search: '$pageview',
@@ -1732,6 +1737,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
                 // going to add enough reserved event names that match this search term to cause problems
+                const webVitalsEntry =
+                    webVitalsResult.status === 'fulfilled'
+                        ? webVitalsResult.value.results.find((r) => r.name === '$web_vitals')
+                        : undefined
+
                 const pageviewEntry =
                     pageviewResult.status === 'fulfilled'
                         ? pageviewResult.value.results.find((r) => r.name === '$pageview')
@@ -1747,11 +1757,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ? pageleaveScroll.value.results.find((r) => r.name === '$prev_pageview_max_content_percentage')
                         : undefined
 
+                const isSendingWebVitals = !!webVitalsEntry && !isDefinitionStale(webVitalsEntry)
                 const isSendingPageViews = !!pageviewEntry && !isDefinitionStale(pageviewEntry)
                 const isSendingPageLeaves = !!pageleaveEntry && !isDefinitionStale(pageleaveEntry)
                 const isSendingPageLeavesScroll = !!pageleaveScrollEntry && !isDefinitionStale(pageleaveScrollEntry)
 
                 return {
+                    isSendingWebVitals,
                     isSendingPageViews,
                     isSendingPageLeaves,
                     isSendingPageLeavesScroll,
