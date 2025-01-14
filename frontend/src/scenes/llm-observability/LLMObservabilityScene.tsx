@@ -1,3 +1,4 @@
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -58,9 +59,36 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     )
 }
 
+const IngestionStatusCheck = (): JSX.Element | null => {
+    const { hasSentAiGenerationEvent } = useValues(llmObservabilityLogic)
+    if (hasSentAiGenerationEvent !== false) {
+        return null
+    }
+    return (
+        <LemonBanner type="warning" className="mt-2">
+            <p>
+                <strong>No LLM generation events have been detected!</strong>
+            </p>
+            <p>
+                To use the LLM Observability product, please{' '}
+                <Link to="https://posthog.com/docs/ai-engineering/observability">
+                    instrument your LLM calls with the PostHog SDK
+                </Link>{' '}
+                (otherwise it'll be a little empty!)
+            </p>
+            <p>
+                To get cost information, you'll also{' '}
+                <Link to="/pipeline/new/transformation">need to enable the "AI Costs" transformation.</Link>
+            </p>
+        </LemonBanner>
+    )
+}
+
 export function LLMObservabilityScene(): JSX.Element {
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID }}>
+            <IngestionStatusCheck />
+
             <Filters />
             <Tiles />
         </BindLogic>

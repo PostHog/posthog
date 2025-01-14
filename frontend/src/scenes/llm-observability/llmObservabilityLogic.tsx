@@ -1,7 +1,11 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { STALE_EVENT_SECONDS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { PropertyMathType } from '~/types'
+import { EventDefinition, EventDefinitionType, PropertyMathType } from '~/types'
 
 import type { llmObservabilityLogicType } from './llmObservabilityLogicType'
 
@@ -16,6 +20,11 @@ export interface QueryTile {
     layout?: {
         className?: string
     }
+}
+
+const isDefinitionStale = (definition: EventDefinition): boolean => {
+    const parsedLastSeen = definition.last_seen_at ? dayjs(definition.last_seen_at) : null
+    return !!parsedLastSeen && dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
 }
 
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
@@ -89,5 +98,30 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 },
             ],
         ],
+    }),
+    loaders({
+        hasSentAiGenerationEvent: {
+            __default: undefined as boolean | undefined,
+            loadAIEventDefinition: async (): Promise<boolean | undefined> => {
+                const aiGenerationDefinition = await api.eventDefinitions.list({
+                    event_type: EventDefinitionType.Event,
+                    search: '$ai_generation',
+                })
+
+                // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
+                // going to add enough reserved event names that match this search term to cause problems
+                const definition = aiGenerationDefinition.results.find((r) => r.name === '$ai_generation')
+                if (definition) {
+                    if (!isDefinitionStale(definition)) {
+                        return true
+                    }
+                    return false
+                }
+                return undefined
+            },
+        },
+    }),
+    afterMount(({ actions }) => {
+        actions.loadAIEventDefinition()
     }),
 ])
