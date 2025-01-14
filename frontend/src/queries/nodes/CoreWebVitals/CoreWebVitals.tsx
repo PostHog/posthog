@@ -2,10 +2,11 @@ import './CoreWebVitals.scss'
 
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { clsx } from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 import { CoreWebVitalsPercentile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
+import { Query } from '~/queries/Query/Query'
 import {
     AnyResponseType,
     CoreWebVitalsItem,
@@ -42,7 +43,6 @@ export function CoreWebVitals(props: {
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
-    const [tab, setTab] = useState<CoreWebVitalsMetric>('INP')
     const [key] = useState(() => `CoreWebVitals.${uniqueNode++}`)
     const logic = dataNodeLogic({
         query: props.query,
@@ -53,7 +53,8 @@ export function CoreWebVitals(props: {
         dataNodeCollectionId: key,
     })
 
-    const { coreWebVitalsPercentile } = useValues(webAnalyticsLogic)
+    const { coreWebVitalsPercentile, coreWebVitalsTab, coreWebVitalsMetricQuery } = useValues(webAnalyticsLogic)
+    const { setCoreWebVitalsTab } = useActions(webAnalyticsLogic)
     const { response } = useValues(logic)
     const coreWebVitalsQueryResponse = response as CoreWebVitalsQueryResponse | undefined
 
@@ -81,39 +82,44 @@ export function CoreWebVitals(props: {
                     metric="INP"
                     label="Interaction to Next Paint"
                     value={INP}
-                    isActive={tab === 'INP'}
-                    setTab={() => setTab('INP')}
+                    isActive={coreWebVitalsTab === 'INP'}
+                    setTab={() => setCoreWebVitalsTab('INP')}
                     inSeconds
                 />
                 <CoreWebVitalsTab
                     metric="LCP"
                     label="Largest Contentful Paint"
                     value={LCP}
-                    isActive={tab === 'LCP'}
-                    setTab={() => setTab('LCP')}
+                    isActive={coreWebVitalsTab === 'LCP'}
+                    setTab={() => setCoreWebVitalsTab('LCP')}
                     inSeconds
                 />
                 <CoreWebVitalsTab
                     metric="FCP"
                     label="First Contentful Paint"
                     value={FCP}
-                    isActive={tab === 'FCP'}
-                    setTab={() => setTab('FCP')}
+                    isActive={coreWebVitalsTab === 'FCP'}
+                    setTab={() => setCoreWebVitalsTab('FCP')}
                     inSeconds
                 />
                 <CoreWebVitalsTab
                     metric="CLS"
                     label="Cumulative Layout Shift"
                     value={CLS}
-                    isActive={tab === 'CLS'}
-                    setTab={() => setTab('CLS')}
+                    isActive={coreWebVitalsTab === 'CLS'}
+                    setTab={() => setCoreWebVitalsTab('CLS')}
                 />
             </div>
 
-            {tab === 'INP' && <div>INP</div>}
-            {tab === 'LCP' && <div>LCP</div>}
-            {tab === 'CLS' && <div>CLS</div>}
-            {tab === 'FCP' && <div>FCP</div>}
+            <div>
+                Actual content
+                <Query query={coreWebVitalsMetricQuery} readOnly embedded />
+            </div>
+
+            {coreWebVitalsTab === 'INP' && <div>INP</div>}
+            {coreWebVitalsTab === 'LCP' && <div>LCP</div>}
+            {coreWebVitalsTab === 'CLS' && <div>CLS</div>}
+            {coreWebVitalsTab === 'FCP' && <div>FCP</div>}
         </div>
     )
 }

@@ -284,6 +284,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setProductTab: (tab: ProductTab) => ({ tab }),
         setCoreWebVitalsPercentile: (percentile: CoreWebVitalsPercentile) => ({ percentile }),
+        setCoreWebVitalsTab: (tab: CoreWebVitalsMetric) => ({ tab }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -494,6 +495,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             persistConfig,
             {
                 setCoreWebVitalsPercentile: (_, { percentile }) => percentile,
+            },
+        ],
+        coreWebVitalsTab: [
+            'INP' as CoreWebVitalsMetric,
+            {
+                setCoreWebVitalsTab: (_, { tab }) => tab,
             },
         ],
     }),
@@ -1674,6 +1681,56 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ],
                 }
             },
+        ],
+        coreWebVitalsMetricQuery: [
+            (s) => [
+                s.coreWebVitalsPercentile,
+                s.coreWebVitalsTab,
+                s.dateFilter,
+                s.webAnalyticsFilters,
+                s.shouldFilterTestAccounts,
+            ],
+            (
+                coreWebVitalsPercentile,
+                coreWebVitalsTab,
+                { dateFrom, dateTo, interval },
+                webAnalyticsFilters,
+                filterTestAccounts
+            ) => ({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    dateRange: {
+                        date_from: dateFrom,
+                        date_to: dateTo,
+                    },
+                    interval,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$web_vitals',
+                            name: '$web_vitals',
+                            custom_name: coreWebVitalsTab,
+                            math: coreWebVitalsPercentile,
+                            math_property: `$web_vitals_${coreWebVitalsTab}_value`,
+                        },
+                    ],
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsLineGraph,
+                    },
+                    filterTestAccounts,
+                    properties: webAnalyticsFilters,
+                },
+                embedded: false,
+                chartSettings: {
+                    goalLines: [
+                        {
+                            label: 'Good',
+                            value: 25,
+                        },
+                    ],
+                },
+            }),
         ],
         getNewInsightUrl: [
             (s) => [s.tiles],
