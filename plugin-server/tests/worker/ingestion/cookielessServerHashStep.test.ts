@@ -67,6 +67,34 @@ describe('cookielessServerHashStep', () => {
             const result = toYYYYMMDDInTimezoneSafe(date, 'Not/A/Timezone', 'UTC')
             expect(result).toEqual('2025-01-01')
         })
+        it('should handle a positive time zone', () => {
+            const timezone = 'Europe/Talinn' // +2 ish
+            const date = new Date('2025-01-01T23:00:00Z').getTime()
+            const result = toYYYYMMDDInTimezoneSafe(date, timezone, timezone)
+            expect(result).toEqual('2025-01-02')
+        })
+        it('should handle a large positive time zone', () => {
+            const timezone = 'Pacific/Tongatapu' // + 14 ish
+            const date = new Date('2025-01-01T12:00:00Z').getTime()
+            const result = toYYYYMMDDInTimezoneSafe(date, timezone, timezone)
+            expect(result).toEqual('2025-01-02')
+        })
+        it('should handle a negative time zone', () => {
+            const timezone = 'America/Sao_Paulo' // -3
+            const date = new Date('2025-01-01T01:00:00Z').getTime()
+            const result = toYYYYMMDDInTimezoneSafe(date, timezone, timezone)
+            expect(result).toEqual('2025-01-02')
+        })
+        it('should handle a large negative time zone', () => {
+            const date = new Date('2025-01-01T12:00:00Z').getTime()
+            const result = toYYYYMMDDInTimezoneSafe(date, 'Pacific/Tongatapu', 'Pacific/Tongatapu')
+            expect(result).toEqual('2025-01-02')
+        })
+        it('should prefer the event time zone over the team time zone', () => {
+            const date = new Date('2025-01-01T12:00:00Z').getTime()
+            const result = toYYYYMMDDInTimezoneSafe(date, 'Pacific/Tongatapu', 'UTC')
+            expect(result).toEqual('2025-01-02')
+        })
     })
 
     describe('pipeline step', () => {
@@ -90,6 +118,7 @@ describe('cookielessServerHashStep', () => {
         let aliasEvent: PluginEvent
         let mergeDangerouslyEvent: PluginEvent
         let nonCookielessEvent: PluginEvent
+        let eventWithExtra: PluginEvent
 
         beforeAll(async () => {
             hub = await createHub({})
@@ -215,6 +244,13 @@ describe('cookielessServerHashStep', () => {
                     $raw_user_agent: userAgent,
                 },
             })
+            eventWithExtra = deepFreeze({
+                ...event,
+                properties: {
+                    ...event.properties,
+                    $cookieless_extra: 'extra',
+                },
+            })
         })
 
         // tests that are shared between both modes
@@ -266,7 +302,7 @@ describe('cookielessServerHashStep', () => {
                 expect(actual1.properties.$session_id).not.toEqual(actual2.properties.$session_id)
             })
             it('should strip the PII used in the hash', async () => {
-                const [actual] = await cookielessServerHashStep(hub, event)
+                const [actual] = await cookielessServerHashStep(hub, eventWithExtra)
 
                 if (!actual?.properties) {
                     throw new Error('no event or properties')
@@ -297,6 +333,16 @@ describe('cookielessServerHashStep', () => {
                 expect(actual2.distinct_id).toEqual(actual1.distinct_id)
                 expect(actual1.properties.$session_id).toBeDefined()
                 expect(actual2.properties.$session_id).toEqual(actual1.properties.$session_id)
+            })
+            it('should count as a different user if the extra value is different', async () => {
+                const [actual1] = await cookielessServerHashStep(hub, event)
+                const [actual2] = await cookielessServerHashStep(hub, eventWithExtra)
+
+                if (!actual1?.properties || !actual2?.properties) {
+                    throw new Error('no event or properties')
+                }
+                expect(actual1.distinct_id).not.toEqual(actual2.distinct_id)
+                expect(actual1.properties.$session_id).not.toEqual(actual2.properties.$session_id)
             })
         })
 
