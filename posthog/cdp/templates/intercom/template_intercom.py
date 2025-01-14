@@ -37,6 +37,10 @@ let user := fetch(f'https://{regions[inputs.oauth['app.region']]}/contacts/searc
     }
 })
 
+if (user.status >= 400) {
+    throw Error(f'Error from intercom api (status {user.status}): {user.body}')
+}
+
 let payload := {
     'email': inputs.email
 }
@@ -178,14 +182,19 @@ let user := fetch(f'https://{regions[inputs.oauth['app.region']]}/contacts/searc
     }
 })
 
+if (user.status >= 400) {
+    throw Error(f'Error from intercom api (status {user.status}): {user.body}')
+}
+
 let payload := {
     'event_name': inputs.eventName,
     'created_at': inputs.eventTime,
-    'email': inputs.email
+    'email': inputs.email,
+    'metadata': {}
 }
 
 if (inputs.include_all_properties) {
-    for (let key, value in person.properties) {
+    for (let key, value in event.properties) {
         if (not empty(value) and not key like '$%') {
             payload.metadata[key] := value
         }
