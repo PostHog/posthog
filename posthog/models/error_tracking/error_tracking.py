@@ -65,7 +65,6 @@ class ErrorTrackingIssueAssignment(UUIDModel):
             models.CheckConstraint(
                 check=~(Q(user__isnull=False) & Q(user_group__isnull=False)), name="only_one_non_null"
             ),
-            models.UniqueConstraint(fields=["issue"], name="unique_per_issue"),
         ]
 
 
