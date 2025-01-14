@@ -250,9 +250,26 @@ def test_properties(request):
     return {"$browser": "Chrome", "$os": "Mac OS X"}
 
 
+@pytest.fixture
+def test_person_properties(request):
+    """Set test person data properties."""
+    try:
+        return request.param
+    except AttributeError:
+        pass
+    return {"utm_medium": "referral", "$initial_os": "Linux"}
+
+
 @pytest_asyncio.fixture
 async def generate_test_data(
-    ateam, clickhouse_client, exclude_events, data_interval_start, data_interval_end, interval, test_properties
+    ateam,
+    clickhouse_client,
+    exclude_events,
+    data_interval_start,
+    data_interval_end,
+    interval,
+    test_properties,
+    test_person_properties,
 ):
     """Generate test data in ClickHouse."""
     if interval != "every 5 minutes":
@@ -310,7 +327,7 @@ async def generate_test_data(
         end_time=data_interval_end,
         count=10,
         count_other_team=1,
-        properties={"utm_medium": "referral", "$initial_os": "Linux"},
+        properties=test_person_properties,
     )
 
     persons_to_export_created = []
@@ -332,3 +349,37 @@ async def generate_test_data(
         persons_to_export_created.append(person_to_export)
 
     return (events_to_export_created, persons_to_export_created)
+
+
+@pytest_asyncio.fixture
+async def generate_test_persons_data(ateam, clickhouse_client, data_interval_start, data_interval_end):
+    """Generate test persons data in ClickHouse."""
+    persons, _ = await generate_test_persons_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10,
+        count_other_team=1,
+        properties={"utm_medium": "referral", "$initial_os": "Linux"},
+    )
+
+    persons_to_export_created = []
+    for person in persons:
+        person_distinct_id, _ = await generate_test_person_distinct_id2_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            person_id=uuid.UUID(person["id"]),
+            distinct_id=f"distinct-id-{uuid.UUID(person['id'])}",
+            timestamp=dt.datetime.fromisoformat(person["_timestamp"]),
+        )
+        person_to_export = {
+            "team_id": person["team_id"],
+            "person_id": person["id"],
+            "distinct_id": person_distinct_id["distinct_id"],
+            "version": person_distinct_id["version"],
+            "_timestamp": dt.datetime.fromisoformat(person["_timestamp"]),
+        }
+        persons_to_export_created.append(person_to_export)
+
+    return persons_to_export_created

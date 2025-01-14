@@ -32,7 +32,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.constants import (
     INSIGHT_FUNNELS,
-    INSIGHT_PATHS,
     LIMIT,
     OFFSET,
     FunnelVizType,
@@ -66,7 +65,6 @@ from posthog.queries.funnels.funnel_unordered_persons import (
     ClickhouseFunnelUnorderedActors,
 )
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.queries.property_values import get_person_property_values_for_key
@@ -423,11 +421,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if distinct_ids := request.data.get("distinct_ids"):
             if len(distinct_ids) > 1000:
                 raise ValidationError("You can only pass 1000 distinct_ids in one call")
-            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=distinct_ids)
+            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=distinct_ids).defer("properties")
         elif ids := request.data.get("ids"):
             if len(ids) > 1000:
                 raise ValidationError("You can only pass 1000 ids in one call")
-            persons = self.get_queryset().filter(uuid__in=ids)
+            persons = self.get_queryset().filter(uuid__in=ids).defer("properties")
         else:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
@@ -754,41 +752,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         actors, serialized_actors, raw_count = funnel_actor_class(filter, self.team).get_actors()
         initial_url = format_query_params_absolute_url(request, 0)
         next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-
-        # cached_function expects a dict with the key result
-        return {
-            "result": (
-                serialized_actors,
-                next_url,
-                initial_url,
-                raw_count - len(serialized_actors),
-            )
-        }
-
-    @action(methods=["GET", "POST"], detail=False)
-    def path(self, request: request.Request, **kwargs) -> response.Response:
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        return self._respond_with_cached_results(self.calculate_path_persons(request))
-
-    @cached_by_filters
-    def calculate_path_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
-        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
-        filter = prepare_actor_query_filter(filter)
-
-        funnel_filter = None
-        funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
-        if funnel_filter_data:
-            if isinstance(funnel_filter_data, str):
-                funnel_filter_data = json.loads(funnel_filter_data)
-            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
-
-        actors, serialized_actors, raw_count = PathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-        initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
         return {

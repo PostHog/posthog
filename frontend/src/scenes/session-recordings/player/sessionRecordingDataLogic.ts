@@ -30,7 +30,7 @@ import { compressedEventWithTime } from 'posthog-js/lib/src/extensions/replay/se
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,

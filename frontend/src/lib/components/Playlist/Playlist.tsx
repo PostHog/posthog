@@ -269,7 +269,7 @@ function List<
                                 defaultActiveKeys={initiallyOpenSections}
                                 panels={sections.map((s) => ({
                                     key: s.key,
-                                    header: s.title,
+                                    header: s.title ?? '',
                                     content: (
                                         <ListSection {...s} activeItemId={activeItemId} onClick={setActiveItemId} />
                                     ),

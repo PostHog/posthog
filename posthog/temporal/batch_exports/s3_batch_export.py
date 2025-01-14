@@ -728,7 +728,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        s3_upload, details = await initialize_and_resume_multipart_upload(inputs)
+        s3_upload = initialize_upload(inputs, 0)
+        details = S3HeartbeatDetails()
         done_ranges: list[DateRange] = details.done_ranges
 
         model: BatchExportModel | BatchExportSchema | None = None

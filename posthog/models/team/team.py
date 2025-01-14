@@ -40,6 +40,8 @@ from posthog.utils import GenericEmails
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -109,6 +111,14 @@ class TeamManager(models.Manager):
         create_dashboard_from_template("DEFAULT_APP", dashboard)
         team.primary_dashboard = dashboard
 
+        # Create default session recording playlists
+        for playlist in DEFAULT_PLAYLISTS:
+            SessionRecordingPlaylist.objects.create(
+                team=team,
+                name=str(playlist["name"]),
+                filters=playlist["filters"],
+                description=str(playlist.get("description", "")),
+            )
         team.save()
         return team
 

@@ -17,7 +17,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { Node, NodeKind, QuerySchema } from '~/queries/schema'
+import { Node, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import {
     EarlyAccessFeatureStage,
     EarlyAccessFeatureTabs,

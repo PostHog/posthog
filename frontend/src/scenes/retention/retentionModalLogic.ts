@@ -6,7 +6,7 @@ import { retentionToActorsQuery } from 'scenes/retention/queries'
 import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
-import { ActorsQuery, DataTableNode, NodeKind, RetentionQuery } from '~/queries/schema'
+import { ActorsQuery, DataTableNode, NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
 import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
