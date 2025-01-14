@@ -7,6 +7,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { useMemo } from 'react'
+import { teamsDowngradeLogic } from 'scenes/authentication/teamsDowngradeLogic'
 
 import { BillingProductV2AddonType } from '~/types'
 
@@ -25,6 +26,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
     const { currentAndUpgradePlans, billingProductLoading, trialLoading } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
+    const { showTeamsDowngradeModal } = useActions(teamsDowngradeLogic)
 
     const {
         toggleIsPricingModalOpen,
@@ -74,8 +76,13 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                     <LemonButton
                         fullWidth
                         onClick={() => {
-                            setSurveyResponse('$survey_response_1', addon.type)
-                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
+                            if (featureFlags[FEATURE_FLAGS.TEAMS_DOWNGRADE_FLOW] === 'test') {
+                                showTeamsDowngradeModal(addon)
+                            } else {
+                                // Original behavior
+                                setSurveyResponse('$survey_response_1', addon.type)
+                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
+                            }
                         }}
                     >
                         Remove add-on
