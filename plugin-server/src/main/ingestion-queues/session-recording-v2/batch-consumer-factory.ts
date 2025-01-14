@@ -38,7 +38,7 @@ export class DefaultBatchConsumerFactory implements BatchConsumerFactory {
             eachBatch,
             callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
             autoCommit: true,
-            autoOffsetStore: false, // We will use our own offset store logic
+            autoOffsetStore: true, // TODO: remove this once we implement our own offset store logic
             sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.serverConfig.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
             // the largest size of a message that can be fetched by the consumer.
