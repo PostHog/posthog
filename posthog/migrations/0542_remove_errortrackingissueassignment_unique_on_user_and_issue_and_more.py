@@ -6,6 +6,7 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Added to support concurrent index creation
     dependencies = [
         ("posthog", "0541_usergroup_usergroupmembership_usergroup_members_and_more"),
     ]
@@ -88,7 +89,7 @@ class Migration(migrations.Migration):
                     reverse_sql="""
                         SET CONSTRAINTS "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" IMMEDIATE;
                         ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e";
-                        CREATE INDEX "posthog_errortrackingissueassignment_issue_id_d9cce9cb" ON "posthog_errortrackingissueassignment" ("issue_id");
+                        CREATE INDEX CONCURRENTLY "posthog_errortrackingissueassignment_issue_id_d9cce9cb" ON "posthog_errortrackingissueassignment" ("issue_id");
                         ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" FOREIGN KEY ("issue_id") REFERENCES "posthog_errortrackingissue" ("id") DEFERRABLE INITIALLY DEFERRED;
                     """,
                 ),
@@ -125,7 +126,7 @@ class Migration(migrations.Migration):
                 migrations.RunSQL(
                     """
                     ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "unique_per_issue" UNIQUE ("issue_id"); -- existing-table-constraint-ignore
-                    CREATE INDEX "posthog_errortrackingissueassignment_user_group_id_459a0006" ON "posthog_errortrackingissueassignment" ("user_group_id"); -- existing-table-constraint-ignore
+                    CREATE INDEX CONCURRENTLY "posthog_errortrackingissueassignment_user_group_id_459a0006" ON "posthog_errortrackingissueassignment" ("user_group_id"); -- existing-table-constraint-ignore
                     """,
                     reverse_sql="""
                         ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "unique_per_issue";
