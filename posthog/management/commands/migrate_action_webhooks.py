@@ -204,16 +204,10 @@ class Command(BaseCommand):
             "--dry-run",
             type=bool,
             help="If set, will not actually perform the migration, but will print out what would have been done",
-            default=True,
         )
         parser.add_argument("--action-ids", type=str, help="Comma separated list of action ids to sync")
         parser.add_argument("--team-ids", type=str, help="Comma separated list of team ids to sync")
-        parser.add_argument(
-            "--inert",
-            type=bool,
-            help="Create inert HogFunctions that will not fetch but just print",
-            default=False,
-        )
+        parser.add_argument("--inert", type=bool, help="Create inert HogFunctions that will not fetch but just print")
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
