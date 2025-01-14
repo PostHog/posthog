@@ -7,7 +7,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { hogFunctionListLogic } from 'scenes/pipeline/hogfunctions/list/hogFunctionListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -55,7 +54,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
         setCreateNew: (createNew: boolean) => ({ createNew }),
         actionAlreadyExists: (actionId: number | null) => ({ actionId }),
         deleteAction: true,
-        migrateToHogFunction: true,
     }),
     reducers({
         createNew: [
@@ -137,32 +135,12 @@ export const actionEditLogic = kea<actionEditLogicType>([
         ],
     }),
 
-    loaders(({ actions, props, values }) => ({
+    loaders(({ props, values }) => ({
         action: [
             { ...props.action } as ActionType,
             {
                 setAction: ({ action, options: { merge } }) =>
                     (merge ? { ...values.action, ...action } : action) as ActionType,
-            },
-        ],
-        migration: [
-            true,
-            {
-                migrateToHogFunction: async () => {
-                    if (props.id) {
-                        const hogFunction = await api.actions.migrate(props.id)
-                        actions.setActionValues({ post_to_slack: false })
-                        actions.loadActions()
-                        if (hogFunctionListLogic.isMounted()) {
-                            hogFunctionListLogic.actions.addHogFunction(hogFunction)
-                        }
-                        if (actionLogic({ id: props.id }).isMounted()) {
-                            actionLogic({ id: props.id }).actions.updateAction({ post_to_slack: false })
-                        }
-                        lemonToast.success('Action migrated to a destination!')
-                    }
-                    return true
-                },
             },
         ],
     })),
