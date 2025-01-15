@@ -664,11 +664,10 @@ class CSVBatchExportWriter(BatchExportWriter):
         self.quoting = quoting
 
         self._csv_writer: csv.DictWriter | None = None
-        self._csv_writer_file = None
 
     @property
     def csv_writer(self) -> csv.DictWriter:
-        if self._csv_writer is None or self._csv_writer_file is not self.batch_export_file:
+        if self._csv_writer is None:
             self._csv_writer = csv.DictWriter(
                 self.batch_export_file,
                 fieldnames=self.field_names,
@@ -679,9 +678,15 @@ class CSVBatchExportWriter(BatchExportWriter):
                 quoting=self.quoting,
                 lineterminator=self.line_terminator,
             )
-            self._csv_writer_file = self.batch_export_file
 
         return self._csv_writer
+
+    async def close_temporary_file(self):
+        """Ensure underlying `DictWriter` is closed before flushing and closing temporary file."""
+        if self._csv_writer is not None:
+            self._csv_writer = None
+
+        await super().close_temporary_file()
 
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
         """Write records to a temporary file as CSV."""
