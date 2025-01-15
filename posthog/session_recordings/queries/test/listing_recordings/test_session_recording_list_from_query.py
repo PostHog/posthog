@@ -15,12 +15,16 @@ from posthog.models import GroupTypeMapping, Person
 from posthog.models.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
-from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_recording_list_from_query import (
+    SessionRecordingListFromQuery,
     SessionRecordingQueryResult,
 )
 from posthog.session_recordings.queries.session_replay_events import ttl_days
-from posthog.session_recordings.queries.test.listing_recordings.test_utils import create_event, filter_recordings_by
+from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
+    create_event,
+    assert_query_matches_session_ids,
+    filter_recordings_by,
+)
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
@@ -64,6 +68,14 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def _filter_recordings_by(self, recordings_filter: dict | None = None) -> SessionRecordingQueryResult:
         return filter_recordings_by(team=self.team, recordings_filter=recordings_filter)
 
+    # wrap the util so we don't have to pass team every time
+    def _assert_query_matches_session_ids(
+        self, query: dict | None, expected: list[str], sort_results_when_asserting: bool = True
+    ) -> None:
+        assert_query_matches_session_ids(
+            team=self.team, query=query, expected=expected, sort_results_when_asserting=sort_results_when_asserting
+        )
+
     def _a_session_with_two_events(self, team: Team, session_id: str) -> None:
         produce_replay_summary(
             distinct_id="user",
@@ -85,21 +97,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             event_name="$pageleave",
             properties={"$session_id": session_id, "$window_id": "1"},
         )
-
-    def _assert_query_matches_session_ids(
-        self, query: dict | None, expected: list[str], sort_results_when_asserting: bool = True
-    ) -> None:
-        (session_recordings, more_recordings_available, _) = self._filter_recordings_by(query)
-
-        # in some tests we care about the order of results e.g. when testing sorting
-        # generally we want to sort results since the order is not guaranteed
-        # e.g. we're using UUIDs for the IDs
-        if sort_results_when_asserting:
-            assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(expected)
-        else:
-            assert [sr["session_id"] for sr in session_recordings] == expected
-
-        assert more_recordings_available is False
 
     @property
     def an_hour_ago(self):
