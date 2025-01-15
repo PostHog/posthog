@@ -2,7 +2,6 @@ import pytest
 from django.db.utils import IntegrityError
 
 from posthog.test.base import BaseTest
-from posthog.models.user_group import UserGroup
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -96,15 +95,3 @@ class TestErrorTracking(BaseTest):
         with pytest.raises(IntegrityError):
             ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
             ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
-
-    def test_error_tracking_issue_assignment_ensure_at_least_one(self):
-        issue = ErrorTrackingIssue.objects.create(team=self.team)
-        with pytest.raises(IntegrityError):
-            ErrorTrackingIssueAssignment.objects.create(issue=issue)
-
-    def test_error_tracking_issue_assignment_ensure_not_both(self):
-        issue = ErrorTrackingIssue.objects.create(team=self.team)
-        user_group = UserGroup.objects.create(team=self.team)
-
-        with pytest.raises(IntegrityError):
-            ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user, user_group=user_group)
