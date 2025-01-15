@@ -819,7 +819,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         setManualLinkingProvider: (provider: ManualLinkSourceType) => ({ provider }),
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
-        updateDependentFields: (connectionString: string) => ({ connectionString }),
     }),
     connect({
         values: [

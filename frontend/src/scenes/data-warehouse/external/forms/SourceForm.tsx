@@ -181,9 +181,9 @@ export function SourceFormComponent({ sourceConfig, showPrefix = true, jobInputs
     return (
         <div className="space-y-4">
             <Group name="payload">
-                {SOURCE_DETAILS[sourceConfig.name].fields
-                    // .filter(filed => filed.name !== 'connection_string')
-                    .map((field) => sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name]))}
+                {SOURCE_DETAILS[sourceConfig.name].fields.map((field) =>
+                    sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name])
+                )}
             </Group>
             {showPrefix && (
                 <LemonField name="prefix" label="Table Prefix (optional)">
