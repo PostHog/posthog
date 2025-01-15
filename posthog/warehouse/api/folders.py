@@ -3,6 +3,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.warehouse.models import DataWarehouseFolder
 from rest_framework import serializers
+from posthog.api.routing import TeamAndOrgViewSetMixin
 
 
 class DataWarehouseFolderSerializer(serializers.ModelSerializer):
@@ -28,9 +29,9 @@ class DataWarehouseFolderSerializer(serializers.ModelSerializer):
         # Ensure folder name is unique within the same parent and team
         name = attrs.get("name")
         parent = attrs.get("parent")
-        team = self.context["team"]
+        team_id = self.context["team_id"]
 
-        existing_query = DataWarehouseFolder.objects.filter(team=team, name=name, parent=parent)
+        existing_query = DataWarehouseFolder.objects.filter(team_id=team_id, name=name, parent=parent)
 
         if self.instance:
             existing_query = existing_query.exclude(id=self.instance.id)
@@ -41,16 +42,22 @@ class DataWarehouseFolderSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class DataWarehouseFolderViewSet(viewsets.ModelViewSet):
+class DataWarehouseFolderViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update, and Delete Data Warehouse Folders.
     """
 
+    scope_object = "INTERNAL"
     serializer_class = DataWarehouseFolderSerializer
     queryset = DataWarehouseFolder.objects.all()
 
-    def get_queryset(self):
-        return self.queryset.filter(team_id=self.team_id, deleted=False)
+    def get_serializer_context(self) -> dict[str, any]:
+        context = super().get_serializer_context()
+        context["team_id"] = self.team_id
+        return context
+
+    def safely_get_queryset(self, queryset):
+        return queryset.exclude(deleted=True)
 
     def perform_create(self, serializer):
         serializer.save(team_id=self.team_id, created_by=self.request.user)

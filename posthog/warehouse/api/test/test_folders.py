@@ -7,7 +7,7 @@ from posthog.warehouse.models import DataWarehouseFolder
 class TestDataWarehouseFolderAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.base_url = "/api/warehouse/folders/"
+        self.base_url = f"/api/projects/{self.team.pk}/warehouse_folders/"
 
     def test_create_folder(self):
         response = self.client.post(
@@ -94,7 +94,7 @@ class TestDataWarehouseFolderAPI(APIBaseTest):
         self.assertTrue(folder.deleted)
 
     def test_cannot_access_other_team_folders(self):
-        other_team = self.create_team()
+        other_team = self.create_team_with_organization(organization=self.organization)
         folder = DataWarehouseFolder.objects.create(name="Other Team Folder", team=other_team, created_by=self.user)
 
         response = self.client.get(f"{self.base_url}{folder.id}/")

@@ -13,6 +13,7 @@ from posthog.warehouse.api import (
     saved_query,
     table,
     view_link,
+    folders,
 )
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
@@ -292,6 +293,12 @@ projects_router.register(
     r"warehouse_model_paths",
     modeling.DataWarehouseModelPathViewSet,
     "project_warehouse_model_paths",
+    ["team_id"],
+)
+projects_router.register(
+    r"warehouse_folders",
+    folders.DataWarehouseFolderViewSet,
+    "project_warehouse_folders",
     ["team_id"],
 )
 
