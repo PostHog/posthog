@@ -268,6 +268,14 @@ export class HogExecutor {
                     message: `Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`,
                 })
 
+                metrics.push({
+                    team_id: hogFunction.team_id,
+                    app_source_id: hogFunction.id,
+                    metric_kind: 'failure',
+                    metric_name: 'inputs_failed',
+                    count: 1,
+                })
+
                 return null
             }
         }
