@@ -17,11 +17,11 @@ export const buttonStyles = cva(
             intent: {
                 primary: [
                     'element-button-primary',
-                    'element-has-elevation',
-                    'element-has-elevation-primary',
-                    'pb-[8.5px]',
+                    // 'element-has-elevation',
+                    // 'element-has-elevation-primary',
+                    // 'pb-[8.5px]',
                 ],
-                outline: ['element-button-outline', 'element-has-elevation'],
+                outline: ['element-button-outline'],
                 muted: ['element-button-muted'],
                 'muted-darker': ['element-button-muted-darker'],
                 'top-bar-tabs': ['element-button-top-bar-tabs'],
