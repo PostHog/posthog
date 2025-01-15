@@ -145,13 +145,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             content: (
                 <>
                     <div className="flex gap-4 flex-wrap">
-                        <div className="w-full">
-                            <FeatureFlagRollout readOnly />
-                            {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
-                            {featureFlag.filters.super_groups && (
-                                <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
-                            )}
-                            {!featureFlag.is_remote_configuration && (
+                        {!featureFlag.is_remote_configuration && (
+                            <div className="w-full">
+                                <FeatureFlagRollout readOnly />
+                                {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
+                                {featureFlag.filters.super_groups && (
+                                    <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
+                                )}
+
                                 <div className="flex gap-x-8">
                                     <div className="grow">
                                         <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
@@ -163,11 +164,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         <div className="my-4" />
                                     </div>
                                 </div>
-                            )}
-                            {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
-                                <FeatureFlagAutoRollback readOnly />
-                            )}
-                        </div>
+
+                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
+                                    <FeatureFlagAutoRollback readOnly />
+                                )}
+                            </div>
+                        )}
                     </div>
                     <LemonDivider className="mb-4" />
                     <FeatureFlagCodeExample featureFlag={featureFlag} />
@@ -928,7 +930,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     value: 'multivariate',
                                 },
                                 {
-                                    label: <span>Remote configuration (single payload)</span>,
+                                    label: <span>Remote config (single payload)</span>,
                                     value: 'config',
                                     disabledReason:
                                         featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
