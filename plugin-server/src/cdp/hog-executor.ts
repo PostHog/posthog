@@ -241,12 +241,22 @@ export class HogExecutor {
             }
         }
 
-        const _buildGlobalsWithInputs = (
+        const _buildInvocation = (
             hogFunction: HogFunctionType,
             inputs: HogFunctionType['inputs']
-        ): HogFunctionInvocationGlobalsWithInputs | null => {
+        ): HogFunctionInvocation | null => {
             try {
-                return buildGlobalsWithInputs(triggerGlobals, inputs)
+                const globalsWithSource = {
+                    ...triggerGlobals,
+                    source: {
+                        name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+                        url: `${triggerGlobals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+                    },
+                }
+
+                const globalsWithInputs = buildGlobalsWithInputs(globalsWithSource, inputs)
+
+                return createInvocation(globalsWithInputs, hogFunction)
             } catch (error) {
                 logs.push({
                     team_id: hogFunction.team_id,
@@ -255,7 +265,15 @@ export class HogExecutor {
                     instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
                     timestamp: DateTime.now(),
                     level: 'error',
-                    message: `Error filtering event ${triggerGlobals.event.uuid}: ${error.message}`,
+                    message: `Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`,
+                })
+
+                metrics.push({
+                    team_id: hogFunction.team_id,
+                    app_source_id: hogFunction.id,
+                    metric_kind: 'failure',
+                    metric_name: 'inputs_failed',
+                    count: 1,
                 })
 
                 return null
@@ -268,15 +286,15 @@ export class HogExecutor {
                 if (!_filterHogFunction(hogFunction, hogFunction.filters, filterGlobals)) {
                     return
                 }
-                const globals = _buildGlobalsWithInputs(hogFunction, {
+                const invocation = _buildInvocation(hogFunction, {
                     ...(hogFunction.inputs ?? {}),
                     ...(hogFunction.encrypted_inputs ?? {}),
                 })
-                if (!globals) {
+                if (!invocation) {
                     return
                 }
 
-                invocations.push(createInvocation(globals, hogFunction))
+                invocations.push(invocation)
                 return
             }
 
@@ -289,16 +307,16 @@ export class HogExecutor {
                     return
                 }
 
-                const globals = _buildGlobalsWithInputs(hogFunction, {
+                const invocation = _buildInvocation(hogFunction, {
                     ...(hogFunction.inputs ?? {}),
                     ...(hogFunction.encrypted_inputs ?? {}),
                     ...(mapping.inputs ?? {}),
                 })
-                if (!globals) {
+                if (!invocation) {
                     return
                 }
 
-                invocations.push(createInvocation(globals, hogFunction))
+                invocations.push(invocation)
             })
         })
 
