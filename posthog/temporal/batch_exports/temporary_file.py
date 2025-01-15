@@ -664,10 +664,11 @@ class CSVBatchExportWriter(BatchExportWriter):
         self.quoting = quoting
 
         self._csv_writer: csv.DictWriter | None = None
+        self._csv_writer_file = None
 
     @property
     def csv_writer(self) -> csv.DictWriter:
-        if self._csv_writer is None:
+        if self._csv_writer is None or self._csv_writer_file is not self.batch_export_file:
             self._csv_writer = csv.DictWriter(
                 self.batch_export_file,
                 fieldnames=self.field_names,
@@ -678,6 +679,7 @@ class CSVBatchExportWriter(BatchExportWriter):
                 quoting=self.quoting,
                 lineterminator=self.line_terminator,
             )
+            self._csv_writer_file = self.batch_export_file
 
         return self._csv_writer
 
