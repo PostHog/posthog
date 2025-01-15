@@ -42,7 +42,7 @@ import {
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { ChartDisplayType, IntervalType } from '~/types'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {

@@ -12,7 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, HogQLQuery, SessionAttributionGroupBy } from '~/queries/schema'
+import { DataTableNode, HogQLQuery, SessionAttributionGroupBy } from '~/queries/schema/schema-general'
 import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 

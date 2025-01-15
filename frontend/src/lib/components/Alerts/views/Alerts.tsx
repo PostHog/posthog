@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
 
-import { AlertState } from '../../../../queries/schema'
+import { AlertState } from '../../../../queries/schema/schema-general'
 import { alertLogic } from '../alertLogic'
 import { alertsLogic } from '../alertsLogic'
 import { AlertType } from '../types'

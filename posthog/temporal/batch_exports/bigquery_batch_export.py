@@ -325,8 +325,31 @@ class BigQueryClient(bigquery.Client):
             fields_to_cast = set(stage_fields_cast_to_json)
         else:
             fields_to_cast = set()
+
+        # The following `REGEXP_REPLACE` functions are used to clean-up un-paired
+        # surrogates, as they are rejected by `PARSE_JSON`. Since BigQuery's regex
+        # engine has no lookahead / lookback, we instead use an OR to match both
+        # valid pairs and invalid single high or low surrogates, and replacing only
+        # with the valid pair in both cases.
         stage_table_fields = ",".join(
-            f"PARSE_JSON(`{field.name}`, wide_number_mode=>'round')"
+            f"""
+            PARSE_JSON(
+              REGEXP_REPLACE(
+                REGEXP_REPLACE(
+                  REGEXP_REPLACE(
+                    `{field.name}`,
+                    r'(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}})',
+                    '\\\\1'
+                  ),
+                  r'(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})',
+                  '\\\\1'
+                ),
+                r'[\\n\\r]',
+                r'\\\\n'
+              ),
+              wide_number_mode=>'round'
+            )
+            """
             if field.name in fields_to_cast
             else f"`{field.name}`"
             for field in into_table.schema
@@ -377,11 +400,34 @@ class BigQueryClient(bigquery.Client):
                 values += ", "
                 field_names += ", "
 
+            # The following `REGEXP_REPLACE` functions are used to clean-up un-paired
+            # surrogates, as they are rejected by `PARSE_JSON`. Since BigQuery's regex
+            # engine has no lookahead / lookback, we instead use an OR to match both
+            # valid pairs and invalid single high or low surrogates, and replacing only
+            # with the valid pair in both cases.
             stage_field = (
-                f"PARSE_JSON(stage.`{field.name}`, wide_number_mode=>'round')"
+                f"""
+                PARSE_JSON(
+                  REGEXP_REPLACE(
+                    REGEXP_REPLACE(
+                      REGEXP_REPLACE(
+                        stage.`{field.name}`,
+                        r'(\\\\u[dD][89A-Ba-b][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}})',
+                        '\\\\1'
+                      ),
+                      r'(\\\\u[dD][89A-Ba-b][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})',
+                      '\\\\1'
+                    ),
+                    r'[\\n\\r]',
+                    r'\\\\n'
+                  ),
+                  wide_number_mode=>'round'
+                )
+                """
                 if field.name in fields_to_cast
                 else f"stage.`{field.name}`"
             )
+
             update_clause += f"final.`{field.name}` = {stage_field}"
             field_names += f"`{field.name}`"
             values += stage_field
