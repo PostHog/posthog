@@ -10,7 +10,7 @@ import { HogFunctionType, HogFunctionTypeType } from '~/types'
 import type { functionsTableLogicType } from './functionsTableLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
-export interface Fuse extends FuseClass<HogFunctionType> { }
+export interface Fuse extends FuseClass<HogFunctionType> {}
 
 export interface FunctionsTableLogicProps {
     type?: HogFunctionTypeType
