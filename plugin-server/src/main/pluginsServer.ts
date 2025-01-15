@@ -451,26 +451,14 @@ export async function startPluginsServer(
             const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
             const ingester = new SessionRecordingIngesterV2(serverConfig, false, batchConsumerFactory)
             await ingester.start()
-
-            services.push({
-                id: 'session-recordings-blob-v2',
-                onShutdown: async () => await ingester.stop(),
-                healthcheck: () => ingester.isHealthy() ?? false,
-                batchConsumer: ingester.batchConsumer,
-            })
+            services.push(ingester.service)
         }
 
         if (capabilities.sessionRecordingBlobOverflowIngestionV2) {
             const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
             const ingester = new SessionRecordingIngesterV2(serverConfig, true, batchConsumerFactory)
             await ingester.start()
-
-            services.push({
-                id: 'session-recordings-blob-v2-overflow',
-                onShutdown: async () => await ingester.stop(),
-                healthcheck: () => ingester.isHealthy() ?? false,
-                batchConsumer: ingester.batchConsumer,
-            })
+            services.push(ingester.service)
         }
 
         if (capabilities.cdpProcessedEvents) {

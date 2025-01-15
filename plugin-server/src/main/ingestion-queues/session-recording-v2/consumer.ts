@@ -89,10 +89,46 @@ export class SessionRecordingIngester {
         }
     }
 
+    private async processBatchMessages(messages: Message[], context: { heartbeat: () => void }): Promise<void> {
+        // Increment message received counter for each message
+        messages.forEach((message) => {
+            this.metrics.incrementMessageReceived(message.partition)
+        })
+
+        const batchSize = messages.length
+        const batchSizeKb = messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
+
+        this.metrics.observeKafkaBatchSize(batchSize)
+        this.metrics.observeKafkaBatchSizeKb(batchSizeKb)
+
+        const parsedMessages = await runInstrumentedFunction({
+            statsKey: `recordingingesterv2.handleEachBatch.parseBatch`,
+            func: async () => {
+                return this.messageProcessor.parseBatch(messages)
+            },
+        })
+        context.heartbeat()
+
+        await runInstrumentedFunction({
+            statsKey: `recordingingesterv2.handleEachBatch.processMessages`,
+            func: async () => this.processMessages(parsedMessages),
+        })
+    }
+
+    private async processMessages(parsedMessages: MessageWithTeam[]): Promise<void> {
+        if (this.config.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
+            await Promise.all(parsedMessages.map((m) => this.consume(m)))
+        } else {
+            for (const message of parsedMessages) {
+                await this.consume(message)
+            }
+        }
+    }
+
     public async handleEachBatch(messages: Message[], context: { heartbeat: () => void }): Promise<void> {
         context.heartbeat()
 
-        if (messages.length !== 0) {
+        if (messages.length > 0) {
             logger.info('🔁', `blob_ingester_consumer_v2 - handling batch`, {
                 size: messages.length,
                 partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
@@ -103,38 +139,7 @@ export class SessionRecordingIngester {
         await runInstrumentedFunction({
             statsKey: `recordingingesterv2.handleEachBatch`,
             sendTimeoutGuardToSentry: false,
-            func: async () => {
-                // Increment message received counter for each message
-                for (const message of messages) {
-                    this.metrics.incrementMessageReceived(message.partition)
-                }
-
-                this.metrics.observeKafkaBatchSize(messages.length)
-                this.metrics.observeKafkaBatchSizeKb(
-                    messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
-                )
-
-                const parsedMessages = await runInstrumentedFunction({
-                    statsKey: `recordingingesterv2.handleEachBatch.parseKafkaMessages`,
-                    func: async () => {
-                        return this.messageProcessor.parseBatch(messages)
-                    },
-                })
-                context.heartbeat()
-
-                await runInstrumentedFunction({
-                    statsKey: `recordingingesterv2.handleEachBatch.consumeBatch`,
-                    func: async () => {
-                        if (this.config.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
-                            await Promise.all(parsedMessages.map((m) => this.consume(m)))
-                        } else {
-                            for (const message of parsedMessages) {
-                                await this.consume(message)
-                            }
-                        }
-                    },
-                })
-            },
+            func: async () => this.processBatchMessages(messages, context),
         })
     }
 
@@ -208,9 +213,9 @@ export class SessionRecordingIngester {
         return promiseResults
     }
 
-    public isHealthy() {
+    public isHealthy(): boolean {
         // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
-        return this.batchConsumer?.isHealthy()
+        return this.batchConsumer?.isHealthy() ?? false
     }
 
     private get connectedBatchConsumer(): KafkaConsumer | undefined {
