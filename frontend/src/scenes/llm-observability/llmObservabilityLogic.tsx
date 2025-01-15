@@ -293,7 +293,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         date_from: dateFilter.dateFrom || undefined,
                         date_to: dateFilter.dateTo || undefined,
                     },
-                    filterTestAccounts: shouldFilterTestAccounts,
+                    filterTestAccounts: shouldFilterTestAccounts ?? false,
                     properties: propertyFilters,
                 },
                 columns: ['id', 'person', 'totalLatency', 'usage', 'totalCost', 'timestamp'],
