@@ -7,13 +7,13 @@ from freezegun import freeze_time
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models import Cohort, Person
-from posthog.models.action import Action
 from posthog.models.team import Team
 from posthog.schema import RecordingsQuery
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingQueryResult,
 )
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.session_recordings.queries.test.listing_recordings.test_utils import create_event
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
@@ -24,7 +24,6 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    _create_event,
     also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
 )
@@ -36,43 +35,6 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
         sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
-
-    def create_action(self, name, team_id=None, properties=None):
-        if team_id is None:
-            team_id = self.team.pk
-        if properties is None:
-            properties = []
-        action = Action.objects.create(
-            team_id=team_id,
-            name=name,
-            steps_json=[
-                {
-                    "event": name,
-                    "properties": properties,
-                }
-            ],
-        )
-        return action
-
-    def create_event(
-        self,
-        distinct_id,
-        timestamp,
-        team=None,
-        event_name="$pageview",
-        properties=None,
-    ):
-        if team is None:
-            team = self.team
-        if properties is None:
-            properties = {"$os": "Windows 95", "$current_url": "aloha.com/2"}
-        return _create_event(
-            team=team,
-            event=event_name,
-            timestamp=timestamp,
-            distinct_id=distinct_id,
-            properties=properties,
-        )
 
     def _filter_recordings_by(self, recordings_filter: dict | None = None) -> SessionRecordingQueryResult:
         the_query = RecordingsQuery.model_validate(query_as_params_to_dict(recordings_filter or {}))
@@ -88,14 +50,14 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=team.pk,
         )
-        self.create_event(
+        create_event(
             "user",
             self.an_hour_ago,
             team=team,
             event_name="$pageview",
             properties={"$session_id": session_id, "$window_id": "1"},
         )
-        self.create_event(
+        create_event(
             "user",
             self.an_hour_ago,
             team=team,
@@ -463,7 +425,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     first_timestamp=self.an_hour_ago,
                     team_id=self.team.id,
                 )
-                self.create_event(
+                create_event(
                     user_one,
                     self.an_hour_ago,
                     team=self.team,
@@ -482,7 +444,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     first_timestamp=self.an_hour_ago,
                     team_id=self.team.id,
                 )
-                self.create_event(
+                create_event(
                     user_two,
                     self.an_hour_ago,
                     team=self.team,
