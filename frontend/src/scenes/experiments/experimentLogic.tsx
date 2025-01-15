@@ -948,7 +948,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 const dashboard: DashboardType = await api.create(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
                     {
-                        name: values.experiment.name + ' Dashboard',
+                        name: 'Experiment: ' + values.experiment.name,
                         description: `Dashboard for [${experimentUrl}](${experimentUrl})`,
                     } as Partial<DashboardType>
                 )
