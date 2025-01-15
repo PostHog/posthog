@@ -23,7 +23,7 @@ import type { llmObservabilityLogicType } from './llmObservabilityLogicType'
 
 export const LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'llm-observability-data'
 
-const INITIAL_DATE_FROM = '-30d' as string | null
+const INITIAL_DATE_FROM = '-7d' as string | null
 const INITIAL_DATE_TO = null as string | null
 
 export interface QueryTile {
@@ -105,15 +105,16 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
             (dateFilter, shouldFilterTestAccounts, propertyFilters): QueryTile[] => [
                 {
-                    title: 'Generative AI users',
-                    description: 'To count users, set `distinct_id` in LLM tracking.',
+                    title: 'Traces',
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 kind: NodeKind.EventsNode,
-                                math: BaseMathType.UniqueUsers,
+                                math: HogQLMathType.HogQL,
+                                math_hogql: 'COUNT(DISTINCT properties.$ai_trace_id)',
                             },
                         ],
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
@@ -122,15 +123,16 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     },
                 },
                 {
-                    title: 'Traces',
+                    title: 'Generative AI users',
+                    description: 'To count users, set `distinct_id` in LLM tracking.',
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 kind: NodeKind.EventsNode,
-                                math: HogQLMathType.HogQL,
-                                math_hogql: 'COUNT(DISTINCT properties.$ai_trace_id)',
+                                math: BaseMathType.UniqueUsers,
                             },
                         ],
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
@@ -145,6 +147,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 math: PropertyMathType.Sum,
                                 kind: NodeKind.EventsNode,
                                 math_property: '$ai_total_cost_usd',
@@ -168,12 +171,14 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 math: PropertyMathType.Sum,
                                 kind: NodeKind.EventsNode,
                                 math_property: '$ai_total_cost_usd',
                             },
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 kind: NodeKind.EventsNode,
                                 math: BaseMathType.UniqueUsers,
                             },
@@ -195,6 +200,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 math: PropertyMathType.Sum,
                                 kind: NodeKind.EventsNode,
                                 math_property: '$ai_total_cost_usd',
@@ -222,6 +228,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 kind: NodeKind.EventsNode,
                             },
                         ],
@@ -237,6 +244,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 math: PropertyMathType.Median,
                                 kind: NodeKind.EventsNode,
                                 math_property: '$ai_latency',
@@ -262,6 +270,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 kind: NodeKind.EventsNode,
                             },
                         ],
