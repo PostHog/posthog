@@ -690,7 +690,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         taxonomicGroupTypes: [
             (s) => [s.allowFlagsFilters, s.allowHogQLFilters],
-            (allowFlagsFilters, allowHogQLFilters): string[] => {
+            (allowFlagsFilters, allowHogQLFilters) => {
                 const taxonomicGroupTypes = [
                     TaxonomicFilterGroupType.Replay,
                     TaxonomicFilterGroupType.Events,
