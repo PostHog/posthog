@@ -1,7 +1,8 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
+
+use crate::hack::kafka::{ConsumerConfig, KafkaConfig};
 
 // TODO - I'm just too lazy to pipe this all the way through the resolve call stack
 pub static FRAME_CONTEXT_LINES: AtomicUsize = AtomicUsize::new(15);

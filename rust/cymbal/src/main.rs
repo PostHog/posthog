@@ -1,12 +1,12 @@
 use std::{future::ready, sync::Arc};
 
 use axum::{routing::get, Router};
-use common_kafka::{kafka_consumer::RecvErr, kafka_producer::send_keyed_iter_to_kafka};
 use common_metrics::{serve, setup_metrics_routes};
 use common_types::ClickHouseEvent;
 use cymbal::{
     app_context::AppContext,
     config::Config,
+    hack::kafka::{send_keyed_iter_to_kafka, RecvErr},
     handle_event,
     metric_consts::{ERRORS, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME},
 };

@@ -1,8 +1,4 @@
 use aws_config::{BehaviorVersion, Region};
-use common_kafka::{
-    kafka_consumer::SingleTopicConsumer,
-    kafka_producer::{create_kafka_producer, KafkaContext},
-};
 use health::{HealthHandle, HealthRegistry};
 use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
@@ -14,6 +10,7 @@ use crate::{
     config::{init_global_state, Config},
     error::UnhandledError,
     frames::resolver::Resolver,
+    hack::kafka::{create_kafka_producer, KafkaContext, SingleTopicConsumer},
     symbol_store::{
         caching::{Caching, SymbolSetCache},
         concurrency,
