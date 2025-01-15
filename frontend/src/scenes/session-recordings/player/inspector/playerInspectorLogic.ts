@@ -301,9 +301,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     if (!filters) {
                         throw new Error('Backend matching events type must include its filters')
                     }
-                    // as_query is a temporary parameter as a flag
-                    // to let the backend know not to convert the query to a legacy filter when processing
-                    const params: RecordingsQuery & { as_query?: boolean } = {
+
+                    const params: RecordingsQuery = {
                         ...convertUniversalFiltersToRecordingsQuery(filters),
                         session_ids: [props.sessionRecordingId],
                     }
