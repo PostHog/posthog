@@ -15,6 +15,7 @@ const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 export function HogFunctionEventEstimates(): JSX.Element | null {
     const { sparkline, sparklineLoading, eventsDataTableNode, showEventsList } =
         useValues(hogFunctionConfigurationLogic)
+
     const { setShowEventsList } = useActions(hogFunctionConfigurationLogic)
 
     if (!eventsDataTableNode) {
