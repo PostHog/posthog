@@ -2,8 +2,9 @@ import './InsightViz.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
+import { MaxContext } from 'lib/components/Cards/InsightCard/QueryCard'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -82,6 +83,17 @@ export function InsightViz({
     }
 
     const { insightMode } = useValues(insightSceneLogic)
+    const { response } = useValues(dataNodeLogic(dataNodeLogicProps))
+
+    const setMaxContextData = useContext(MaxContext)
+
+    const resultsJson = JSON.stringify(response?.results)
+
+    useEffect(() => {
+        if (setMaxContextData) {
+            setMaxContextData({ resultsJson })
+        }
+    }, [setMaxContextData, resultsJson])
 
     const isFunnels = isFunnelsQuery(query.source)
     const isHorizontalAlways = useFeatureFlag('INSIGHT_HORIZONTAL_CONTROLS')

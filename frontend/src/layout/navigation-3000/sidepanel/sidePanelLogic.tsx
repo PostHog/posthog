@@ -52,6 +52,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (isCloudOrDev, isReady, hasCompletedAllTasks, featureflags, sceneSidePanelContext) => {
                 const tabs: SidePanelTab[] = []
 
+                if (featureflags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
+                    tabs.push(SidePanelTab.Max)
+                }
                 tabs.push(SidePanelTab.Notebooks)
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {

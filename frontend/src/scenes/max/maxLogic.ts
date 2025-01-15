@@ -4,7 +4,7 @@ import { createParser } from 'eventsource-parser'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
-import { uuid } from 'lib/utils'
+import { capitalizeFirstLetter, uuid } from 'lib/utils'
 import { isAssistantMessage, isHumanMessage, isReasoningMessage, isVisualizationMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -58,6 +58,13 @@ export const maxLogic = kea<maxLogicType>([
         retryLastMessage: true,
         scrollThreadToBottom: true,
         setConversation: (conversation: Conversation) => ({ conversation }),
+        registerSceneContext: (id: number, kind: string, title: string, content: string) => ({
+            id,
+            kind,
+            title,
+            content,
+        }),
+        deregisterSceneContext: (id: number) => ({ id }),
     }),
     reducers({
         question: [
@@ -104,6 +111,19 @@ export const maxLogic = kea<maxLogicType>([
             null as string[] | null,
             {
                 setVisibleSuggestions: (_, { suggestions }) => suggestions,
+            },
+        ],
+        sceneContext: [
+            {} as Record<number, { kind: string; title: string; content: string }>,
+            {
+                registerSceneContext: (state, { id, kind, title, content }) => ({
+                    ...state,
+                    [id]: { kind, title, content },
+                }),
+                deregisterSceneContext: (state, { id }) => {
+                    const { [id]: _, ...rest } = state
+                    return rest
+                },
             },
         ],
     }),
@@ -162,10 +182,20 @@ export const maxLogic = kea<maxLogicType>([
             )
         },
         askMax: async ({ prompt }) => {
-            actions.addMessage({ type: AssistantMessageType.Human, content: prompt, status: 'completed' })
+            const sceneContextFormatted = Object.values(values.sceneContext)
+                .map(({ kind, title, content }) => `${capitalizeFirstLetter(kind)} "${title}":\n${content}`)
+                .join('\n\n')
+
+            const promptWithContext = `${prompt}\n\nFor context, here's what I'm looking at:\n\n${sceneContextFormatted}`
+
+            actions.addMessage({
+                type: AssistantMessageType.Human,
+                content: promptWithContext,
+                status: 'completed',
+            })
             try {
                 const response = await api.conversations.create({
-                    content: prompt,
+                    content: promptWithContext,
                     conversation: values.conversation?.id,
                 })
                 const reader = response.body?.getReader()

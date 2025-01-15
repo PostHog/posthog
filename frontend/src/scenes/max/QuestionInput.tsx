@@ -9,7 +9,7 @@ import { maxLogic } from './maxLogic'
 
 export function QuestionInput(): JSX.Element {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { question, threadGrouped, inputDisabled, threadLoading } = useValues(maxLogic)
+    const { question, threadGrouped, inputDisabled, threadLoading, sceneContext } = useValues(maxLogic)
     const { askMax, setQuestion } = useActions(maxLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -25,6 +25,7 @@ export function QuestionInput(): JSX.Element {
     return (
         <div
             className={clsx(
+                'flex flex-col items-center gap-2',
                 !isFloating
                     ? 'w-[min(44rem,100%)] relative'
                     : 'w-full max-w-[43rem] sticky z-10 self-center p-1 mx-4 mb-3 bottom-3 border border-[var(--glass-border-3000)] rounded-lg backdrop-blur bg-[var(--glass-bg-3000)]'
@@ -45,7 +46,7 @@ export function QuestionInput(): JSX.Element {
                 maxRows={10}
                 className={clsx('p-3', isFloating && 'border-border-bold')}
             />
-            <div className={clsx('absolute top-0 bottom-0 flex items-center', isFloating ? 'right-3' : 'right-2')}>
+            <div className={clsx('absolute top-[6px] flex items-center', isFloating ? 'right-3' : 'right-2')}>
                 <LemonButton
                     type={isFloating && !question ? 'secondary' : 'primary'}
                     onClick={() => askMax(question)}
@@ -63,6 +64,11 @@ export function QuestionInput(): JSX.Element {
                     icon={<IconArrowRight />}
                 />
             </div>
+            {Object.keys(sceneContext).length > 0 && (
+                <span className="font-medium">
+                    👀 <i>I'm aware of content on this page</i>
+                </span>
+            )}
         </div>
     )
 }

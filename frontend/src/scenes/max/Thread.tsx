@@ -44,7 +44,7 @@ export function Thread(): JSX.Element | null {
     const { threadGrouped } = useValues(maxLogic)
 
     return (
-        <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-4">
+        <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-4">
             {threadGrouped.map((group, index) => (
                 <MessageGroup key={index} messages={group} index={index} isFinal={index === threadGrouped.length - 1} />
             ))}
@@ -73,7 +73,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup, index: messageGroupInde
                             : { hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }
                     }
                     size="lg"
-                    className="mt-1 border"
+                    className="hidden @md/thread:block mt-1 border"
                 />
             </Tooltip>
             <div
