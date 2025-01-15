@@ -52,7 +52,6 @@ describe('CDP E2E', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            hub.CDP_CYCLOTRON_ENABLED_TEAMS = '*'
             hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
 
             kafkaObserver = await createKafkaObserver(hub, [KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES])

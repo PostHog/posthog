@@ -104,11 +104,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpInternalEvents: true,
                 ...sharedCapabilities,
             }
-        case PluginServerMode.cdp_function_callbacks:
-            return {
-                cdpFunctionCallbacks: true,
-                ...sharedCapabilities,
-            }
         case PluginServerMode.cdp_cyclotron_worker:
             return {
                 cdpCyclotronWorker: true,

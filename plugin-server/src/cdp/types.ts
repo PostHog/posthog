@@ -255,10 +255,6 @@ export type HogFunctionInvocationSerialized = Omit<HogFunctionInvocation, 'hogFu
     hogFunction?: HogFunctionType
 }
 
-export type HogFunctionInvocationSerializedCompressed = {
-    state: string // Serialized HogFunctionInvocation
-}
-
 // Mostly copied from frontend types
 export type HogFunctionInputSchemaType = {
     type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
@@ -335,11 +331,7 @@ export type HogFunctionAppMetric = Pick<
 
 export type HogFunctionMessageToProduce = {
     topic: string
-    value:
-        | HogFunctionLogEntrySerialized
-        | HogHooksFetchResponse
-        | AppMetric2Type
-        | HogFunctionInvocationSerializedCompressed
+    value: HogFunctionLogEntrySerialized | HogHooksFetchResponse | AppMetric2Type
     key: string
 }
 

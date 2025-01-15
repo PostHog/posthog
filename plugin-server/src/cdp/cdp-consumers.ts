@@ -2,10 +2,8 @@ import { CyclotronJob, CyclotronManager, CyclotronWorker } from '@posthog/cyclot
 import { Message } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import { buildIntegerMatcher } from '../config/config'
 import {
     KAFKA_APP_METRICS_2,
-    KAFKA_CDP_FUNCTION_CALLBACKS,
     KAFKA_CDP_INTERNAL_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -15,15 +13,7 @@ import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import {
-    AppMetric2Type,
-    Hub,
-    PluginServerService,
-    RawClickHouseEvent,
-    TeamId,
-    TimestampFormat,
-    ValueMatcher,
-} from '../types'
+import { AppMetric2Type, Hub, PluginServerService, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { createKafkaProducerWrapper } from '../utils/db/hub'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString } from '../utils/db/utils'
@@ -43,8 +33,6 @@ import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
-    HogFunctionInvocationSerialized,
-    HogFunctionInvocationSerializedCompressed,
     HogFunctionLogEntrySerialized,
     HogFunctionMessageToProduce,
     HogFunctionType,
@@ -56,7 +44,6 @@ import {
     convertToHogFunctionInvocationGlobals,
     cyclotronJobToInvocation,
     fixLogDeduplication,
-    gzipObject,
     invocationToCyclotronJobUpdate,
     serializeHogFunctionInvocation,
 } from './utils'
@@ -233,48 +220,6 @@ abstract class CdpConsumerBase {
         })
     }
 
-    // NOTE: These will be removed once we are only on Cyclotron
-    protected async queueInvocationsToKafka(invocation: HogFunctionInvocation[]) {
-        await Promise.all(
-            invocation.map(async (item) => {
-                await this.queueInvocationToKafka(item)
-            })
-        )
-    }
-
-    protected async queueInvocationToKafka(invocation: HogFunctionInvocation) {
-        // NOTE: WE keep the queueParams args as kafka land still needs them
-        const serializedInvocation: HogFunctionInvocationSerialized = {
-            ...invocation,
-            hogFunctionId: invocation.hogFunction.id,
-        }
-
-        if (invocation.queue === 'fetch') {
-            // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
-            this.produceAppMetric({
-                team_id: invocation.teamId,
-                app_source_id: invocation.hogFunction.id,
-                metric_kind: 'other',
-                metric_name: 'fetch',
-                count: 1,
-            })
-        }
-
-        delete (serializedInvocation as any).hogFunction
-
-        const request: HogFunctionInvocationSerializedCompressed = {
-            state: await gzipObject(serializedInvocation),
-        }
-
-        // NOTE: This is very temporary as it is producing the response. the response will actually be produced by the 3rd party service
-        // Later this will actually be the _request_ which we will push to the async function topic if we make one
-        this.messagesToProduce.push({
-            topic: KAFKA_CDP_FUNCTION_CALLBACKS,
-            value: request,
-            key: `${invocation.hogFunction.id}:${invocation.id}`,
-        })
-    }
-
     protected async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.produceResults`,
@@ -418,16 +363,10 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected groupId = 'cdp-processed-events-consumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
 
-    private cyclotronMatcher: ValueMatcher<number>
     private cyclotronManager?: CyclotronManager
 
     constructor(hub: Hub) {
         super(hub)
-        this.cyclotronMatcher = buildIntegerMatcher(hub.CDP_CYCLOTRON_ENABLED_TEAMS, true)
-    }
-
-    private cyclotronEnabled(invocation: HogFunctionInvocation): boolean {
-        return !!(this.cyclotronManager && this.cyclotronMatcher(invocation.globals.project.id))
     }
 
     public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocation[]> {
@@ -439,22 +378,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             this.createHogFunctionInvocations(invocationGlobals)
         )
 
-        // Split out the cyclotron invocations
-        const [cyclotronInvocations, kafkaInvocations] = invocationsToBeQueued.reduce(
-            (acc, item) => {
-                if (this.cyclotronEnabled(item)) {
-                    acc[0].push(item)
-                } else {
-                    acc[1].push(item)
-                }
-
-                return acc
-            },
-            [[], []] as [HogFunctionInvocation[], HogFunctionInvocation[]]
-        )
-
         // For the cyclotron ones we simply create the jobs
-        const cyclotronJobs = cyclotronInvocations.map((item) => {
+        const cyclotronJobs = invocationsToBeQueued.map((item) => {
             return {
                 teamId: item.globals.project.id,
                 functionId: item.hogFunction.id,
@@ -469,23 +394,6 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             status.error('⚠️', 'Error creating cyclotron jobs', e)
             status.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
             throw e
-        }
-
-        if (kafkaInvocations.length) {
-            // As we don't want to over-produce to kafka we invoke the hog functions and then queue the results
-            const invocationResults = await runInstrumentedFunction({
-                statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
-                func: async () => {
-                    const hogResults = await this.runManyWithHeartbeat(kafkaInvocations, (item) =>
-                        this.hogExecutor.execute(item)
-                    )
-                    return [...hogResults]
-                },
-            })
-
-            await this.processInvocationResults(invocationResults)
-            const newInvocations = invocationResults.filter((r) => !r.finished).map((r) => r.invocation)
-            await this.queueInvocationsToKafka(newInvocations)
         }
 
         await this.produceQueuedMessages()
