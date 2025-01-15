@@ -26,6 +26,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
 
+import { Query } from '~/queries/Query/Query'
 import { AvailableFeature } from '~/types'
 
 import { DestinationTag } from '../destinations/DestinationTag'
@@ -84,6 +85,8 @@ export function HogFunctionConfiguration({
         type,
         usesGroups,
         hasGroupsAddon,
+        eventsListQuery,
+        showEventsList,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -94,6 +97,7 @@ export function HogFunctionConfiguration({
         duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
+        setShowEventsList,
     } = useActions(logic)
 
     if (loading && !loaded) {
@@ -343,7 +347,7 @@ export function HogFunctionConfiguration({
 
                             {showExpectedVolume && (
                                 <div className="relative p-3 space-y-2 border rounded bg-bg-light">
-                                    <LemonLabel>Expected volume</LemonLabel>
+                                    <LemonLabel>Matching events</LemonLabel>
                                     {sparkline && !sparklineLoading ? (
                                         <>
                                             {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
@@ -378,6 +382,22 @@ export function HogFunctionConfiguration({
                                     ) : (
                                         <p>The expected volume could not be calculated</p>
                                     )}
+
+                                    <div className="flex flex-col gap-2 pt-2 border-t border-dashed">
+                                        <LemonButton
+                                            onClick={() => setShowEventsList(!showEventsList)}
+                                            fullWidth
+                                            center
+                                        >
+                                            {showEventsList ? 'Hide matching events' : 'Show matching events'}
+                                        </LemonButton>
+
+                                        {showEventsList ? (
+                                            <div className="flex flex-col flex-1 overflow-y-auto max-h-200">
+                                                {eventsListQuery && <Query query={eventsListQuery} />}
+                                            </div>
+                                        ) : null}
+                                    </div>
                                 </div>
                             )}
                         </div>
