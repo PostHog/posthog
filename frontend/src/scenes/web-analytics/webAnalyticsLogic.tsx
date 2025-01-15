@@ -25,9 +25,11 @@ import {
     CoreWebVitalsMetric,
     CustomEventConversionGoal,
     EventsNode,
+    InsightVizNode,
     NodeKind,
     QuerySchema,
     TrendsFilter,
+    TrendsQuery,
     WebAnalyticsConversionGoal,
     WebAnalyticsPropertyFilter,
     WebAnalyticsPropertyFilters,
@@ -1704,7 +1706,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 { dateFrom, dateTo, interval },
                 webAnalyticsFilters,
                 filterTestAccounts
-            ) => ({
+            ): InsightVizNode<TrendsQuery> => ({
                 kind: NodeKind.InsightVizNode,
                 source: {
                     kind: NodeKind.TrendsQuery,
