@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 from typing import Optional, Union
-from datetime import timedelta
-from posthog.cache_utils import cache_for
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
@@ -62,7 +60,6 @@ if(
     )
 
 
-@cache_for(timedelta(minutes=30))
 def create_initial_channel_type(name: str, custom_rules: Optional[list[CustomChannelRule]] = None):
     return ExpressionField(
         name=name,
