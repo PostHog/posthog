@@ -5,8 +5,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { availableOnboardingProducts, getProductUri } from 'scenes/onboarding/onboardingLogic'
+import { availableOnboardingProducts, getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -40,7 +39,8 @@ export function SelectableProductCard({
     selected?: boolean
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { replayLandingPage } = useValues(onboardingLogic)
+
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[productKey]
     const vertical = orientation === 'vertical'
     return (
@@ -60,7 +60,7 @@ export function SelectableProductCard({
                         className="relative"
                         onClick={(e) => {
                             e.stopPropagation()
-                            router.actions.push(getProductUri(productKey as ProductKey, featureFlags))
+                            router.actions.push(getProductUri(productKey as ProductKey, replayLandingPage))
                         }}
                         data-attr={`return-to-${productKey}`}
                     >
