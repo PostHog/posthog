@@ -8,7 +8,7 @@ import {
     EventsQuery,
     InsightVizNode,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 export const errorTrackingQuery = ({

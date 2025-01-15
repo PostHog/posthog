@@ -7,6 +7,7 @@ import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Sparkline } from 'lib/components/Sparkline'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { humanFriendlyLargeNumber } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -44,9 +45,9 @@ export function ErrorTrackingScene(): JSX.Element {
                 width: '50%',
                 render: CustomGroupTitleColumn,
             },
-            occurrences: { align: 'center' },
-            sessions: { align: 'center' },
-            users: { align: 'center' },
+            occurrences: { align: 'center', render: CountColumn },
+            sessions: { align: 'center', render: CountColumn },
+            users: { align: 'center', render: CountColumn },
             volume: { renderTitle: VolumeColumnHeader, render: VolumeColumn },
             assignee: { render: AssigneeColumn },
         },
@@ -180,6 +181,10 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
             />
         </div>
     )
+}
+
+const CountColumn: QueryContextColumnComponent = ({ value }) => {
+    return <>{humanFriendlyLargeNumber(value as number)}</>
 }
 
 const AssigneeColumn: QueryContextColumnComponent = (props) => {

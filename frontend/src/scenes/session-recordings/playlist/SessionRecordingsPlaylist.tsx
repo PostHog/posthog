@@ -1,4 +1,4 @@
-import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
@@ -7,12 +7,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
-import { ReplayTabs, SessionRecordingType } from '~/types'
+import { ReplayTabs } from '~/types'
 
-import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
 import {
@@ -44,25 +42,26 @@ export function SessionRecordingsPlaylist({
         activeSessionRecordingId,
         hasNext,
     } = useValues(logic)
-    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, setShowOtherRecordings } = useActions(logic)
+    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters } = useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
-    const allowReplayHogQLFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS]
-    const allowReplayFlagsFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_FLAGS_FILTERS]
 
     const pinnedDescription = isTestingSaved ? 'Saved' : 'Pinned'
 
-    const { playlistOpen } = useValues(playerSettingsLogic)
-
     const notebookNode = useNotebookNode()
 
-    const sections: PlaylistSection<SessionRecordingType>[] = []
+    const sections: PlaylistSection[] = []
 
     if (pinnedRecordings.length) {
         sections.push({
             key: 'pinned',
-            title: `${pinnedDescription} recordings`,
+            title: (
+                <div className="flex flex-row space-x-1 items-center">
+                    <span>{pinnedDescription} recordings</span>
+                    <LemonBadge.Number count={pinnedRecordings.length} status="muted" size="small" />
+                </div>
+            ),
             items: pinnedRecordings,
             render: ({ item, isActive }) => (
                 <SessionRecordingPreview recording={item} isActive={isActive} pinned={true} />
@@ -73,8 +72,14 @@ export function SessionRecordingsPlaylist({
 
     sections.push({
         key: 'other',
-        title: 'Other recordings',
+        title: (
+            <div className="flex flex-row space-x-1 items-center">
+                <span>Results</span>
+                <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
+            </div>
+        ),
         items: otherRecordings,
+        initiallyOpen: !pinnedRecordings.length,
         render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />,
         footer: (
             <div className="p-4">
@@ -96,23 +101,11 @@ export function SessionRecordingsPlaylist({
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div className="h-full space-y-2">
-                {!notebookNode && (
-                    <RecordingsUniversalFilters
-                        filters={filters}
-                        setFilters={setFilters}
-                        className="border"
-                        allowReplayHogQLFilters={allowReplayHogQLFilters}
-                        allowReplayFlagsFilters={allowReplayFlagsFilters}
-                    />
-                )}
                 <Playlist
-                    isCollapsed={!playlistOpen}
                     data-attr="session-recordings-playlist"
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
-                    title="Results"
                     embedded={!!notebookNode}
                     sections={sections}
-                    onChangeSections={(activeSections) => setShowOtherRecordings(activeSections.includes('other'))}
                     headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
                     footerActions={<SessionRecordingPlaylistBottomSettings />}
                     loading={sessionRecordingsResponseLoading}
@@ -195,8 +188,10 @@ const ListEmptyState = (): JSX.Element => {
     )
 }
 
-function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX.Element {
-    // TODO add docs on how to enrich custom events with session_id and link to it from here
+/**
+ * TODO add docs on how to enrich custom events with session_id and link to it from here
+ */
+const UnusableEventsWarning = (props: { unusableEventsInFilter: string[] }): JSX.Element => {
     return (
         <LemonBanner type="warning">
             <p>Cannot use these events to filter for session recordings:</p>

@@ -284,6 +284,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'LLM observability',
         layout: 'app-container',
+        defaultDocsPath: '/docs/ai-engineering/observability',
     },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
@@ -658,5 +659,6 @@ export const routes: Record<string, Scene> = {
     [urls.messagingBroadcasts()]: Scene.MessagingBroadcasts,
     [urls.messagingBroadcast(':id')]: Scene.MessagingBroadcasts,
     [urls.messagingBroadcastNew()]: Scene.MessagingBroadcasts,
-    [urls.llmObservability()]: Scene.LLMObservability,
+    [urls.llmObservability('dashboard')]: Scene.LLMObservability,
+    [urls.llmObservability('generations')]: Scene.LLMObservability,
 }

@@ -2,7 +2,7 @@ import { afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { performQuery } from '~/queries/query'
-import { NodeKind, SessionsTimelineQuery, SessionsTimelineQueryResponse } from '~/queries/schema'
+import { NodeKind, SessionsTimelineQuery, SessionsTimelineQueryResponse } from '~/queries/schema/schema-general'
 
 import type { notebookNodePersonFeedLogicType } from './notebookNodePersonFeedLogicType'
 

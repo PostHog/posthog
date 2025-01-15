@@ -63,10 +63,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(
-                alias="earliest",
-                expr=ast.Call(name="argMin", args=[ast.Field(chain=["properties"]), ast.Field(chain=["timestamp"])]),
-            ),
             ast.Alias(alias="volumeDay", expr=self.volume(24, "hour", 0)),
             ast.Alias(alias="volumeMonth", expr=self.volume(31, "day", 0)),
         ]
@@ -79,6 +75,16 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 ast.Alias(
                     alias="customVolume",
                     expr=self.volume(value, interval, offset),
+                )
+            )
+
+        if self.query.issueId:
+            exprs.append(
+                ast.Alias(
+                    alias="earliest",
+                    expr=ast.Call(
+                        name="argMin", args=[ast.Field(chain=["properties"]), ast.Field(chain=["timestamp"])]
+                    ),
                 )
             )
 
