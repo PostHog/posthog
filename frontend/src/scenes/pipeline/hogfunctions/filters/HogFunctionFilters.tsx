@@ -93,11 +93,12 @@ export function HogFunctionFilters(): JSX.Element {
                     const filters = (value ?? {}) as HogFunctionFiltersType
                     return (
                         <>
-                            {useMapping ? <p className="mb-0 text-sm text-muted-alt">
-                                Filters here apply for all events that could trigger this function, regardless of
+                            {useMapping && (
+                                <p className="mb-0 text-sm text-muted-alt">
+                                    Filters here apply for all events that could trigger this function, regardless of
                                     mappings.
                                 </p>
-                            ) : null}
+                            )}
                             <TestAccountFilterSwitch
                                 checked={filters?.filter_test_accounts ?? false}
                                 onChange={(filter_test_accounts) => onChange({ ...filters, filter_test_accounts })}
