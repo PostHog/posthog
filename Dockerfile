@@ -217,6 +217,7 @@ COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog hogvm hogvm/
+COPY --chown=posthog:posthog dags dags/
 COPY --chown=posthog:posthog products products/
 
 # Keep server command backwards compatible

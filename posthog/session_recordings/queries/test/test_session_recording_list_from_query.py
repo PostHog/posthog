@@ -891,7 +891,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 assert ttl_days(self.team) == 30
 
             self.team.organization.available_product_features = [
-                {"key": AvailableFeature.RECORDINGS_PLAYLISTS, "name": AvailableFeature.RECORDINGS_PLAYLISTS}
+                {"key": AvailableFeature.RECORDINGS_FILE_EXPORT, "name": AvailableFeature.RECORDINGS_FILE_EXPORT}
             ]
 
             # Far enough in the future from `days_since_blob_ingestion` but paid
