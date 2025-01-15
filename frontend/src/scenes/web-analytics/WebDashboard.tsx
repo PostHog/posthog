@@ -150,6 +150,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 control={control}
                 showIntervalSelect={showIntervalSelect}
             />
+
             {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
         </div>
     )

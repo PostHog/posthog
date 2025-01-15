@@ -43,7 +43,7 @@ export function getNiceTickValues(maxAbsValue: number): number[] {
 }
 
 function AddPrimaryMetric(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
+    const { primaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
     const { openPrimaryMetricSourceModal } = useActions(experimentLogic)
 
     return (
@@ -55,7 +55,7 @@ function AddPrimaryMetric(): JSX.Element {
                 openPrimaryMetricSourceModal()
             }}
             disabledReason={
-                experiment.metrics.length >= MAX_PRIMARY_METRICS
+                primaryMetricsLengthWithSharedMetrics >= MAX_PRIMARY_METRICS
                     ? `You can only add up to ${MAX_PRIMARY_METRICS} primary metrics.`
                     : undefined
             }
@@ -66,7 +66,7 @@ function AddPrimaryMetric(): JSX.Element {
 }
 
 export function AddSecondaryMetric(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
+    const { secondaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
     const { openSecondaryMetricSourceModal } = useActions(experimentLogic)
     return (
         <LemonButton
@@ -77,7 +77,7 @@ export function AddSecondaryMetric(): JSX.Element {
                 openSecondaryMetricSourceModal()
             }}
             disabledReason={
-                experiment.metrics_secondary.length >= MAX_SECONDARY_METRICS
+                secondaryMetricsLengthWithSharedMetrics >= MAX_SECONDARY_METRICS
                     ? `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
                     : undefined
             }

@@ -11,7 +11,7 @@ import {
     InsightVizNode,
     Node,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { isInsightQueryWithSeries } from '~/queries/utils'
 import {
     ActionType,
