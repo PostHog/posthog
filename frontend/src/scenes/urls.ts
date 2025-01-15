@@ -263,5 +263,6 @@ export const urls = {
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     llmObservability: (tab?: LLMObservabilityTab): string =>
         `/llm-observability${tab !== 'dashboard' ? '/' + tab : ''}`,
-    llmObservabilityTrace: (id: string): string => `/llm-observability/${id}`,
+    llmObservabilityTrace: (id: string, eventId?: string): string =>
+        `/llm-observability/traces/${id}${eventId ? `?event=${eventId}` : ''}`,
 }

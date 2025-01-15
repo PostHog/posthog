@@ -7,6 +7,8 @@ import { LLMTrace } from '~/queries/schema'
 import { QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 
+import { formatLLMCost, formatLLMUsage } from './utils'
+
 export function LLMObservabilityTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
     const { tracesQuery } = useValues(llmObservabilityLogic)
@@ -81,22 +83,15 @@ LatencyColumn.displayName = 'LatencyColumn'
 
 const UsageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
-    if (typeof row.inputTokens === 'number') {
-        return (
-            <>
-                {row.inputTokens} → {row.outputTokens || 0} (∑ {row.inputTokens + (row.outputTokens || 0)})
-            </>
-        )
-    }
-
-    return <>–</>
+    const usage = formatLLMUsage(row)
+    return <>{usage || '–'}</>
 }
 UsageColumn.displayName = 'UsageColumn'
 
 const CostColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     if (typeof row.totalCost === 'number') {
-        return <>${row.totalCost}</>
+        return <>{formatLLMCost(row.totalCost)}</>
     }
     return <>–</>
 }

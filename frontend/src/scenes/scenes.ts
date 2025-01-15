@@ -289,7 +289,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.LLMObservabilityTrace]: {
         projectBased: true,
         name: 'LLM observability trace',
-        layout: 'app-container',
+        layout: 'app-raw',
         defaultDocsPath: '/docs/ai-engineering/observability',
     },
     [Scene.EarlyAccessFeatures]: {
