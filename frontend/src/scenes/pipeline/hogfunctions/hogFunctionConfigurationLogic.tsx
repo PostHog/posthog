@@ -852,7 +852,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                               select: defaultDataTableColumns(NodeKind.EventsQuery),
                           },
                           full: false,
+                          showEventFilter: false,
+                          showPropertyFilter: false,
                           embedded: true,
+                          showOpenEditorButton: true,
+                          showHogQLEditor: false,
+                          showTimings: false,
                       }
                     : null
             },

@@ -13,6 +13,13 @@ export function HogFunctionEventEstimates(): JSX.Element {
     const { sparkline, sparklineLoading, eventsListQuery, showEventsList } = useValues(hogFunctionConfigurationLogic)
     const { setShowEventsList } = useActions(hogFunctionConfigurationLogic)
 
+    // const vizNode: DataVisualizationNode = {
+    //     kind: NodeKind.DataVisualizationNode,
+    //     source: eventsListQuery,
+    // }
+
+    // const newInsightUrl = urls.insightNew(InsightType.SQL, null, eventsListQuery)
+
     return (
         <div className="relative p-3 space-y-2 border rounded bg-bg-light">
             <LemonLabel>Matching events</LemonLabel>
@@ -51,7 +58,7 @@ export function HogFunctionEventEstimates(): JSX.Element {
                 </LemonButton>
 
                 {showEventsList ? (
-                    <div className="flex flex-col flex-1 overflow-y-auto max-h-200">
+                    <div className="flex flex-col flex-1 overflow-y-auto border rounded max-h-200">
                         {eventsListQuery && <Query query={eventsListQuery} />}
                     </div>
                 ) : null}
