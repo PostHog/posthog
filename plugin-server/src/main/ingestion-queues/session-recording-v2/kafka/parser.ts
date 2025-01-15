@@ -1,6 +1,6 @@
 import { promisify } from 'node:util'
-const { unzip } = require('node:zlib')
 import { Message } from 'node-rdkafka'
+import { gunzip } from 'zlib'
 
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../../types'
 import { status } from '../../../../utils/status'
@@ -8,7 +8,7 @@ import { KafkaMetrics } from './metrics'
 import { ParsedMessageData } from './types'
 
 const GZIP_HEADER = Buffer.from([0x1f, 0x8b, 0x08, 0x00])
-const do_unzip = promisify(unzip)
+const decompressWithGzip = promisify(gunzip)
 
 export class KafkaParser {
     constructor(private readonly metrics: KafkaMetrics) {}
@@ -36,7 +36,9 @@ export class KafkaParser {
         let messageUnzipped = message.value
         try {
             if (this.isGzipped(message.value)) {
-                messageUnzipped = await do_unzip(message.value)
+                // The type definition for gunzip is missing the Buffer type
+                // https://nodejs.org/api/zlib.html#zlibgunzipbuffer-options-callback
+                messageUnzipped = await decompressWithGzip(message.value as any)
             }
         } catch (error) {
             return dropMessage('invalid_gzip_data', { error })

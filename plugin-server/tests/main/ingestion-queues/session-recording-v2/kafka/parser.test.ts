@@ -5,7 +5,7 @@ import { gzip } from 'zlib'
 import { KafkaMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/metrics'
 import { KafkaParser } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/parser'
 
-const do_gzip = promisify(gzip)
+const compressWithGzip = promisify(gzip)
 
 describe('KafkaParser', () => {
     let parser: KafkaParser
@@ -88,7 +88,7 @@ describe('KafkaParser', () => {
                 distinct_id: 'user123',
             }
 
-            const gzippedData = await do_gzip(JSON.stringify(data))
+            const gzippedData = await compressWithGzip(JSON.stringify(data))
             const message = createMessage(data, { value: gzippedData })
 
             const result = await parser.parseMessage(message)
