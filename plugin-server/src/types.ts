@@ -361,7 +361,7 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
-    sessionRecordingBlobOverflowIngestionV2?: boolean
+    sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
     cdpInternalEvents?: boolean
     cdpFunctionCallbacks?: boolean

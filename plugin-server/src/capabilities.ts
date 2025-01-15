@@ -22,7 +22,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestion: true,
                 sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 sessionRecordingBlobIngestionV2: true,
-                sessionRecordingBlobOverflowIngestionV2: config.SESSION_RECORDING_OVERFLOW_ENABLED,
+                sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
                 preflightSchedules: true,
                 cdpProcessedEvents: true,
@@ -81,7 +81,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             }
         case PluginServerMode.recordings_blob_ingestion_v2_overflow:
             return {
-                sessionRecordingBlobOverflowIngestionV2: true,
+                sessionRecordingBlobIngestionV2Overflow: true,
                 ...sharedCapabilities,
             }
 

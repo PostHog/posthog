@@ -454,7 +454,7 @@ export async function startPluginsServer(
             services.push(ingester.service)
         }
 
-        if (capabilities.sessionRecordingBlobOverflowIngestionV2) {
+        if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
             const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
             const ingester = new SessionRecordingIngesterV2(serverConfig, true, batchConsumerFactory)
             await ingester.start()
