@@ -511,6 +511,26 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Session replay',
                             icon: <IconRewindPlay />,
                             to: urls.replay(replayLandingPage),
+                            sideAction: {
+                                identifier: 'replay-dropdown',
+                                dropdown: {
+                                    overlay: (
+                                        <LemonMenuOverlay
+                                            items={[
+                                                {
+                                                    items: [
+                                                        {
+                                                            label: 'Playlists',
+                                                            to: urls.replay(ReplayTabs.Playlists),
+                                                        },
+                                                    ],
+                                                },
+                                            ]}
+                                        />
+                                    ),
+                                    placement: 'bottom-end',
+                                },
+                            },
                         },
                         featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
                             ? {
