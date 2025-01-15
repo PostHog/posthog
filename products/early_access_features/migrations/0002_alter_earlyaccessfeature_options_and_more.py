@@ -20,3 +20,7 @@ class Migration(migrations.Migration):
             table="posthog_earlyaccessfeature",
         ),
     ]
+
+    operations = [
+        migrations.SeparateDatabaseAndState(database_operations=database_operations, state_operations=state_operations)
+    ]
