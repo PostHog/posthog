@@ -2,7 +2,6 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -293,7 +292,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         loadNext: true,
         loadPrev: true,
-        setShowOtherRecordings: (show: boolean) => ({ show }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -409,16 +407,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
     reducers(({ props }) => ({
-        // If we initialise with pinned recordings then we don't show others by default
-        // but if we go down to 0 pinned recordings then we show others
-        showOtherRecordings: [
-            !props.pinnedRecordings?.length,
-            {
-                loadPinnedRecordingsSuccess: (state, { pinnedRecordings }) =>
-                    pinnedRecordings.length === 0 ? true : state,
-                setShowOtherRecordings: (_, { show }) => show,
-            },
-        ],
         unusableEventsInFilter: [
             [] as string[],
             {
@@ -683,9 +671,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         recordingsCount: [
-            (s) => [s.pinnedRecordings, s.otherRecordings, s.showOtherRecordings],
-            (pinnedRecordings, otherRecordings, showOtherRecordings): number => {
-                return showOtherRecordings ? otherRecordings.length + pinnedRecordings.length : pinnedRecordings.length
+            (s) => [s.pinnedRecordings, s.otherRecordings],
+            (pinnedRecordings, otherRecordings): number => {
+                return otherRecordings.length + pinnedRecordings.length
             },
         ],
     }),
@@ -760,19 +748,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }
     }),
 
-    subscriptions(({ actions }) => ({
-        showOtherRecordings: (showOtherRecordings: boolean) => {
-            if (showOtherRecordings) {
-                actions.loadSessionRecordings()
-            }
-        },
-    })),
-
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
-    afterMount(({ actions, values }) => {
-        if (values.showOtherRecordings) {
-            actions.loadSessionRecordings()
-        }
+    afterMount(({ actions }) => {
+        actions.loadSessionRecordings()
         actions.loadPinnedRecordings()
     }),
 ])
