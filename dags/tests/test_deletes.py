@@ -1,14 +1,16 @@
 import os
+import uuid
 import pytest
 import pandas as pd
 from unittest.mock import patch, MagicMock
 from dagster import build_asset_context
-import uuid
 
 from ..deletes import (
     pending_person_deletions,
     create_pending_deletes_table,
+    create_pending_deletes_dictionary,
     DeleteConfig,
+    get_versioned_names,
 )
 from posthog.models.async_deletion import AsyncDeletion
 
@@ -20,7 +22,12 @@ def mock_async_deletion():
 
 @pytest.fixture
 def test_config():
-    return DeleteConfig(team_id=1, file_path="/tmp/test_pending_deletions.parquet")
+    return DeleteConfig(team_id=1, file_path="/tmp/test_pending_deletions.parquet", run_id="test_run")
+
+
+@pytest.fixture
+def expected_names():
+    return get_versioned_names("test_run")
 
 
 def test_pending_person_deletions_with_team_id(mock_async_deletion):
@@ -36,7 +43,7 @@ def test_pending_person_deletions_with_team_id(mock_async_deletion):
         mock_objects.filter.return_value = mock_filter
 
         context = build_asset_context()
-        config = DeleteConfig(team_id=1, file_path="/tmp/test_pending_deletions.parquet")
+        config = DeleteConfig(team_id=1, file_path="/tmp/test_pending_deletions.parquet", run_id="test_run")
 
         result = pending_person_deletions(context, config)
 
@@ -62,7 +69,7 @@ def test_pending_person_deletions_without_team_id(mock_async_deletion):
         mock_objects.filter.return_value = mock_filter
 
         context = build_asset_context()
-        config = DeleteConfig(team_id=0, file_path="/tmp/test_pending_deletions.parquet")
+        config = DeleteConfig(team_id=0, file_path="/tmp/test_pending_deletions.parquet", run_id="test_run")
 
         result = pending_person_deletions(context, config)
 
@@ -71,16 +78,28 @@ def test_pending_person_deletions_without_team_id(mock_async_deletion):
 
 
 @patch("dags.deletes.sync_execute")
-def test_create_pending_deletes_table(mock_sync_execute):
-    result = create_pending_deletes_table()
+def test_create_pending_deletes_table(mock_sync_execute, test_config, expected_names):
+    result = create_pending_deletes_table(build_asset_context(), test_config)
 
-    assert result is True
+    assert result["table_name"] == expected_names["table"]
     mock_sync_execute.assert_called_once()
     # Verify the SQL contains the expected table creation
     call_args = mock_sync_execute.call_args[0][0]
-    assert "CREATE TABLE IF NOT EXISTS pending_person_deletes" in call_args
+    assert f"CREATE TABLE IF NOT EXISTS {expected_names['table']}" in call_args
     assert "team_id Int64" in call_args
     assert "person_id UUID" in call_args
+
+
+@patch("dags.deletes.sync_execute")
+def test_create_pending_deletes_dictionary(mock_sync_execute, test_config, expected_names):
+    result = create_pending_deletes_dictionary(build_asset_context(), test_config)
+
+    assert result["dictionary_name"] == expected_names["dictionary"]
+    mock_sync_execute.assert_called_once()
+    # Verify the SQL contains the expected dictionary creation
+    call_args = mock_sync_execute.call_args[0][0]
+    assert f"CREATE DICTIONARY IF NOT EXISTS {expected_names['dictionary']}" in call_args
+    assert f"TABLE {expected_names['table']}" in call_args
 
 
 def teardown_module(module):

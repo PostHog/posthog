@@ -28,6 +28,12 @@ django.setup()
 class DeleteConfig(Config):
     team_id: int
     file_path: str = "/tmp/pending_person_deletions.parquet"
+    run_id: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def get_versioned_names(run_id: str) -> dict[str, str]:
+    """Get versioned names for tables and dictionaries."""
+    return {"table": f"pending_person_deletes_{run_id}", "dictionary": f"pending_person_deletes_dictionary_{run_id}"}
 
 
 @asset
@@ -88,11 +94,12 @@ def pending_person_deletions(context: AssetExecutionContext, config: DeleteConfi
 
 
 @asset
-def create_pending_deletes_table():
+def create_pending_deletes_table(context: AssetExecutionContext, config: DeleteConfig):
     """Create a merge tree table in ClickHouse to store pending deletes."""
+    names = get_versioned_names(config.run_id)
     sync_execute(
         f"""
-        CREATE TABLE IF NOT EXISTS pending_person_deletes ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        CREATE TABLE IF NOT EXISTS {names["table"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         (
             team_id Int64,
             person_id UUID,
@@ -102,11 +109,11 @@ def create_pending_deletes_table():
         ORDER BY (team_id, person_id)
         """
     )
-    return True
+    return {"table_name": names["table"]}
 
 
 @asset(deps=[pending_person_deletions, create_pending_deletes_table])
-def insert_pending_deletes(context: AssetExecutionContext, pending_person_deletions):
+def insert_pending_deletes(context: AssetExecutionContext, pending_person_deletions, create_pending_deletes_table):
     """Insert pending deletes from parquet file into ClickHouse merge tree using Arrow."""
     if not pending_person_deletions.get("total_rows", 0):
         return 0
@@ -118,7 +125,7 @@ def insert_pending_deletes(context: AssetExecutionContext, pending_person_deleti
     table = pq.read_table(pending_person_deletions["file_path"])
 
     # Rename the 'key' column to 'person_id' to match our schema
-    table = table.rename_columns(["team_id", "person_id"])
+    table = table.rename_columns(["team_id", "person_id", "created_at"])
 
     # Create a ClickHouse client that supports Arrow
     client = Client(
@@ -131,8 +138,8 @@ def insert_pending_deletes(context: AssetExecutionContext, pending_person_deleti
 
     # Insert the Arrow table directly
     client.execute(
-        """
-        INSERT INTO pending_person_deletes (team_id, person_id, created_at)
+        f"""
+        INSERT INTO {create_pending_deletes_table["table_name"]} (team_id, person_id, created_at)
         VALUES
         """,
         table.to_pydict(),
@@ -148,11 +155,12 @@ def insert_pending_deletes(context: AssetExecutionContext, pending_person_deleti
 
 
 @asset(deps=[insert_pending_deletes])
-def create_pending_deletes_dictionary():
+def create_pending_deletes_dictionary(context: AssetExecutionContext, config: DeleteConfig):
     """Create a dictionary table that wraps pending_person_deletes for efficient lookups."""
+    names = get_versioned_names(config.run_id)
     sync_execute(
         f"""
-        CREATE DICTIONARY IF NOT EXISTS pending_person_deletes_dictionary ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        CREATE DICTIONARY IF NOT EXISTS {names["dictionary"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         (
             team_id Int64,
             person_id UUID,
@@ -161,7 +169,7 @@ def create_pending_deletes_dictionary():
         PRIMARY KEY team_id, person_id
         SOURCE(CLICKHOUSE(
             HOST '{CLICKHOUSE_HOST}'
-            TABLE pending_person_deletes
+            TABLE {names["table"]}
             USER '{CLICKHOUSE_USER}'
             PASSWORD '{CLICKHOUSE_PASSWORD}'
         ))
@@ -169,18 +177,19 @@ def create_pending_deletes_dictionary():
         LAYOUT(COMPLEX_KEY_HASHED())
         """
     )
-    return True
+    return {"dictionary_name": names["dictionary"]}
 
 
 @asset(deps=[create_pending_deletes_dictionary])
-def delete_person_events(context: AssetExecutionContext):
+def delete_person_events(context: AssetExecutionContext, config: DeleteConfig):
     """Delete events from sharded_events table for persons pending deletion."""
 
     # First check if there are any pending deletes
+    names = get_versioned_names(config.run_id)
     count_result = sync_execute(
-        """
+        f"""
         SELECT count()
-        FROM pending_person_deletes
+        FROM {names["dictionary"]}
         """
     )[0][0]
 
@@ -193,8 +202,10 @@ def delete_person_events(context: AssetExecutionContext):
     deleted_count = sync_execute(
         f"""
         ALTER TABLE sharded_events ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-        DELETE WHERE dictHas('pending_person_deletes_dictionary', (team_id, person_id))
-            AND timestamp <= dictGet('pending_person_deletes_dictionary', 'created_at', (team_id, person_id))
+        DELETE WHERE (team_id, person_id) IN (
+            SELECT team_id, person_id
+            FROM {names["dictionary"]}
+        )
         """,
         settings={
             "max_execution_time": 3600  # 1 hour timeout
@@ -213,20 +224,21 @@ def delete_person_events(context: AssetExecutionContext):
 
 
 @asset(deps=[delete_person_events])
-def cleanup_delete_assets(context: AssetExecutionContext):
+def cleanup_delete_assets(context: AssetExecutionContext, config: DeleteConfig):
     """Clean up temporary tables, dictionary, and mark deletions as verified."""
+    names = get_versioned_names(config.run_id)
 
     # Drop the dictionary
     sync_execute(
         f"""
-        DROP DICTIONARY IF EXISTS pending_person_deletes_dictionary ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        DROP DICTIONARY IF EXISTS {names["dictionary"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         """
     )
 
-    # Drop the temporary table
+    # Drop the table
     sync_execute(
         f"""
-        DROP TABLE IF EXISTS pending_person_deletes ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        DROP TABLE IF EXISTS {names["table"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         """
     )
 
@@ -235,19 +247,14 @@ def cleanup_delete_assets(context: AssetExecutionContext):
     if os.path.exists(parquet_path):
         os.remove(parquet_path)
 
-    # Mark the deletions as verified in PostgreSQL
-    now = datetime.now()
-    updated_count = AsyncDeletion.objects.filter(
-        deletion_type=DeletionType.Person, delete_verified_at__isnull=True
-    ).update(delete_verified_at=now)
+    # Mark deletions as verified in Django
+    if not config.team_id:
+        AsyncDeletion.objects.filter(deletion_type=DeletionType.Person, delete_verified_at__isnull=True).update(
+            delete_verified_at=datetime.now()
+        )
+    else:
+        AsyncDeletion.objects.filter(
+            deletion_type=DeletionType.Person, team_id=config.team_id, delete_verified_at__isnull=True
+        ).update(delete_verified_at=datetime.now())
 
-    context.add_output_metadata(
-        {
-            "dictionary_dropped": MetadataValue.bool(True),
-            "table_dropped": MetadataValue.bool(True),
-            "parquet_removed": MetadataValue.bool(True),
-            "deletions_verified": MetadataValue.int(updated_count),
-        }
-    )
-
-    return {"verified_count": updated_count, "verified_at": now}
+    return True
