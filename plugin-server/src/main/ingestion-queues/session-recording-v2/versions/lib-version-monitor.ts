@@ -14,11 +14,7 @@ export class LibVersionMonitor<TInput> implements BatchMessageProcessor<TInput, 
 
     public async parseBatch(messages: TInput[]): Promise<MessageWithTeam[]> {
         const processedMessages = await this.sourceProcessor.parseBatch(messages)
-
-        for (const message of processedMessages) {
-            await this.checkLibVersion(message)
-        }
-
+        await Promise.all(processedMessages.map((message) => this.checkLibVersion(message)))
         return processedMessages
     }
 
