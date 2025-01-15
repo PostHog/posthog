@@ -7,7 +7,7 @@ import {
 } from '../../types'
 import { createInvocation } from '../../utils'
 import { compileHog } from '../compiler'
-import { HogFunctionTemplate, HogFunctionTemplateCompiled } from '../helpers'
+import { HogFunctionTemplate, HogFunctionTemplateCompiled } from '../types'
 
 export type DeepPartialHogFunctionInvocationGlobals = {
     event?: Partial<HogFunctionInvocationGlobals['event']>
