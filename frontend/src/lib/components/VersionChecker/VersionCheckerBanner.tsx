@@ -1,10 +1,12 @@
 import { useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { versionCheckerLogic } from './versionCheckerLogic'
 
 export function VersionCheckerBanner(): JSX.Element | null {
-    const { versionWarning } = useValues(versionCheckerLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { versionWarning } = useValues(versionCheckerLogic({ teamId: currentTeamId }))
     if (!versionWarning) {
         return null
     }

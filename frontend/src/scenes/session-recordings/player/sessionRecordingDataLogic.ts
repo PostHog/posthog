@@ -1,6 +1,7 @@
 import posthogEE from '@posthog/ee/exports'
-import { customEvent, EventType, eventWithTime } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from '@rrweb/types'
 import { captureException } from '@sentry/react'
+import { gunzipSync, strFromU8, strToU8 } from 'fflate'
 import {
     actions,
     afterMount,
@@ -21,11 +22,16 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { isObject } from 'lib/utils'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { compressedEventWithTime } from 'posthog-js/lib/src/extensions/replay/sessionrecording'
+import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     EncodedRecordingSnapshot,
@@ -62,6 +68,140 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
 }
 
+/*
+ there was a bug in mobile SDK that didn't consistently send a meta event with a full snapshot.
+ rrweb player hides itself until it has seen the meta event 🤷
+ but we can patch a meta event into the recording data to make it work
+*/
+function patchMetaEventIntoMobileData(parsedLines: RecordingSnapshot[]): RecordingSnapshot[] {
+    let fullSnapshotIndex: number = -1
+    let metaIndex: number = -1
+    try {
+        fullSnapshotIndex = parsedLines.findIndex((l) => l.type === EventType.FullSnapshot)
+        metaIndex = parsedLines.findIndex((l) => l.type === EventType.Meta)
+
+        // then we need to patch the meta event into the snapshot data
+        if (fullSnapshotIndex > -1 && metaIndex === -1) {
+            const fullSnapshot = parsedLines[fullSnapshotIndex] as RecordingSnapshot & fullSnapshotEvent & eventWithTime
+            // a full snapshot (particularly from the mobile transformer) has a relatively fixed structure,
+            // but the types exposed by rrweb don't quite cover what we need , so...
+            const mainNode = fullSnapshot.data.node as any
+            const targetNode = mainNode.childNodes[1].childNodes[1].childNodes[0]
+            const { width, height } = targetNode.attributes
+            const metaEvent: RecordingSnapshot = {
+                windowId: fullSnapshot.windowId,
+                type: EventType.Meta,
+                timestamp: fullSnapshot.timestamp,
+                data: {
+                    href: getHrefFromSnapshot(fullSnapshot) || '',
+                    width,
+                    height,
+                },
+            }
+            parsedLines.splice(fullSnapshotIndex, 0, metaEvent)
+        }
+    } catch (e) {
+        captureException(e, {
+            tags: { feature: 'session-recording-missing-meta-patching' },
+            extra: { fullSnapshotIndex, metaIndex },
+        })
+    }
+
+    return parsedLines
+}
+
+function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
+    return snapshotData.some((d) => {
+        return isObject(d.data) && 'wireframes' in d.data
+    })
+}
+
+function isCompressedEvent(ev: unknown): ev is compressedEventWithTime {
+    return typeof ev === 'object' && ev !== null && 'cv' in ev
+}
+
+function unzip(compressedStr: string): any {
+    return JSON.parse(strFromU8(gunzipSync(strToU8(compressedStr, true))))
+}
+
+/**
+ *
+ * takes an event that might be from web, might be from mobile,
+ * and might be partially compressed,
+ * and decompresses it when possible
+ *
+ * you can't return a union of `KnownType | unknown`
+ * so even though this returns `eventWithTime | unknown`
+ * it has to be typed as only unknown
+ */
+function decompressEvent(ev: unknown): unknown {
+    try {
+        if (isCompressedEvent(ev)) {
+            if (ev.cv === '2024-10') {
+                if (ev.type === EventType.FullSnapshot) {
+                    return {
+                        ...ev,
+                        data: unzip(ev.data),
+                    }
+                } else if (ev.type === EventType.IncrementalSnapshot) {
+                    if (ev.data.source === IncrementalSource.StyleSheetRule) {
+                        return {
+                            ...ev,
+                            data: {
+                                ...ev.data,
+                                source: IncrementalSource.StyleSheetRule,
+                                adds: unzip(ev.data.adds),
+                                removes: unzip(ev.data.removes),
+                            },
+                        }
+                    } else if (ev.data.source === IncrementalSource.Mutation) {
+                        return {
+                            ...ev,
+                            data: {
+                                ...ev.data,
+                                source: IncrementalSource.Mutation,
+                                adds: unzip(ev.data.adds),
+                                removes: unzip(ev.data.removes),
+                                texts: unzip(ev.data.texts),
+                                attributes: unzip(ev.data.attributes),
+                            },
+                        }
+                    }
+                }
+            } else {
+                posthog.captureException(new Error('Unknown compressed event version'), {
+                    feature: 'session-recording-compressed-event-decompression',
+                    compressedEvent: ev,
+                    compressionVersion: ev.cv,
+                })
+                // probably unplayable but we don't know how to decompress it
+                return ev
+            }
+        }
+        return ev
+    } catch (e) {
+        posthog.captureException((e as Error) || new Error('Could not decompress event'), {
+            feature: 'session-recording-compressed-event-decompression',
+            compressedEvent: ev,
+        })
+        return ev
+    }
+}
+
+/**
+ * We can receive data in one of multiple formats, so we treat it as unknown
+ * And if we can't process it force it into eventWithTime
+ *
+ * If it can't be case as eventWithTime by this point then it's probably not a valid event anyway
+ */
+function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean): eventWithTime {
+    // we decompress first so that we could support partial compression on mobile in future
+    const currentEvent = decompressEvent(d)
+    return withMobileTransformer
+        ? postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
+        : (currentEvent as eventWithTime)
+}
+
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
     sessionId: string,
@@ -71,28 +211,48 @@ export const parseEncodedSnapshots = async (
     if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
     }
+
     const lineCount = items.length
     const unparseableLines: string[] = []
-    const parsedLines = items.flatMap((l) => {
+    let isMobileSnapshots = false
+
+    const parsedLines: RecordingSnapshot[] = items.flatMap((l) => {
         if (!l) {
             // blob files have an empty line at the end
             return []
         }
         try {
-            const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
-            const snapshotData = isRecordingSnapshot(snapshotLine) ? [snapshotLine] : snapshotLine['data']
+            let snapshotLine: { windowId: string } | EncodedRecordingSnapshot
+            if (typeof l === 'string') {
+                // is loaded from blob or realtime storage
+                snapshotLine = JSON.parse(l) as EncodedRecordingSnapshot
+            } else {
+                // is loaded from file export
+                snapshotLine = l
+            }
+            let snapshotData: ({ windowId: string } | EncodedRecordingSnapshot)[]
+            if (isRecordingSnapshot(snapshotLine)) {
+                // is loaded from file export
+                snapshotData = [snapshotLine]
+            } else {
+                // is loaded from blob or realtime storage
+                snapshotData = snapshotLine['data']
+            }
+
+            if (!isMobileSnapshots) {
+                isMobileSnapshots = hasAnyWireframes(snapshotData)
+            }
 
             return snapshotData.map((d: unknown) => {
-                const snap = withMobileTransformer
-                    ? postHogEEModule?.mobileReplay?.transformEventToWeb(d) || (d as eventWithTime)
-                    : (d as eventWithTime)
+                const snap = coerceToEventWithTime(d, withMobileTransformer)
+
                 return {
                     // this handles parsing data that was loaded from blob storage "window_id"
                     // and data that was exported from the front-end "windowId"
                     // we have more than one format of data that we store/pass around
                     // but only one that we play back
                     windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
-                    ...(snap || (d as eventWithTime)),
+                    ...snap,
                 }
             })
         } catch (e) {
@@ -110,18 +270,19 @@ export const parseEncodedSnapshots = async (
             unparseableLinesCount: unparseableLines.length,
             exampleLines: unparseableLines.slice(0, 3),
         }
-        posthog.capture('session recording had unparseable lines', extra)
-        captureException(new Error('session recording had unparseable lines'), {
-            tags: { feature: 'session-recording-snapshot-processing' },
-            extra,
+        posthog.capture('session recording had unparseable lines', {
+            ...extra,
+            feature: 'session-recording-snapshot-processing',
         })
     }
 
-    return parsedLines
+    return isMobileSnapshots ? patchMetaEventIntoMobileData(parsedLines) : parsedLines
 }
 
-const getHrefFromSnapshot = (snapshot: RecordingSnapshot): string | undefined => {
-    return (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
+const getHrefFromSnapshot = (snapshot: unknown): string | undefined => {
+    return isObject(snapshot) && 'data' in snapshot
+        ? (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
+        : undefined
 }
 
 /*
@@ -257,7 +418,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
     }),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -265,20 +426,22 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         loadRecordingMeta: true,
+        loadRecordingComments: true,
         maybeLoadRecordingMeta: true,
         loadSnapshots: true,
         loadSnapshotSources: true,
         loadNextSnapshotSource: true,
         loadSnapshotsForSource: (source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>) => ({ source }),
         loadEvents: true,
-        loadFullEventData: (event: RecordingEventType) => ({ event }),
-        reportViewed: true,
+        loadFullEventData: (event: RecordingEventType | RecordingEventType[]) => ({ event }),
+        markViewed: (delay?: number) => ({ delay }),
         reportUsageIfFullyLoaded: true,
         persistRecording: true,
         maybePersistRecording: true,
         pollRealtimeSnapshots: true,
         stopRealtimePolling: true,
         setTrackedWindow: (windowId: string | null) => ({ windowId }),
+        setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
     }),
     reducers(() => ({
         trackedWindow: [
@@ -321,8 +484,27 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
+        wasMarkedViewed: [
+            false as boolean,
+            {
+                setWasMarkedViewed: (_, { wasMarkedViewed }) => wasMarkedViewed,
+            },
+        ],
     })),
     loaders(({ values, props, cache }) => ({
+        sessionComments: {
+            loadRecordingComments: async (_, breakpoint) => {
+                const empty: RecordingComment[] = []
+                if (!props.sessionRecordingId) {
+                    return empty
+                }
+
+                const response = await api.notebooks.recordingComments(props.sessionRecordingId)
+                breakpoint()
+
+                return response.results || empty
+            },
+        },
         sessionPlayerMetaData: {
             loadRecordingMeta: async (_, breakpoint) => {
                 if (!props.sessionRecordingId) {
@@ -331,9 +513,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                 cache.metaStartTime = performance.now()
 
-                const response = await api.recordings.get(props.sessionRecordingId, {
-                    save_view: true,
-                })
+                const response = await api.recordings.get(props.sessionRecordingId)
                 breakpoint()
 
                 return response
@@ -481,60 +661,75 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
 
                 loadFullEventData: async ({ event }) => {
-                    const existingEvent = values.sessionEventsData?.find((x) => x.id === event.id)
-                    if (!existingEvent || existingEvent.fullyLoaded) {
+                    // box so we're always dealing with a list
+                    const events = Array.isArray(event) ? event : [event]
+
+                    let existingEvents = values.sessionEventsData?.filter((x) => events.some((e) => e.id === x.id))
+
+                    const allEventsAreFullyLoaded =
+                        existingEvents?.every((e) => e.fullyLoaded) && existingEvents.length === events.length
+                    if (!existingEvents || allEventsAreFullyLoaded) {
                         return values.sessionEventsData
                     }
 
-                    const { person } = values.sessionPlayerData
+                    existingEvents = existingEvents.filter((e) => !e.fullyLoaded)
+                    const timestamps = existingEvents.map((ee) => dayjs(ee.timestamp).utc().valueOf())
+                    const eventNames = Array.from(new Set(existingEvents.map((ee) => ee.event)))
+                    const eventIds = existingEvents.map((ee) => ee.id)
+                    const earliestTimestamp = timestamps.reduce((a, b) => Math.min(a, b))
+                    const latestTimestamp = timestamps.reduce((a, b) => Math.max(a, b))
 
-                    let loadedProperties: Record<string, any> = existingEvent.properties
-                    // TODO: Move this to an optimised HogQL query when available...
                     try {
-                        const res: any = await api.query({
-                            kind: 'EventsQuery',
-                            select: ['properties', 'timestamp'],
-                            orderBy: ['timestamp ASC'],
-                            limit: 100,
-                            personId: String(person?.id),
-                            after: dayjs(event.timestamp).subtract(1000, 'ms').format(),
-                            before: dayjs(event.timestamp).add(1000, 'ms').format(),
-                            event: existingEvent.event,
-                        })
+                        const query: HogQLQuery = {
+                            kind: NodeKind.HogQLQuery,
+                            query: hogql`SELECT properties, uuid
+                                         FROM events
+                                        -- the timestamp range here is only to avoid querying too much of the events table
+                                        -- we don't really care about the absolute value, 
+                                        -- but we do care about whether timezones have an odd impact
+                                        -- so, we extend the range by a day on each side so that timezones don't cause issues
+                                         WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
+                                           AND timestamp < ${dayjs(latestTimestamp).add(1, 'day')}
+                                           AND event in ${eventNames}
+                                           AND uuid in ${eventIds}`,
+                        }
 
-                        const result = res.results.find((x: any) => x[1] === event.timestamp)
+                        const response = await api.query(query)
+                        if (response.error) {
+                            throw new Error(response.error)
+                        }
 
-                        if (result) {
-                            loadedProperties = JSON.parse(result[0])
-                            existingEvent.properties = loadedProperties
-                            existingEvent.fullyLoaded = true
+                        for (const event of existingEvents) {
+                            const result = response.results.find((x: any) => {
+                                return x[1] === event.id
+                            })
+
+                            if (result) {
+                                event.properties = JSON.parse(result[0])
+                                event.fullyLoaded = true
+                            }
                         }
                     } catch (e) {
                         // NOTE: This is not ideal but should happen so rarely that it is tolerable.
-                        existingEvent.fullyLoaded = true
-                        captureException(e)
+                        existingEvents.forEach((e) => (e.fullyLoaded = true))
+                        captureException(e, {
+                            tags: { feature: 'session-recording-load-full-event-data' },
+                        })
                     }
 
                     // here we map the events list because we want the result to be a new instance to trigger downstream recalculation
                     return !values.sessionEventsData
                         ? values.sessionEventsData
                         : values.sessionEventsData.map((x) => {
-                              return x.id === event.id
+                              const event = existingEvents?.find((ee) => ee.id === x.id)
+                              return event
                                   ? ({
                                         ...x,
-                                        properties: loadedProperties,
-                                        fullyLoaded: true,
+                                        properties: event.properties,
+                                        fullyLoaded: event.fullyLoaded,
                                     } as RecordingEventType)
                                   : x
                           })
-                },
-            },
-        ],
-        similarRecordings: [
-            null as [string, number][] | null,
-            {
-                fetchSimilarRecordings: async () => {
-                    return await api.recordings.similarRecordings(props.sessionRecordingId)
                 },
             },
         ],
@@ -549,6 +744,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         maybeLoadRecordingMeta: () => {
             if (!values.sessionPlayerMetaDataLoading) {
                 actions.loadRecordingMeta()
+            }
+            if (!values.sessionCommentsLoading) {
+                actions.loadRecordingComments()
             }
         },
         loadSnapshotSources: () => {
@@ -592,7 +790,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 })
             } else if (!cache.firstPaintDuration) {
                 cache.firstPaintDuration = Math.round(performance.now() - cache.snapshotsStartTime)
-                actions.reportViewed()
+            }
+            if (!values.wasMarkedViewed) {
+                actions.markViewed()
             }
 
             actions.loadNextSnapshotSource()
@@ -657,25 +857,27 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 resetTimingsCache(cache)
             }
         },
-        reportViewed: async (_, breakpoint) => {
+        markViewed: async ({ delay }, breakpoint) => {
             const durations = generateRecordingReportDurations(cache)
-            breakpoint()
             // Triggered on first paint
-            eventUsageLogic.actions.reportRecording(
-                values.sessionPlayerData,
+            breakpoint()
+            if (values.wasMarkedViewed) {
+                return
+            }
+            actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
+
+            await breakpoint(IS_TEST_MODE ? 1 : delay ?? 3000)
+            await api.recordings.update(props.sessionRecordingId, {
+                viewed: true,
+                player_metadata: values.sessionPlayerMetaData,
                 durations,
-                SessionRecordingUsageType.VIEWED,
-                values.sessionPlayerMetaData,
-                0
-            )
+            })
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportRecording(
-                values.sessionPlayerData,
+            await api.recordings.update(props.sessionRecordingId, {
+                analyzed: true,
+                player_metadata: values.sessionPlayerMetaData,
                 durations,
-                SessionRecordingUsageType.ANALYZED,
-                values.sessionPlayerMetaData,
-                10
-            )
+            })
         },
 
         maybePersistRecording: () => {
@@ -693,6 +895,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (s) => [s.sessionEventsData],
             (sessionEventsData): RecordingEventType[] =>
                 (sessionEventsData || []).filter((e) => e.event === '$web_vitals'),
+        ],
+
+        windowIdForTimestamp: [
+            (s) => [s.segments],
+            (segments) =>
+                (timestamp: number): string | undefined => {
+                    return segments.find(
+                        (segment) => segment.startTimestamp <= timestamp && segment.endTimestamp >= timestamp
+                    )?.windowId
+                },
         ],
 
         sessionPlayerData: [
@@ -860,8 +1072,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshotsInvalid: [
-            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, s.start, p.sessionRecordingId],
-            (snapshotsByWindowId, fullyLoaded, start, sessionRecordingId): boolean => {
+            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, s.start, p.sessionRecordingId, s.currentTeam],
+            (snapshotsByWindowId, fullyLoaded, start, sessionRecordingId, currentTeam): boolean => {
                 if (!fullyLoaded || !start) {
                     return false
                 }
@@ -881,17 +1093,27 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (everyWindowMissingFullSnapshot) {
                     // video is definitely unplayable
                     posthog.capture('recording_has_no_full_snapshot', {
-                        ...windowsHaveFullSnapshot,
-                        sessionId: sessionRecordingId,
+                        watchedSession: sessionRecordingId,
+                        teamId: currentTeam?.id,
+                        teamName: currentTeam?.name,
                     })
                 } else if (anyWindowMissingFullSnapshot) {
                     posthog.capture('recording_window_missing_full_snapshot', {
-                        ...windowsHaveFullSnapshot,
-                        sessionId: sessionRecordingId,
+                        watchedSession: sessionRecordingId,
+                        teamID: currentTeam?.id,
+                        teamName: currentTeam?.name,
                     })
                 }
 
                 return everyWindowMissingFullSnapshot
+            },
+        ],
+
+        isRecentAndInvalid: [
+            (s) => [s.start, s.snapshotsInvalid],
+            (start, snapshotsInvalid) => {
+                const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
+                return snapshotsInvalid && lessThanFiveMinutesOld
             },
         ],
 
@@ -945,14 +1167,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
     })),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         webVitalsEvents: (value: RecordingEventType[]) => {
-            value.forEach((item) => {
-                // we preload all web vitals data, so it can be used before user interaction
-                if (!item.fullyLoaded) {
-                    actions.loadFullEventData(item)
-                }
-            })
+            // we preload all web vitals data, so it can be used before user interaction
+            if (!values.sessionEventsDataLoading) {
+                actions.loadFullEventData(value)
+            }
+        },
+        isRecentAndInvalid: (prev: boolean, next: boolean) => {
+            if (!prev && next) {
+                posthog.capture('recording cannot playback yet', {
+                    watchedSession: values.sessionPlayerData.sessionRecordingId,
+                })
+            }
         },
     })),
     afterMount(({ cache }) => {

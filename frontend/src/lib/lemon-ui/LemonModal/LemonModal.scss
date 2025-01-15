@@ -21,6 +21,12 @@
         background-color: transparent;
         backdrop-filter: blur(0);
     }
+
+    @each $i in (1061, 1062, 1066, 1067, 1068, 1069) {
+        &.LemonModal__overlay--z-#{$i} {
+            z-index: #{$i};
+        }
+    }
 }
 
 .LemonModal {

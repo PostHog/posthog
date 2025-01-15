@@ -4,7 +4,7 @@ import sys
 
 import structlog
 
-from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.base_variables import DEBUG, STATIC_COLLECTION, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -25,7 +25,12 @@ SECURE_REDIRECT_EXEMPT = [r"^_health/?"]
 if get_from_env("DISABLE_SECURE_SSL_REDIRECT", False, type_cast=str_to_bool):
     SECURE_SSL_REDIRECT = False
 
-CSRF_TRUSTED_ORIGINS = [os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")]
+raw_site_url = os.getenv("SITE_URL")
+CSRF_TRUSTED_ORIGINS = (
+    [raw_site_url.rstrip("/")]
+    if raw_site_url
+    else ["http://localhost:8000", "http://localhost:8010"]  # 8000 is just Django, 8010 is Django + Capture via Caddy
+)
 
 # Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
@@ -60,7 +65,7 @@ DEFAULT_SECRET_KEY = "<randomly generated secret key>"
 SECRET_KEY: str = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
 
 
-if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
+if not DEBUG and not TEST and not STATIC_COLLECTION and SECRET_KEY == DEFAULT_SECRET_KEY:
     logger.critical(
         """
 You are using the default SECRET_KEY in a production environment!
@@ -69,5 +74,12 @@ For the safety of your instance, you must generate and set a unique key.
     )
     sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
 
+# These are legacy values only kept around for backwards compatibility with self hosted versions
+SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
+# We provide a default as it is needed for hobby deployments
+ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", "00beef0000beef0000beef0000beef00"))
+
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 CORS_ORIGIN_ALLOW_ALL = True
+
+BLOCKED_GEOIP_REGIONS = get_list(os.getenv("BLOCKED_GEOIP_REGIONS", ""))

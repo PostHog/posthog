@@ -14,11 +14,15 @@ from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, Insight, DashboardTile
 from posthog.tasks.utils import CeleryQueue
+from posthog.ph_client import ph_us_client
+import posthoganalytics
+
 
 logger = structlog.get_logger(__name__)
 
@@ -36,9 +40,42 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 
 
-def priority_insights(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]], None, None]:
+def teams_enabled_for_cache_warming() -> list[int]:
+    enabled_team_ids = []
+
+    for team_id, organization_id, uuid in Team.objects.values_list(
+        "id",
+        "organization_id",
+        "uuid",
+    ).iterator(chunk_size=1000):
+        enabled = posthoganalytics.feature_enabled(
+            "cache-warming",
+            str(uuid),
+            groups={
+                "organization": str(organization_id),
+                "project": str(team_id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(organization_id),
+                },
+                "project": {
+                    "id": str(team_id),
+                },
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+
+        if enabled:
+            enabled_team_ids.append(team_id)
+
+    return enabled_team_ids
+
+
+def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]], None, None]:
     """
-    This is the place to decide which insights should be kept warm.
+    This is the place to decide which insights should be kept warm for the provided team.
     The reasoning is that this will be a yes or no decision. If we need to keep it warm, we try our best
     to not let the cache go stale. There isn't any middle ground, like trying to refresh it once a day, since
     that would be like clock that's only right twice a day.
@@ -46,6 +83,8 @@ def priority_insights(team: Team, shared_only: bool = False) -> Generator[tuple[
 
     threshold = datetime.now(UTC) - LAST_VIEWED_THRESHOLD
     QueryCacheManager.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
+
+    # get all insights currently in the cache for the team
     combos = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=500)
 
     STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
@@ -87,33 +126,60 @@ def priority_insights(team: Team, shared_only: bool = False) -> Generator[tuple[
 
 @shared_task(ignore_result=True, expires=60 * 15)
 def schedule_warming_for_teams_task():
+    """
+    Runs every hour and schedule warming for all insights (picked from insights_to_cache)
+    for each team enabled for cache warming.
+
+    We trigger recalculation using ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+    so even though we might pick all insights for a team to recalculate,
+    only the stale ones (determined by `staleness_threshold_map`) get recalculated.
+    """
     team_ids = largest_teams(limit=10)
     threshold = datetime.now(UTC) - LAST_VIEWED_THRESHOLD
 
-    prio_teams = Team.objects.filter(Q(pk__in=team_ids) | Q(extra_settings__insights_cache_warming=True))
+    enabled_teams = Team.objects.filter(
+        Q(pk__in=team_ids)
+        | Q(extra_settings__insights_cache_warming=True)
+        | Q(pk__in=teams_enabled_for_cache_warming())
+    )
     teams_with_recently_viewed_shared = Team.objects.filter(
         Q(
             Q(sharingconfiguration__dashboard__last_accessed_at__gte=threshold)
             | Q(sharingconfiguration__insight__insightviewed__last_viewed_at__gte=threshold)
         ),
         sharingconfiguration__enabled=True,
-    ).difference(prio_teams)
+    ).difference(enabled_teams)
 
     all_teams = itertools.chain(
-        zip(prio_teams, [False] * len(prio_teams)),
+        zip(enabled_teams, [False] * len(enabled_teams)),
         zip(teams_with_recently_viewed_shared, [True] * len(teams_with_recently_viewed_shared)),
     )
 
     # Use a fixed expiration time since tasks in the chain are executed sequentially
     expire_after = datetime.now(UTC) + timedelta(minutes=50)
 
-    for team, shared_only in all_teams:
-        insight_tuples = priority_insights(team, shared_only=shared_only)
+    with ph_us_client() as capture_ph_event:
+        for team, shared_only in all_teams:
+            insight_tuples = list(insights_to_keep_fresh(team, shared_only=shared_only))
 
-        # We chain the task execution to prevent queries *for a single team* running at the same time
-        chain(
-            *(warm_insight_cache_task.si(*insight_tuple).set(expires=expire_after) for insight_tuple in insight_tuples)
-        )()
+            capture_ph_event(
+                str(team.uuid),
+                "cache warming - insights to cache",
+                properties={
+                    "count": len(insight_tuples),
+                    "team_id": team.id,
+                    "organization_id": team.organization_id,
+                    "shared_only": shared_only,
+                },
+            )
+
+            # We chain the task execution to prevent queries *for a single team* running at the same time
+            chain(
+                *(
+                    warm_insight_cache_task.si(*insight_tuple).set(expires=expire_after)
+                    for insight_tuple in insight_tuples
+                )
+            )()
 
 
 @shared_task(
@@ -126,13 +192,18 @@ def schedule_warming_for_teams_task():
     max_retries=3,
 )
 def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
-    insight = Insight.objects.get(pk=insight_id)
+    try:
+        insight = Insight.objects.get(pk=insight_id)
+    except Insight.DoesNotExist:
+        logger.info(f"Warming insight cache failed 404 insight not found: {insight_id}")
+        return
+
     dashboard = None
 
     tag_queries(team_id=insight.team_id, insight_id=insight.pk, trigger="warmingV2")
     if dashboard_id:
         tag_queries(dashboard_id=dashboard_id)
-        dashboard = insight.dashboards.get(pk=dashboard_id)
+        dashboard = insight.dashboards.filter(pk=dashboard_id).first()
 
     with conversion_to_query_based(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
@@ -145,16 +216,33 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                 # We need an execution mode with recent cache:
                 # - in case someone refreshed after this task was triggered
                 # - if insight + dashboard combinations have the same cache key, we prevent needless recalculations
+                limit_context=LimitContext.QUERY_ASYNC,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
             )
 
+            is_cached = getattr(results, "is_cached", False)
+
             PRIORITY_INSIGHTS_COUNTER.labels(
                 team_id=insight.team_id,
                 dashboard=dashboard_id is not None,
-                is_cached=getattr(results, "is_cached", False),
+                is_cached=is_cached,
             ).inc()
+
+            with ph_us_client() as capture_ph_event:
+                capture_ph_event(
+                    str(insight.team.uuid),
+                    "cache warming - warming insight",
+                    properties={
+                        "insight_id": insight.pk,
+                        "dashboard_id": dashboard_id,
+                        "is_cached": is_cached,
+                        "team_id": insight.team_id,
+                        "organization_id": insight.team.organization_id,
+                    },
+                )
+
         except CHQueryErrorTooManySimultaneousQueries:
             raise
         except Exception as e:

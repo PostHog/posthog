@@ -2,10 +2,9 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -22,14 +21,14 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { Node } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
 import { InsightLogicProps, InsightShortId, ItemMode, QueryBasedInsightModel, SetInsightOptions } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { insightDataLogic } from './insightDataLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
-import { insightsApi, InsightsApiOptions } from './utils/api'
+import { insightsApi } from './utils/api'
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
@@ -59,8 +58,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             ['mathDefinitions'],
             userLogic,
             ['user'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -80,8 +77,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
         saveInsightFailure: true,
-        loadInsight: (shortId: InsightShortId) => ({
+        loadInsight: (
+            shortId: InsightShortId,
+            filtersOverride?: DashboardFilter | null,
+            variablesOverride?: Record<string, HogQLVariable> | null
+        ) => ({
             shortId,
+            filtersOverride,
+            variablesOverride,
         }),
         updateInsight: (insightUpdate: Partial<QueryBasedInsightModel>, callback?: () => void) => ({
             insightUpdate,
@@ -93,29 +96,40 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             metadataUpdate,
         }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
+        setAccessDeniedToInsight: true,
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
             props.cachedInsight ?? createEmptyInsight(props.dashboardItemId || 'new'),
             {
-                loadInsight: async ({ shortId }, breakpoint) => {
+                loadInsight: async ({ shortId, filtersOverride, variablesOverride }, breakpoint) => {
                     await breakpoint(100)
-                    const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
+                    try {
+                        const insight = await insightsApi.getByShortId(
+                            shortId,
+                            undefined,
+                            'async',
+                            filtersOverride,
+                            variablesOverride
+                        )
 
-                    if (!insight) {
-                        throw new Error(`Insight with shortId ${shortId} not found`)
+                        if (!insight) {
+                            throw new Error(`Insight with shortId ${shortId} not found`)
+                        }
+
+                        return insight
+                    } catch (error: any) {
+                        if (error.status === 403 && error.code === 'permission_denied') {
+                            actions.setAccessDeniedToInsight()
+                        }
+                        throw error
                     }
-
-                    return insight
                 },
                 updateInsight: async ({ insightUpdate, callback }, breakpoint) => {
                     if (!Object.entries(insightUpdate).length) {
                         return values.insight
                     }
-
-                    const response = await insightsApi.update(values.insight.id as number, insightUpdate, {
-                        writeAsQuery: values.queryBasedInsightSaving,
-                    })
+                    const response = await insightsApi.update(values.insight.id as number, insightUpdate)
                     breakpoint()
                     const updatedInsight: QueryBasedInsightModel = {
                         ...response,
@@ -144,9 +158,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         beforeUpdates[key] = values.savedInsight[key]
                     }
 
-                    const response = await insightsApi.update(values.insight.id as number, metadataUpdate, {
-                        writeAsQuery: values.queryBasedInsightSaving,
-                    })
+                    const response = await insightsApi.update(values.insight.id as number, metadataUpdate)
                     breakpoint()
 
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
@@ -158,9 +170,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             label: 'Undo',
                             dataAttr: 'edit-insight-undo',
                             action: async () => {
-                                const response = await insightsApi.update(values.insight.id as number, beforeUpdates, {
-                                    writeAsQuery: values.queryBasedInsightSaving,
-                                })
+                                const response = await insightsApi.update(values.insight.id as number, beforeUpdates)
                                 savedInsightsLogic.findMounted()?.actions.loadInsights()
                                 dashboardsModel.actions.updateDashboardInsight(response)
                                 actions.setInsight(response, { overrideQuery: false, fromPersistentApi: true })
@@ -229,6 +239,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 return { ...state, dashboards: state.dashboards?.filter((d) => d !== id) }
             },
         },
+        accessDeniedToInsight: [false, { setAccessDeniedToInsight: () => true }],
         /** The insight's state as it is in the database. */
         savedInsight: [
             () => props.cachedInsight || ({} as Partial<QueryBasedInsightModel>),
@@ -266,10 +277,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         query: [
             (s) => [(state) => insightDataLogic.findMounted(s.insightProps(state))?.values.query || null],
             (node): Node | null => node,
-        ],
-        queryBasedInsightSaving: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
         ],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
@@ -333,13 +340,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     tags,
                 }
 
-                const options: InsightsApiOptions = {
-                    writeAsQuery: values.queryBasedInsightSaving,
-                }
                 savedInsight = insightNumericId
-                    ? await insightsApi.update(insightNumericId, insightRequest, options)
-                    : await insightsApi.create(insightRequest, options)
+                    ? await insightsApi.update(insightNumericId, insightRequest)
+                    : await insightsApi.create(insightRequest)
                 savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
+                // remove draft query from local storage
+                localStorage.removeItem(`draft-query-${values.currentTeamId}`)
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
@@ -407,19 +413,20 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             })
         },
         saveAsConfirmation: async ({ name, redirectToViewMode, persist }) => {
-            const insight = await insightsApi.create(
-                {
-                    name,
-                    query: values.query,
-                    saved: true,
-                },
-                {
-                    writeAsQuery: values.queryBasedInsightSaving,
-                }
-            )
-            lemonToast.info(
-                `You're now working on a copy of ${values.insight.name || values.insight.derived_name || name}`
-            )
+            const insight = await insightsApi.create({
+                name,
+                query: values.query,
+                saved: true,
+            })
+
+            if (router.values.location.pathname.includes(urls.dataWarehouse())) {
+                lemonToast.info(`You're now viewing ${values.insight.name || values.insight.derived_name || name}`)
+            } else {
+                lemonToast.info(
+                    `You're now working on a copy of ${values.insight.name || values.insight.derived_name || name}`
+                )
+            }
+
             persist && actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
 
@@ -437,7 +444,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
 
             if (!props.doNotLoad && !props.cachedInsight) {
-                actions.loadInsight(props.dashboardItemId as InsightShortId)
+                actions.loadInsight(
+                    props.dashboardItemId as InsightShortId,
+                    props.filtersOverride,
+                    props.variablesOverride
+                )
             }
         },
     })),

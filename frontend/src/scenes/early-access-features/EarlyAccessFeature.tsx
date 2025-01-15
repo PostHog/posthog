@@ -7,20 +7,23 @@ import { router } from 'kea-router'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useState } from 'react'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { Node, NodeKind, QuerySchema } from '~/queries/schema'
+import { Node, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import {
     EarlyAccessFeatureStage,
     EarlyAccessFeatureTabs,
     EarlyAccessFeatureType,
     FilterLogicalOperator,
+    HogFunctionFiltersType,
     PersonPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
@@ -58,6 +61,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     } = useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
+    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     if (earlyAccessFeatureMissing) {
         return <NotFound object="early access feature" />
@@ -66,6 +70,26 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     if (earlyAccessFeatureLoading) {
         return <LemonSkeleton active />
     }
+
+    const destinationFilters: HogFunctionFiltersType | null =
+        !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && showLinkedHogFunctions
+            ? {
+                  events: [
+                      {
+                          id: '$feature_enrollment_update',
+                          type: 'events',
+                          properties: [
+                              {
+                                  key: '$feature_flag',
+                                  value: [earlyAccessFeature.feature_flag.key],
+                                  operator: PropertyOperator.Exact,
+                                  type: PropertyFilterType.Event,
+                              },
+                          ],
+                      },
+                  ],
+              }
+            : null
 
     return (
         <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
@@ -252,7 +276,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             </div>
                         )}
                     </div>
-                    <div className="flex flex-wrap gap-4 items-start">
+                    <div className="flex flex-wrap items-start gap-4">
                         <div className="flex-1 min-w-[20rem]">
                             {isEditingFeature || isNewEarlyAccessFeature ? (
                                 <LemonField name="description" label="Description" showOptional>
@@ -301,10 +325,22 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         </div>
                     </div>
                 </div>
+                {destinationFilters && (
+                    <>
+                        <LemonDivider className="my-8" />
+                        <h3>Notifications</h3>
+                        <p>Get notified when people opt in or out of your feature.</p>
+                        <LinkedHogFunctions
+                            type="destination"
+                            filters={destinationFilters}
+                            subTemplateId="early-access-feature-enrollment"
+                        />
+                    </>
+                )}
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
                     <>
                         <LemonDivider className="my-8" />
-                        <div className="flex items-start  justify-between gap-4">
+                        <div className="flex items-start justify-between gap-4">
                             <div>
                                 <h3>Users</h3>
                                 <p>
@@ -458,7 +494,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
             <div className="absolute top-0 right-0 z-10">
                 <LemonButton
                     key="view-opt-in-session-recordings"
-                    to={urls.replay(ReplayTabs.Recent, recordingsFilters)}
+                    to={urls.replay(ReplayTabs.Home, recordingsFilters)}
                     type="secondary"
                 >
                     View recordings

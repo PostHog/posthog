@@ -16,14 +16,6 @@
         outline: 1px solid var(--primary-3000);
     }
 
-    &.react-draggable::after {
-        // During dashboard layout editing, we need an overlay to prevent accidental interaction with card content
-        position: absolute;
-        inset: 0;
-        z-index: var(--z-content-overlay);
-        content: '';
-    }
-
     .ErrorBoundary {
         width: 100%;
         height: 100%;
@@ -116,10 +108,6 @@
     }
 }
 
-.InsightDetails__breakdown {
-    margin-bottom: 0.5rem;
-}
-
 .InsightDetails__footer {
     display: flex;
     flex-wrap: wrap;
@@ -152,6 +140,7 @@
     font-weight: 600;
     line-height: 1rem;
     color: var(--text-3000);
+    vertical-align: middle;
     background: var(--primary-highlight);
     border-radius: var(--radius);
 
@@ -185,10 +174,6 @@
 
 .SeriesDisplay__condition {
     display: flex;
-
-    .SeriesDisplay__raw-name {
-        vertical-align: middle;
-    }
 }
 
 .SeriesDisplay__arrow {

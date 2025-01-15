@@ -19,7 +19,7 @@ from drf_spectacular.views import (
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
-from revproxy.views import ProxyView
+
 from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
@@ -28,10 +28,8 @@ from posthog.api import (
     authentication,
     capture,
     decide,
-    organizations_router,
-    project_dashboards_router,
-    project_feature_flags_router,
-    projects_router,
+    hog_function_template,
+    remote_config,
     router,
     sharing,
     signup,
@@ -40,6 +38,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from .api.web_experiment import web_experiments
 from .api.utils import hostname_in_allowed_url_list
 from posthog.api.early_access_feature import early_access_features
 from posthog.api.survey import surveys
@@ -71,13 +70,7 @@ except ImportError:
         logger.warn(f"Could not import ee.urls", exc_info=True)
     pass
 else:
-    extend_api_router(
-        router,
-        projects_router=projects_router,
-        organizations_router=organizations_router,
-        project_dashboards_router=project_dashboards_router,
-        project_feature_flags_router=project_feature_flags_router,
-    )
+    extend_api_router()
 
 
 @requires_csrf_token
@@ -185,6 +178,7 @@ urlpatterns = [
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/early_access_features", early_access_features),
+    opt_slash_path("api/web_experiments", web_experiments),
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
@@ -192,6 +186,10 @@ urlpatterns = [
     path(
         "api/reset/<str:user_uuid>/",
         authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
+    ),
+    opt_slash_path(
+        "api/public_hog_function_templates",
+        hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
@@ -213,6 +211,9 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
+    path("array/<str:token>/config", remote_config.RemoteConfigAPIView.as_view()),
+    path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
+    path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
@@ -236,6 +237,8 @@ urlpatterns = [
     path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
     path("year_in_posthog/2023/<str:user_uuid>", year_in_posthog.render_2023),
     path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
+    path("year_in_posthog/2024/<str:user_uuid>", year_in_posthog.render_2024),
+    path("year_in_posthog/2024/<str:user_uuid>/", year_in_posthog.render_2024),
 ]
 
 if settings.DEBUG:
@@ -244,9 +247,6 @@ if settings.DEBUG:
     # external clients cannot see them. See the gunicorn setup for details on
     # what we do.
     urlpatterns.append(path("_metrics", ExportToDjangoView))
-
-    # Reverse-proxy all of /i/* to capture-rs on port 3000 when running the local devenv
-    urlpatterns.append(re_path(r"(?P<path>^i/.*)", ProxyView.as_view(upstream="http://localhost:3000")))
 
 
 if settings.TEST:

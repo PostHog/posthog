@@ -4,7 +4,7 @@ import fetch from 'node-fetch'
 import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
@@ -42,14 +42,13 @@ export const createReadyPluginConfigVm = async (
 }
 describe('vm tests', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     test('empty plugins', async () => {

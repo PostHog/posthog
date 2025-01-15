@@ -179,7 +179,10 @@ class FOSSCohortQuery(EventQuery):
 
     @staticmethod
     def unwrap_cohort(filter: Filter, team_id: int) -> Filter:
+        team: Optional[Team] = None
+
         def _unwrap(property_group: PropertyGroup, negate_group: bool = False) -> PropertyGroup:
+            nonlocal team
             if len(property_group.values):
                 if isinstance(property_group.values[0], PropertyGroup):
                     # dealing with a list of property groups, so unwrap each one
@@ -211,7 +214,11 @@ class FOSSCohortQuery(EventQuery):
                         negation_value = not current_negation if negate_group else current_negation
                         if prop.type in ["cohort", "precalculated-cohort"]:
                             try:
-                                prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
+                                if team is None:  # This ensures we only fetch team if needed, but never more than once
+                                    team = Team.objects.get(pk=team_id)
+                                prop_cohort: Cohort = Cohort.objects.get(
+                                    pk=prop.value, team__project_id=team.project_id
+                                )
                                 if prop_cohort.is_static:
                                     new_property_group_list.append(
                                         PropertyGroup(
@@ -613,6 +620,9 @@ class FOSSCohortQuery(EventQuery):
                 self._team_id,
                 f"{prepend}_entity_{idx}",
                 self._filter.hogql_context,
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+                if self._person_on_events_mode != PersonsOnEventsMode.DISABLED
+                else None,
             )
         elif event[0] == "events":
             self._add_event(str(event[1]))

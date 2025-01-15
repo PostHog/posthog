@@ -1,4 +1,4 @@
-import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, lemonToast, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -9,7 +9,7 @@ import { useCallback } from 'react'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema'
@@ -21,7 +21,14 @@ interface DatabaseTableProps {
     schemaOnChange?: (columnKey: string, columnType: DatabaseSerializedFieldType) => void
 }
 
-const nonEditableSchemaTypes = ['lazy_table', 'virtual_table', 'field_traverser', 'expression', 'view'] as const
+const nonEditableSchemaTypes = [
+    'lazy_table',
+    'virtual_table',
+    'field_traverser',
+    'expression',
+    'view',
+    'materialized_view',
+] as const
 type NonEditableSchemaTypes = Extract<DatabaseSerializedFieldType, (typeof nonEditableSchemaTypes)[number]>
 const editSchemaOptions: Record<Exclude<DatabaseSerializedFieldType, NonEditableSchemaTypes>, string> = {
     integer: 'Integer',
@@ -39,7 +46,7 @@ const isNonEditableSchemaType = (schemaType: unknown): schemaType is NonEditable
     return typeof schemaType === 'string' && nonEditableSchemaTypes.includes(schemaType as NonEditableSchemaTypes)
 }
 const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName: string }): JSX.Element => {
-    const { currentTeamId } = useValues(teamLogic)
+    const { currentProjectId } = useValues(projectLogic)
     const { toggleEditJoinModal } = useActions(viewLinkLogic)
     const { joins, joinsLoading } = useValues(dataWarehouseJoinsLogic)
     const { loadJoins } = useActions(dataWarehouseJoinsLogic)
@@ -61,7 +68,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
                         fullWidth
                         onClick={() => {
                             void deleteWithUndo({
-                                endpoint: `projects/${currentTeamId}/warehouse_view_link`,
+                                endpoint: `projects/${currentProjectId}/warehouse_view_link`,
                                 object: {
                                     id: join.id,
                                     name: `${join.field_name} on ${join.source_table_name}`,
@@ -70,6 +77,8 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
                                     loadDatabase()
                                     loadJoins()
                                 },
+                            }).catch((e) => {
+                                lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
                             })
                         }}
                     >

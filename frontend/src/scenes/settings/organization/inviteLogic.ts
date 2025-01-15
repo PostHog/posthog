@@ -1,10 +1,9 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -50,19 +49,18 @@ export const inviteLogic = kea<inviteLogicType>([
             {
                 inviteTeamMembers: async () => {
                     if (!values.canSubmit) {
-                        return { invites: [] }
+                        return []
                     }
 
                     const payload: Pick<OrganizationInviteType, 'target_email' | 'first_name' | 'level' | 'message'>[] =
                         values.invitesToSend.filter((invite) => invite.target_email)
-                    eventUsageLogic.actions.reportBulkInviteAttempted(
-                        payload.length,
-                        payload.filter((invite) => !!invite.first_name).length
-                    )
                     if (values.message) {
                         payload.forEach((payload) => (payload.message = values.message))
                     }
-                    return await api.create('api/organizations/@current/invites/bulk/', payload)
+                    return await api.create<OrganizationInviteType[]>(
+                        'api/organizations/@current/invites/bulk/',
+                        payload
+                    )
                 },
             },
         ],
@@ -71,7 +69,11 @@ export const inviteLogic = kea<inviteLogicType>([
             {
                 loadInvites: async () => {
                     return organizationLogic.values.currentOrganization
-                        ? (await api.get('api/organizations/@current/invites/')).results
+                        ? (
+                              await api.get<PaginatedResponse<OrganizationInviteType>>(
+                                  'api/organizations/@current/invites/'
+                              )
+                          ).results
                         : []
                 },
                 deleteInvite: async (invite: OrganizationInviteType) => {

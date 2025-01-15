@@ -68,7 +68,7 @@ const CLOUD_FEATURES: CloudFeature[] = [
     {
         name: 'Access to all features',
         description:
-            'Group analytics, data pipelines, A/B testing, and other premium features are only available on PostHog Cloud.',
+            'Group analytics, data pipelines, experiments, and other premium features are only available on PostHog Cloud.',
         icon: <IconFeatures />,
         link: 'https://posthog.com/pricing',
     },

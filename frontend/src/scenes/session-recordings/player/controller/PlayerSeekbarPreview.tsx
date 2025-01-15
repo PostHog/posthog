@@ -1,10 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { colonDelimitedDuration } from 'lib/utils'
 import { memo, MutableRefObject, useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { PlayerFrame } from '../PlayerFrame'
+import { TimestampFormat } from '../playerSettingsLogic'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
@@ -18,6 +20,8 @@ export type PlayerSeekbarPreviewProps = {
     maxMs: number
     seekBarRef: MutableRefObject<HTMLDivElement | null>
     activeMs: number | null
+    timestampFormat: TimestampFormat
+    startTime: Dayjs | null
 }
 
 const PlayerSeekbarPreviewFrame = ({
@@ -27,7 +31,7 @@ const PlayerSeekbarPreviewFrame = ({
     isVisible,
 }: { percentage: number; isVisible: boolean } & Omit<
     PlayerSeekbarPreviewProps,
-    'seekBarRef' | 'activeMs'
+    'seekBarRef' | 'activeMs' | 'timestampFormat' | 'startTime'
 >): JSX.Element | null => {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
 
@@ -66,11 +70,28 @@ const PlayerSeekbarPreviewFrame = ({
     )
 }
 
-function _PlayerSeekbarPreview({ minMs, maxMs, seekBarRef, activeMs }: PlayerSeekbarPreviewProps): JSX.Element {
+function _PlayerSeekbarPreview({
+    minMs,
+    maxMs,
+    seekBarRef,
+    activeMs,
+    timestampFormat,
+    startTime,
+}: PlayerSeekbarPreviewProps): JSX.Element {
     const [percentage, setPercentage] = useState<number>(0)
     const ref = useRef<HTMLDivElement>(null)
     const fixedUnits = maxMs / 1000 > 3600 ? 3 : 2
-    const content = colonDelimitedDuration(minMs / 1000 + ((maxMs - minMs) / 1000) * percentage, fixedUnits)
+
+    const progressionSeconds = ((maxMs - minMs) / 1000) * percentage
+
+    const absoluteTime = startTime?.add(progressionSeconds, 'seconds')
+
+    const content =
+        timestampFormat === TimestampFormat.Relative
+            ? colonDelimitedDuration(minMs / 1000 + progressionSeconds, fixedUnits)
+            : absoluteTime
+            ? (timestampFormat === TimestampFormat.UTC ? absoluteTime?.tz('UTC') : absoluteTime)?.format('HH:mm:ss')
+            : '00:00:00'
 
     const isHovering = useIsHovering(seekBarRef)
 

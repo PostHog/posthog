@@ -1,5 +1,5 @@
 
-// Generated from HogQLParser.g4 by ANTLR 4.13.1
+// Generated from HogQLParser.g4 by ANTLR 4.13.2
 
 #pragma once
 
@@ -63,9 +63,11 @@ public:
 
     virtual std::any visitSelect(HogQLParser::SelectContext *context) = 0;
 
-    virtual std::any visitSelectUnionStmt(HogQLParser::SelectUnionStmtContext *context) = 0;
-
     virtual std::any visitSelectStmtWithParens(HogQLParser::SelectStmtWithParensContext *context) = 0;
+
+    virtual std::any visitSubsequentSelectSetClause(HogQLParser::SubsequentSelectSetClauseContext *context) = 0;
+
+    virtual std::any visitSelectSetStmt(HogQLParser::SelectSetStmtContext *context) = 0;
 
     virtual std::any visitSelectStmt(HogQLParser::SelectStmtContext *context) = 0;
 
@@ -199,6 +201,8 @@ public:
 
     virtual std::any visitColumnExprTuple(HogQLParser::ColumnExprTupleContext *context) = 0;
 
+    virtual std::any visitColumnExprCall(HogQLParser::ColumnExprCallContext *context) = 0;
+
     virtual std::any visitColumnExprArrayAccess(HogQLParser::ColumnExprArrayAccessContext *context) = 0;
 
     virtual std::any visitColumnExprBetween(HogQLParser::ColumnExprBetweenContext *context) = 0;
@@ -225,15 +229,13 @@ public:
 
     virtual std::any visitColumnExprWinFunction(HogQLParser::ColumnExprWinFunctionContext *context) = 0;
 
+    virtual std::any visitColumnExprLambda(HogQLParser::ColumnExprLambdaContext *context) = 0;
+
     virtual std::any visitColumnExprIdentifier(HogQLParser::ColumnExprIdentifierContext *context) = 0;
 
     virtual std::any visitColumnExprFunction(HogQLParser::ColumnExprFunctionContext *context) = 0;
 
     virtual std::any visitColumnExprAsterisk(HogQLParser::ColumnExprAsteriskContext *context) = 0;
-
-    virtual std::any visitColumnArgList(HogQLParser::ColumnArgListContext *context) = 0;
-
-    virtual std::any visitColumnArgExpr(HogQLParser::ColumnArgExprContext *context) = 0;
 
     virtual std::any visitColumnLambdaExpr(HogQLParser::ColumnLambdaExprContext *context) = 0;
 

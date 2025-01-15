@@ -25,6 +25,7 @@ import {
     PluginType,
 } from '~/types'
 
+import { hogFunctionUrl } from './hogfunctions/urls'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { PluginImage, PluginImageSize } from './PipelinePluginImage'
 import {
@@ -262,19 +263,25 @@ function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
 }
 
 export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | ImportApp | Destination): LemonMenuItem[] {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     const items: LemonMenuItem[] = [
         {
             label: canConfigurePlugins ? 'Edit configuration' : 'View configuration',
-            to: urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Configuration),
+            to:
+                'hog_function' in node && node.hog_function
+                    ? hogFunctionUrl(node.hog_function.type, node.hog_function.id)
+                    : urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Configuration),
         },
         {
             label: 'View metrics',
+            // TODO: metrics URL
             to: urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Metrics),
         },
         {
             label: 'View logs',
+            // TODO: logs URL
             to: urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Logs),
         },
     ]
@@ -295,6 +302,7 @@ export function pipelinePluginBackedNodeMenuCommonItems(
     loadPluginConfigs: any,
     inOverview?: boolean
 ): LemonMenuItem[] {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     return [
@@ -321,6 +329,8 @@ export function pipelinePluginBackedNodeMenuCommonItems(
                                   name: node.name,
                               },
                               callback: loadPluginConfigs,
+                          }).catch((e) => {
+                              lemonToast.error(`Failed to delete plugin: ${e.detail}`)
                           })
                       },
                       disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to delete.',

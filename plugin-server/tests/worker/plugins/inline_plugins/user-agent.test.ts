@@ -1,23 +1,22 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { LogLevel, PluginConfig } from '../../../../src/types'
-import { createHub } from '../../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { constructInlinePluginInstance } from '../../../../src/worker/vm/inline/inline'
 import { resetTestDatabase } from '../../../helpers/sql'
 
 describe('user-agent tests', () => {
     let hub: any
-    let closeHub: () => Promise<void>
 
     beforeAll(async () => {
         console.info = jest.fn() as any
         console.warn = jest.fn() as any
-        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
+        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
         await resetTestDatabase()
     })
 
     afterAll(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     test('should not process event when $userAgent is missing', async () => {

@@ -11,6 +11,29 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
 )
 
+from django.db.models import Q
+from typing import TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+    from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable
+
+
+def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
+    from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable
+
+    table: DataWarehouseSavedQuery | DataWarehouseTable | None = (
+        DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+        .filter(team=team, name=name)
+        .first()
+    )
+    if table is None:
+        table = (
+            DataWarehouseSavedQuery.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+            .filter(team=team, name=name)
+            .first()
+        )
+    return table
+
 
 def remove_named_tuples(type):
     """Remove named tuples from query"""

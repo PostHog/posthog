@@ -3,14 +3,14 @@ from django.test.runner import DiscoverRunner as TestRunner
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.schema import (
+    CREATE_DATA_QUERIES,
     CREATE_DICTIONARY_QUERIES,
     CREATE_DISTRIBUTED_TABLE_QUERIES,
     CREATE_KAFKA_TABLE_QUERIES,
     CREATE_MERGETREE_TABLE_QUERIES,
     CREATE_MV_TABLE_QUERIES,
-    build_query,
-    CREATE_DATA_QUERIES,
     CREATE_VIEW_QUERIES,
+    build_query,
 )
 from posthog.settings import (
     CLICKHOUSE_CLUSTER,
@@ -103,6 +103,7 @@ def disable_migrations() -> None:
             # :TRICKY: Create extension and function depended on by models.
             with connection.cursor() as cursor:
                 cursor.execute("CREATE EXTENSION pg_trgm")
+                cursor.execute("CREATE EXTENSION ltree")
 
             return super().handle(*args, **kwargs)
 

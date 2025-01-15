@@ -5,27 +5,30 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { LifecycleFilter } from '~/queries/schema'
 import { EditorFilterProps, LifecycleToggle } from '~/types'
 
+// Tooltip explanations taken from https://posthog.com/docs/product-analytics/lifecycle#interpreting-your-lifecycle
 const lifecycles: { name: LifecycleToggle; tooltip: string; color: string }[] = [
     {
         name: 'new',
-        tooltip: 'Users who were first seen on this period and did the activity during the period.',
+        tooltip:
+            'Users who did the event or action during the interval and were also created during that period – e.g. created an account and sent a message today.',
         color: 'var(--lifecycle-new)',
     },
     {
         name: 'returning',
-        tooltip: 'Users who did activity both this and previous period.',
+        tooltip:
+            'Someone who was active in the previous interval and is also active in the current interval – e.g. sent a message yesterday and also sent a message today.',
         color: 'var(--lifecycle-returning)',
     },
     {
         name: 'resurrecting',
         tooltip:
-            'Users who did the activity this period but did not do the activity on the previous period (i.e. were inactive for 1 or more periods).',
+            'Someone who was not active in the previous interval but became active once again – e.g. did not send any messages for 10 days, but sent one today.',
         color: 'var(--lifecycle-resurrecting)',
     },
     {
         name: 'dormant',
         tooltip:
-            'Users who went dormant on this period, i.e. users who did not do the activity this period but did the activity on the previous period.',
+            'Users who are not active in the current interval, but were active in the previous interval – e.g. someone who has not sent a message today, but sent one yesterday.',
         color: 'var(--lifecycle-dormant)',
     },
 ]

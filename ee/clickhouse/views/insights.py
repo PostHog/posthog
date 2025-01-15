@@ -6,7 +6,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
-from ee.clickhouse.queries.paths import ClickhousePaths
 from ee.clickhouse.queries.retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from posthog.api.insight import InsightViewSet
@@ -26,11 +25,10 @@ class CanEditInsight(BasePermission):
         return view.user_permissions.insight(insight).effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
 
 
-class ClickhouseInsightsViewSet(InsightViewSet):
+class EnterpriseInsightsViewSet(InsightViewSet):
     permission_classes = [CanEditInsight]
     retention_query_class = ClickhouseRetention
     stickiness_query_class = ClickhouseStickiness
-    paths_query_class = ClickhousePaths
 
     # ******************************************
     # /projects/:id/insights/funnel/correlation

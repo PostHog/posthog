@@ -4,7 +4,6 @@ from django.conf import settings
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 from posthog.settings import TEST
-from posthog.warehouse.s3 import get_s3_client
 from uuid import UUID
 from posthog.warehouse.util import database_sync_to_async
 
@@ -16,6 +15,10 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         COMPLETED = "Completed", "Completed"
         CANCELLED = "Cancelled", "Cancelled"
 
+    class PipelineVersion(models.TextChoices):
+        V1 = "v1-dlt-sync", "v1-dlt-sync"
+        V2 = "v2-non-dlt", "v2-non-dlt"
+
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     pipeline = models.ForeignKey("posthog.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
     schema = models.ForeignKey("posthog.ExternalDataSchema", on_delete=models.CASCADE, null=True, blank=True)
@@ -26,27 +29,29 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     workflow_id = models.CharField(max_length=400, null=True, blank=True)
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
 
+    pipeline_version = models.CharField(max_length=400, choices=PipelineVersion.choices, null=True, blank=True)
+
     __repr__ = sane_repr("id")
 
     def folder_path(self) -> str:
-        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.schema_id)}".lower().replace("-", "_")
-
-    def deprecated_folder_path(self) -> str:
-        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pk)}".lower().replace("-", "_")
+        if self.schema:
+            return self.schema.folder_path()
+        else:
+            raise ValueError("Job does not have a schema")
 
     def url_pattern_by_schema(self, schema: str) -> str:
         if TEST:
-            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}/"
+            if self.pipeline_version == ExternalDataJob.PipelineVersion.V1:
+                return (
+                    f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}/"
+                )
+            else:
+                return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}__v2/"
 
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/"
+        if self.pipeline_version == ExternalDataJob.PipelineVersion.V1:
+            return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/"
 
-    def delete_deprecated_data_in_bucket(self) -> None:
-        s3 = get_s3_client()
-
-        if s3.exists(f"{settings.BUCKET_URL}/{self.deprecated_folder_path()}"):
-            s3.delete(f"{settings.BUCKET_URL}/{self.deprecated_folder_path()}", recursive=True)
-
-        return
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}__v2/"
 
 
 @database_sync_to_async

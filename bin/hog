@@ -22,7 +22,8 @@ if [[ "$@" == *".hoge"* ]]; then
     fi
     exec node $CLI_PATH "$@"
   fi
-
+elif [[ "$@" == *"--out"* ]]; then
+  exec python3 -m posthog.hogql.cli --out "$@"
 elif [[ "$@" == *".hog"* ]]; then
   exec python3 -m posthog.hogql.cli --run "$@"
 else

@@ -5,15 +5,6 @@ from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.util import database_sync_to_async
 
 
-async def is_job_cancelled(
-    team_id: int,
-    job_id: str,
-) -> bool:
-    model = await aget_external_data_job(team_id, job_id)
-
-    return model.status == ExternalDataJob.Status.CANCELLED
-
-
 @database_sync_to_async
 def aget_external_data_job(team_id, job_id):
     return ExternalDataJob.objects.get(id=job_id, team_id=team_id)

@@ -1,3 +1,5 @@
+import pytest
+from hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 
@@ -46,10 +48,13 @@ class TestTemplateSlack(BaseHogFunctionTemplateTest):
 
     def test_function_prints_warning_on_bad_status(self):
         self.mock_fetch_response = lambda *args: {"status": 400, "body": {"ok": True}}  # type: ignore
-        self.run_function(self._inputs())
-        assert self.get_mock_print_calls() == [("Non-ok response:", {"status": 400, "body": {"ok": True}})]
+        with pytest.raises(UncaughtHogVMException) as e:
+            self.run_function(self._inputs())
+
+        assert e.value.message == "Failed to post message to Slack: 400: {'ok': true}"
 
     def test_function_prints_warning_on_bad_body(self):
         self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": False}}  # type: ignore
-        self.run_function(self._inputs())
-        assert self.get_mock_print_calls() == [("Non-ok response:", {"status": 200, "body": {"ok": False}})]
+        with pytest.raises(UncaughtHogVMException) as e:
+            self.run_function(self._inputs())
+        assert e.value.message == "Failed to post message to Slack: 200: {'ok': false}"

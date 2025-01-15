@@ -72,7 +72,9 @@ class OrganizationManager(models.Manager):
 
         with transaction.atomic(using=self.db):
             organization = Organization.objects.create(**kwargs)
-            _, team = Project.objects.create_with_team(organization=organization, team_fields=team_fields)
+            _, team = Project.objects.create_with_team(
+                initiating_user=user, organization=organization, team_fields=team_fields
+            )
             organization_membership: Optional[OrganizationMembership] = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(

@@ -22,12 +22,16 @@ export type HogWatcherFunctionState = {
     rating: number
 }
 
+// TODO: Future follow up - we should swap this to an API call or something.
+// Having it as a celery task ID based on a file path is brittle and hard to test.
+export const CELERY_TASK_ID = 'posthog.tasks.plugin_server.hog_function_state_transition'
+
 export class HogWatcher {
-    constructor(
-        private hub: Hub,
-        private redis: CdpRedis,
-        private onStateChange: (id: HogFunctionType['id'], state: HogWatcherState) => void
-    ) {}
+    constructor(private hub: Hub, private redis: CdpRedis) {}
+
+    private async onStateChange(id: HogFunctionType['id'], state: HogWatcherState) {
+        await this.hub.celery.applyAsync(CELERY_TASK_ID, [id, state])
+    }
 
     private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
         const nowSeconds = Math.round(now() / 1000)
@@ -117,14 +121,14 @@ export class HogWatcher {
             }
         })
 
-        this.onStateChange(id, state)
+        await this.onStateChange(id, state)
     }
 
     public async observeResults(results: HogFunctionInvocationResult[]): Promise<void> {
         const costs: Record<HogFunctionType['id'], number> = {}
 
         results.forEach((result) => {
-            let cost = (costs[result.invocation.hogFunctionId] = costs[result.invocation.hogFunctionId] || 0)
+            let cost = (costs[result.invocation.hogFunction.id] = costs[result.invocation.hogFunction.id] || 0)
 
             if (result.finished) {
                 // If it is finished we can calculate the score based off of the timings
@@ -142,7 +146,7 @@ export class HogWatcher {
                 cost += this.hub.CDP_WATCHER_COST_ERROR
             }
 
-            costs[result.invocation.hogFunctionId] = cost
+            costs[result.invocation.hogFunction.id] = cost
         })
 
         const res = await this.redis.usePipeline({ name: 'checkRateLimits' }, (pipeline) => {
@@ -208,15 +212,15 @@ export class HogWatcher {
             }
 
             // Finally track the results
-            functionsToDisablePermanently.forEach((id) => {
-                this.onStateChange(id, HogWatcherState.disabledIndefinitely)
-            })
+            for (const id of functionsToDisablePermanently) {
+                await this.onStateChange(id, HogWatcherState.disabledIndefinitely)
+            }
 
-            functionsTempDisabled.forEach((id) => {
+            for (const id of functionsTempDisabled) {
                 if (!functionsToDisablePermanently.includes(id)) {
-                    this.onStateChange(id, HogWatcherState.disabledForPeriod)
+                    await this.onStateChange(id, HogWatcherState.disabledForPeriod)
                 }
-            })
+            }
         }
     }
 }

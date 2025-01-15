@@ -12,6 +12,7 @@ BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 DEBUG: bool = get_from_env("DEBUG", False, type_cast=str_to_bool)
 TEST = "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=str_to_bool)  # type: bool
+STATIC_COLLECTION = get_from_env("STATIC_COLLECTION", False, type_cast=str_to_bool)
 DEMO: bool = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
 CLOUD_DEPLOYMENT: str | None = get_from_env(
     "CLOUD_DEPLOYMENT",
@@ -29,7 +30,7 @@ if E2E_TESTING:
     )
 
 IS_COLLECT_STATIC = len(sys.argv) > 1 and sys.argv[1] == "collectstatic"
-
+SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type_cast=str)
 
 if DEBUG and not TEST:
     logger.warning(

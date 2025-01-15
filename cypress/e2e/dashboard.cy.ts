@@ -3,9 +3,9 @@ import { randomString } from '../support/random'
 
 describe('Dashboard', () => {
     beforeEach(() => {
-        cy.intercept('GET', /api\/projects\/\d+\/insights\/\?.*/).as('loadInsightList')
-        cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
-        cy.intercept('POST', /\/api\/projects\/\d+\/dashboards/).as('createDashboard')
+        cy.intercept('GET', /api\/environments\/\d+\/insights\/\?.*/).as('loadInsightList')
+        cy.intercept('PATCH', /api\/environments\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+        cy.intercept('POST', /\/api\/environments\/\d+\/dashboards/).as('createDashboard')
 
         cy.clickNavMenu('dashboards')
         cy.location('pathname').should('include', '/dashboard')
@@ -306,7 +306,7 @@ describe('Dashboard', () => {
     })
 
     it('Move dashboard item', () => {
-        cy.intercept('PATCH', /api\/projects\/\d+\/dashboards\/\d+\/move_tile.*/).as('moveTile')
+        cy.intercept('PATCH', /api\/environments\/\d+\/dashboards\/\d+\/move_tile.*/).as('moveTile')
 
         const sourceDashboard = randomString('source-dashboard')
         const targetDashboard = randomString('target-dashboard')
@@ -341,19 +341,6 @@ describe('Dashboard', () => {
         })
     })
 
-    /**
-     * This test is currently failing because the query that runs when you open the dashboard includes the code
-     * select equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'app_rating'), ''), 'null'), '^"|"$', ''), 5.) from events where event ilike '%rated%';
-     * This throws the error Code: 386. DB::Exception: There is no supertype for types String, Float64 because some of them are String/FixedString and some of them are not. (NO_COMMON_TYPE)
-     * All the 'app_ratings' are extracted as strings and 5. is a float
-     */
-    // it('Opens dashboard item in insights', () => {
-    //     cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
-    //     cy.get('.InsightCard [data-attr=insight-card-title]').first().click()
-    //     cy.location('pathname').should('include', '/insights')
-    //     cy.get('[data-attr=funnel-bar-vertical]', { timeout: 30000 }).should('exist')
-    // })
-
     it('Add insight from empty dashboard', () => {
         const dashboardName = randomString('dashboard-')
         dashboards.createAndGoToEmptyDashboard(dashboardName)
@@ -361,5 +348,28 @@ describe('Dashboard', () => {
 
         cy.wait(200)
         cy.get('[data-attr="top-bar-name"] .EditableField__display').contains(dashboardName).should('exist')
+    })
+
+    it('clicking on insight carries through dashboard filters', () => {
+        const dashboardName = randomString('to add an insight to')
+        const firstInsight = randomString('insight to add to dashboard')
+
+        // Create and visit a dashboard to get it into turbo mode cache
+        dashboards.createAndGoToEmptyDashboard(dashboardName)
+        dashboard.addInsightToEmptyDashboard(firstInsight)
+
+        dashboard.addPropertyFilter()
+
+        cy.get('.PropertyFilterButton').should('have.length', 1)
+
+        // refresh the dashboard by changing date range
+        cy.get('[data-attr="date-filter"]').click()
+        cy.contains('span', 'Last 14 days').click()
+
+        // save filters
+        cy.get('button').contains('Save').click()
+
+        // click on insight
+        cy.get('h4').contains('insight to add to dashboard').click({ force: true })
     })
 })

@@ -1,4 +1,5 @@
 import base64
+from typing import Any, Optional
 import dlt
 from dlt.sources.helpers.rest_client.paginators import BasePaginator, JSONLinkPaginator
 from dlt.sources.helpers.requests import Response, Request
@@ -235,7 +236,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
 
 
 class ZendeskTicketsIncrementalEndpointPaginator(BasePaginator):
-    def update_state(self, response: Response) -> None:
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
         self._next_start_time = None
@@ -260,7 +261,7 @@ class ZendeskTicketsIncrementalEndpointPaginator(BasePaginator):
 
 
 class ZendeskIncrementalEndpointPaginator(BasePaginator):
-    def update_state(self, response: Response) -> None:
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
         self._next_page = None
@@ -288,6 +289,7 @@ def zendesk_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    db_incremental_field_last_value: Optional[Any],
     is_incremental: bool = False,
 ):
     config: RESTAPIConfig = {
@@ -311,7 +313,7 @@ def zendesk_source(
         "resources": [get_resource(endpoint, is_incremental)],
     }
 
-    yield from rest_api_resources(config, team_id, job_id)
+    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
 
 
 def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:

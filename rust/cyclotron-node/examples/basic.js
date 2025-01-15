@@ -44,6 +44,7 @@ async function main() {
         function_id: crypto.randomUUID(), // Is nullable
         vm_state: null,
         parameters: null,
+        blob: null,
         metadata: null,
     }
 
@@ -55,6 +56,7 @@ async function main() {
         function_id: crypto.randomUUID(), // Is nullable
         vm_state: null,
         parameters: null,
+        blob: null,
         metadata: null,
     }
 

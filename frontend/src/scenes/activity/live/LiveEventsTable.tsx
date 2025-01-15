@@ -1,3 +1,4 @@
+import { PersonDisplay } from '@posthog/apps-common'
 import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -17,6 +18,16 @@ const columns: LemonTableColumns<LiveEvent> = [
         className: 'max-w-80',
         render: function Render(_, event: LiveEvent) {
             return <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
+        },
+    },
+    {
+        title: 'Person distinct ID',
+        tooltip:
+            'Some events may be missing a person profile – this is expected, because live events are streamed before person processing completes',
+        key: 'person',
+        className: 'max-w-80',
+        render: function Render(_, event: LiveEvent) {
+            return <PersonDisplay person={{ distinct_id: event.distinct_id }} />
         },
     },
     {

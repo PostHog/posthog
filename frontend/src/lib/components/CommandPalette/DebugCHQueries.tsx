@@ -216,8 +216,7 @@ const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
         }
     }, [data])
 
-    // eslint-disable-next-line react/forbid-dom-props
-    return <canvas ref={canvasRef} style={{ height: '300px', width: '100%' }} />
+    return <canvas ref={canvasRef} className="h-[300px] w-full" />
 }
 
 interface DebugCHQueriesProps {

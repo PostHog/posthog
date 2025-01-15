@@ -119,7 +119,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                 return [
                     {
                         key: Scene.DataManagement,
-                        name: `Data Management`,
+                        name: `Data management`,
                         path: tabs.events.url,
                     },
                     {

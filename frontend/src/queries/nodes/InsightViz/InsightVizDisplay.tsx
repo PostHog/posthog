@@ -32,6 +32,7 @@ import { ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
+import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 
 export function InsightVizDisplay({
     disableHeader,
@@ -43,6 +44,7 @@ export function InsightVizDisplay({
     insightMode,
     context,
     embedded,
+    inSharedMode,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
@@ -53,13 +55,14 @@ export function InsightVizDisplay({
     insightMode?: ItemMode
     context?: QueryContext
     embedded: boolean
-}): JSX.Element {
+    inSharedMode?: boolean
+}): JSX.Element | null {
     const { insightProps, canEditInsight } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
     const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
-    const { isFunnelWithEnoughSteps, validationError } = useValues(insightVizDataLogic(insightProps))
+    const { isFunnelWithEnoughSteps, validationError, theme } = useValues(insightVizDataLogic(insightProps))
     const {
         isFunnels,
         isPaths,
@@ -81,7 +84,7 @@ export function InsightVizDisplay({
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
             return (
-                <div className="flex flex-col flex-1 justify-center items-center">
+                <div className="flex flex-col flex-1 justify-center items-center p-2">
                     <InsightLoadingState queryId={queryId} key={queryId} insightProps={insightProps} />
                 </div>
             )
@@ -115,19 +118,41 @@ export function InsightVizDisplay({
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {
             case InsightType.TRENDS:
-                return <TrendInsight view={InsightType.TRENDS} context={context} embedded={embedded} />
+                return (
+                    <TrendInsight
+                        view={InsightType.TRENDS}
+                        context={context}
+                        embedded={embedded}
+                        inSharedMode={inSharedMode}
+                    />
+                )
             case InsightType.STICKINESS:
-                return <TrendInsight view={InsightType.STICKINESS} context={context} embedded={embedded} />
+                return (
+                    <TrendInsight
+                        view={InsightType.STICKINESS}
+                        context={context}
+                        embedded={embedded}
+                        inSharedMode={inSharedMode}
+                    />
+                )
             case InsightType.LIFECYCLE:
-                return <TrendInsight view={InsightType.LIFECYCLE} context={context} embedded={embedded} />
+                return (
+                    <TrendInsight
+                        view={InsightType.LIFECYCLE}
+                        context={context}
+                        embedded={embedded}
+                        inSharedMode={inSharedMode}
+                    />
+                )
             case InsightType.FUNNELS:
-                return <Funnel inCardView={embedded} />
+                return <Funnel inCardView={embedded} inSharedMode={inSharedMode} showPersonsModal={!inSharedMode} />
             case InsightType.RETENTION:
                 return (
                     <RetentionContainer
                         context={context}
                         vizSpecificOptions={vizSpecificOptions?.[InsightType.RETENTION]}
                         inCardView={embedded}
+                        inSharedMode={inSharedMode}
                     />
                 )
             case InsightType.PATHS:
@@ -194,6 +219,10 @@ export function InsightVizDisplay({
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
+    if (!theme) {
+        return null
+    }
+
     return (
         <>
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
@@ -241,12 +270,13 @@ export function InsightVizDisplay({
                                     </div>
                                 </>
                             ) : (
-                                renderActiveView()
+                                <>{renderActiveView()}</>
                             )}
                         </div>
                     </>
                 )}
             </div>
+            <ResultCustomizationsModal />
             {renderTable()}
             {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>

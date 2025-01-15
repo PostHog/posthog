@@ -120,6 +120,7 @@ const preIngestionEvent: PreIngestionEvent = {
     },
     timestamp: '2024-04-17T12:06:46.861Z' as ISOTimestamp,
     teamId: 1,
+    projectId: 1,
 }
 
 describe('extractHeatmapDataStep()', () => {
@@ -138,7 +139,6 @@ describe('extractHeatmapDataStep()', () => {
                     fetchTeam: jest.fn(() => Promise.resolve({ heatmaps_opt_in: true })),
                 },
             },
-            nextStep: (...args: any[]) => args,
         }
     })
 
@@ -154,7 +154,7 @@ describe('extractHeatmapDataStep()', () => {
         const parsed = JSON.parse(firstProduceCall.value.toString())
 
         expect(parsed).toMatchInlineSnapshot(`
-            Object {
+            {
               "current_url": "http://localhost:3000/",
               "distinct_id": "018eebf3-79b1-7082-a7c6-eeb56a36002f",
               "pointer_target_fixed": false,
@@ -196,7 +196,7 @@ describe('extractHeatmapDataStep()', () => {
         )
 
         expect(allParsedMessages.find((x) => x.type === 'scrolldepth')).toMatchInlineSnapshot(`
-            Object {
+            {
               "current_url": "http://localhost:3000/test",
               "distinct_id": "018eebf3-79b1-7082-a7c6-eeb56a36002f",
               "pointer_target_fixed": false,

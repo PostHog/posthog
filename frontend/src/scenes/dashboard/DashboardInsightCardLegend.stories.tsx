@@ -11,8 +11,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/dashboards/1/': require('./__mocks__/dashboard_insight_card_legend_query.json'),
-                '/api/projects/:team_id/dashboards/2/': require('./__mocks__/dashboard_insight_card_legend_legacy.json'),
+                '/api/environments/:team_id/dashboards/1/': require('./__mocks__/dashboard_insight_card_legend_query.json'),
+                '/api/environments/:team_id/dashboards/2/': require('./__mocks__/dashboard_insight_card_legend_legacy.json'),
             },
         }),
     ],

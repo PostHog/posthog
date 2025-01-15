@@ -41,6 +41,7 @@ pub struct Config {
     pub overflow_burst_limit: NonZeroU32,
 
     pub overflow_forced_keys: Option<String>, // Coma-delimited keys
+    pub dropped_keys: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
@@ -58,6 +59,8 @@ pub struct Config {
 
     #[envconfig(default = "events")]
     pub capture_mode: CaptureMode,
+
+    pub concurrency_limit: Option<usize>,
 }
 
 #[derive(Envconfig, Clone)]
@@ -68,6 +71,8 @@ pub struct KafkaConfig {
     pub kafka_producer_queue_mib: u32, // Size of the in-memory producer queue in mebibytes
     #[envconfig(default = "20000")]
     pub kafka_message_timeout_ms: u32, // Time before we stop retrying producing a message: 20 seconds
+    #[envconfig(default = "1000000")]
+    pub kafka_producer_message_max_bytes: u32, // message.max.bytes - max kafka message size we will produce
     #[envconfig(default = "none")]
     pub kafka_compression_codec: String, // none, gzip, snappy, lz4, zstd
     pub kafka_hosts: String,
@@ -81,6 +86,14 @@ pub struct KafkaConfig {
     pub kafka_exceptions_topic: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_heatmaps_topic: String,
+    #[envconfig(default = "session_recording_snapshot_item_overflow")]
+    pub kafka_replay_overflow_topic: String,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
+    #[envconfig(default = "")]
+    pub kafka_client_id: String,
+    #[envconfig(default = "60000")]
+    pub kafka_metadata_max_age_ms: u32,
+    #[envconfig(default = "2")]
+    pub kafka_producer_max_retries: u32,
 }

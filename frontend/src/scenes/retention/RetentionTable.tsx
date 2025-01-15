@@ -3,16 +3,15 @@ import './RetentionTable.scss'
 import clsx from 'clsx'
 import { mean } from 'd3'
 import { useActions, useValues } from 'kea'
-import { BRAND_BLUE_HSL, gradateColor, PURPLE } from 'lib/colors'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { range } from 'lib/utils'
+import { BRAND_BLUE_HSL, gradateColor, PURPLE, range } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
 
-export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
+export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { tableHeaders, tableRows, isLatestPeriod, hideSizeColumn, retentionVizOptions } = useValues(
         retentionTableLogic(insightProps)
@@ -71,7 +70,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                     <tr
                         key={rowIndex}
                         onClick={() => {
-                            if (!inCardView) {
+                            if (!inSharedMode) {
                                 openModal(rowIndex)
                             }
                         }}

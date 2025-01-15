@@ -7,6 +7,8 @@ use tracing_subscriber::{EnvFilter, Layer};
 use feature_flags::config::Config;
 use feature_flags::server::serve;
 
+common_alloc::used!();
+
 async fn shutdown() {
     let mut term = signal::unix::signal(signal::unix::SignalKind::terminate())
         .expect("failed to register SIGTERM handler");

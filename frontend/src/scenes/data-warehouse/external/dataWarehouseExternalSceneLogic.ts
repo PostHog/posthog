@@ -7,7 +7,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema'
+import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { Breadcrumb, InsightShortId, ItemMode } from '~/types'
 
 import type { dataWarehouseExternalSceneLogicType } from './dataWarehouseExternalSceneLogicType'
@@ -100,6 +100,11 @@ export const dataWarehouseExternalSceneLogic = kea<dataWarehouseExternalSceneLog
             insightSceneLogic.actions.setSceneState(
                 String('new-dataWarehouse') as InsightShortId,
                 ItemMode.Edit,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
                 undefined
             )
         },
@@ -107,6 +112,11 @@ export const dataWarehouseExternalSceneLogic = kea<dataWarehouseExternalSceneLog
             insightSceneLogic.actions.setSceneState(
                 String('new-dataWarehouse') as InsightShortId,
                 ItemMode.Edit,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
                 undefined
             )
             id && actions.loadView(id)

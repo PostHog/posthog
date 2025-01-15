@@ -4,7 +4,7 @@ import 'cypress-axe'
 
 import { urls } from 'scenes/urls'
 
-import { decideResponse } from '../fixtures/api/decide'
+import { setupFeatureFlags } from './decide'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -23,6 +23,59 @@ Cypress.on('window:before:load', (win) => {
     win._cypress_posthog_captures = []
 })
 
+Cypress.on('window:load', (win) => {
+    // This is an absolutely mad fix for the Cypress renderer process crashing in CI:
+    // https://github.com/cypress-io/cypress/issues/27415#issuecomment-2169155274
+    // Hopefully one day #27415 is solved and this becomes unnecessary
+    const RealResizeObserver = win.ResizeObserver
+
+    let queueFlushTimeout: number | null = null
+    let queue: { cb: ResizeObserverCallback; args: Parameters<ResizeObserverCallback>[0] }[] = []
+
+    /** ResizeObserver wrapper with "enforced batches" */
+    class ResizeObserverPolyfill {
+        observer: ResizeObserver
+        callback: ResizeObserverCallback
+
+        constructor(callback) {
+            this.callback = callback
+            this.observer = new RealResizeObserver(this.check.bind(this))
+        }
+
+        observe(element): void {
+            this.observer.observe(element)
+        }
+
+        unobserve(element): void {
+            this.observer.unobserve(element)
+        }
+
+        disconnect(): void {
+            this.observer.disconnect()
+        }
+
+        check(entries): void {
+            // remove previous invocations of "self"
+            queue = queue.filter((x) => x.cb !== this.callback)
+            // put a new one
+            queue.push({ cb: this.callback, args: entries })
+            // trigger update
+            if (!queueFlushTimeout) {
+                queueFlushTimeout = requestAnimationFrame(() => {
+                    queueFlushTimeout = null
+                    const queueBeingFlushed = queue
+                    queue = []
+                    for (const q of queueBeingFlushed) {
+                        q.cb(q.args, this)
+                    }
+                })
+            }
+        }
+    }
+
+    win.ResizeObserver = ResizeObserverPolyfill
+})
+
 before(() => {
     cy.task('resetInsightCache') // Reset insight cache before each suite
 })
@@ -33,14 +86,7 @@ beforeEach(() => {
     Cypress.env('POSTHOG_PROPERTY_GITHUB_ACTION_RUN_URL', process.env.GITHUB_ACTION_RUN_URL)
     cy.useSubscriptionStatus('subscribed')
 
-    cy.intercept('**/decide/*', (req) =>
-        req.reply(
-            decideResponse({
-                // Feature flag to be treated as rolled out in E2E tests, e.g.:
-                // 'toolbar-launch-side-action': true,
-            })
-        )
-    )
+    setupFeatureFlags({})
 
     // un-intercepted sometimes this doesn't work and the page gets stuck on the SpinnerOverlay
     cy.intercept(/app.posthog.com\/api\/projects\/@current\/feature_flags\/my_flags.*/, (req) => req.reply([]))
@@ -48,7 +94,7 @@ beforeEach(() => {
         req.reply({ statusCode: 404, body: 'Cypress forced 404' })
     )
 
-    cy.intercept('GET', /\/api\/projects\/\d+\/insights\/?\?/).as('getInsights')
+    cy.intercept('GET', /\/api\/environments\/\d+\/insights\/?\?/).as('getInsights')
 
     cy.request('POST', '/api/login/', {
         email: 'test@posthog.com',

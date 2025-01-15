@@ -79,7 +79,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.12.5.81-alpine}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:24.8.7.41}
         restart: on-failure
 
     zookeeper:
@@ -181,6 +181,20 @@ services:
             REDIS_URL: 'redis://redis:6379/'
             CAPTURE_MODE: recordings
 
+    property-defs-rs:
+        image: ghcr.io/posthog/posthog/property-defs-rs:master
+        build:
+            context: rust/
+            args:
+                BIN: property-defs-rs
+        restart: on-failure
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            KAFKA_HOSTS: 'kafka:9092'
+            SKIP_WRITES: 'false'
+            SKIP_READS: 'false'
+            FILTER_MODE: 'opt-out'
+
     plugins:
         command: ./bin/plugin-server --no-restart-loop
         restart: on-failure
@@ -271,7 +285,8 @@ services:
         environment:
             - TEMPORAL_ADDRESS=temporal:7233
             - TEMPORAL_CORS_ORIGINS=http://localhost:3000
-        image: temporalio/ui:2.10.3
+            - TEMPORAL_CSRF_COOKIE_INSECURE=true
+        image: temporalio/ui:2.31.2
         ports:
             - 8081:8080
     temporal-django-worker:

@@ -1,6 +1,7 @@
 import type { Monaco } from '@monaco-editor/react'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 // Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
@@ -23,12 +24,12 @@ import {
     HogQLMetadataResponse,
     HogQLNotice,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
 
 export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
-export const activemodelStateKey = (key: string | number): string => `${key}/activeModelUri`
+export const activeModelStateKey = (key: string | number): string => `${key}/activeModelUri`
 
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 
@@ -48,6 +49,9 @@ export interface CodeEditorLogicProps {
     editor?: editor.IStandaloneCodeEditor | null
     globals?: Record<string, any>
     multitab?: boolean
+    onError?: (error: string | null, isValidView: boolean) => void
+    onMetadata?: (metadata: HogQLMetadataResponse | null) => void
+    onMetadataLoading?: (loading: boolean) => void
 }
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
@@ -75,13 +79,21 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 reloadMetadata: async (_, breakpoint) => {
                     const model = props.editor?.getModel()
                     if (!model || !props.monaco || !METADATA_LANGUAGES.includes(props.language as HogLanguage)) {
+                        props.onMetadata?.(null)
                         return null
                     }
                     await breakpoint(300)
                     const query = props.query
                     if (query === '') {
+                        props.onMetadata?.(null)
                         return null
                     }
+
+                    const variables =
+                        props.sourceQuery?.kind === NodeKind.HogQLQuery
+                            ? props.sourceQuery.variables ?? undefined
+                            : undefined
+
                     const response = await performQuery<HogQLMetadata>({
                         kind: NodeKind.HogQLMetadata,
                         language: props.language as HogLanguage,
@@ -89,8 +101,10 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         filters: props.metadataFilters,
                         globals: props.globals,
                         sourceQuery: props.sourceQuery,
+                        variables,
                     })
                     breakpoint()
+                    props.onMetadata?.(response)
                     return [query, response]
                 },
             },
@@ -162,7 +176,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
     }),
     listeners(({ props, values, actions }) => ({
         addModel: () => {
-            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR]) {
+            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] || values.featureFlags[FEATURE_FLAGS.SQL_EDITOR]) {
                 const queries = values.allModels.map((model) => {
                     return {
                         query:
@@ -175,7 +189,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             }
         },
         removeModel: () => {
-            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR]) {
+            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] || values.featureFlags[FEATURE_FLAGS.SQL_EDITOR]) {
                 const queries = values.allModels.map((model) => {
                     return {
                         query:
@@ -193,9 +207,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 props.editor?.setModel(model)
             }
 
-            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR]) {
+            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] || values.featureFlags[FEATURE_FLAGS.SQL_EDITOR]) {
                 const path = modelName.path.split('/').pop()
-                path && props.multitab && actions.setLocalState(activemodelStateKey(props.key), path)
+                path && props.multitab && actions.setLocalState(activeModelStateKey(props.key), path)
             }
         },
         deleteModel: ({ modelName }) => {
@@ -218,7 +232,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         },
         updateState: async (_, breakpoint) => {
             await breakpoint(100)
-            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR]) {
+            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] || values.featureFlags[FEATURE_FLAGS.SQL_EDITOR]) {
                 const queries = values.allModels.map((model) => {
                     return {
                         query:
@@ -238,8 +252,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             }
 
             if (props.monaco) {
+                const defaultQuery = 'SELECT event FROM events LIMIT 100'
                 const uri = props.monaco.Uri.parse(currentModelCount.toString())
-                const model = props.monaco.editor.createModel('SELECT event FROM events LIMIT 100', props.language, uri)
+                const model = props.monaco.editor.createModel(defaultQuery, props.language, uri)
                 props.editor?.setModel(model)
                 actions.setModel(uri)
                 actions.addModel(uri)
@@ -262,6 +277,17 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             },
         ],
     }),
+    subscriptions(({ props, values }) => ({
+        isValidView: (isValidView) => {
+            props.onError?.(values.error, isValidView)
+        },
+        error: (error) => {
+            props.onError?.(error, values.isValidView)
+        },
+        metadataLoading: (loading) => {
+            props.onMetadataLoading?.(loading)
+        },
+    })),
     propsChanged(({ actions, props }, oldProps) => {
         if (
             props.query !== oldProps.query ||

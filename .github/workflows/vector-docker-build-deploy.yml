@@ -74,7 +74,7 @@ jobs:
                   platforms: linux/arm64,linux/amd64
 
     deploy:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         needs: build
         if: github.ref == 'refs/heads/master'
         steps:
@@ -101,5 +101,6 @@ jobs:
                         "release": "replay-capture-vector",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "labels": []
+                        "labels": [],
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

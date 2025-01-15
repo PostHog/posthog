@@ -1,5 +1,4 @@
 import json
-from posthog.clickhouse.client.connection import Workload
 from posthog.models.person.missing_person import MissingPerson
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
@@ -17,10 +16,11 @@ from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
-from rest_framework import request, response, serializers, viewsets
 from posthog.api.utils import action
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -32,7 +32,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.constants import (
     INSIGHT_FUNNELS,
-    INSIGHT_PATHS,
     LIMIT,
     OFFSET,
     FunnelVizType,
@@ -66,7 +65,6 @@ from posthog.queries.funnels.funnel_unordered_persons import (
     ClickhouseFunnelUnorderedActors,
 )
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.queries.property_values import get_person_property_values_for_key
@@ -238,6 +236,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     scope_object = "person"
     renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
+    parser_classes = [JSONParser]
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
@@ -305,7 +304,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             filter=filter,
             query_type="person_list",
             team_id=team.pk,
-            workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
+            # workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
         )
         actor_ids = [row[0] for row in raw_paginated_result]
         serialized_actors = get_serialized_people(team, actor_ids)
@@ -353,12 +352,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "delete_events",
                 OpenApiTypes.BOOL,
-                description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday (controlled by environment variable CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON)",
+                description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday",
                 default=False,
             ),
         ],
     )
     def destroy(self, request: request.Request, pk=None, **kwargs):
+        """
+        Use this endpoint to delete individual persons. For bulk deletion, use the bulk_delete endpoint instead.
+        """
         try:
             person = self.get_object()
             person_id = person.id
@@ -390,6 +392,70 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "delete_events",
+                OpenApiTypes.BOOL,
+                description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday",
+                default=False,
+            ),
+            OpenApiParameter(
+                "distinct_ids",
+                OpenApiTypes.OBJECT,
+                description="A list of distinct IDs, up to 100 of them. We'll delete all persons associated with those distinct IDs.",
+            ),
+            OpenApiParameter(
+                "ids",
+                OpenApiTypes.OBJECT,
+                description="A list of PostHog person IDs, up to 100 of them. We'll delete all the persons listed.",
+            ),
+        ],
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["person:write"])
+    def bulk_delete(self, request: request.Request, pk=None, **kwargs):
+        """
+        This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call.
+        """
+        if distinct_ids := request.data.get("distinct_ids"):
+            if len(distinct_ids) > 1000:
+                raise ValidationError("You can only pass 1000 distinct_ids in one call")
+            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=distinct_ids).defer("properties")
+        elif ids := request.data.get("ids"):
+            if len(ids) > 1000:
+                raise ValidationError("You can only pass 1000 ids in one call")
+            persons = self.get_queryset().filter(uuid__in=ids).defer("properties")
+        else:
+            raise ValidationError("You need to specify either distinct_ids or ids")
+
+        for person in persons:
+            delete_person(person=person)
+            self.perform_destroy(person)
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=person.pk,
+                scope="Person",
+                activity="deleted",
+                detail=Detail(name=str(person.uuid)),
+            )
+            # Once the person is deleted, queue deletion of associated data, if that was requested
+            if request.data.get("delete_events"):
+                AsyncDeletion.objects.bulk_create(
+                    [
+                        AsyncDeletion(
+                            deletion_type=DeletionType.Person,
+                            team_id=self.team_id,
+                            key=str(person.uuid),
+                            created_by=cast(User, self.request.user),
+                        )
+                    ],
+                    ignore_conflicts=True,
+                )
+        return response.Response(status=202)
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
@@ -636,16 +702,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             },
         )
 
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team.id,
-            user=user,
-            was_impersonated=is_impersonated_session(self.request),
-            item_id=instance.pk,
-            scope="Person",
-            activity="updated",
-            detail=Detail(changes=[Change(type="Person", action="changed", field="properties")]),
-        )
+        if self.organization.id:  # should always be true, but mypy...
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=user,
+                was_impersonated=is_impersonated_session(self.request),
+                item_id=instance.pk,
+                scope="Person",
+                activity="updated",
+                detail=Detail(changes=[Change(type="Person", action="changed", field="properties")]),
+            )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
     def _respond_with_cached_results(
@@ -685,41 +752,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         actors, serialized_actors, raw_count = funnel_actor_class(filter, self.team).get_actors()
         initial_url = format_query_params_absolute_url(request, 0)
         next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-
-        # cached_function expects a dict with the key result
-        return {
-            "result": (
-                serialized_actors,
-                next_url,
-                initial_url,
-                raw_count - len(serialized_actors),
-            )
-        }
-
-    @action(methods=["GET", "POST"], detail=False)
-    def path(self, request: request.Request, **kwargs) -> response.Response:
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        return self._respond_with_cached_results(self.calculate_path_persons(request))
-
-    @cached_by_filters
-    def calculate_path_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
-        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
-        filter = prepare_actor_query_filter(filter)
-
-        funnel_filter = None
-        funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
-        if funnel_filter_data:
-            if isinstance(funnel_filter_data, str):
-                funnel_filter_data = json.loads(funnel_filter_data)
-            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
-
-        actors, serialized_actors, raw_count = PathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-        initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
         return {

@@ -1,10 +1,9 @@
-import '../Experiment.scss'
-
 import { IconWarning } from '@posthog/icons'
-import { Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
@@ -12,18 +11,20 @@ import { ProgressStatus } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
-import { ActionBanner, ResultsTag, StatusTag } from './components'
+import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 
 export function Info(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
-    const { updateExperiment } = useActions(experimentLogic)
+    const { experiment, featureFlags } = useValues(experimentLogic)
+    const { updateExperiment, setExperimentStatsVersion } = useActions(experimentLogic)
 
     const { created_by } = experiment
 
     if (!experiment.feature_flag) {
         return <></>
     }
+
+    const currentStatsVersion = experiment.stats_config?.version || 1
 
     return (
         <div>
@@ -32,10 +33,6 @@ export function Info(): JSX.Element {
                     <div className="block" data-attr="experiment-status">
                         <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
                         <StatusTag experiment={experiment} />
-                    </div>
-                    <div className="block">
-                        <div className="text-xs font-semibold uppercase tracking-wide">Significance</div>
-                        <ResultsTag />
                     </div>
                     {experiment.feature_flag && (
                         <div className="block">
@@ -71,6 +68,28 @@ export function Info(): JSX.Element {
                             </Link>
                         </div>
                     )}
+                    {featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2] && (
+                        <div className="block">
+                            <div className="text-xs font-semibold uppercase tracking-wide">
+                                <span>Stats Version</span>
+                            </div>
+                            <div className="flex gap-1">
+                                {[1, 2].map((version) => (
+                                    <LemonButton
+                                        key={version}
+                                        size="xsmall"
+                                        type="tertiary"
+                                        active={currentStatsVersion === version}
+                                        onClick={() => {
+                                            setExperimentStatsVersion(version)
+                                        }}
+                                    >
+                                        v{version}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div className="w-1/2 flex flex-col justify-end">
@@ -98,7 +117,6 @@ export function Info(): JSX.Element {
                     compactButtons
                 />
             </div>
-            <ActionBanner />
         </div>
     )
 }

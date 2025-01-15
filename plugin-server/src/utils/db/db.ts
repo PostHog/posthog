@@ -7,7 +7,6 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
-import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import {
     Action,
@@ -34,6 +33,7 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginLogLevel,
+    ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
@@ -228,6 +228,22 @@ export class DB {
         })
     }
 
+    public redisGetBuffer(key: string, tag: string): Promise<Buffer | null> {
+        return instrumentQuery('query.redisGetBuffer', tag, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('Getting redis key delayed. Waiting over 30 sec to get key.', { key })
+            try {
+                return await tryTwice(
+                    async () => await client.getBuffer(key),
+                    `Waited 5 sec to get redis key: ${key}, retrying once!`
+                )
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
     public redisSet(
         key: string,
         value: unknown,
@@ -246,6 +262,49 @@ export class DB {
                     await client.set(key, serializedValue, 'EX', ttlSeconds)
                 } else {
                     await client.set(key, serializedValue)
+                }
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
+    public redisSetBuffer(key: string, value: Buffer, tag: string, ttlSeconds?: number): Promise<void> {
+        return instrumentQuery('query.redisSetBuffer', tag, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key', { key })
+            try {
+                if (ttlSeconds) {
+                    await client.setBuffer(key, value, 'EX', ttlSeconds)
+                } else {
+                    await client.setBuffer(key, value)
+                }
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
+    public redisSetNX(
+        key: string,
+        value: unknown,
+        tag: string,
+        ttlSeconds?: number,
+        options: CacheOptions = {}
+    ): Promise<'OK' | null> {
+        const { jsonSerialize = true } = options
+
+        return instrumentQuery('query.redisSetNX', tag, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key (NX)', { key })
+            try {
+                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
+                if (ttlSeconds) {
+                    return await client.set(key, serializedValue, 'EX', ttlSeconds, 'NX')
+                } else {
+                    return await client.set(key, serializedValue, 'NX')
                 }
             } finally {
                 clearTimeout(timeout)
@@ -403,6 +462,45 @@ export class DB {
         })
     }
 
+    public redisSAddAndSCard(key: string, value: Redis.ValueType, ttlSeconds?: number): Promise<number> {
+        return instrumentQuery('query.redisSAddAndSCard', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('SADD+SCARD delayed. Waiting over 30 sec to perform SADD+SCARD', {
+                key,
+                value,
+            })
+            try {
+                const multi = client.multi()
+                multi.sadd(key, value)
+                if (ttlSeconds) {
+                    multi.expire(key, ttlSeconds)
+                }
+                multi.scard(key)
+                const results = await multi.exec()
+                const scardResult = ttlSeconds ? results[2] : results[1]
+                return scardResult[1]
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
+    public redisSCard(key: string): Promise<number> {
+        return instrumentQuery('query.redisSCard', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('SCARD delayed. Waiting over 30 sec to perform SCARD', {
+                key,
+            })
+            try {
+                return await client.scard(key)
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
     public redisPublish(channel: string, message: string): Promise<number> {
         return instrumentQuery('query.redisPublish', undefined, async () => {
             const client = await this.redisPool.acquire()
@@ -416,37 +514,6 @@ export class DB {
                 clearTimeout(timeout)
                 await this.redisPool.release(client)
             }
-        })
-    }
-
-    /** Calls Celery task. Works similarly to Task.apply_async in Python. */
-    async celeryApplyAsync(taskName: string, args: any[] = [], kwargs: Record<string, any> = {}): Promise<void> {
-        const taskId = new UUIDT().toString()
-        const deliveryTag = new UUIDT().toString()
-        const body = [args, kwargs, { callbacks: null, errbacks: null, chain: null, chord: null }]
-        /** A base64-encoded JSON representation of the body tuple. */
-        const bodySerialized = Buffer.from(JSON.stringify(body)).toString('base64')
-        await this.redisLPush(CELERY_DEFAULT_QUEUE, {
-            body: bodySerialized,
-            'content-encoding': 'utf-8',
-            'content-type': 'application/json',
-            headers: {
-                lang: 'js',
-                task: taskName,
-                id: taskId,
-                retries: 0,
-                root_id: taskId,
-                parent_id: null,
-                group: null,
-            },
-            properties: {
-                correlation_id: taskId,
-                delivery_mode: 2,
-                delivery_tag: deliveryTag,
-                delivery_info: { exchange: '', routing_key: CELERY_DEFAULT_QUEUE },
-                priority: 0,
-                body_encoding: 'base64',
-            },
         })
     }
 
@@ -1374,14 +1441,18 @@ export class DB {
     }
 
     public async getTeamsInOrganizationsWithRootPluginAccess(): Promise<Team[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                'SELECT * from posthog_team WHERE organization_id = (SELECT id from posthog_organization WHERE plugins_access_level = $1)',
-                [OrganizationPluginsAccessLevel.ROOT],
-                'getTeamsInOrganizationsWithRootPluginAccess'
-            )
-        ).rows as Team[]
+        const selectResult = await this.postgres.query<Team>(
+            PostgresUse.COMMON_READ,
+            'SELECT * from posthog_team WHERE organization_id = (SELECT id from posthog_organization WHERE plugins_access_level = $1)',
+            [OrganizationPluginsAccessLevel.ROOT],
+            'getTeamsInOrganizationsWithRootPluginAccess'
+        )
+        for (const row of selectResult.rows) {
+            // pg returns int8 as a string, since it can be larger than JS's max safe integer,
+            // but this is not a problem for project_id, which is a long long way from that limit.
+            row.project_id = Number(row.project_id) as ProjectId
+        }
+        return selectResult.rows
     }
 
     public async addOrUpdatePublicJob(

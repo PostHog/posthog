@@ -1,22 +1,27 @@
 import { randomUUID } from 'crypto'
 import { Message } from 'node-rdkafka'
 
-import { HogFunctionInvocationGlobals, HogFunctionType, IntegrationType } from '../../src/cdp/types'
+import { CdpInternalEvent } from '../../src/cdp/schema'
+import {
+    HogFunctionInvocation,
+    HogFunctionInvocationGlobals,
+    HogFunctionType,
+    IntegrationType,
+} from '../../src/cdp/types'
 import { ClickHouseTimestamp, RawClickHouseEvent, Team } from '../../src/types'
 import { PostgresRouter } from '../../src/utils/db/postgres'
+import { UUIDT } from '../../src/utils/utils'
 import { insertRow } from '../helpers/sql'
 
 export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
     const item: HogFunctionType = {
         id: randomUUID(),
+        type: 'destination',
+        name: 'Hog Function',
         team_id: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        created_by_id: 1001,
         enabled: true,
-        deleted: false,
-        description: '',
         hog: '',
+        bytecode: [],
         ...hogFunction,
     }
 
@@ -29,6 +34,10 @@ export const createIntegration = (integration: Partial<IntegrationType>) => {
         errors: '',
         created_at: new Date().toISOString(),
         created_by_id: 1001,
+        id: integration.id ?? 1,
+        kind: integration.kind ?? 'slack',
+        config: {},
+        sensitive_config: {},
         ...integration,
     }
 
@@ -47,11 +56,12 @@ export const createIncomingEvent = (teamId: number, data: Partial<RawClickHouseE
         event: '$pageview',
         timestamp: new Date().toISOString() as ClickHouseTimestamp,
         properties: '{}',
+        person_mode: 'full',
         ...data,
     }
 }
 
-export const createMessage = (event: RawClickHouseEvent, overrides: Partial<Message> = {}): Message => {
+export const createKafkaMessage = (event: any, overrides: Partial<Message> = {}): Message => {
     return {
         partition: 1,
         topic: 'test',
@@ -63,19 +73,38 @@ export const createMessage = (event: RawClickHouseEvent, overrides: Partial<Mess
     }
 }
 
+export const createInternalEvent = (teamId: number, data: Partial<CdpInternalEvent>): CdpInternalEvent => {
+    return {
+        team_id: teamId,
+        event: {
+            timestamp: new Date().toISOString(),
+            properties: {},
+            uuid: randomUUID(),
+            event: '$pageview',
+            distinct_id: 'distinct_id',
+        },
+        ...data,
+    }
+}
+
 export const insertHogFunction = async (
     postgres: PostgresRouter,
     team_id: Team['id'],
     hogFunction: Partial<HogFunctionType> = {}
 ): Promise<HogFunctionType> => {
-    const res = await insertRow(
-        postgres,
-        'posthog_hogfunction',
-        createHogFunction({
+    // This is only used for testing so we need to override some values
+
+    const res = await insertRow(postgres, 'posthog_hogfunction', {
+        ...createHogFunction({
             ...hogFunction,
             team_id: team_id,
-        })
-    )
+        }),
+        description: '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        created_by_id: 1001,
+        deleted: false,
+    })
     return res
 }
 
@@ -99,7 +128,18 @@ export const createHogExecutionGlobals = (
     data: Partial<HogFunctionInvocationGlobals> = {}
 ): HogFunctionInvocationGlobals => {
     return {
+        groups: {},
         ...data,
+        person: {
+            id: 'uuid',
+            name: 'test',
+            url: 'http://localhost:8000/persons/1',
+            properties: {
+                email: 'test@posthog.com',
+                first_name: 'Pumpkin',
+            },
+            ...(data.person ?? {}),
+        },
         project: {
             id: 1,
             name: 'test',
@@ -108,7 +148,8 @@ export const createHogExecutionGlobals = (
         },
         event: {
             uuid: 'uuid',
-            name: 'test',
+            event: 'test',
+            elements_chain: '',
             distinct_id: 'distinct_id',
             url: 'http://localhost:8000/events/1',
             properties: {
@@ -117,5 +158,31 @@ export const createHogExecutionGlobals = (
             timestamp: new Date().toISOString(),
             ...(data.event ?? {}),
         },
+    }
+}
+
+export const createInvocation = (
+    _hogFunction: Partial<HogFunctionType> = {},
+    _globals: Partial<HogFunctionInvocationGlobals> = {}
+): HogFunctionInvocation => {
+    const hogFunction = createHogFunction(_hogFunction)
+    // Add the source of the trigger to the globals
+    let globals = createHogExecutionGlobals(_globals)
+    globals = {
+        ...globals,
+        source: {
+            name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+            url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+        },
+    }
+
+    return {
+        id: new UUIDT().toString(),
+        globals,
+        teamId: hogFunction.team_id,
+        hogFunction,
+        queue: 'hog',
+        timings: [],
+        priority: 0,
     }
 }

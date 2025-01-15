@@ -21,6 +21,7 @@ from ee.billing.quota_limiting import (
     update_all_org_billing_quotas,
 )
 from posthog.api.test.test_team import create_team
+from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.test.base import BaseTest, _create_event
 
@@ -69,15 +70,15 @@ class TestQuotaLimiting(BaseTest):
         quota_limited_orgs, quota_limiting_suspended_orgs = update_all_org_billing_quotas()
         patch_feature_enabled.assert_called_with(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,
-            self.organization.id,
+            str(self.organization.id),
             groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
+            group_properties={"organization": {"id": str(org_id)}},
         )
         patch_capture.assert_called_once_with(
             org_id,
             "quota limiting suspended",
             properties={"current_usage": 109},
-            groups={"instance": "http://localhost:8000", "organization": org_id},
+            groups={"instance": "http://localhost:8010", "organization": org_id},
         )
         # Feature flag is enabled so they won't be limited.
         assert quota_limited_orgs["events"] == {}
@@ -92,7 +93,7 @@ class TestQuotaLimiting(BaseTest):
 
         patch_capture.reset_mock()
         # Add this org to the redis cache.
-        team_tokens = get_team_attribute_by_quota_resource(self.organization, QuotaResource.EVENTS)
+        team_tokens = get_team_attribute_by_quota_resource(self.organization)
         add_limited_team_tokens(
             QuotaResource.EVENTS,
             {x: 1612137599 for x in team_tokens},
@@ -101,7 +102,7 @@ class TestQuotaLimiting(BaseTest):
         quota_limited_orgs, quota_limiting_suspended_orgs = update_all_org_billing_quotas()
         patch_feature_enabled.assert_called_with(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,
-            self.organization.id,
+            str(self.organization.id),
             groups={"organization": org_id},
             group_properties={"organization": {"id": org_id}},
         )
@@ -222,7 +223,7 @@ class TestQuotaLimiting(BaseTest):
                     "quota_limited_recordings": 1612137599,
                     "quota_limited_rows_synced": None,
                 },
-                groups={"instance": "http://localhost:8000", "organization": org_id},
+                groups={"instance": "http://localhost:8010", "organization": org_id},
             )
 
             assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [
@@ -715,7 +716,7 @@ class TestQuotaLimiting(BaseTest):
             # rows_synced uses teams, not tokens
             assert sorted(
                 list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
-            ) == sorted(["1337", str(self.team.pk), str(other_team.pk)])
+            ) == sorted(["1337", str(self.team.api_token), str(other_team.api_token)])
 
             self.organization.usage["events"]["usage"] = 80
             self.organization.usage["rows_synced"]["usage"] = 36
@@ -748,7 +749,7 @@ class TestQuotaLimiting(BaseTest):
                 list_limited_team_attributes(
                     QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
                 )
-            ) == sorted([str(self.team.pk), str(other_team.pk)])
+            ) == sorted([str(self.team.api_token), str(other_team.api_token)])
 
             self.organization.usage["events"]["usage"] = 80
             self.organization.usage["rows_synced"]["usage"] = 36
@@ -759,3 +760,28 @@ class TestQuotaLimiting(BaseTest):
             assert sorted(
                 list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
             ) == sorted(["1337"])
+
+    @patch("ee.billing.quota_limiting.capture_exception")
+    def test_get_team_attribute_by_quota_resource(self, mock_capture):
+        Team.objects.all().delete()
+
+        team1 = Team.objects.create(organization=self.organization, api_token="token1")
+        team2 = Team.objects.create(organization=self.organization, api_token="token2")
+
+        tokens = get_team_attribute_by_quota_resource(self.organization)
+
+        self.assertEqual(set(tokens), {"token1", "token2"})
+
+        team1.delete()
+        team2.delete()
+
+        Team.objects.create(organization=self.organization, api_token="")
+
+        tokens = get_team_attribute_by_quota_resource(self.organization)
+
+        self.assertEqual(tokens, [])
+        mock_capture.assert_called_once()
+        self.assertIn(
+            f"quota_limiting: No team tokens found for organization: {self.organization.id}",
+            str(mock_capture.call_args[0][0]),
+        )

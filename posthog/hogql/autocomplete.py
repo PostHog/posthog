@@ -28,18 +28,21 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql.resolver_utils import extract_select_queries
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
 from posthog.schema import (
     HogQLAutocomplete,
     HogQLAutocompleteResponse,
     AutocompleteCompletionItem,
-    Kind,
+    AutocompleteCompletionItemKind,
     HogLanguage,
 )
 from hogvm.python.stl import STL
+from hogvm.python.stl.bytecode import BYTECODE_STL
 
-ALL_HOG_FUNCTIONS = list(STL.keys())
+ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
 
@@ -283,7 +286,7 @@ def append_table_field_to_response(table: Table, suggestions: list[AutocompleteC
     extend_responses(
         available_functions,
         suggestions,
-        Kind.FUNCTION,
+        AutocompleteCompletionItemKind.FUNCTION,
         insert_text=lambda key: f"{key}()",
     )
 
@@ -291,7 +294,7 @@ def append_table_field_to_response(table: Table, suggestions: list[AutocompleteC
 def extend_responses(
     keys: list[str],
     suggestions: list[AutocompleteCompletionItem],
-    kind: Kind = Kind.VARIABLE,
+    kind: AutocompleteCompletionItemKind = AutocompleteCompletionItemKind.VARIABLE,
     insert_text: Optional[Callable[[str], str]] = None,
     details: Optional[list[str | None]] = None,
 ) -> None:
@@ -446,12 +449,12 @@ def get_hogql_autocomplete(
                 extend_responses(
                     keys=hog_vars,
                     suggestions=response.suggestions,
-                    kind=Kind.VARIABLE,
+                    kind=AutocompleteCompletionItemKind.VARIABLE,
                 )
                 extend_responses(
                     ALL_HOG_FUNCTIONS,
                     response.suggestions,
-                    Kind.FUNCTION,
+                    AutocompleteCompletionItemKind.FUNCTION,
                     insert_text=lambda key: f"{key}()",
                 )
 
@@ -474,8 +477,8 @@ def get_hogql_autocomplete(
 
             if isinstance(select_ast, ast.SelectQuery):
                 ctes = select_ast.ctes
-            elif isinstance(select_ast, ast.SelectUnionQuery):
-                ctes = select_ast.select_queries[0].ctes
+            elif isinstance(select_ast, ast.SelectSetQuery):
+                ctes = next(extract_select_queries(select_ast)).ctes
             nearest_select = find_node.nearest_select_query or select_ast
 
             table_has_alias = (
@@ -490,6 +493,7 @@ def get_hogql_autocomplete(
                 and isinstance(nearest_select, ast.SelectQuery)
                 and nearest_select.select_from is not None
                 and not isinstance(parent_node, ast.JoinExpr)
+                and not isinstance(parent_node, ast.Placeholder)
             ):
                 # Handle fields
                 with timings.measure("select_field"):
@@ -506,7 +510,7 @@ def get_hogql_autocomplete(
                             extend_responses(
                                 keys=table_aliases,
                                 suggestions=response.suggestions,
-                                kind=Kind.FOLDER,
+                                kind=AutocompleteCompletionItemKind.FOLDER,
                                 details=["Table"] * len(table_aliases),
                             )
                             break
@@ -605,9 +609,34 @@ def get_hogql_autocomplete(
                         extend_responses(
                             keys=table_names,
                             suggestions=response.suggestions,
-                            kind=Kind.FOLDER,
+                            kind=AutocompleteCompletionItemKind.FOLDER,
                             details=["Table"] * len(table_names),
                         )
+            elif isinstance(node, ast.Field) and isinstance(parent_node, ast.Placeholder):
+                if node.chain[0] == MATCH_ANY_CHARACTER or (
+                    "variables".startswith(str(node.chain[0])) and len(node.chain) == 1
+                ):
+                    insight_variables = InsightVariable.objects.filter(
+                        team_id=team.pk,
+                    ).order_by("name")
+                    code_names = [f"variables.{n.code_name}" for n in insight_variables if n.code_name]
+                    extend_responses(
+                        keys=code_names,
+                        suggestions=response.suggestions,
+                        kind=AutocompleteCompletionItemKind.CONSTANT,
+                        details=["Variable"] * len(code_names),
+                    )
+                elif len(node.chain) > 1 and node.chain[0] == "variables":
+                    insight_variables = InsightVariable.objects.filter(
+                        team_id=team.pk,
+                    ).order_by("name")
+                    code_names = [n.code_name for n in insight_variables if n.code_name]
+                    extend_responses(
+                        keys=code_names,
+                        suggestions=response.suggestions,
+                        kind=AutocompleteCompletionItemKind.CONSTANT,
+                        details=["Variable"] * len(code_names),
+                    )
         except Exception:
             pass
 
@@ -664,6 +693,6 @@ def add_globals_to_suggestions(globalVars: dict, response: HogQLAutocompleteResp
         extend_responses(
             keys=list(globalVars.keys()),
             suggestions=response.suggestions,
-            kind=Kind.VARIABLE,
+            kind=AutocompleteCompletionItemKind.VARIABLE,
             details=values,
         )

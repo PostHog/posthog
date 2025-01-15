@@ -9,7 +9,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import { activemodelStateKey, codeEditorLogic, editorModelsStateKey } from 'lib/monaco/codeEditorLogic'
+import {
+    activeModelStateKey,
+    codeEditorLogic,
+    CodeEditorLogicProps,
+    editorModelsStateKey,
+} from 'lib/monaco/codeEditorLogic'
 import type { editor as importedEditor, IDisposable, Uri } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
@@ -25,6 +30,7 @@ export interface HogQLQueryEditorProps {
     onChange?: (query: string) => void
     embedded?: boolean
     editorFooter?: (hasErrors: boolean, errors: string | null, isValidView: boolean) => JSX.Element
+    queryResponse?: Record<string, any>
 }
 
 let uniqueNode = 0
@@ -55,14 +61,17 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         key,
         editor,
         monaco,
+        queryResponse: props.queryResponse,
     }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
     const { queryInput, prompt, aiAvailable, promptError, promptLoading, multitab } = useValues(logic)
     const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView, onUpdateView } = useActions(logic)
 
     const codeEditorKey = `hogQLQueryEditor/${key}`
-    const codeEditorLogicProps = {
+
+    const codeEditorLogicProps: CodeEditorLogicProps = {
         key: codeEditorKey,
+        sourceQuery: props.query,
         query: queryInput,
         language: 'hogQL',
         metadataFilters: props.query.filters,
@@ -168,6 +177,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor
                             queryKey={codeEditorKey}
+                            sourceQuery={props.query}
                             className="border rounded-b overflow-hidden h-full"
                             language="hogQL"
                             value={queryInput}
@@ -180,7 +190,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 setMonacoAndEditor([monaco, editor])
 
                                 const allModelQueries = localStorage.getItem(editorModelsStateKey(codeEditorKey))
-                                const activeModelUri = localStorage.getItem(activemodelStateKey(codeEditorKey))
+                                const activeModelUri = localStorage.getItem(activeModelStateKey(codeEditorKey))
 
                                 if (allModelQueries && multitab) {
                                     // clear existing models
@@ -282,7 +292,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                         hasErrors
                                             ? error ?? 'Query has errors'
                                             : !isValidView
-                                            ? 'All fields must have an alias'
+                                            ? 'Some fields may need an alias'
                                             : ''
                                     }
                                     data-attr="hogql-query-editor-update-view"
@@ -299,7 +309,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                         hasErrors
                                             ? error ?? 'Query has errors'
                                             : !isValidView
-                                            ? 'All fields must have an alias'
+                                            ? 'Some fields may need an alias'
                                             : ''
                                     }
                                     data-attr="hogql-query-editor-save-as-view"

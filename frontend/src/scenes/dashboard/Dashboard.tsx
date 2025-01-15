@@ -1,5 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -8,11 +9,13 @@ import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DashboardMode, DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
+import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
+import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
@@ -21,6 +24,7 @@ interface DashboardProps {
     id?: string
     dashboard?: DashboardType<QueryBasedInsightModel>
     placement?: DashboardPlacement
+    themes?: DataColorThemeModel[]
 }
 
 export const scene: SceneExport = {
@@ -32,7 +36,9 @@ export const scene: SceneExport = {
     }),
 }
 
-export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement, themes }: DashboardProps = {}): JSX.Element {
+    useMountedLogic(dataThemeLogic({ themes }))
+
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseInt(id as string), placement, dashboard }}>
             <DashboardScene />
@@ -41,8 +47,16 @@ export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JS
 }
 
 function DashboardScene(): JSX.Element {
-    const { placement, dashboard, canEditDashboard, tiles, itemsLoading, dashboardMode, dashboardFailedToLoad } =
-        useValues(dashboardLogic)
+    const {
+        placement,
+        dashboard,
+        canEditDashboard,
+        tiles,
+        itemsLoading,
+        dashboardMode,
+        dashboardFailedToLoad,
+        accessDeniedToDashboard,
+    } = useValues(dashboardLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
     useEffect(() => {
@@ -86,6 +100,10 @@ function DashboardScene(): JSX.Element {
         return <NotFound object="dashboard" />
     }
 
+    if (accessDeniedToDashboard) {
+        return <AccessDenied object="dashboard" />
+    }
+
     return (
         <div className="dashboard">
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
@@ -124,6 +142,7 @@ function DashboardScene(): JSX.Element {
                             </div>
                         )}
                     </div>
+                    <VariablesForDashboard />
                     <DashboardItems />
                 </div>
             )}

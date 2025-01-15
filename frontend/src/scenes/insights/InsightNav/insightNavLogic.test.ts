@@ -6,7 +6,7 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { FunnelsQuery, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema'
+import { FunnelsQuery, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     FunnelVizType,
@@ -28,12 +28,12 @@ describe('insightNavLogic', () => {
         beforeEach(async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team/insights/trend/': async () => {
+                    '/api/environments/:team_id/insights/trend/': async () => {
                         return [200, { result: ['result from api'] }]
                     },
                 },
                 post: {
-                    '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
+                    '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
                 },
             })
             initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })

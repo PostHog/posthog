@@ -22,9 +22,9 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { ToolbarParams, ToolbarUserIntent } from '~/types'
+import { ExperimentIdType, ToolbarParams, ToolbarUserIntent } from '~/types'
 
 import type { authorizedUrlListLogicType } from './authorizedUrlListLogicType'
 
@@ -35,6 +35,29 @@ export interface ProposeNewUrlFormType {
 export enum AuthorizedUrlListType {
     TOOLBAR_URLS = 'TOOLBAR_URLS',
     RECORDING_DOMAINS = 'RECORDING_DOMAINS',
+    WEB_EXPERIMENTS = 'WEB_EXPERIMENTS',
+}
+
+/**
+ * Firefox does not allow you construct a new URL with e.g. https://*.example.com (which is to be fair more standards compliant than Chrome)
+ * when used to probe for e.g. for authorized urls we only care if the proposed URL has a path so we can safely replace the wildcard with a character
+ * NB this changes its input and shouldn't be used for general purpose URL parsing
+ */
+export function sanitizePossibleWildCardedURL(url: string): URL {
+    const deWildCardedURL = url.replace(/\*/g, 'x')
+    return new URL(deWildCardedURL)
+}
+
+/**
+ * Checks if the URL has a wildcard (*) in the port position e.g. http://localhost:*
+ */
+export function hasPortWildcard(input: unknown): boolean {
+    if (!input || typeof input !== 'string') {
+        return false
+    }
+    // This regex matches URLs with a wildcard (*) in the port position
+    const portWildcardRegex = /^(https?:\/\/[^:/]+):\*(.*)$/
+    return portWildcardRegex.test(input.trim())
 }
 
 export const validateProposedUrl = (
@@ -42,11 +65,15 @@ export const validateProposedUrl = (
     currentUrls: string[],
     onlyAllowDomains: boolean = false
 ): string | undefined => {
-    if (!onlyAllowDomains && !isURL(proposedUrl)) {
+    if (!isURL(proposedUrl)) {
         return 'Please enter a valid URL'
     }
 
-    if (onlyAllowDomains && !isDomain(proposedUrl)) {
+    if (hasPortWildcard(proposedUrl)) {
+        return 'Wildcards are not allowed in the port position'
+    }
+
+    if (onlyAllowDomains && !isDomain(sanitizePossibleWildCardedURL(proposedUrl))) {
         return "Please enter a valid domain (URLs with a path aren't allowed)"
     }
 
@@ -64,12 +91,14 @@ export const validateProposedUrl = (
 /** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
 export function appEditorUrl(
     appUrl: string,
-    options?: { actionId?: number | null; userIntent?: ToolbarUserIntent }
+    options?: { actionId?: number | null; experimentId?: ExperimentIdType; userIntent?: ToolbarUserIntent }
 ): string {
     // See https://github.com/PostHog/posthog-js/blob/f7119c/src/extensions/toolbar.ts#L52 for where these params
     // are passed. `appUrl` is an extra `redirect_to_site` param.
     const params: ToolbarParams & { appUrl: string } = {
-        userIntent: options?.userIntent ?? (options?.actionId ? 'edit-action' : 'add-action'),
+        userIntent:
+            options?.userIntent ??
+            (options?.actionId ? 'edit-action' : options?.experimentId ? 'edit-experiment' : 'add-action'),
         // Make sure to pass the app url, otherwise the api_host will be used by
         // the toolbar, which isn't correct when used behind a reverse proxy as
         // we require e.g. SSO login to the app, which will not work when placed
@@ -77,24 +106,26 @@ export function appEditorUrl(
         apiURL: apiHostOrigin(),
         appUrl,
         ...(options?.actionId ? { actionId: options.actionId } : {}),
+        ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
     }
     return '/api/user/redirect_to_site/' + encodeParams(params, '?')
 }
 
-export const checkUrlIsAuthorized = (url: string, authorizedUrls: string[]): boolean => {
+export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]): boolean => {
     try {
-        const parsedUrl = new URL(url)
+        const parsedUrl = typeof url === 'string' ? sanitizePossibleWildCardedURL(url) : url
         const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
         // Is this domain already in the list of urls?
-        const exactMatch = authorizedUrls.filter((url) => url.indexOf(urlWithoutPath) > -1).length > 0
+        const exactMatch =
+            authorizedUrls.filter((authorizedUrl) => authorizedUrl.indexOf(urlWithoutPath) > -1).length > 0
 
         if (exactMatch) {
             return true
         }
 
-        const wildcardMatch = !!authorizedUrls.find((url) => {
+        const wildcardMatch = !!authorizedUrls.find((authorizedUrl) => {
             // Matches something like `https://*.example.com` against the urlWithoutPath
-            const regex = new RegExp(url.replace(/\./g, '\\.').replace(/\*/g, '.*'))
+            const regex = new RegExp(authorizedUrl.replace(/\./g, '\\.').replace(/\*/g, '.*'))
             return urlWithoutPath.match(regex)
         })
 
@@ -108,19 +139,27 @@ export const checkUrlIsAuthorized = (url: string, authorizedUrls: string[]): boo
     return false
 }
 
-export const filterNotAuthorizedUrls = (urls: string[], authorizedUrls: string[]): string[] => {
-    const suggestedDomains: string[] = []
+export interface SuggestedDomain {
+    url: string
+    count: number
+}
 
-    urls.forEach((url) => {
-        const parsedUrl = new URL(url)
+export const filterNotAuthorizedUrls = (
+    suggestions: SuggestedDomain[],
+    authorizedUrls: string[]
+): SuggestedDomain[] => {
+    const suggestedDomains: SuggestedDomain[] = []
+
+    suggestions.forEach(({ url, count }) => {
+        const parsedUrl = sanitizePossibleWildCardedURL(url)
         const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
         // Have we already added this domain?
-        if (suggestedDomains.indexOf(urlWithoutPath) > -1) {
+        if (suggestedDomains.some((sd) => sd.url === urlWithoutPath)) {
             return
         }
 
-        if (!checkUrlIsAuthorized(url, authorizedUrls)) {
-            suggestedDomains.push(urlWithoutPath)
+        if (!checkUrlIsAuthorized(parsedUrl, authorizedUrls)) {
+            suggestedDomains.push({ url: urlWithoutPath, count })
         }
     })
 
@@ -133,15 +172,26 @@ export interface KeyedAppUrl {
     url: string
     type: 'authorized' | 'suggestion'
     originalIndex: number
+    // how many seen in the last three days
+    count?: number
 }
 
 export interface AuthorizedUrlListLogicProps {
     actionId: number | null
+    experimentId: ExperimentIdType | null
     type: AuthorizedUrlListType
+    query: string | null | undefined
 }
+
+export const defaultAuthorizedUrlProperties = {
+    actionId: null,
+    experimentId: null,
+    query: null,
+}
+
 export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),
-    key((props) => `${props.type}-${props.actionId}`),
+    key((props) => (props.experimentId ? `${props.type}-${props.experimentId}` : `${props.type}-${props.actionId}`)),
     props({} as AuthorizedUrlListLogicProps),
     connect({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
@@ -160,7 +210,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     })),
     loaders(({ values }) => ({
         suggestions: {
-            __default: [] as string[],
+            __default: [] as SuggestedDomain[],
             loadSuggestions: async () => {
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -182,7 +232,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 }
 
                 const suggestedDomains = filterNotAuthorizedUrls(
-                    result.map(([url]) => url),
+                    result.map(([url, count]) => ({ url, count })),
                     values.authorizedUrls
                 )
 
@@ -230,7 +280,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             [] as string[],
             {
                 setAuthorizedUrls: (_, { authorizedUrls }) => authorizedUrls,
-                addUrl: (state, { url }) => state.concat([url]),
+                addUrl: (state, { url }) => (!state.includes(url) ? state.concat([url]) : state),
                 updateUrl: (state, { index, url }) => Object.assign([...state], { [index]: url }),
                 removeUrl: (state, { index }) => {
                     const newUrls = [...state]
@@ -242,7 +292,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         suggestions: [
             [],
             {
-                addUrl: (state, { url }) => [...state].filter((item) => url !== item),
+                addUrl: (state, { url }) => [...state].filter((sd) => url !== sd.url),
             },
         ],
         searchTerm: [
@@ -325,10 +375,11 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                         originalIndex: index,
                     }))
                     .concat(
-                        suggestions.map((url, index) => ({
+                        suggestions.map(({ url, count }, index) => ({
                             url,
                             type: 'suggestion',
                             originalIndex: index,
+                            count,
                         }))
                     ) as KeyedAppUrl[]
 
@@ -345,11 +396,18 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             },
         ],
         launchUrl: [
-            (_, p) => [p.actionId],
-            (actionId) => (url: string) =>
-                appEditorUrl(url, {
+            (_, p) => [p.actionId, p.experimentId],
+            (actionId, experimentId) => (url: string) => {
+                if (experimentId) {
+                    return appEditorUrl(url, {
+                        experimentId,
+                    })
+                }
+
+                return appEditorUrl(url, {
                     actionId,
-                }),
+                })
+            },
         ],
         isAddUrlFormVisible: [(s) => [s.editUrlIndex], (editUrlIndex) => editUrlIndex === -1],
         onlyAllowDomains: [(_, p) => [p.type], (type) => type === AuthorizedUrlListType.RECORDING_DOMAINS],

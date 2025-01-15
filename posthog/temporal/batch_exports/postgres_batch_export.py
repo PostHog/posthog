@@ -1,3 +1,4 @@
+import asyncio
 import collections.abc
 import contextlib
 import csv
@@ -28,18 +29,26 @@ from posthog.temporal.batch_exports.batch_exports import (
     default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    iter_model_records,
     start_batch_export_run,
 )
-from posthog.temporal.batch_exports.metrics import (
-    get_bytes_exported_metric,
-    get_rows_exported_metric,
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
+    should_resume_from_activity_heartbeat,
 )
-from posthog.temporal.batch_exports.temporary_file import CSVBatchExportWriter
+from posthog.temporal.batch_exports.spmc import (
+    Consumer,
+    Producer,
+    RecordBatchQueue,
+    run_consumer,
+    wait_for_schema_or_producer,
+)
+from posthog.temporal.batch_exports.temporary_file import (
+    BatchExportTemporaryFile,
+    WriterFormat,
+)
 from posthog.temporal.batch_exports.utils import (
     JsonType,
-    apeek_first_and_rewind,
-    cast_record_batch_json_columns,
     make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
@@ -55,6 +64,11 @@ class PostgreSQLConnectionError(Exception):
     pass
 
 
+class MissingPrimaryKeyError(Exception):
+    def __init__(self, table: sql.Identifier, primary_key: sql.Composed):
+        super().__init__(f"An operation could not be completed as '{table}' is missing a primary key on {primary_key}")
+
+
 @dataclasses.dataclass
 class PostgresInsertInputs:
     """Inputs for Postgres insert activity."""
@@ -65,7 +79,7 @@ class PostgresInsertInputs:
     host: str
     database: str
     table_name: str
-    data_interval_start: str
+    data_interval_start: str | None
     data_interval_end: str
     has_self_signed_cert: bool = False
     schema: str = "public"
@@ -81,13 +95,23 @@ class PostgresInsertInputs:
 class PostgreSQLClient:
     """PostgreSQL connection client used in batch exports."""
 
-    def __init__(self, user: str, password: str, host: str, port: int, database: str, has_self_signed_cert: bool):
+    def __init__(
+        self,
+        user: str,
+        password: str,
+        host: str,
+        port: int,
+        database: str,
+        has_self_signed_cert: bool,
+        connection_timeout: int = 30,
+    ):
         self.user = user
         self.password = password
         self.database = database
         self.host = host
         self.port = port
         self.has_self_signed_cert = has_self_signed_cert
+        self.connection_timeout = connection_timeout
 
         self._connection: None | psycopg.AsyncConnection = None
 
@@ -123,20 +147,34 @@ class PostgreSQLClient:
             # Disable certificate verification for self-signed certificates.
             kwargs["sslrootcert"] = None
 
+        max_attempts = 5
         connect = make_retryable_with_exponential_backoff(
             psycopg.AsyncConnection.connect,
-            retryable_exceptions=(psycopg.OperationalError,),
+            max_attempts=max_attempts,
+            retryable_exceptions=(psycopg.OperationalError, psycopg.errors.ConnectionTimeout),
         )
 
-        connection: psycopg.AsyncConnection = await connect(
-            user=self.user,
-            password=self.password,
-            dbname=self.database,
-            host=self.host,
-            port=self.port,
-            sslmode="prefer" if settings.TEST else "require",
-            **kwargs,
-        )
+        try:
+            connection: psycopg.AsyncConnection = await connect(
+                user=self.user,
+                password=self.password,
+                dbname=self.database,
+                host=self.host,
+                port=self.port,
+                connect_timeout=self.connection_timeout,
+                sslmode="prefer" if settings.TEST else "require",
+                **kwargs,
+            )
+        except psycopg.errors.ConnectionTimeout as err:
+            raise PostgreSQLConnectionError(
+                f"Timed-out while trying to connect for {max_attempts} attempts. Is the "
+                f"server running at '{self.host}', port '{self.port}' and accepting "
+                "TCP/IP connections?"
+            ) from err
+        except psycopg.OperationalError as err:
+            raise PostgreSQLConnectionError(
+                f"Failed to connect after {max_attempts} attempts. Please review connection configuration."
+            ) from err
 
         async with connection as connection:
             self._connection = connection
@@ -215,6 +253,27 @@ class PostgreSQLClient:
                 await cursor.execute("SET TRANSACTION READ WRITE")
 
                 await cursor.execute(sql.SQL(base_query).format(table=table_identifier))
+
+    async def aget_table_columns(self, schema: str | None, table_name: str) -> list[str]:
+        """Get the column names for a table in PostgreSQL.
+
+        Args:
+            schema: Name of the schema where the table is located.
+            table_name: Name of the table to get columns for.
+
+        Returns:
+            A list of column names in the table.
+        """
+        if schema:
+            table_identifier = sql.Identifier(schema, table_name)
+        else:
+            table_identifier = sql.Identifier(table_name)
+
+        async with self.connection.transaction():
+            async with self.connection.cursor() as cursor:
+                await cursor.execute(sql.SQL("SELECT * FROM {} WHERE 1=0").format(table_identifier))
+                columns = [column.name for column in cursor.description or []]
+                return columns
 
     @contextlib.asynccontextmanager
     async def managed_table(
@@ -322,7 +381,10 @@ class PostgreSQLClient:
                     await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
                 await cursor.execute("SET TRANSACTION READ WRITE")
 
-                await cursor.execute(merge_query)
+                try:
+                    await cursor.execute(merge_query)
+                except psycopg.errors.InvalidColumnReference:
+                    raise MissingPrimaryKeyError(final_table_identifier, conflict_fields)
 
     async def copy_tsv_to_postgres(
         self,
@@ -355,7 +417,10 @@ class PostgreSQLClient:
                         fields=sql.SQL(",").join(sql.Identifier(column) for column in schema_columns),
                     )
                 ) as copy:
-                    while data := tsv_file.read():
+                    while data := await asyncio.to_thread(tsv_file.read):
+                        # \u0000 cannot be present in PostgreSQL's jsonb type, and will cause an error.
+                        # See: https://www.postgresql.org/docs/17/datatype-json.html
+                        data = data.replace(b"\\u0000", b"")
                         await copy.write(data)
 
 
@@ -430,49 +495,146 @@ def get_postgres_fields_from_record_schema(
     return pg_schema
 
 
+@dataclasses.dataclass
+class PostgreSQLHeartbeatDetails(BatchExportRangeHeartbeatDetails):
+    """The PostgreSQL batch export details included in every heartbeat."""
+
+    pass
+
+
+class PostgreSQLConsumer(Consumer):
+    def __init__(
+        self,
+        heartbeater: Heartbeater,
+        heartbeat_details: PostgreSQLHeartbeatDetails,
+        data_interval_start: dt.datetime | str | None,
+        data_interval_end: dt.datetime | str,
+        writer_format: WriterFormat,
+        postgresql_client: PostgreSQLClient,
+        postgresql_table: str,
+        postgresql_table_schema: str,
+        postgresql_table_fields: list[str],
+    ):
+        super().__init__(
+            heartbeater=heartbeater,
+            heartbeat_details=heartbeat_details,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            writer_format=writer_format,
+        )
+        self.heartbeat_details: PostgreSQLHeartbeatDetails = heartbeat_details
+        self.postgresql_table = postgresql_table
+        self.postgresql_table_schema = postgresql_table_schema
+        self.postgresql_table_fields = postgresql_table_fields
+        self.postgresql_client = postgresql_client
+
+    async def flush(
+        self,
+        batch_export_file: BatchExportTemporaryFile,
+        records_since_last_flush: int,
+        bytes_since_last_flush: int,
+        flush_counter: int,
+        last_date_range: DateRange,
+        is_last: bool,
+        error: Exception | None,
+    ):
+        await self.logger.adebug(
+            "Copying %s records of size %s bytes",
+            records_since_last_flush,
+            bytes_since_last_flush,
+        )
+
+        await self.postgresql_client.copy_tsv_to_postgres(
+            batch_export_file,
+            self.postgresql_table_schema,
+            self.postgresql_table,
+            self.postgresql_table_fields,
+        )
+
+        await self.logger.ainfo("Copied %s to PostgreSQL table '%s'", records_since_last_flush, self.postgresql_table)
+        self.rows_exported_counter.add(records_since_last_flush)
+        self.bytes_exported_counter.add(bytes_since_last_flush)
+
+        self.heartbeat_details.records_completed += records_since_last_flush
+        self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
+
+
 @activity.defn
 async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> RecordsCompleted:
     """Activity streams data from ClickHouse to Postgres."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="PostgreSQL")
-    logger.info(
+    await logger.ainfo(
         "Batch exporting range %s - %s to PostgreSQL: %s.%s.%s",
-        inputs.data_interval_start,
-        inputs.data_interval_end,
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
         inputs.database,
         inputs.schema,
         inputs.table_name,
     )
 
     async with (
-        Heartbeater(),
+        Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
         get_client(team_id=inputs.team_id) as client,
     ):
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
+        _, details = await should_resume_from_activity_heartbeat(activity, PostgreSQLHeartbeatDetails)
+        if details is None:
+            details = PostgreSQLHeartbeatDetails()
+
+        done_ranges: list[DateRange] = details.done_ranges
+
         model: BatchExportModel | BatchExportSchema | None = None
         if inputs.batch_export_schema is None and "batch_export_model" in {
             field.name for field in dataclasses.fields(inputs)
         }:
             model = inputs.batch_export_model
+            if model is not None:
+                model_name = model.name
+                extra_query_parameters = model.schema["values"] if model.schema is not None else None
+                fields = model.schema["fields"] if model.schema is not None else None
+            else:
+                model_name = "events"
+                extra_query_parameters = None
+                fields = None
         else:
             model = inputs.batch_export_schema
+            model_name = "custom"
+            extra_query_parameters = model["values"] if model is not None else {}
+            fields = model["fields"] if model is not None else None
 
-        record_batch_iterator = iter_model_records(
-            client=client,
-            model=model,
+        data_interval_start = (
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
+        )
+        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
+        full_range = (data_interval_start, data_interval_end)
+
+        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        producer = Producer(clickhouse_client=client)
+        producer_task = producer.start(
+            queue=queue,
+            model_name=model_name,
+            is_backfill=inputs.is_backfill,
             team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
-            interval_end=inputs.data_interval_end,
+            full_range=full_range,
+            done_ranges=done_ranges,
+            fields=fields,
+            destination_default_fields=postgres_default_fields(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            destination_default_fields=postgres_default_fields(),
-            is_backfill=inputs.is_backfill,
+            extra_query_parameters=extra_query_parameters,
+            use_latest_schema=True,
         )
-        first_record_batch, record_batch_iterator = await apeek_first_and_rewind(record_batch_iterator)
-        if first_record_batch is None:
-            return 0
+
+        record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
+        if record_batch_schema is None:
+            return details.records_completed
+
+        record_batch_schema = pa.schema(
+            [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
+        )
 
         if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
             table_fields: Fields = [
@@ -490,16 +652,10 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             ]
 
         else:
-            column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
-            record_schema = first_record_batch.select(column_names).schema
             table_fields = get_postgres_fields_from_record_schema(
-                record_schema, known_json_columns=["properties", "set", "set_once", "person_properties"]
+                record_batch_schema,
+                known_json_columns=["properties", "set", "set_once", "person_properties"],
             )
-
-        schema_columns = [field[0] for field in table_fields]
-
-        rows_exported = get_rows_exported_metric()
-        bytes_exported = get_bytes_exported_metric()
 
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
@@ -515,6 +671,25 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             primary_key = None
 
         async with PostgreSQLClient.from_inputs(inputs).connect() as pg_client:
+            # handle the case where the final table doesn't contain all the fields present in the record batch schema
+            try:
+                columns = await pg_client.aget_table_columns(inputs.schema, inputs.table_name)
+                table_fields = [field for field in table_fields if field[0] in columns]
+            except psycopg.errors.InsufficientPrivilege:
+                await logger.awarning(
+                    "Insufficient privileges to get table columns for table '%s.%s'; "
+                    "will assume all columns are present. If this results in an error, please grant SELECT "
+                    "permissions on this table or ensure the destination table is using the latest schema "
+                    "as described in the docs: https://posthog.com/docs/cdp/batch-exports/postgres",
+                    inputs.schema,
+                    inputs.table_name,
+                )
+            except psycopg.errors.UndefinedTable:
+                # this can happen if the table doesn't exist yet
+                pass
+
+            schema_columns = [field[0] for field in table_fields]
+
             async with (
                 pg_client.managed_table(
                     inputs.schema, inputs.table_name, table_fields, delete=False, primary_key=primary_key
@@ -528,52 +703,39 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                     primary_key=primary_key,
                 ) as pg_stage_table,
             ):
-
-                async def flush_to_postgres(
-                    local_results_file,
-                    records_since_last_flush,
-                    bytes_since_last_flush,
-                    flush_counter: int,
-                    last_inserted_at,
-                    last: bool,
-                    error: Exception | None,
-                ):
-                    logger.debug(
-                        "Copying %s records of size %s bytes",
-                        records_since_last_flush,
-                        bytes_since_last_flush,
-                    )
-
-                    table = pg_stage_table if requires_merge else pg_table
-                    await pg_client.copy_tsv_to_postgres(
-                        local_results_file,
-                        inputs.schema,
-                        table,
-                        schema_columns,
-                    )
-                    rows_exported.add(records_since_last_flush)
-                    bytes_exported.add(bytes_since_last_flush)
-
-                writer = CSVBatchExportWriter(
-                    max_bytes=settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES,
-                    flush_callable=flush_to_postgres,
-                    field_names=schema_columns,
-                    delimiter="\t",
-                    quoting=csv.QUOTE_MINIMAL,
-                    escape_char=None,
+                consumer = PostgreSQLConsumer(
+                    heartbeater=heartbeater,
+                    heartbeat_details=details,
+                    data_interval_end=data_interval_end,
+                    data_interval_start=data_interval_start,
+                    writer_format=WriterFormat.CSV,
+                    postgresql_client=pg_client,
+                    postgresql_table=pg_stage_table if requires_merge else pg_table,
+                    postgresql_table_schema=inputs.schema,
+                    postgresql_table_fields=schema_columns,
                 )
-
-                async with writer.open_temporary_file():
-                    async for record_batch in record_batch_iterator:
-                        record_batch = cast_record_batch_json_columns(record_batch, json_columns=())
-
-                        await writer.write_record_batch(record_batch)
+                await run_consumer(
+                    consumer=consumer,
+                    queue=queue,
+                    producer_task=producer_task,
+                    schema=record_batch_schema,
+                    max_bytes=settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES,
+                    json_columns=(),
+                    writer_file_kwargs={
+                        "delimiter": "\t",
+                        "quoting": csv.QUOTE_MINIMAL,
+                        "escape_char": None,
+                        "field_names": schema_columns,
+                    },
+                    multiple_files=True,
+                )
 
                 if requires_merge:
                     merge_key: Fields = (
                         ("team_id", "INT"),
                         ("distinct_id", "TEXT"),
                     )
+
                     await pg_client.amerge_person_tables(
                         final_table_name=pg_table,
                         stage_table_name=pg_stage_table,
@@ -582,7 +744,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                         merge_key=merge_key,
                     )
 
-                return writer.records_total
+                return details.records_completed
 
 
 @workflow.defn(name="postgres-export", failure_exception_types=[workflow.NondeterminismError])
@@ -605,11 +767,12 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: PostgresBatchExportInputs):
         """Workflow implementation to export data to Postgres."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -644,11 +807,12 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             schema=inputs.schema,
             table_name=inputs.table_name,
             has_self_signed_cert=inputs.has_self_signed_cert,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             run_id=run_id,
+            is_backfill=inputs.is_backfill,
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
         )
@@ -670,6 +834,25 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 # A user added a unique constraint on their table, but batch exports (particularly events)
                 # can cause duplicates.
                 "UniqueViolation",
+                # Something changed in the target table's schema that we were not expecting.
+                "UndefinedColumn",
+                # A VARCHAR column is too small.
+                "StringDataRightTruncation",
+                # Raised by PostgreSQL client. Self explanatory.
+                "DiskFull",
+                # Raised by our PostgreSQL client when failing to connect after several attempts.
+                "PostgreSQLConnectionError",
+                # Raised when merging without a primary key.
+                "MissingPrimaryKeyError",
+                # Raised when the database doesn't support a particular feature we use.
+                # Generally, we have seen this when the database is read-only.
+                "FeatureNotSupported",
+                # A check constraint has been violated.
+                # We do not create any ourselves, so this generally is a user-managed check, so we
+                # should not retry.
+                "CheckViolation",
+                # We do not create foreign keys, so this is a user managed check we have failed.
+                "ForeignKeyViolation",
             ],
             finish_inputs=finish_inputs,
         )

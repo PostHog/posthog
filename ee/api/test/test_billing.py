@@ -318,6 +318,7 @@ class TestBillingAPI(APILicensedTest):
 
         assert decoded_token == {
             "aud": "posthog:license-key",
+            "distinct_id": str(self.user.distinct_id),
             "exp": 1640996100,
             "id": self.license.key.split("::")[0],
             "organization_id": str(self.organization.id),
@@ -359,7 +360,7 @@ class TestBillingAPI(APILicensedTest):
             "available_product_features": [],
             "custom_limits_usd": {},
             "has_active_subscription": True,
-            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
+            "stripe_portal_url": "http://localhost:8010/api/billing/portal",
             "current_total_amount_usd": "100.00",
             "deactivated": False,
             "products": [
@@ -562,7 +563,7 @@ class TestBillingAPI(APILicensedTest):
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
             "deactivated": False,
-            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
+            "stripe_portal_url": "http://localhost:8010/api/billing/portal",
         }
 
     @patch("ee.api.billing.requests.get")
@@ -777,6 +778,7 @@ class TestBillingAPI(APILicensedTest):
         # Create a demo project
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        self.assertEqual(Team.objects.count(), 1)
         response = self.client.post("/api/projects/", {"name": "Test", "is_demo": True})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 3)
@@ -837,6 +839,37 @@ class TestBillingAPI(APILicensedTest):
         self.organization.refresh_from_db()
 
         assert self.organization.customer_trust_scores == {"recordings": 0, "events": 15, "rows_synced": 0}
+
+    @patch("ee.api.billing.requests.get")
+    def test_billing_with_supported_params(self, mock_get):
+        """Test that the include_forecasting param is passed through to the billing service."""
+
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 200
+
+            if "api/billing/portal" in url:
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
+                mock.json.return_value = create_billing_response(
+                    customer=create_billing_customer(has_active_subscription=True)
+                )
+
+            return mock
+
+        mock_get.side_effect = mock_implementation
+
+        response = self.client.get("/api/billing/?include_forecasting=true")
+        assert response.status_code == 200
+
+        # Verify the billing service was called with the correct query param
+        billing_calls = [
+            call
+            for call in mock_get.call_args_list
+            if "api/billing" in call[0][0] and "api/billing/portal" not in call[0][0]
+        ]
+        assert len(billing_calls) == 1
+        assert billing_calls[0].kwargs["params"] == {"include_forecasting": "true"}
 
 
 class TestPortalBillingAPI(APILicensedTest):
@@ -930,7 +963,7 @@ class TestActivateBillingAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_deactivate_products.assert_called_once_with(self.organization, "product_1")
-        mock_get_billing.assert_called_once_with(self.organization, None)
+        mock_get_billing.assert_called_once_with(self.organization, None, {})
 
     def test_deactivate_failure(self):
         url = "/api/billing/deactivate"

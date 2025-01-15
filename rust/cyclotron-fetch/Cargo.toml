@@ -18,6 +18,8 @@ thiserror = { workspace = true }
 cyclotron-core = { path = "../cyclotron-core" }
 common-metrics = { path = "../common/metrics" }
 common-dns = { path = "../common/dns" }
+common-kafka = { path = "../common/kafka" }
+common-alloc = { path = "../common/alloc" }
 health = { path = "../common/health" }
 reqwest = { workspace = true }
 serde = { workspace = true }
@@ -25,6 +27,8 @@ serde_json = { workspace = true }
 http = { workspace = true }
 rand = { workspace = true }
 futures = { workspace = true }
+time = { workspace = true }
+rdkafka = { workspace = true }
 
 [dev-dependencies]
 sqlx = { workspace = true }

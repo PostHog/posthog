@@ -98,6 +98,8 @@ class HedgeboxMatrix(Matrix):
 
     def set_project_up(self, team, user):
         super().set_project_up(team, user)
+        team.project.product_description = "Dropbox for hedgehogs. We're a file sharing and collaboration platform. Free for limited personal use, with paid plans available."
+        team.autocapture_web_vitals_opt_in = True
 
         # Actions
         interacted_with_file_action = Action.objects.create(
@@ -119,6 +121,20 @@ class HedgeboxMatrix(Matrix):
                     "event": EVENT_SHARED_FILE_LINK,
                 },
             ],
+        )
+        Action.objects.create(
+            name="Visited Marius Tech Tips",
+            team=team,
+            description="Visited the best page for tech tips on the internet",
+            created_by=user,
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "mariustechtips",
+                    "url_matching": "regex",
+                }
+            ],
+            pinned_at=self.now - dt.timedelta(days=3),
         )
 
         # Cohorts
@@ -753,7 +769,7 @@ class HedgeboxMatrix(Matrix):
                             )
                         ),
                     )
-                    for insight in Insight.objects.filter(team=team)
+                    for insight in Insight.objects.filter(team__project_id=team.project_id)
                 ),
             )
         except IntegrityError:

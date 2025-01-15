@@ -1,0 +1,18 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "\nSELECT id FROM cyclotron_jobs WHERE state = 'running' AND COALESCE(last_heartbeat, $1) <= $1 AND janitor_touch_count >= $2\n        ",
+    "describe": {
+        "columns": [
+            {
+                "ordinal": 0,
+                "name": "id",
+                "type_info": "Uuid"
+            }
+        ],
+        "parameters": {
+            "Left": ["Timestamptz", "Int2"]
+        },
+        "nullable": [false]
+    },
+    "hash": "385e94f4adab0f85174968f6eee873bf6d1d43884cd628df5b36978dd761b025"
+}

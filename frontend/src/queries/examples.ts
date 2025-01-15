@@ -18,7 +18,7 @@ import {
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     ChartDisplayType,
     FilterLogicalOperator,
@@ -152,6 +152,7 @@ const series: (EventsNode | ActionsNode)[] = [
             {
                 type: PropertyFilterType.Cohort,
                 key: 'id',
+                operator: PropertyOperator.In,
                 value: 2,
             },
         ],

@@ -2,6 +2,7 @@ import time
 from typing import Optional
 from uuid import UUID
 
+import requests
 from celery import shared_task
 from django.conf import settings
 from django.db import connection
@@ -10,13 +11,14 @@ from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
 
-from posthog.clickhouse.client.limit import limit_concurrency, CeleryConcurrencyLimitExceeded
+from posthog.clickhouse.client.limit import CeleryConcurrencyLimitExceeded, limit_concurrency
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
+from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
 
 logger = get_logger(__name__)
@@ -180,11 +182,7 @@ CLICKHOUSE_TABLES = [
     "log_entries",
 ]
 
-HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
-    "heartbeat": "ingestion",
-    "heartbeat_buffer": "ingestion_buffer",
-    "heartbeat_api": "ingestion_api",
-}
+HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {"$heartbeat": "ingestion_api"}
 
 
 @shared_task(ignore_result=True)
@@ -192,9 +190,8 @@ def ingestion_lag() -> None:
     from statshog.defaults.django import statsd
 
     from posthog.client import sync_execute
+    from posthog.models.team.team import Team
 
-    # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
-    # Note that it runs every minute, and we compare it with now(), so there's up to 60s delay
     query = """
     SELECT event, date_diff('second', max(timestamp), now())
     FROM events
@@ -204,11 +201,13 @@ def ingestion_lag() -> None:
     GROUP BY event
     """
 
+    team_ids = settings.INGESTION_LAG_METRIC_TEAM_IDS
+
     try:
         results = sync_execute(
             query,
             {
-                "team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS,
+                "team_ids": team_ids,
                 "events": list(HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.keys()),
             },
         )
@@ -225,6 +224,17 @@ def ingestion_lag() -> None:
                 lag_gauge.labels(scenario=metric).set(lag)
     except:
         pass
+
+    for team in Team.objects.filter(pk__in=team_ids):
+        requests.post(
+            settings.SITE_URL + "/e",
+            json={
+                "event": "$heartbeat",
+                "distinct_id": "posthog-celery-heartbeat",
+                "token": team.api_token,
+                "properties": {"$timestamp": timezone.now().isoformat()},
+            },
+        )
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
@@ -399,11 +409,14 @@ def clickhouse_errors_count() -> None:
             name,
             value as errors,
             dateDiff('minute', last_error_time, now()) minutes_ago
-        from clusterAllReplicas('posthog', system, errors)
+        from clusterAllReplicas(%(cluster)s, system.errors)
         where code in (999, 225, 242)
         order by minutes_ago
     """
-    rows = sync_execute(QUERY)
+    params = {
+        "cluster": CLICKHOUSE_CLUSTER,
+    }
+    rows = sync_execute(QUERY, params)
     with pushed_metrics_registry("celery_clickhouse_errors") as registry:
         errors_gauge = Gauge(
             "posthog_celery_clickhouse_errors",
@@ -568,10 +581,10 @@ def monitoring_check_clickhouse_schema_drift() -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
-def calculate_cohort() -> None:
+def calculate_cohort(parallel_count: int) -> None:
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
-    calculate_cohorts()
+    calculate_cohorts(parallel_count)
 
 
 class Polling:
@@ -717,9 +730,9 @@ def calculate_decide_usage() -> None:
 
     ph_client = get_ph_client()
 
-    capture_decide_usage_for_all_teams(ph_client)
-
-    ph_client.shutdown()
+    if ph_client:
+        capture_decide_usage_for_all_teams(ph_client)
+        ph_client.shutdown()
 
 
 @shared_task(ignore_result=True)
@@ -772,18 +785,25 @@ def verify_persons_data_in_sync() -> None:
     verify()
 
 
-@shared_task(ignrore_result=True)
+@shared_task(ignore_result=True)
 def stop_surveys_reached_target() -> None:
     from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
     stop_surveys_reached_target()
 
 
-@shared_task(ignrore_result=True)
+@shared_task(ignore_result=True)
 def update_survey_iteration() -> None:
     from posthog.tasks.update_survey_iteration import update_survey_iteration
 
     update_survey_iteration()
+
+
+@shared_task(ignore_result=True)
+def update_survey_adaptive_sampling() -> None:
+    from posthog.tasks.update_survey_adaptive_sampling import update_survey_adaptive_sampling
+
+    update_survey_adaptive_sampling()
 
 
 def recompute_materialized_columns_enabled() -> bool:
@@ -888,44 +908,6 @@ def ee_persist_finished_recordings() -> None:
         pass
     else:
         persist_finished_recordings()
-
-
-@shared_task(ignore_result=True)
-def check_data_import_row_limits() -> None:
-    try:
-        from posthog.tasks.warehouse import check_synced_row_limits
-    except ImportError:
-        pass
-    else:
-        check_synced_row_limits()
-
-
-# this task runs a CH query and triggers other tasks
-# it can run on the default queue
-@shared_task(ignore_result=True)
-def calculate_replay_embeddings() -> None:
-    try:
-        from ee.tasks.replay import generate_recordings_embeddings_batch
-
-        generate_recordings_embeddings_batch()
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.error("Failed to calculate replay embeddings", error=e, exc_info=True)
-
-
-# this task triggers other tasks
-# it can run on the default queue
-@shared_task(ignore_result=True)
-def calculate_replay_error_clusters() -> None:
-    try:
-        from ee.tasks.replay import generate_replay_embedding_error_clusters
-
-        generate_replay_embedding_error_clusters()
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.error("Failed to calculate replay error clusters", error=e, exc_info=True)
 
 
 @shared_task(ignore_result=True)

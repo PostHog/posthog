@@ -1,9 +1,7 @@
-import { actions, connect, kea, path, reducers, selectors, useActions, useValues } from 'kea'
+import { actions, kea, path, reducers, selectors, useActions, useValues } from 'kea'
 import { urlToAction } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -31,9 +29,6 @@ const ACTIVITY_TABS: LemonTab<ActivityTab>[] = [
 
 const activitySceneLogic = kea<activitySceneLogicType>([
     path(['scenes', 'events', 'activitySceneLogic']),
-    connect({
-        values: [featureFlagLogic, ['featureFlags']],
-    }),
     actions({
         setTab: (tab: ActivityTab) => ({ tab }),
     }),
@@ -47,28 +42,18 @@ const activitySceneLogic = kea<activitySceneLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            (s) => [s.tab, s.featureFlags],
-            (tab, featureFlags): Breadcrumb[] =>
-                featureFlags[FEATURE_FLAGS.LIVE_EVENTS]
-                    ? // Explore and Live as separate tabs
-                      [
-                          {
-                              key: Scene.Activity,
-                              name: `Activity`,
-                              path: urls.activity(),
-                          },
-                          {
-                              key: tab,
-                              name: capitalizeFirstLetter(tab),
-                          },
-                      ]
-                    : // There's no Live, so no tabs to worry about
-                      [
-                          {
-                              key: Scene.Activity,
-                              name: `Activity`,
-                          },
-                      ],
+            (s) => [s.tab],
+            (tab): Breadcrumb[] => [
+                {
+                    key: Scene.Activity,
+                    name: `Activity`,
+                    path: urls.activity(),
+                },
+                {
+                    key: tab,
+                    name: capitalizeFirstLetter(tab),
+                },
+            ],
         ],
     }),
     urlToAction(({ actions }) => ({
@@ -81,16 +66,11 @@ const activitySceneLogic = kea<activitySceneLogicType>([
 export function ActivityScene(): JSX.Element {
     const { tab } = useValues(activitySceneLogic)
     const { setTab } = useActions(activitySceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
             <PageHeader tabbedPage />
-            {featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? (
-                <LemonTabs activeKey={tab} onChange={(t) => setTab(t)} tabs={ACTIVITY_TABS} />
-            ) : (
-                <EventsScene />
-            )}
+            <LemonTabs activeKey={tab} onChange={(t) => setTab(t)} tabs={ACTIVITY_TABS} />
         </>
     )
 }

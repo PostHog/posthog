@@ -4,8 +4,7 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { RecordingRow } from 'scenes/project-homepage/RecentRecordings'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
+import { RecordingRow } from 'scenes/project-homepage/WatchNextPanel'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -17,6 +16,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
     const { layout } = tile
     const { replayFilters, webAnalyticsFilters } = useValues(webAnalyticsLogic)
     const { currentTeam } = useValues(teamLogic)
+
     const sessionRecordingsListLogicInstance = sessionRecordingsPlaylistLogic({
         logicKey: 'webAnalytics',
         filters: replayFilters,
@@ -45,10 +45,9 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
               buttonText: 'Learn more',
               buttonTo: 'https://posthog.com/docs/user-guides/recordings',
           }
-    const to = items.length > 0 ? urls.replay(ReplayTabs.Recent, replayFilters) : urls.replay()
+    const to = items.length > 0 ? urls.replay(ReplayTabs.Home, replayFilters) : urls.replay()
     return (
         <>
-            <SessionPlayerModal />
             <div
                 className={clsx(
                     'col-span-1 row-span-1 flex flex-col',

@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 TARGET_TABLE = "raw_sessions"
 
 SETTINGS = {
-    "max_execution_time": 3600  # 1 hour
+    "max_execution_time": 7200  # 2 hours
 }
 
 
@@ -81,7 +81,7 @@ AND and(
         for i in reversed(range(num_days)):
             date = self.start_date + timedelta(days=i)
             logging.info("Writing the sessions for day %s", date.strftime("%Y-%m-%d"))
-            insert_query = f"""INSERT INTO {TARGET_TABLE} {select_query(select_date=date, team_id=self.team_id)} SETTINGS max_execution_time=3600"""
+            insert_query = f"""INSERT INTO {TARGET_TABLE} {select_query(select_date=date, team_id=self.team_id)}"""
             for retries in range(self.num_retries + 1):
                 try:
                     sync_execute(

@@ -12,11 +12,12 @@ export type LemonFormDialogProps = LemonDialogFormPropsType &
     Omit<LemonDialogProps, 'primaryButton' | 'secondaryButton' | 'tertiaryButton'> & {
         initialValues: Record<string, any>
         onSubmit: (values: Record<string, any>) => void | Promise<void>
+        shouldAwaitSubmit?: boolean
     }
 
 export type LemonDialogProps = Pick<
     LemonModalProps,
-    'title' | 'description' | 'width' | 'maxWidth' | 'inline' | 'footer'
+    'title' | 'description' | 'width' | 'maxWidth' | 'inline' | 'footer' | 'zIndex'
 > & {
     primaryButton?: LemonButtonProps | null
     secondaryButton?: LemonButtonProps | null
@@ -26,6 +27,7 @@ export type LemonDialogProps = Pick<
     onClose?: () => void
     onAfterClose?: () => void
     closeOnNavigate?: boolean
+    shouldAwaitSubmit?: boolean
 }
 
 export function LemonDialog({
@@ -37,12 +39,14 @@ export function LemonDialog({
     content,
     initialFormValues,
     closeOnNavigate = true,
+    shouldAwaitSubmit = false,
     footer,
     ...props
 }: LemonDialogProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(true)
     const { currentLocation } = useValues(router)
     const lastLocation = useRef(currentLocation.pathname)
+    const [isLoading, setIsLoading] = useState(false)
 
     primaryButton =
         primaryButton ||
@@ -63,8 +67,20 @@ export function LemonDialog({
             <LemonButton
                 type="secondary"
                 {...button}
-                onClick={(e) => {
-                    button.onClick?.(e)
+                loading={button === primaryButton && shouldAwaitSubmit ? isLoading : undefined}
+                // eslint-disable-next-line @typescript-eslint/no-misused-promises
+                onClick={async (e) => {
+                    if (button === primaryButton && shouldAwaitSubmit) {
+                        setIsLoading(true)
+                        try {
+                            // eslint-disable-next-line @typescript-eslint/await-thenable
+                            await button.onClick?.(e)
+                        } finally {
+                            setIsLoading(false)
+                        }
+                    } else {
+                        button.onClick?.(e)
+                    }
                     setIsOpen(false)
                 }}
             />
@@ -117,7 +133,8 @@ export const LemonFormDialog = ({
         type: 'primary',
         children: 'Submit',
         htmlType: 'submit',
-        onClick: () => void onSubmit(form),
+        // eslint-disable-next-line @typescript-eslint/no-misused-promises
+        onClick: props.shouldAwaitSubmit ? async () => await onSubmit(form) : () => void onSubmit(form),
         disabledReason: !isFormValid ? firstError : undefined,
     }
 

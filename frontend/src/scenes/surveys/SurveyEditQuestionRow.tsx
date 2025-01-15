@@ -10,7 +10,7 @@ import { Group } from 'kea-forms'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { Survey, SurveyQuestionType } from '~/types'
+import { Survey, SurveyQuestionType, SurveyType } from '~/types'
 
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
 import { QuestionBranchingInput } from './QuestionBranchingInput'
@@ -48,12 +48,11 @@ export function SurveyEditQuestionHeader({
 
     return (
         <div
-            className="flex flex-row w-full items-center justify-between"
+            className="flex flex-row w-full items-center justify-between relative"
             ref={setNodeRef}
             {...attributes}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                position: 'relative',
                 zIndex: isDragging ? 1 : undefined,
                 transform: CSS.Translate.toString(transform),
                 transition,
@@ -316,7 +315,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                 )
                                             })}
                                             <div className="w-fit flex flex-row flex-wrap gap-2">
-                                                {(value || []).length < 6 && (
+                                                {((value || []).length < 6 || survey.type != SurveyType.Popover) && (
                                                     <>
                                                         <LemonButton
                                                             icon={<IconPlusSmall />}

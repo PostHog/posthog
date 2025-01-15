@@ -1,0 +1,18 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "UPDATE cyclotron_jobs SET state = 'running', lock_id = $1, last_heartbeat=NOW() WHERE id = $2 returning queue_name",
+    "describe": {
+        "columns": [
+            {
+                "ordinal": 0,
+                "name": "queue_name",
+                "type_info": "Text"
+            }
+        ],
+        "parameters": {
+            "Left": ["Uuid", "Uuid"]
+        },
+        "nullable": [false]
+    },
+    "hash": "2bd3251126625d8dd5143f58f4f9c4bbd0c3a17b7ea65767cf5e7512e5a6ea89"
+}

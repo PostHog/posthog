@@ -40,7 +40,7 @@ forStmt        : FOR LPAREN
                  (incrementVarDeclr=varDecl | incrementVarAssignment=varAssignment | incrementExpression=expression)?
                  RPAREN statement SEMICOLON?;
 forInStmt      : FOR LPAREN LET identifier (COMMA identifier)? IN expression RPAREN statement SEMICOLON?;
-funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
+funcStmt       : (FN | FUN) identifier LPAREN identifierList? RPAREN block;
 varAssignment  : expression COLON EQ_SINGLE expression ;
 exprStmt       : expression SEMICOLON?;
 emptyStmt      : SEMICOLON ;
@@ -51,10 +51,12 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 
 
 // SELECT statement
-select: (selectUnionStmt | selectStmt | hogqlxTagElement) EOF;
+select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 
-selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
-selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN | placeholder;
+selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
+
+subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
+selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 
 selectStmt:
     with=withClause?
@@ -151,9 +153,10 @@ columnExpr
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
     | TIMESTAMP STRING_LITERAL                                                            # ColumnExprTimestamp
     | TRIM LPAREN (BOTH | LEADING | TRAILING) string FROM columnExpr RPAREN               # ColumnExprTrim
-    | identifier (LPAREN columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
-    | identifier (LPAREN columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
-    | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN                              # ColumnExprFunction
+    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
+    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
+    | identifier (LPAREN columnExprs=columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList=columnExprList? RPAREN                                 # ColumnExprFunction
+    | columnExpr LPAREN columnExprList? RPAREN                                            # ColumnExprCall
     | hogqlxTagElement                                                                    # ColumnExprTagElement
     | templateString                                                                      # ColumnExprTemplateString
     | literal                                                                             # ColumnExprLiteral
@@ -198,24 +201,23 @@ columnExpr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
-    | columnExpr (AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
-
+    | columnExpr (AS identifier | AS STRING_LITERAL)                                      # ColumnExprAlias
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
-    | LPAREN selectUnionStmt RPAREN                                                       # ColumnExprSubquery  // single-column only
+    | LPAREN selectSetStmt RPAREN                                                         # ColumnExprSubquery  // single-column only
     | LPAREN columnExpr RPAREN                                                            # ColumnExprParens    // single-column only
     | LPAREN columnExprList RPAREN                                                        # ColumnExprTuple
     | LBRACKET columnExprList? RBRACKET                                                   # ColumnExprArray
     | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprDict
+    | columnLambdaExpr                                                                    # ColumnExprLambda
     | columnIdentifier                                                                    # ColumnExprIdentifier
     ;
 
-columnArgList: columnArgExpr (COMMA columnArgExpr)* COMMA?;
-columnArgExpr: columnLambdaExpr | columnExpr;
 columnLambdaExpr:
     ( LPAREN identifier (COMMA identifier)* COMMA? RPAREN
     |        identifier (COMMA identifier)* COMMA?
+    | LPAREN RPAREN
     )
-    ARROW columnExpr
+    ARROW (columnExpr | block)
     ;
 
 
@@ -231,7 +233,7 @@ hogqlxTagAttribute
 
 withExprList: withExpr (COMMA withExpr)* COMMA?;
 withExpr
-    : identifier AS LPAREN selectUnionStmt RPAREN    # WithExprSubquery
+    : identifier AS LPAREN selectSetStmt RPAREN    # WithExprSubquery
     // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
     | columnExpr AS identifier                       # WithExprColumn
     ;
@@ -246,7 +248,7 @@ nestedIdentifier: identifier (DOT identifier)*;
 tableExpr
     : tableIdentifier                    # TableExprIdentifier
     | tableFunctionExpr                  # TableExprFunction
-    | LPAREN selectUnionStmt RPAREN      # TableExprSubquery
+    | LPAREN selectSetStmt RPAREN      # TableExprSubquery
     | tableExpr (alias | AS identifier)  # TableExprAlias
     | hogqlxTagElement                   # TableExprTag
     | placeholder                        # TableExprPlaceholder
@@ -293,7 +295,7 @@ keywordForAlias
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
 enumValue: string EQ_SINGLE numberLiteral;
-placeholder: LBRACE nestedIdentifier RBRACE;
+placeholder: LBRACE columnExpr RBRACE;
 
 string: STRING_LITERAL | templateString;
 templateString : QUOTE_SINGLE_TEMPLATE stringContents* QUOTE_SINGLE ;

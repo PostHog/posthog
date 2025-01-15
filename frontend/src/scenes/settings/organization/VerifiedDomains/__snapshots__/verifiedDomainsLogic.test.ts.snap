@@ -26,6 +26,15 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "metadata": {},
     "name": "MockHog",
     "plugins_access_level": 9,
+    "projects": [
+      {
+        "created_at": "2020-06-30T09:53:35.932534Z",
+        "id": 997,
+        "name": "MockHog App + Marketing",
+        "organization_id": "ABCD",
+        "product_description": null,
+      },
+    ],
     "slug": "mockhog-fstn",
     "teams": [
       {
@@ -41,6 +50,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "autocapture_opt_out": true,
         "autocapture_web_vitals_opt_in": false,
         "capture_console_log_opt_in": true,
+        "capture_dead_clicks": false,
         "capture_performance_opt_in": true,
         "completed_snippet_onboarding": true,
         "correlation_config": {
@@ -65,6 +75,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "effective_membership_level": 8,
         "has_group_types": true,
         "heatmaps_opt_in": true,
+        "human_friendly_comparison_periods": false,
         "id": 997,
         "ingested_event": true,
         "is_demo": false,
@@ -80,12 +91,16 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         ],
         "person_on_events_querying_enabled": true,
         "primary_dashboard": 1,
+        "project_id": 997,
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
         "session_recording_linked_flag": null,
         "session_recording_minimum_duration_milliseconds": null,
-        "session_recording_network_payload_capture_config": null,
+        "session_recording_network_payload_capture_config": {
+          "recordBody": true,
+          "recordHeaders": true,
+        },
         "session_recording_opt_in": true,
         "session_recording_sample_rate": "1.0",
         "session_replay_config": null,
@@ -101,6 +116,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "test_account_filters_default_checked": false,
         "timezone": "UTC",
         "updated_at": "2022-03-17T16:09:21.566253Z",
+        "user_access_level": "admin",
         "uuid": "TEAM_UUID",
       },
     ],

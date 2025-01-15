@@ -9,7 +9,7 @@ import {
     DatabaseSchemaTable,
     DatabaseSchemaViewTable,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 
 import type { databaseTableListLogicType } from './databaseTableListLogicType'
 
@@ -109,9 +109,28 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 }
 
                 return Object.values(database.tables)
-                    .filter((n): n is DatabaseSchemaDataWarehouseTable => n.type === 'data_warehouse')
+                    .filter(
+                        (n): n is DatabaseSchemaDataWarehouseTable => n.type === 'data_warehouse' || n.type == 'view'
+                    )
                     .reduce((acc, cur) => {
                         acc[cur.name] = database.tables[cur.name] as DatabaseSchemaDataWarehouseTable
+                        return acc
+                    }, {} as Record<string, DatabaseSchemaDataWarehouseTable>)
+            },
+        ],
+        dataWarehouseTablesMapById: [
+            (s) => [s.database],
+            (database): Record<string, DatabaseSchemaDataWarehouseTable> => {
+                if (!database || !database.tables) {
+                    return {}
+                }
+
+                return Object.values(database.tables)
+                    .filter(
+                        (n): n is DatabaseSchemaDataWarehouseTable => n.type === 'data_warehouse' || n.type == 'view'
+                    )
+                    .reduce((acc, cur) => {
+                        acc[cur.id] = database.tables[cur.name] as DatabaseSchemaDataWarehouseTable
                         return acc
                     }, {} as Record<string, DatabaseSchemaDataWarehouseTable>)
             },

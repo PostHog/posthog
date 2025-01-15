@@ -23,7 +23,6 @@ from dlt.sources.helpers.rest_client.client import RESTClient
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.rest_client.typing import HTTPMethodBasic
 
-from posthog.temporal.data_imports.pipelines.helpers import is_job_cancelled
 from .typing import (
     ClientConfig,
     ResolvedParam,
@@ -47,6 +46,7 @@ def rest_api_source(
     config: RESTAPIConfig,
     team_id: int,
     job_id: str,
+    db_incremental_field_last_value: Optional[Any] = None,
     name: Optional[str] = None,
     section: Optional[str] = None,
     max_table_nesting: Optional[int] = None,
@@ -109,10 +109,12 @@ def rest_api_source(
         spec,
     )
 
-    return decorated(config, team_id, job_id)
+    return decorated(config, team_id, job_id, db_incremental_field_last_value)
 
 
-def rest_api_resources(config: RESTAPIConfig, team_id: int, job_id: str) -> list[DltResource]:
+def rest_api_resources(
+    config: RESTAPIConfig, team_id: int, job_id: str, db_incremental_field_last_value: Optional[Any]
+) -> list[DltResource]:
     """Creates a list of resources from a REST API configuration.
 
     Args:
@@ -194,6 +196,7 @@ def rest_api_resources(config: RESTAPIConfig, team_id: int, job_id: str) -> list
         resolved_param_map,
         team_id=team_id,
         job_id=job_id,
+        db_incremental_field_last_value=db_incremental_field_last_value,
     )
 
     return list(resources.values())
@@ -206,6 +209,7 @@ def create_resources(
     resolved_param_map: dict[str, Optional[ResolvedParam]],
     team_id: int,
     job_id: str,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> dict[str, DltResource]:
     resources = {}
 
@@ -259,15 +263,13 @@ def create_resources(
             ) -> AsyncGenerator[Iterator[Any], Any]:
                 yield dlt.mark.materialize_table_schema()  # type: ignore
 
-                if await is_job_cancelled(team_id=team_id, job_id=job_id):
-                    return
-
                 if incremental_object:
                     params = _set_incremental_params(
                         params,
                         incremental_object,
                         incremental_param,
                         incremental_cursor_transform,
+                        db_incremental_field_last_value,
                     )
 
                 yield client.paginate(
@@ -315,15 +317,13 @@ def create_resources(
             ) -> AsyncGenerator[Any, Any]:
                 yield dlt.mark.materialize_table_schema()  # type: ignore
 
-                if await is_job_cancelled(team_id=team_id, job_id=job_id):
-                    return
-
                 if incremental_object:
                     params = _set_incremental_params(
                         params,
                         incremental_object,
                         incremental_param,
                         incremental_cursor_transform,
+                        db_incremental_field_last_value,
                     )
 
                 for item in items:
@@ -365,6 +365,7 @@ def _set_incremental_params(
     incremental_object: Incremental[Any],
     incremental_param: Optional[IncrementalParam],
     transform: Optional[Callable[..., Any]],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> dict[str, Any]:
     def identity_func(x: Any) -> Any:
         return x
@@ -375,26 +376,13 @@ def _set_incremental_params(
     if incremental_param is None:
         return params
 
-    params[incremental_param.start] = transform(incremental_object.last_value)
+    last_value = (
+        db_incremental_field_last_value
+        if db_incremental_field_last_value is not None
+        else incremental_object.last_value
+    )
+
+    params[incremental_param.start] = transform(last_value)
     if incremental_param.end:
         params[incremental_param.end] = transform(incremental_object.end_value)
     return params
-
-
-# XXX: This is a workaround pass test_dlt_init.py
-# since the source uses dlt.source as a function
-def _register_source(source_func: Callable[..., DltSource]) -> None:
-    import inspect
-    from dlt.common.configuration import get_fun_spec
-    from dlt.common.source import _SOURCES, SourceInfo
-
-    spec = get_fun_spec(source_func)
-    func_module = inspect.getmodule(source_func)
-    _SOURCES[source_func.__name__] = SourceInfo(
-        SPEC=spec,
-        f=source_func,
-        module=func_module,
-    )
-
-
-_register_source(rest_api_source)

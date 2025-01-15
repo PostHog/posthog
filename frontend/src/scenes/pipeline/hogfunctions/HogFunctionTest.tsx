@@ -1,9 +1,19 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconInfo, IconX } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonLabel,
+    LemonSwitch,
+    LemonTable,
+    LemonTag,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
@@ -20,7 +30,7 @@ const HogFunctionTestEditor = ({
         <CodeEditorResizeable
             language="json"
             value={value}
-            height={300}
+            height={400}
             onChange={onChange}
             options={{
                 lineNumbers: 'off',
@@ -40,23 +50,47 @@ const HogFunctionTestEditor = ({
                     vertical: 'hidden',
                     verticalScrollbarSize: 0,
                 },
+                folding: true,
             }}
         />
     )
 }
 
-export function HogFunctionTestPlaceholder(): JSX.Element {
+export function HogFunctionTestPlaceholder({
+    title,
+    description,
+}: {
+    title?: string | JSX.Element
+    description?: string | JSX.Element
+}): JSX.Element {
     return (
         <div className="border bg-accent-3000 rounded p-3 space-y-2">
-            <h2 className="flex-1 m-0">Testing</h2>
-            <p>Save your configuration to enable testing</p>
+            <h2 className="flex-1 m-0">{title || 'Testing'}</h2>
+            <p>{description || 'Save your configuration to enable testing'}</p>
         </div>
     )
 }
 
 export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
-    const { isTestInvocationSubmitting, testResult, expanded } = useValues(hogFunctionTestLogic(props))
-    const { submitTestInvocation, setTestResult, toggleExpanded } = useActions(hogFunctionTestLogic(props))
+    const {
+        isTestInvocationSubmitting,
+        testResult,
+        expanded,
+        sampleGlobalsLoading,
+        sampleGlobalsError,
+        type,
+        savedGlobals,
+        testInvocation,
+    } = useValues(hogFunctionTestLogic(props))
+    const {
+        submitTestInvocation,
+        setTestResult,
+        toggleExpanded,
+        loadSampleGlobals,
+        deleteSavedGlobals,
+        setSampleGlobals,
+        saveGlobals,
+    } = useActions(hogFunctionTestLogic(props))
 
     return (
         <Form logic={hogFunctionTestLogic} props={props} formKey="testInvocation" enableFormOnSubmit>
@@ -65,12 +99,22 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
             >
                 <div className="flex items-center gap-2 justify-end">
                     <div className="flex-1 space-y-2">
-                        <h2 className="mb-0">Testing</h2>
-                        {!expanded && <p>Click here to test your function with an example event</p>}
+                        <h2 className="mb-0 flex gap-2 items-center">
+                            <span>Testing</span>
+                            {sampleGlobalsLoading ? <Spinner /> : null}
+                        </h2>
+                        {!expanded &&
+                            (type === 'email' ? (
+                                <p>Click here to test the provider with a sample e-mail</p>
+                            ) : type === 'broadcast' ? (
+                                <p>Click here to test your broadcast</p>
+                            ) : (
+                                <p>Click here to test your function with an example event</p>
+                            ))}
                     </div>
 
                     {!expanded ? (
-                        <LemonButton type="secondary" onClick={() => toggleExpanded()}>
+                        <LemonButton data-attr="expand-hog-testing" type="secondary" onClick={() => toggleExpanded()}>
                             Start testing
                         </LemonButton>
                     ) : (
@@ -80,38 +124,100 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                     type="primary"
                                     onClick={() => setTestResult(null)}
                                     loading={isTestInvocationSubmitting}
+                                    data-attr="clear-hog-test-result"
                                 >
                                     Clear test result
                                 </LemonButton>
                             ) : (
                                 <>
-                                    <LemonField name="mock_async_functions">
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                bordered
-                                                onChange={onChange}
-                                                checked={value}
-                                                label={
-                                                    <Tooltip
-                                                        title={
-                                                            <>
-                                                                When selected, async functions such as `fetch` will not
-                                                                actually be called but instead will be mocked out with
-                                                                the fetch content logged instead
-                                                            </>
-                                                        }
+                                    <More
+                                        dropdown={{ closeOnClickInside: false }}
+                                        overlay={
+                                            <>
+                                                <LemonField name="mock_async_functions">
+                                                    {({ value, onChange }) => (
+                                                        <LemonSwitch
+                                                            onChange={(v) => onChange(!v)}
+                                                            checked={!value}
+                                                            data-attr="toggle-hog-test-mocking"
+                                                            className="px-2 py-1"
+                                                            label={
+                                                                <Tooltip
+                                                                    title={
+                                                                        <>
+                                                                            When disabled, async functions such as
+                                                                            `fetch` will not be called. Instead they
+                                                                            will be mocked out and logged.
+                                                                        </>
+                                                                    }
+                                                                >
+                                                                    <span className="flex gap-2">
+                                                                        Make real HTTP requests
+                                                                        <IconInfo className="text-lg" />
+                                                                    </span>
+                                                                </Tooltip>
+                                                            }
+                                                        />
+                                                    )}
+                                                </LemonField>
+                                                <LemonDivider />
+                                                <LemonButton
+                                                    fullWidth
+                                                    onClick={loadSampleGlobals}
+                                                    loading={sampleGlobalsLoading}
+                                                    tooltip="Find the last event matching filters, and use it to populate the globals below."
+                                                >
+                                                    Fetch new event
+                                                </LemonButton>
+                                                <LemonDivider />
+                                                {savedGlobals.map(({ name, globals }, index) => (
+                                                    <div className="flex w-full justify-between" key={index}>
+                                                        <LemonButton
+                                                            data-attr="open-hog-test-data"
+                                                            key={index}
+                                                            onClick={() => setSampleGlobals(globals)}
+                                                            fullWidth
+                                                            className="flex-1"
+                                                        >
+                                                            {name}
+                                                        </LemonButton>
+                                                        <LemonButton
+                                                            data-attr="delete-hog-test-data"
+                                                            size="small"
+                                                            icon={<IconX />}
+                                                            onClick={() => deleteSavedGlobals(index)}
+                                                            tooltip="Delete saved test data"
+                                                        />
+                                                    </div>
+                                                ))}
+                                                {testInvocation.globals && (
+                                                    <LemonButton
+                                                        fullWidth
+                                                        data-attr="save-hog-test-data"
+                                                        onClick={() => {
+                                                            const name = prompt('Name this test data')
+                                                            if (name) {
+                                                                saveGlobals(name, JSON.parse(testInvocation.globals))
+                                                            }
+                                                        }}
+                                                        disabledReason={(() => {
+                                                            try {
+                                                                JSON.parse(testInvocation.globals)
+                                                            } catch (e) {
+                                                                return 'Invalid globals JSON'
+                                                            }
+                                                            return undefined
+                                                        })()}
                                                     >
-                                                        <span className="flex gap-2">
-                                                            Mock out async functions
-                                                            <IconInfo className="text-lg" />
-                                                        </span>
-                                                    </Tooltip>
-                                                }
-                                            />
-                                        )}
-                                    </LemonField>
+                                                        Save test data
+                                                    </LemonButton>
+                                                )}
+                                            </>
+                                        }
+                                    />
                                     <LemonButton
                                         type="primary"
+                                        data-attr="test-hog-function"
                                         onClick={submitTestInvocation}
                                         loading={isTestInvocationSubmitting}
                                     >
@@ -120,7 +226,12 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                 </>
                             )}
 
-                            <LemonButton icon={<IconX />} onClick={() => toggleExpanded()} tooltip="Hide testing" />
+                            <LemonButton
+                                data-attr="hide-hog-testing"
+                                icon={<IconX />}
+                                onClick={() => toggleExpanded()}
+                                tooltip="Hide testing"
+                            />
                         </>
                     )}
                 </div>
@@ -166,17 +277,21 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                             </div>
                         ) : (
                             <div className="space-y-2">
-                                <LemonField name="globals" label="Test invocation context">
+                                <LemonField name="globals">
                                     {({ value, onChange }) => (
                                         <>
-                                            <div className="flex items-start justify-end">
-                                                <p className="flex-1">
-                                                    The globals object is the context in which your function will be
-                                                    tested. It should contain all the data that your function will need
-                                                    to run
-                                                </p>
+                                            <div className="space-y-2">
+                                                <div>
+                                                    {type === 'broadcast'
+                                                        ? 'The test broadcast will be sent with this sample data:'
+                                                        : type === 'email'
+                                                        ? 'The provider will be tested with this sample data:'
+                                                        : 'Here are all the global variables you can use in your code:'}
+                                                </div>
+                                                {sampleGlobalsError ? (
+                                                    <div className="text-warning">{sampleGlobalsError}</div>
+                                                ) : null}
                                             </div>
-
                                             <HogFunctionTestEditor value={value} onChange={onChange} />
                                         </>
                                     )}

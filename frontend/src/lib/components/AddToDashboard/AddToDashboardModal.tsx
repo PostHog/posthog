@@ -159,8 +159,7 @@ export function AddToDashboardModal({
                     This insight is referenced on <strong className="text-text-3000">{currentDashboards.length}</strong>{' '}
                     {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
                 </div>
-                {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div style={{ minHeight: 420 }}>
+                <div className="min-h-[420px]">
                     <AutoSizer>
                         {({ height, width }) => (
                             <List

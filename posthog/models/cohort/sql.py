@@ -91,6 +91,8 @@ WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 """
 
 STALE_COHORTPEOPLE = f"""
-SELECT count() FROM cohortpeople
-WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version < %(version)s
+SELECT team_id, count() AS stale_people_count FROM cohortpeople
+WHERE team_id IN %(team_ids)s AND cohort_id = %(cohort_id)s AND version < %(version)s
+GROUP BY team_id
+HAVING stale_people_count > 0
 """

@@ -87,7 +87,7 @@ export function EventDefinitionsTable(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    to={urls.replay(ReplayTabs.Recent, {
+                                    to={urls.replay(ReplayTabs.Home, {
                                         filter_group: {
                                             type: FilterLogicalOperator.And,
                                             values: [

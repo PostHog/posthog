@@ -64,7 +64,7 @@ export function BridgePage({
                     <div className="BridgePage__left-wrapper">
                         <div className="BridgePage__left">
                             {!noLogo && sideLogo && (
-                                <div className="BridgePage__header-logo mb-4">
+                                <div className="BridgePage__header-logo mb-16">
                                     <WelcomeLogo view={view} />
                                 </div>
                             )}

@@ -14,11 +14,26 @@ import { actionStepToActionStepFormItem, elementToActionStep, stepToDatabaseForm
 import { ActionType, ElementType } from '~/types'
 
 import type { actionsTabLogicType } from './actionsTabLogicType'
+import { ActionStepPropertyKey } from './ActionStep'
 
-function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {
+function newAction(
+    element: HTMLElement | null,
+    dataAttributes: string[] = [],
+    name: string | null,
+    includedPropertyKeys?: ActionStepPropertyKey[]
+): ActionDraftType {
     return {
-        name: '',
-        steps: [element ? actionStepToActionStepFormItem(elementToActionStep(element, dataAttributes), true) : {}],
+        name: name || '',
+        steps: [
+            element
+                ? actionStepToActionStepFormItem(
+                      elementToActionStep(element, dataAttributes),
+                      true,
+                      includedPropertyKeys
+                  )
+                : {},
+        ],
+        pinned_at: null,
     }
 }
 
@@ -66,6 +81,11 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
         hideButtonActions: true,
         setShowActionsTooltip: (showActionsTooltip: boolean) => ({ showActionsTooltip }),
         setElementSelector: (selector: string, index: number) => ({ selector, index }),
+        setAutomaticActionCreationEnabled: (enabled: boolean, name?: string) => ({ enabled, name }),
+        actionCreatedSuccess: (action: ActionType) => ({ action }),
+        setautomaticCreationIncludedPropertyKeys: (keys: ActionStepPropertyKey[]) => ({ keys }),
+        removeAutomaticCreationIncludedPropertyKey: (key: ActionStepPropertyKey) => ({ key }),
+        addAutomaticCreationIncludedPropertyKey: (key: ActionStepPropertyKey) => ({ key }),
     }),
 
     connect(() => ({
@@ -141,6 +161,30 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 setShowActionsTooltip: (_, { showActionsTooltip }) => showActionsTooltip,
             },
         ],
+        // we automatically create actions for people from analytics onboarding. This flag controls that experience.
+        automaticActionCreationEnabled: [
+            false as boolean,
+            {
+                setAutomaticActionCreationEnabled: (_, { enabled, name }) => (enabled && !!name) || false,
+            },
+        ],
+        newActionName: [
+            null as string | null,
+            {
+                setAutomaticActionCreationEnabled: (_, { enabled, name }) => (enabled && name ? name : null),
+            },
+        ],
+        automaticCreationIncludedPropertyKeys: [
+            [] as ActionStepPropertyKey[],
+            {
+                setAutomaticActionCreationEnabled: (_, { enabled }) =>
+                    enabled ? ['text', 'href', 'name', 'selector', 'url'] : [],
+                setautomaticCreationIncludedPropertyKeys: (_, { keys }) => keys || [],
+                removeAutomaticCreationIncludedPropertyKey: (state, { key }) => state.filter((k) => k !== key),
+                addAutomaticCreationIncludedPropertyKey: (state, { key }) =>
+                    !state.includes(key) ? [...state, key] : state,
+            },
+        ],
     }),
 
     forms(({ values, actions }) => ({
@@ -153,9 +197,23 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 const actionToSave = {
                     ...formValues,
                     steps: formValues.steps?.map(stepToDatabaseFormat) || [],
+                    creation_context: values.automaticActionCreationEnabled ? 'onboarding' : null,
                 }
                 const { apiURL, temporaryToken } = values
                 const { selectedActionId } = values
+
+                const findUniqueActionName = (baseName: string, index = 0): string => {
+                    const proposedName = index === 0 ? baseName : `${baseName} - ${index}`
+                    if (!values.allActions.find((action) => action.name === proposedName)) {
+                        return proposedName
+                    }
+                    return findUniqueActionName(baseName, index + 1)
+                }
+
+                if (values.newActionName) {
+                    // newActionName is programmatically set, but they may already have an existing action with that name. Append an index.
+                    actionToSave.name = findUniqueActionName(values.newActionName)
+                }
 
                 let response: ActionType
                 if (selectedActionId && selectedActionId !== 'new') {
@@ -171,15 +229,19 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 }
                 breakpoint()
 
-                actionsLogic.actions.updateAction({ action: response })
                 actions.selectAction(null)
+                actionsLogic.actions.updateAction({ action: response })
 
-                lemonToast.success('Action saved', {
-                    button: {
-                        label: 'Open in PostHog',
-                        action: () => window.open(`${apiURL}${urls.action(response.id)}`, '_blank'),
-                    },
-                })
+                if (!values.automaticActionCreationEnabled) {
+                    lemonToast.success('Action saved', {
+                        button: {
+                            label: 'Open in PostHog',
+                            action: () => window.open(`${apiURL}${urls.action(response.id)}`, '_blank'),
+                        },
+                    })
+                }
+
+                actions.actionCreatedSuccess(response)
             },
 
             // whether we show errors after touch (true) or submit (false)
@@ -210,22 +272,47 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
             },
         ],
         selectedAction: [
-            (s) => [s.selectedActionId, s.newActionForElement, s.allActions, s.dataAttributes],
+            (s) => [
+                s.selectedActionId,
+                s.newActionForElement,
+                s.allActions,
+                s.dataAttributes,
+                s.newActionName,
+                s.automaticCreationIncludedPropertyKeys,
+            ],
             (
                 selectedActionId,
                 newActionForElement,
                 allActions,
-                dataAttributes
+                dataAttributes,
+                newActionName,
+                automaticCreationIncludedPropertyKeys
             ): ActionType | ActionDraftType | null => {
                 if (selectedActionId === 'new') {
-                    return newAction(newActionForElement, dataAttributes)
+                    return newAction(
+                        newActionForElement,
+                        dataAttributes,
+                        newActionName,
+                        automaticCreationIncludedPropertyKeys
+                    )
                 }
                 return allActions.find((a) => a.id === selectedActionId) || null
             },
         ],
+        isReadyForAutomaticSubmit: [
+            (s) => [s.automaticActionCreationEnabled, s.selectedAction, s.actionForm],
+            (automaticActionCreationEnabled, selectedAction, actionForm): boolean => {
+                return (
+                    (automaticActionCreationEnabled &&
+                        selectedAction?.name &&
+                        actionForm.steps?.[0]?.selector_selected) ||
+                    false
+                )
+            },
+        ],
     }),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         selectedAction: (selectedAction: ActionType | ActionDraftType | null) => {
             if (!selectedAction) {
                 actions.setActionFormValues({ name: null, steps: [{}] })
@@ -236,6 +323,9 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                         ? selectedAction.steps.map((step) => actionStepToActionStepFormItem(step, false))
                         : [{}],
                 })
+                if (values.isReadyForAutomaticSubmit) {
+                    actions.submitActionForm()
+                }
             }
         },
     })),

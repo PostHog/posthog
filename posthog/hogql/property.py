@@ -45,9 +45,11 @@ from posthog.schema import (
     DataWarehousePropertyFilter,
     DataWarehousePersonPropertyFilter,
 )
-from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery, DataWarehouseTable
+from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
 from django.db.models import Q
+
+from posthog.warehouse.models.util import get_view_or_table_by_name
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -113,27 +115,12 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
 
         prop_type = None
 
-        maybe_view = (
-            DataWarehouseSavedQuery.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
-            .filter(team=team, name=current_join.joining_table_name)
-            .first()
-        )
-
-        if maybe_view:
-            prop_type_dict = maybe_view.columns.get(property.key, None)
+        table_or_view = get_view_or_table_by_name(team, current_join.joining_table_name)
+        if table_or_view:
+            prop_type_dict = table_or_view.columns.get(property.key, None)
             prop_type = prop_type_dict.get("hogql")
 
-        maybe_table = (
-            DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
-            .filter(team=team, name=current_join.joining_table_name)
-            .first()
-        )
-
-        if maybe_table:
-            prop_type_dict = maybe_table.columns.get(property.key, None)
-            prop_type = prop_type_dict.get("hogql")
-
-        if not maybe_view and not maybe_table:
+        if not table_or_view:
             raise Exception(f"Could not find table or view for key {key}")
 
         if prop_type == "BooleanDatabaseField":
@@ -275,7 +262,7 @@ def property_to_expr(
         | DataWarehousePersonPropertyFilter
     ),
     team: Team,
-    scope: Literal["event", "person", "session", "replay", "replay_entity", "replay_pdi"] = "event",
+    scope: Literal["event", "person", "session", "replay", "replay_entity"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -345,6 +332,7 @@ def property_to_expr(
         or property.type == "data_warehouse"
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
+        or property.type == "recording"
         or property.type == "log_entry"
     ):
         if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
@@ -358,6 +346,34 @@ def property_to_expr(
             chain = ["events", "properties"]
         elif property.type == "session" and scope == "replay_entity":
             chain = ["events", "session"]
+        elif property.type == "data_warehouse":
+            if not isinstance(property.key, str):
+                raise QueryError("Data warehouse property filter value must be a string")
+            else:
+                split = property.key.split(".")
+                chain = split[:-1]
+                property.key = split[-1]
+
+            if isinstance(value, list) and len(value) > 1:
+                field = ast.Field(chain=[*chain, property.key])
+                exprs = [
+                    _expr_to_compare_op(
+                        expr=field,
+                        value=v,
+                        operator=operator,
+                        team=team,
+                        property=property,
+                        is_json_field=False,
+                    )
+                    for v in value
+                ]
+                if (
+                    operator == PropertyOperator.NOT_ICONTAINS
+                    or operator == PropertyOperator.NOT_REGEX
+                    or operator == PropertyOperator.IS_NOT
+                ):
+                    return ast.And(exprs=exprs)
+                return ast.Or(exprs=exprs)
         elif property.type == "data_warehouse_person_property":
             if isinstance(property.key, str):
                 table, key = property.key.split(".")
@@ -367,7 +383,7 @@ def property_to_expr(
                 raise QueryError("Data warehouse person property filter value must be a string")
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
-        elif property.type in ["data_warehouse", "log_entry"]:
+        elif property.type in ["recording", "data_warehouse", "log_entry"]:
             chain = []
         elif property.type == "session" and scope in ["event", "replay"]:
             chain = ["session"]
@@ -376,7 +392,11 @@ def property_to_expr(
         else:
             chain = ["properties"]
 
-        expr: ast.Expr = ast.Field(chain=[*chain, property.key])
+        field = ast.Field(chain=[*chain, property.key])
+        expr: ast.Expr = field
+
+        if property.type == "recording" and property.key == "snapshot_source":
+            expr = ast.Call(name="argMinMerge", args=[field])
 
         if isinstance(value, list):
             if len(value) == 0:
@@ -486,10 +506,13 @@ def property_to_expr(
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
-        cohort = Cohort.objects.get(team=team, id=property.value)
+        cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
-            op=ast.CompareOperationOp.InCohort,
+            op=ast.CompareOperationOp.NotInCohort
+            # Kludge: negation is outdated but still used in places
+            if property.negation or property.operator == PropertyOperator.NOT_IN.value
+            else ast.CompareOperationOp.InCohort,
             right=ast.Constant(value=cohort.pk),
         )
 
@@ -545,23 +568,26 @@ def action_to_expr(action: Action) -> ast.Expr:
             if step.text is not None:
                 value = step.text
                 if step.text_matching == "regex":
-                    match = ast.CompareOperationOp.Regex
-                elif step.text_matching == "contains":
-                    match = ast.CompareOperationOp.ILike
-                    value = f"%{value}%"
-                else:
-                    match = ast.CompareOperationOp.Eq
-
-                exprs.append(
-                    parse_expr(
-                        "arrayExists(x -> {match}, elements_chain_texts)",
-                        {
-                            "match": ast.CompareOperation(
-                                op=match, left=ast.Field(chain=["x"]), right=ast.Constant(value=value)
-                            )
-                        },
+                    exprs.append(
+                        parse_expr(
+                            "arrayExists(x -> x =~ {value}, elements_chain_texts)",
+                            {"value": ast.Constant(value=value)},
+                        )
                     )
-                )
+                elif step.text_matching == "contains":
+                    exprs.append(
+                        parse_expr(
+                            "arrayExists(x -> x ilike {value}, elements_chain_texts)",
+                            {"value": ast.Constant(value=f"%{value}%")},
+                        )
+                    )
+                else:
+                    exprs.append(
+                        parse_expr(
+                            "arrayExists(x -> x = {value}, elements_chain_texts)",
+                            {"value": ast.Constant(value=value)},
+                        )
+                    )
         if step.url:
             if step.url_matching == "exact":
                 expr = parse_expr(

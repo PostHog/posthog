@@ -58,7 +58,7 @@ class TestVisitor(BaseTest):
                         args=[
                             ast.Alias(
                                 alias="d",
-                                expr=ast.Placeholder(chain=["e"]),
+                                expr=ast.Placeholder(expr=ast.Field(chain=["e"])),
                             ),
                             ast.OrderExpr(
                                 expr=ast.Field(chain=["c"]),
@@ -154,3 +154,7 @@ class TestVisitor(BaseTest):
         assert NamingCheck().visit(UUIDType()) == "visit_uuid_type"
         assert NamingCheck().visit(HogQLXAttribute(name="a", value="a")) == "visit_hogqlx_attribute"
         assert NamingCheck().visit(HogQLXTag(kind="", attributes=[])) == "visit_hogqlx_tag"
+
+    def test_visit_interval_type(self):
+        # Just ensure ``IntervalType`` can be visited without throwing ``NotImplementedError``
+        TraversingVisitor().visit(ast.IntervalType())

@@ -1,6 +1,12 @@
 import { eachMessageWebhooksHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-webhooks'
-import { ClickHouseTimestamp, ClickHouseTimestampSecondPrecision, Hub, RawClickHouseEvent } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
+import {
+    ClickHouseTimestamp,
+    ClickHouseTimestampSecondPrecision,
+    Hub,
+    ProjectId,
+    RawKafkaEvent,
+} from '../../../src/types'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
@@ -11,7 +17,7 @@ import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
 
-const clickhouseEvent: RawClickHouseEvent = {
+const kafkaEvent: RawKafkaEvent = {
     event: '$pageview',
     properties: JSON.stringify({
         $ip: '127.0.0.1',
@@ -23,6 +29,7 @@ const clickhouseEvent: RawClickHouseEvent = {
     elements_chain: '',
     timestamp: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     team_id: 2,
+    project_id: 2 as ProjectId,
     distinct_id: 'my_id',
     created_at: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
@@ -33,10 +40,9 @@ const clickhouseEvent: RawClickHouseEvent = {
 
 describe('eachMessageWebhooksHandlers', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
         console.warn = jest.fn() as any
         await resetTestDatabase()
 
@@ -73,7 +79,7 @@ describe('eachMessageWebhooksHandlers', () => {
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     it('calls runWebhooksHandlersEventPipeline', async () => {
@@ -139,7 +145,7 @@ describe('eachMessageWebhooksHandlers', () => {
         const postWebhookSpy = jest.spyOn(hookCannon.rustyHook, 'enqueueIfEnabledForTeam')
 
         await eachMessageWebhooksHandlers(
-            clickhouseEvent,
+            kafkaEvent,
             actionMatcher,
             hookCannon,
             groupTypeManager,
@@ -151,16 +157,16 @@ describe('eachMessageWebhooksHandlers', () => {
         // on hookCannon, but that would require a little more setup, and it
         // is at the least testing a little bit more than we were before.
         expect(matchSpy.mock.calls[0][0]).toMatchInlineSnapshot(`
-            Object {
+            {
               "distinctId": "my_id",
               "elementsList": undefined,
               "event": "$pageview",
               "eventUuid": "uuid1",
-              "groups": Object {
-                "organization": Object {
+              "groups": {
+                "organization": {
                   "index": 0,
                   "key": "org_posthog",
-                  "properties": Object {
+                  "properties": {
                     "name": "PostHog",
                   },
                   "type": "organization",
@@ -168,9 +174,10 @@ describe('eachMessageWebhooksHandlers', () => {
               },
               "person_created_at": "2020-02-20T02:15:00.000Z",
               "person_id": "F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC",
-              "person_properties": Object {},
-              "properties": Object {
-                "$groups": Object {
+              "person_properties": {},
+              "projectId": 2,
+              "properties": {
+                "$groups": {
                   "organization": "org_posthog",
                 },
                 "$ip": "127.0.0.1",
@@ -182,8 +189,8 @@ describe('eachMessageWebhooksHandlers', () => {
 
         expect(postWebhookSpy).toHaveBeenCalledTimes(1)
         expect(JSON.parse(postWebhookSpy.mock.calls[0][0].webhook.body)).toMatchInlineSnapshot(`
-            Object {
-              "text": "[Test Action](/project/2/action/1) was triggered by [my\\\\_id](/project/2/person/my\\\\_id) in organization [PostHog](/project/2/groups/0/org\\\\_posthog)",
+            {
+              "text": "[Test Action](/project/2/action/1) was triggered by [my\\_id](/project/2/person/my\\_id) in organization [PostHog](/project/2/groups/0/org\\_posthog)",
             }
         `)
     })

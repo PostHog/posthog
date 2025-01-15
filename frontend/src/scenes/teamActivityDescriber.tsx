@@ -13,7 +13,9 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, TeamType } from '~/types'
+import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
+
+import { ThemeName } from './dataThemeLogic'
 
 const teamActionsMapping: Record<
     keyof TeamType,
@@ -37,6 +39,39 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    session_recording_url_trigger_config(change: ActivityChange | undefined): ChangeMapping | null {
+        const before = change?.before
+        const after = change?.after
+        if (before === null && after === null) {
+            return null
+        }
+
+        return {
+            description: [<>Changed session replay URL triggers</>],
+        }
+    },
+    session_recording_url_blocklist_config(change: ActivityChange | undefined): ChangeMapping | null {
+        const before = change?.before
+        const after = change?.after
+        if (before === null && after === null) {
+            return null
+        }
+
+        return {
+            description: [<>Changed session replay URL blocklist</>],
+        }
+    },
+    session_recording_event_trigger_config(change: ActivityChange | undefined): ChangeMapping | null {
+        const before = change?.before
+        const after = change?.after
+        if (before === null && after === null) {
+            return null
+        }
+
+        return {
+            description: [<>Changed session replay event triggers</>],
+        }
+    },
     capture_console_log_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} console log capture in session replay</>] }
     },
@@ -45,6 +80,11 @@ const teamActionsMapping: Record<
             description: [
                 <>{change?.after ? 'enabled' : 'disabled'} console network performance capture in session replay</>,
             ],
+        }
+    },
+    capture_dead_clicks(change: ActivityChange | undefined): ChangeMapping | null {
+        return {
+            description: [<>{change?.after ? 'enabled' : 'disabled'} dead clicks autocapture</>],
         }
     },
     recording_domains(change: ActivityChange | undefined): ChangeMapping | null {
@@ -139,6 +179,48 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    survey_config: (change: ActivityChange | undefined): ChangeMapping | null => {
+        const before = change!.before as TeamSurveyConfigType
+        const after = change!.after as TeamSurveyConfigType
+        const descriptions = []
+        const preamble = 'Survey Configuration : '
+        if (before === undefined) {
+            descriptions.push('Survey Configuration was enabled')
+        }
+
+        const propertyChangeDesc = (
+            name: string,
+            callback: (config: TeamSurveyConfigType) => string | undefined
+        ): void => {
+            if (callback(before) !== callback(after)) {
+                descriptions.push(`${preamble} ${name} was changed from "${callback(before)}" to "${callback(after)}"`)
+            }
+        }
+
+        if (before?.appearance?.whiteLabel !== after?.appearance?.whiteLabel) {
+            descriptions.push(
+                `${preamble} Survey white labeling was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
+            )
+        }
+
+        if (before?.appearance?.displayThankYouMessage !== after?.appearance?.displayThankYouMessage) {
+            descriptions.push(
+                `${preamble} displayThankYouMessage was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
+            )
+        }
+
+        propertyChangeDesc('backgroundColor', (c) => c?.appearance?.backgroundColor)
+        propertyChangeDesc('submitButtonColor', (c) => c?.appearance?.submitButtonColor)
+        propertyChangeDesc('submitButtonTextColor', (c) => c?.appearance?.submitButtonTextColor)
+        propertyChangeDesc('ratingButtonColor', (c) => c?.appearance?.ratingButtonColor)
+        propertyChangeDesc('ratingButtonActiveColor', (c) => c?.appearance?.ratingButtonActiveColor)
+        propertyChangeDesc('borderColor', (c) => c?.appearance?.borderColor)
+        propertyChangeDesc('placeholder', (c) => c?.appearance?.placeholder)
+        propertyChangeDesc('thankYouMessageHeader', (c) => c?.appearance?.thankYouMessageHeader)
+        propertyChangeDesc('position', (c) => c?.appearance?.position)
+
+        return { description: descriptions }
+    },
     session_replay_config(change: ActivityChange | undefined): ChangeMapping | null {
         // TODO we'll eventually need a deeper mapping for this nested object
         const after = change?.after
@@ -158,8 +240,13 @@ const teamActionsMapping: Record<
     autocapture_web_vitals_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} web vitals autocapture</>] }
     },
+    autocapture_web_vitals_allowed_metrics(change: ActivityChange | undefined): ChangeMapping | null {
+        const after = change?.after
+        const metricsList = Array.isArray(after) ? after.join(', ') : 'CLS, FCP, INP, and LCP'
+        return { description: [<>set allowed web vitals autocapture metrics to {metricsList}</>] }
+    },
     autocapture_opt_out(change: ActivityChange | undefined): ChangeMapping | null {
-        return { description: [<>{change?.after ? 'opted in to' : 'opted out of'} autocapture</>] }
+        return { description: [<>{change?.after ? 'opted out of' : 'opted in to'} autocapture</>] }
     },
     heatmaps_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} heatmaps</>] }
@@ -218,6 +305,68 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    extra_settings: (change: ActivityChange | undefined): ChangeMapping | null => {
+        const after = change?.after
+        if (typeof after !== 'object') {
+            return null
+        }
+        const descriptions = []
+        for (const key in after) {
+            if (key === 'poe_v2_enabled') {
+                descriptions.push(
+                    <>{after[key as keyof typeof after] ? 'enabled' : 'disabled'} Person on Events (v2)</>
+                )
+            }
+        }
+        return { description: descriptions }
+    },
+    modifiers: (change: ActivityChange | undefined): ChangeMapping | null => {
+        const after = change?.after
+        if (typeof after !== 'object') {
+            return null
+        }
+        const descriptions = []
+        for (const key in after) {
+            descriptions.push(
+                <>
+                    set <em>{key}</em> to "{String(after[key as keyof typeof after])}"
+                </>
+            )
+        }
+        return { description: descriptions }
+    },
+    default_data_theme: (change): ChangeMapping | null => {
+        return {
+            description: [
+                <>
+                    changed the default color theme{' '}
+                    {change?.before && (
+                        <>
+                            from <ThemeName id={change.before as number} />{' '}
+                        </>
+                    )}
+                    to{' '}
+                    <em>
+                        <ThemeName id={change?.after as number} />
+                    </em>
+                </>,
+            ],
+        }
+    },
+    human_friendly_comparison_periods: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    <strong>{change?.after ? 'enabled' : 'disabled'}</strong> human friendly comparison periods
+                </>,
+            ],
+        }
+    },
+
     // TODO if I had to test and describe every single one of this I'd never release this
     // we can add descriptions here as the need arises
     access_control: () => null,
@@ -232,6 +381,7 @@ const teamActionsMapping: Record<
     is_demo: () => null,
     live_events_columns: () => null,
     organization: () => null,
+    project_id: () => null,
     path_cleaning_filters: () => null,
     person_display_name_properties: () => null,
     person_on_events_querying_enabled: () => null,
@@ -240,43 +390,19 @@ const teamActionsMapping: Record<
     timezone: () => null,
     surveys_opt_in: () => null,
     week_start_day: () => null,
-    extra_settings: (change: ActivityChange | undefined): ChangeMapping | null => {
-        const after = change?.after
-        if (typeof after !== 'object') {
-            return null
-        }
-        const descriptions = []
-        for (const key in after) {
-            if (key === 'poe_v2_enabled') {
-                descriptions.push(<>{after[key] ? 'enabled' : 'disabled'} Person on Events (v2)</>)
-            }
-        }
-        return { description: descriptions }
-    },
-    modifiers: (change: ActivityChange | undefined): ChangeMapping | null => {
-        const after = change?.after
-        if (typeof after !== 'object') {
-            return null
-        }
-        const descriptions = []
-        for (const key in after) {
-            descriptions.push(
-                <>
-                    set <em>{key}</em> to "{String(after[key])}"
-                </>
-            )
-        }
-        return { description: descriptions }
-    },
     default_modifiers: () => null,
     has_completed_onboarding_for: () => null,
+
     // should never come from the backend
     created_at: () => null,
     api_token: () => null,
     id: () => null,
     updated_at: () => null,
     uuid: () => null,
+    user_access_level: () => null,
     live_events_token: () => null,
+    product_intents: () => null,
+    cookieless_server_hash_mode: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
@@ -300,11 +426,11 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
         let changeSuffix: Description = <>on {nameAndLink(logItem)}</>
 
         for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !teamActionsMapping[change.field]) {
+            if (!change?.field || !(change.field in teamActionsMapping)) {
                 continue //  not all notebook fields are describable
             }
 
-            const actionHandler = teamActionsMapping[change.field]
+            const actionHandler = teamActionsMapping[change.field as keyof TeamType]
             const processedChange = actionHandler(change, logItem)
             if (processedChange === null) {
                 continue // // unexpected log from backend is indescribable

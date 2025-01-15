@@ -50,6 +50,7 @@ describe('Groups Manager', () => {
 
         it('does nothing if no group properties found', async () => {
             const globals = createHogExecutionGlobals({
+                groups: undefined,
                 event: {
                     properties: {
                         $groups: { GroupA: 'id-1', GroupB: 'id-2' },
@@ -59,18 +60,18 @@ describe('Groups Manager', () => {
             await groupsManager.enrichGroups([globals])
 
             expect(globals.groups).toMatchInlineSnapshot(`
-                Object {
-                  "GroupA": Object {
+                {
+                  "GroupA": {
                     "id": "id-1",
                     "index": 0,
-                    "properties": Object {},
+                    "properties": {},
                     "type": "GroupA",
                     "url": "http://localhost:8000/projects/1/groups/0/id-1",
                   },
-                  "GroupB": Object {
+                  "GroupB": {
                     "id": "id-2",
                     "index": 1,
-                    "properties": Object {},
+                    "properties": {},
                     "type": "GroupB",
                     "url": "http://localhost:8000/projects/1/groups/1/id-2",
                   },
@@ -84,6 +85,7 @@ describe('Groups Manager', () => {
                 { team_id: 1, group_type_index: 1, group_key: 'id-2', group_properties: { prop: 'value-2' } },
             ]
             const globals = createHogExecutionGlobals({
+                groups: undefined,
                 event: {
                     properties: {
                         $groups: { GroupA: 'id-1', GroupB: 'id-2' },
@@ -93,20 +95,20 @@ describe('Groups Manager', () => {
             await groupsManager.enrichGroups([globals])
 
             expect(globals.groups).toMatchInlineSnapshot(`
-                Object {
-                  "GroupA": Object {
+                {
+                  "GroupA": {
                     "id": "id-1",
                     "index": 0,
-                    "properties": Object {
+                    "properties": {
                       "prop": "value-1",
                     },
                     "type": "GroupA",
                     "url": "http://localhost:8000/projects/1/groups/0/id-1",
                   },
-                  "GroupB": Object {
+                  "GroupB": {
                     "id": "id-2",
                     "index": 1,
-                    "properties": Object {
+                    "properties": {
                       "prop": "value-2",
                     },
                     "type": "GroupB",
@@ -125,14 +127,17 @@ describe('Groups Manager', () => {
             const items = [
                 // Should get both groups enriched
                 createHogExecutionGlobals({
+                    groups: undefined,
                     event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
                 }),
                 // Should get its group enriched (via reference)
                 createHogExecutionGlobals({
+                    groups: undefined,
                     event: { properties: { $groups: { GroupA: 'id-1' } } } as any,
                 }),
                 // Should get the right group for its team
                 createHogExecutionGlobals({
+                    groups: undefined,
                     project: { id: 2 } as any,
                     event: { properties: { $groups: { GroupA: 'id-1' } } } as any,
                 }),
@@ -140,31 +145,31 @@ describe('Groups Manager', () => {
             await groupsManager.enrichGroups(items)
 
             expect(items[0].groups).toMatchInlineSnapshot(`
-                Object {
-                  "GroupA": Object {
+                {
+                  "GroupA": {
                     "id": "id-1",
                     "index": 0,
-                    "properties": Object {
+                    "properties": {
                       "prop": "value-team-1",
                     },
                     "type": "GroupA",
                     "url": "http://localhost:8000/projects/1/groups/0/id-1",
                   },
-                  "GroupB": Object {
+                  "GroupB": {
                     "id": "id-2",
                     "index": 1,
-                    "properties": Object {},
+                    "properties": {},
                     "type": "GroupB",
                     "url": "http://localhost:8000/projects/1/groups/1/id-2",
                   },
                 }
             `)
             expect(items[1].groups).toMatchInlineSnapshot(`
-                Object {
-                  "GroupA": Object {
+                {
+                  "GroupA": {
                     "id": "id-1",
                     "index": 0,
-                    "properties": Object {
+                    "properties": {
                       "prop": "value-team-1",
                     },
                     "type": "GroupA",
@@ -173,11 +178,11 @@ describe('Groups Manager', () => {
                 }
             `)
             expect(items[2].groups).toMatchInlineSnapshot(`
-                Object {
-                  "GroupA": Object {
+                {
+                  "GroupA": {
                     "id": "id-1",
                     "index": 1,
-                    "properties": Object {
+                    "properties": {
                       "prop": "value-team-2",
                     },
                     "type": "GroupA",
@@ -191,10 +196,12 @@ describe('Groups Manager', () => {
     it('cached group type queries', async () => {
         const globals = [
             createHogExecutionGlobals({
+                groups: undefined,
                 project: { id: 1 } as any,
                 event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
             }),
             createHogExecutionGlobals({
+                groups: undefined,
                 project: { id: 2 } as any,
                 event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
             }),
@@ -209,6 +216,7 @@ describe('Groups Manager', () => {
 
         globals.push(
             createHogExecutionGlobals({
+                groups: undefined,
                 project: { id: 3 } as any,
                 event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
             })

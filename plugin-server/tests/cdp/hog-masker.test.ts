@@ -7,10 +7,10 @@ import { BASE_REDIS_KEY, HogMasker } from '../../src/cdp/hog-masker'
 import { CdpRedis, createCdpRedisPool } from '../../src/cdp/redis'
 import { HogFunctionType } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { delay } from '../../src/utils/utils'
 import { HOG_MASK_EXAMPLES } from './examples'
-import { createHogExecutionGlobals, createHogFunction } from './fixtures'
+import { createHogExecutionGlobals, createHogFunction, createInvocation } from './fixtures'
 import { deleteKeysWithPrefix } from './helpers/redis'
 
 const mockNow: jest.Mock = require('../../src/utils/now').now as any
@@ -19,13 +19,11 @@ describe('HogMasker', () => {
     describe('integration', () => {
         let now: number
         let hub: Hub
-        let closeHub: () => Promise<void>
         let masker: HogMasker
         let redis: CdpRedis
 
         beforeEach(async () => {
-            ;[hub, closeHub] = await createHub()
-
+            hub = await createHub()
             now = 1720000000000
             mockNow.mockReturnValue(now)
 
@@ -46,13 +44,13 @@ describe('HogMasker', () => {
         }
 
         afterEach(async () => {
-            await closeHub()
+            await closeHub(hub)
             jest.clearAllMocks()
         })
 
         it('should return all functions without masks', async () => {
             const normalFunction = createHogFunction({})
-            const invocations = [{ globals: createHogExecutionGlobals(), hogFunction: normalFunction }]
+            const invocations = [createInvocation(normalFunction)]
             const res = await masker.filterByMasking(invocations)
 
             expect(res.notMasked).toHaveLength(1)
@@ -63,21 +61,27 @@ describe('HogMasker', () => {
             const functionWithAllMasking = createHogFunction({
                 ...HOG_MASK_EXAMPLES.all,
             })
-            const globals1 = createHogExecutionGlobals({ event: { uuid: '1' } as any })
-            const globals2 = createHogExecutionGlobals({ event: { uuid: '2' } as any })
-            const globals3 = createHogExecutionGlobals({ event: { uuid: '3' } as any })
-            const invocations = [
-                { globals: globals1, hogFunction: functionWithAllMasking },
-                { globals: globals2, hogFunction: functionWithAllMasking },
-                { globals: globals3, hogFunction: functionWithAllMasking },
-            ]
+
+            const invocation1 = createInvocation(
+                functionWithAllMasking,
+                createHogExecutionGlobals({ event: { uuid: '1' } as any })
+            )
+            const invocation2 = createInvocation(
+                functionWithAllMasking,
+                createHogExecutionGlobals({ event: { uuid: '2' } as any })
+            )
+            const invocation3 = createInvocation(
+                functionWithAllMasking,
+                createHogExecutionGlobals({ event: { uuid: '3' } as any })
+            )
+            const invocations = [invocation1, invocation2, invocation3]
 
             const res = await masker.filterByMasking(invocations)
             expect(res.notMasked).toHaveLength(1)
             expect(res.masked).toHaveLength(2)
-            expect(res.notMasked[0].globals).toEqual(globals1)
-            expect(res.masked[0].globals).toEqual(globals2)
-            expect(res.masked[1].globals).toEqual(globals3)
+            expect(res.notMasked[0].globals).toEqual(invocation1.globals)
+            expect(res.masked[0].globals).toEqual(invocation2.globals)
+            expect(res.masked[1].globals).toEqual(invocation3.globals)
 
             const res2 = await masker.filterByMasking(invocations)
             expect(res2.notMasked).toHaveLength(0)
@@ -94,9 +98,9 @@ describe('HogMasker', () => {
             const functionWithNoMasking = createHogFunction({})
             const globals = createHogExecutionGlobals()
             const invocations = [
-                { globals, hogFunction: functionWithAllMasking },
-                { globals, hogFunction: functionWithAllMasking2 },
-                { globals, hogFunction: functionWithNoMasking },
+                createInvocation(functionWithAllMasking, globals),
+                createInvocation(functionWithAllMasking2, globals),
+                createInvocation(functionWithNoMasking, globals),
             ]
 
             const res = await masker.filterByMasking(invocations)
@@ -114,11 +118,19 @@ describe('HogMasker', () => {
         describe('ttl', () => {
             let hogFunctionPerson: HogFunctionType
             let hogFunctionAll: HogFunctionType
+            let hogFunctionPersonAndEvent: HogFunctionType
 
             beforeEach(() => {
                 hogFunctionPerson = createHogFunction({
                     masking: {
                         ...HOG_MASK_EXAMPLES.person.masking!,
+                        ttl: 1,
+                    },
+                })
+
+                hogFunctionPersonAndEvent = createHogFunction({
+                    masking: {
+                        ...HOG_MASK_EXAMPLES.personAndEvent.masking!,
                         ttl: 1,
                     },
                 })
@@ -131,7 +143,7 @@ describe('HogMasker', () => {
                 })
             })
             it('should re-allow after the ttl expires', async () => {
-                const invocations = [{ globals: createHogExecutionGlobals(), hogFunction: hogFunctionAll }]
+                const invocations = [createInvocation(hogFunctionAll)]
                 expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(1)
                 expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
                 expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
@@ -141,44 +153,57 @@ describe('HogMasker', () => {
             })
 
             it('should mask with custom hog hash', async () => {
-                const globalsPerson1 = createHogExecutionGlobals({ person: { uuid: '1' } as any })
-                const globalsPerson2 = createHogExecutionGlobals({ person: { uuid: '2' } as any })
+                const globals1 = createHogExecutionGlobals({
+                    person: { id: '1' } as any,
+                    event: { event: '$pageview' } as any,
+                })
+                const globals2 = createHogExecutionGlobals({
+                    person: { id: '2' } as any,
+                    event: { event: '$autocapture' } as any,
+                })
+                const globals3 = createHogExecutionGlobals({
+                    person: { id: '2' } as any,
+                    event: { event: '$pageview' } as any,
+                })
 
                 const invocations = [
-                    { globals: globalsPerson1, hogFunction: hogFunctionPerson },
-                    { globals: globalsPerson1, hogFunction: hogFunctionAll },
-                    { globals: globalsPerson2, hogFunction: hogFunctionPerson },
-                    { globals: globalsPerson2, hogFunction: hogFunctionAll },
+                    createInvocation(hogFunctionPerson, globals1),
+                    createInvocation(hogFunctionAll, globals1),
+                    createInvocation(hogFunctionPersonAndEvent, globals1),
+                    createInvocation(hogFunctionPerson, globals2),
+                    createInvocation(hogFunctionAll, globals2),
+                    createInvocation(hogFunctionPersonAndEvent, globals2),
+                    createInvocation(hogFunctionPersonAndEvent, globals3),
                 ]
                 const res = await masker.filterByMasking(invocations)
                 expect(res.masked.length).toEqual(1)
-                expect(res.notMasked.length).toEqual(3)
+                expect(res.notMasked.length).toEqual(6)
                 const res2 = await masker.filterByMasking(invocations)
-                expect(res2.masked.length).toEqual(4)
+                expect(res2.masked.length).toEqual(7)
                 expect(res2.notMasked.length).toEqual(0)
             })
 
             it('should mask until threshold passed', async () => {
                 hogFunctionAll.masking!.threshold = 5
 
-                const invocations = [{ globals: createHogExecutionGlobals(), hogFunction: hogFunctionAll }]
+                const invocation = createInvocation(hogFunctionAll)
                 // First one goes through
-                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(1)
+                expect((await masker.filterByMasking([invocation])).notMasked).toHaveLength(1)
 
                 // Next 4 should be masked
-                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
-                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
-                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
-                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking([invocation])).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking([invocation])).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking([invocation])).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking([invocation])).notMasked).toHaveLength(0)
                 // Now we have hit the threshold so it should not be masked
-                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(1)
+                expect((await masker.filterByMasking([invocation])).notMasked).toHaveLength(1)
                 // Next 4 should be masked
-                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
-                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
-                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
-                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking([invocation])).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking([invocation])).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking([invocation])).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking([invocation])).notMasked).toHaveLength(0)
                 // Again the Nth one shouldn't be masked
-                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(1)
+                expect((await masker.filterByMasking([invocation])).notMasked).toHaveLength(1)
             })
 
             it('should mask threshold based in a batch', async () => {
@@ -187,21 +212,11 @@ describe('HogMasker', () => {
 
                 // If we have 10 invocations in a batch then we should have 2 invocations that are not masked
                 expect(
-                    (
-                        await masker.filterByMasking(
-                            Array(10).fill({ globals: createHogExecutionGlobals(), hogFunction: hogFunctionAll })
-                        )
-                    ).notMasked
+                    (await masker.filterByMasking(Array(10).fill(createInvocation(hogFunctionAll)))).notMasked
                 ).toHaveLength(2)
 
                 // Next one should cross the threshold
-                expect(
-                    (
-                        await masker.filterByMasking([
-                            { globals: createHogExecutionGlobals(), hogFunction: hogFunctionAll },
-                        ])
-                    ).notMasked
-                ).toHaveLength(1)
+                expect((await masker.filterByMasking([createInvocation(hogFunctionAll)])).notMasked).toHaveLength(1)
             })
         })
     })

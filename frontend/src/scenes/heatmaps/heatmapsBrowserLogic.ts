@@ -2,15 +2,23 @@ import { actions, afterMount, connect, kea, listeners, path, props, reducers, se
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import {
+    authorizedUrlListLogic,
+    AuthorizedUrlListType,
+    defaultAuthorizedUrlProperties,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
-import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS, PostHogAppToolbarEvent } from 'lib/components/heatmaps/utils'
+import {
+    calculateViewportRange,
+    DEFAULT_HEATMAP_FILTERS,
+    PostHogAppToolbarEvent,
+} from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import type { heatmapsBrowserLogicType } from './heatmapsBrowserLogicType'
@@ -24,13 +32,19 @@ export interface IFrameBanner {
     message: string | JSX.Element
 }
 
+// team id is always available on window
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+
 export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
 
     connect({
         values: [
-            authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
+            authorizedUrlListLogic({
+                ...defaultAuthorizedUrlProperties,
+                type: AuthorizedUrlListType.TOOLBAR_URLS,
+            }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
         ],
     }),
@@ -161,7 +175,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
         browserUrl: [
             null as string | null,
-            { persist: true },
+            { persist: true, prefix: `${teamId}__` },
             {
                 setBrowserUrl: (_, { url }) => url,
             },

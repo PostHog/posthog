@@ -1,24 +1,22 @@
 import datetime
+import uuid
+from typing import TYPE_CHECKING, Optional
 
 import orjson as json
-from typing import TYPE_CHECKING, Optional
-import uuid
-
-from pydantic import BaseModel
 import sentry_sdk
 import structlog
 from prometheus_client import Histogram
-from rest_framework.exceptions import NotFound
+from pydantic import BaseModel
+from rest_framework.exceptions import APIException, NotFound
 
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import ExposedCHQueryError, CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
-from posthog.schema import QueryStatus
-from posthog.schema import ClickhouseQueryProgress
+from posthog.schema import ClickhouseQueryProgress, QueryStatus
 from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
@@ -143,7 +141,7 @@ def execute_process_query(
 ):
     manager = QueryStatusManager(query_id, team_id)
 
-    from posthog.api.services.query import process_query_dict, ExecutionMode
+    from posthog.api.services.query import ExecutionMode, process_query_dict
     from posthog.models import Team
     from posthog.models.user import User
 
@@ -151,6 +149,8 @@ def execute_process_query(
     sentry_sdk.set_tag("team_id", team_id)
 
     is_staff_user = False
+
+    user = None
     if user_id:
         user = User.objects.only("email", "is_staff").get(pk=user_id)
         is_staff_user = user.is_staff
@@ -184,6 +184,7 @@ def execute_process_query(
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             insight_id=query_status.insight_id,
             dashboard_id=query_status.dashboard_id,
+            user=user,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
@@ -198,7 +199,7 @@ def execute_process_query(
         raise
     except Exception as err:
         query_status.results = None  # Clear results in case they are faulty
-        if isinstance(err, ExposedHogQLError | ExposedCHQueryError) or is_staff_user:
+        if isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError) or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)

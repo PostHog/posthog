@@ -302,8 +302,7 @@ function ErrorDetailsModal({ id }: { id: number | string }): JSX.Element {
             {!errorDetailsModalError || errorDetailsLoading ? (
                 <LemonSkeleton className="h-10" />
             ) : (
-                // eslint-disable-next-line react/forbid-dom-props
-                <div className="flex flex-col space-y-2" style={{ height: '80vh' }}>
+                <div className="flex flex-col space-y-2 h-[80vh]">
                     <div>
                         <span className="font-semibold">When:</span>{' '}
                         <TZLabel time={activeErrorDetails.timestamp} showSeconds />

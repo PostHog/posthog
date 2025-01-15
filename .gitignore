@@ -1,5 +1,5 @@
+/env
 venv
-env
 .venv
 *.pyc
 __pycache__/
@@ -12,7 +12,6 @@ debug.log
 *.swo
 node_modules/
 *.code-workspace
-node_modules
 .mypy_cache
 frontend/.cache/
 frontend/dist/
@@ -58,6 +57,7 @@ gen/
 .antlr
 upgrade/
 hogvm/typescript/dist
+hogvm/typescript/.parcel-cache
 .wokeignore
 plugin-transpiler/dist
 *-esbuild-meta.json
@@ -66,3 +66,16 @@ plugin-transpiler/dist
 *.db
 # Ignore any log files that happen to be present
 *.log
+# pyright config (keep this until we have a standardized one)
+pyrightconfig.json
+# Assistant Evaluation with Deepeval
+.deepeval
+.deepeval-cache.json
+.deepeval_telemtry.txt
+.temporal-worker-settings
+temp_test_run_data.json
+.temp-deepeval-cache.json
+.eslintcache
+
+# ignore all dagster tmp directories that may be created
+tmp*/

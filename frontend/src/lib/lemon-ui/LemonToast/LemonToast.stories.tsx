@@ -46,6 +46,7 @@ export const ToastTypes: Story = {
     render: (args, { globals }) => {
         const isDarkModeOn = globals.theme === 'dark'
 
+        // eslint-disable-next-line react-hooks/rules-of-hooks
         useEffect(() => {
             lemonToast.dismiss()
             args.toasts.forEach((toast) => {

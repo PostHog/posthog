@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import cast
+from typing import cast, Any
+from unittest.mock import Mock, patch
 
 from django.test import override_settings
 from freezegun import freeze_time
@@ -9,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.instance_settings import get_instance_setting
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType, FunnelVizType
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.funnels import Funnel
@@ -23,12 +25,11 @@ from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
     funnel_conversion_time_test_factory,
 )
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Action, Element
+from posthog.models import Action, Element, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
-from posthog.queries.funnels import ClickhouseFunnelActors
 from posthog.schema import (
     ActionsNode,
     ActorsQuery,
@@ -41,8 +42,11 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
-    InsightDateRange,
+    HogQLQueryModifiers,
+    DateRange,
+    PersonsOnEventsMode,
     PropertyOperator,
+    FunnelMathType,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -55,6 +59,27 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.test.test_journeys import journeys_for
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
+
+
+class PseudoFunnelActors:
+    def __init__(self, person_filter: Any, team: Team):
+        self.filters = person_filter._data
+        self.team = team
+
+    def get_actors(self):
+        actors = get_actors(
+            self.filters,
+            self.team,
+            funnel_step=self.filters.get("funnel_step"),
+            funnel_step_breakdown=self.filters.get("funnel_step_breakdown"),
+        )
+
+        return (
+            None,
+            [{"id": x[0]} for x in actors],
+            None,
+        )
 
 
 def _create_action(**kwargs):
@@ -65,11 +90,12 @@ def _create_action(**kwargs):
     return action
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.ORDERED,
-        ClickhouseFunnelActors,
+        PseudoFunnelActors,
         _create_action,
         _create_person,
     ),
@@ -78,19 +104,21 @@ class TestFunnelBreakdown(
     pass
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelGroupBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
         FunnelOrderType.ORDERED,
-        ClickhouseFunnelActors,
+        PseudoFunnelActors,
     ),
 ):
     pass
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelActors),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PseudoFunnelActors),  # type: ignore
 ):
     maxDiff = None
     pass
@@ -808,6 +836,56 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(results[1]["name"], "paid")
             self.assertEqual(results[1]["count"], 1)
+
+        def test_basic_funnel_with_person_id_override_properties_joined_modifier_and_person_breakdown(self):
+            filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "paid", "type": "events", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-14",
+                "breakdown": "$browser",
+                "breakdown_type": "person",
+            }
+
+            # event
+            _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="user_1",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="user_1",
+                timestamp="2020-01-10T14:00:00Z",
+            )
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = (
+                FunnelsQueryRunner(
+                    query=query,
+                    team=self.team,
+                    modifiers=create_default_modifiers_for_team(
+                        self.team,
+                        HogQLQueryModifiers(
+                            personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+                        ),
+                    ),
+                )
+                .calculate()
+                .results
+            )
+
+            self.assertEqual(results[0][0]["name"], "user signed up")
+            self.assertEqual(results[0][0]["count"], 1)
+
+            self.assertEqual(results[0][1]["name"], "paid")
+            self.assertEqual(results[0][1]["count"], 1)
 
         def test_basic_funnel_with_repeat_steps(self):
             filters = {
@@ -1991,6 +2069,161 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person1.uuid, person4.uuid])
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 2), [person1.uuid])
 
+        def test_funnel_exclusion_multiple_possible_no_end_event1(self):
+            journeys_for(
+                {
+                    "user_one": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                        },
+                        {
+                            "event": "exclusion",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                        },
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 31),
+                        },
+                    ],
+                },
+                self.team,
+            )
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_interval": 10,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(len(results), 2)
+            self.assertEqual(1, results[0]["count"])
+            self.assertEqual(0, results[1]["count"])
+
+        def test_funnel_exclusion_multiple_possible_no_end_event2(self):
+            journeys_for(
+                {
+                    "user_one": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                        },
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 31),
+                        },
+                        {
+                            "event": "exclusion",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 32),
+                        },
+                    ],
+                },
+                self.team,
+            )
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_interval": 10,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(len(results), 2)
+            self.assertEqual(1, results[0]["count"])
+            self.assertEqual(0, results[1]["count"])
+
+        def test_funnel_exclusion_multiple_possible_no_end_event3(self):
+            journeys_for(
+                {
+                    "user_one": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                        },
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                        },
+                        {
+                            "event": "exclusion",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 2),
+                        },
+                    ],
+                },
+                self.team,
+            )
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_interval": 10,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            # There should be no events. UDF funnels returns an empty array and says "no events"
+            # Old style funnels returns a count of 0
+            try:
+                self.assertEqual([], results)
+            except AssertionError:
+                self.assertEqual(len(results), 2)
+                self.assertEqual(0, results[0]["count"])
+                self.assertEqual(0, results[1]["count"])
+
         @also_test_with_materialized_columns(["key"])
         def test_funnel_exclusions_with_actions(self):
             sign_up_action = _create_action(
@@ -2407,10 +2640,14 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[0]["count"], 0)
-
-            self.assertEqual(results[4]["count"], 0)
+            # There should be no events. UDF funnels returns an empty array and says "no events"
+            # Old style funnels returns a count of 0
+            try:
+                self.assertEqual([], results)
+            except AssertionError:
+                self.assertEqual(results[0]["name"], "user signed up")
+                self.assertEqual(results[0]["count"], 0)
+                self.assertEqual(results[4]["count"], 0)
 
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [])
 
@@ -2765,6 +3002,28 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 1)
+
+        def test_same_event_same_timestamp(self):
+            _create_person(distinct_ids=["test"], team_id=self.team.pk)
+            with freeze_time("2024-01-10T12:01:00"):
+                for _ in range(20):
+                    _create_event(team=self.team, event="step one", distinct_id="test")
+            with freeze_time("2024-01-11T12:01:00"):
+                _create_event(team=self.team, event="step two", distinct_id="test")
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "date_from": "2024-01-10 00:00:00",
+                "date_to": "2024-01-12 00:00:00",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            self.assertEqual(results[-1]["count"], 1)
 
         def test_funnel_with_elements_chain(self):
             person1 = _create_person(distinct_ids=["test"], team_id=self.team.pk)
@@ -3237,7 +3496,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             # event
             _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-            #  this event shouldn't appear as in US/Pacific this would be the previous day
+            # this event shouldn't appear as in US/Pacific this would be the previous day
             _create_event(
                 team=self.team,
                 event="user signed up",
@@ -3247,9 +3506,13 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[0]["count"], 0)
+            # There should be no events. UDF funnels returns an empty array and says "no events"
+            # Old style funnels returns a count of 0
+            try:
+                self.assertEqual([], results)
+            except AssertionError:
+                self.assertEqual(results[0]["name"], "user signed up")
+                self.assertEqual(results[0]["count"], 0)
 
         def test_funnel_with_sampling(self):
             action_play_movie = Action.objects.create(
@@ -3456,8 +3719,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
 
         def test_funnel_aggregation_with_groups_with_cohort_filtering(self):
-            GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-            GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+            GroupTypeMapping.objects.create(
+                team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            )
+            GroupTypeMapping.objects.create(
+                team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+            )
 
             create_group(
                 team_id=self.team.pk,
@@ -3668,7 +3935,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = FunnelsQuery(
                 series=[EventsNode(event="$pageview"), EventsNode(event="$pageview")],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -3701,7 +3968,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = FunnelsQuery(
                 series=[EventsNode(event="test'1"), EventsNode()],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -3759,7 +4026,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = FunnelsQuery(
                 series=[EventsNode(event="a"), EventsNode(event="b")],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -3799,7 +4066,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
                     EventsNode(event="$pageview"),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -3814,7 +4081,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
                     EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -3881,7 +4148,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     ActionsNode(id=action_credit_card.pk),
                     ActionsNode(id=action_play_movie.pk, math=BaseMathType.FIRST_TIME_FOR_USER),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="-14d",
                 ),
             )
@@ -3894,6 +4161,69 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 2)
             self.assertEqual(result[2]["name"], "watched movie")
             self.assertEqual(result[2]["count"], 0)
+
+        def test_multiple_events_same_timestamp_exclusions(self):
+            _create_person(distinct_ids=["test"], team_id=self.team.pk)
+            with freeze_time("2024-01-10T12:00:00"):
+                _create_event(team=self.team, event="step zero", distinct_id="test")
+            with freeze_time("2024-01-10T12:01:00"):
+                for _ in range(30):
+                    _create_event(team=self.team, event="step one", distinct_id="test")
+                _create_event(team=self.team, event="exclusion", distinct_id="test")
+                _create_event(team=self.team, event="step two", distinct_id="test")
+            with freeze_time("2024-01-10T12:02:00"):
+                _create_event(team=self.team, event="step three", distinct_id="test")
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "date_from": "2024-01-10 00:00:00",
+                "date_to": "2024-01-12 00:00:00",
+                "events": [
+                    {"id": "step zero", "order": 0},
+                    {"id": "step one", "order": 1},
+                    {"id": "step two", "order": 2},
+                    {"id": "step three", "order": 3},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            self.assertEqual(4, len(results))
+            self.assertEqual(1, results[-1]["count"])
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "date_from": "2024-01-10 00:00:00",
+                "date_to": "2024-01-12 00:00:00",
+                "events": [
+                    {"id": "step zero", "order": 0},
+                    {"id": "step one", "order": 1},
+                    {"id": "step two", "order": 2},
+                    {"id": "step three", "order": 3},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 1,
+                        "funnel_to_step": 2,
+                    }
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            self.assertEqual(4, len(results))
+            self.assertEqual(1, results[-1]["count"])
 
         def test_first_time_for_user_funnel_filters(self):
             _create_person(
@@ -3922,7 +4252,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     EventsNode(event="$pageview"),
                     EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -3943,7 +4273,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     ),
                     EventsNode(event="$pageview"),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -4014,7 +4344,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
                     EventsNode(event="$pageview"),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -4029,7 +4359,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
                     EventsNode(event="$pageview"),
                 ],
-                dateRange=InsightDateRange(
+                dateRange=DateRange(
                     date_from="2023-03-22",
                     date_to="2024-03-22",
                 ),
@@ -4039,9 +4369,320 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[0]["count"], 3)
             self.assertEqual(results[1]["count"], 1)
 
+        def test_first_time_for_user_funnel_person_properties(self):
+            _create_person(distinct_ids=["user_1"], team=self.team, properties={"email": "test@test.com"})
+            _create_person(
+                distinct_ids=["user_2"],
+                properties={"email": "bonjonjovi@gmail.com"},
+                team=self.team,
+            )
+
+            _create_event(
+                team=self.team,
+                event="event1",
+                distinct_id="user_1",
+                timestamp="2024-03-20T13:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="event1",
+                distinct_id="user_1",
+                properties={"property": "woah"},
+                timestamp="2024-03-21T13:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="event1",
+                distinct_id="user_2",
+                timestamp="2024-03-22T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="event2",
+                distinct_id="user_1",
+                timestamp="2024-03-23T13:00:00Z",
+            )
+
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(
+                        event="event1",
+                        math=FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS,
+                        properties=[
+                            EventPropertyFilter(key="property", value="woah", operator=PropertyOperator.EXACT),
+                        ],
+                    ),
+                    EventsNode(event="event2"),
+                ],
+                dateRange=DateRange(
+                    date_from="2024-03-20",
+                    date_to="2024-03-24",
+                ),
+            )
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(results[0]["count"], 1)
+            self.assertEqual(results[1]["count"], 1)
+
+            query.series[0].math = FunnelMathType.FIRST_TIME_FOR_USER
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            # classic and udf funnels handle no events differently
+            assert len(results) == 0 or results[0]["count"] == 0
+
+            _create_event(
+                team=self.team,
+                event="event2",
+                distinct_id="user_1",
+                timestamp="2024-03-19T13:00:00Z",
+                properties={"property": "woah"},
+            )
+            query.series[0].math = FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS
+            assert query.dateRange is not None
+            query.dateRange.date_from = "2024-03-19"
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            self.assertEqual(results[0]["count"], 1)
+            self.assertEqual(results[1]["count"], 1)
+
+        def test_funnel_personless_events_are_supported(self):
+            user_id = uuid.uuid4()
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=user_id,
+                person_id=user_id,
+                timestamp="2024-03-22T13:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id=user_id,
+                person_id=user_id,
+                timestamp="2024-03-22T14:00:00Z",
+            )
+
+            query = FunnelsQuery(
+                series=[EventsNode(event="$pageview"), EventsNode(event="sign up")],
+                dateRange=DateRange(date_from="2024-03-22", date_to="2024-03-22"),
+            )
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(results[0]["count"], 1)
+            self.assertEqual(results[1]["count"], 1)
+
+        def test_short_exclusions(self):
+            journeys_for(
+                {
+                    "user_one": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                        },
+                        {
+                            "event": "exclusion",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                        },
+                        {
+                            "event": "step two",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 31),
+                        },
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 1, 0, 0),
+                        },
+                        {
+                            "event": "step two",
+                            "timestamp": datetime(2021, 5, 1, 1, 0, 29),
+                        },
+                    ],
+                },
+                self.team,
+            )
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_interval": 30,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(1, results[1]["count"])
+            self.assertEqual(29, results[1]["average_conversion_time"])
+
+        def test_excluded_completion(self):
+            events = [
+                {
+                    "event": "step one",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                },
+                # Exclusion happens after time expires
+                {
+                    "event": "exclusion",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 11),
+                },
+                {
+                    "event": "step one",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 12),
+                },
+                {
+                    "event": "exclusion",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 13),
+                },
+                {
+                    "event": "step two",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 14),
+                },
+            ]
+            journeys_for(
+                {
+                    "user_one": events,
+                },
+                self.team,
+            )
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_interval": 10,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+            # There should be no events. UDF funnels returns an empty array and says "no events"
+            # Old style funnels returns a count of 0
+            try:
+                self.assertEqual([], results)
+            except AssertionError:
+                self.assertEqual(0, results[0]["count"])
+                self.assertEqual(0, results[1]["count"])
+
+        def test_breakdown_step_attributions(self):
+            events = [
+                {
+                    "event": "step one",
+                    "properties": {"$browser": "Chrome"},
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                },
+                {
+                    "event": "step two",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                    "properties": {"$browser": "Safari"},
+                },
+                {
+                    "event": "step two",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 2),
+                    "properties": {"$browser": "Chrome"},
+                },
+                {
+                    "event": "step three",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 3),
+                    "properties": {"$browser": "Chrome"},
+                },
+            ]
+
+            journeys_for(
+                {
+                    "user_one": events,
+                },
+                self.team,
+            )
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-02 23:59:59",
+                "funnel_window_interval": 30,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+                "breakdown_type": "event",
+                "breakdown": "$browser",
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+            assert 1 == len(results)
+            result = results[0]
+            assert 3 == len(result)
+            assert [x["count"] == 1 for x in result]
+            assert [x["breakdown"] == ["Chrome"] for x in result]
+
+            filters["breakdown_attribution_type"] = "all_events"
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+            assert 1 == len(results)
+            result = results[0]
+            assert [x["count"] for x in result] == [1, 1, 1]
+            assert [x["breakdown"] == ["Chrome"] for x in result]
+
+            filters["breakdown_attribution_type"] = "step"
+            filters["breakdown_attribution_value"] = 0
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+            assert 1 == len(results)
+            result = results[0]
+            assert [x["count"] for x in result] == [1, 1, 1]
+            assert [x["breakdown"] == ["Chrome"] for x in result]
+
+            filters["breakdown_attribution_type"] = "step"
+            filters["breakdown_attribution_value"] = 1
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+            assert 2 == len(results)
+            for result in results:
+                assert [x["count"] for x in result] == [1, 1, 1]
+
+            filters["breakdown_attribution_type"] = "step"
+            filters["breakdown_attribution_value"] = 2
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+            assert 1 == len(results)
+            result = results[0]
+            assert [x["count"] for x in result] == [1, 1, 1]
+            assert [x["breakdown"] == ["Chrome"] for x in result]
+
     return TestGetFunnel
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFOSSFunnel(funnel_test_factory(Funnel, _create_event, _create_person)):  # type: ignore
     maxDiff = None
 

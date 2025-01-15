@@ -17,7 +17,11 @@ from posthog.hogql.database.models import (
     LazyTableToAdd,
     LazyJoinToAdd,
 )
-from posthog.hogql.database.schema.channel_type import create_channel_type_expr, POSSIBLE_CHANNEL_TYPES
+from posthog.hogql.database.schema.channel_type import (
+    create_channel_type_expr,
+    ChannelTypeExprs,
+    DEFAULT_CHANNEL_TYPES,
+)
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV1
 from posthog.hogql.errors import ResolutionError
 from posthog.models.property_definition import PropertyType
@@ -30,6 +34,8 @@ from posthog.schema import BounceRatePageViewMode
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+DEFAULT_BOUNCE_RATE_DURATION_SECONDS = 10
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="session_id"),
@@ -68,8 +74,10 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$num_uniq_urls": IntegerDatabaseField(name="$num_uniq_urls"),
     "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
     "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
+    "$entry_hostname": StringDatabaseField(name="$entry_host"),
     "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
     "$exit_pathname": StringDatabaseField(name="$exit_pathname"),
+    "$exit_hostname": StringDatabaseField(name="$exit_host"),
     "$entry_utm_source": StringDatabaseField(name="$entry_utm_source"),
     "$entry_utm_campaign": StringDatabaseField(name="$entry_utm_campaign"),
     "$entry_utm_medium": StringDatabaseField(name="$entry_utm_medium"),
@@ -87,6 +95,9 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
     "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
+    # some aliases for people reverting from v2 to v1
+    "$end_current_url": StringDatabaseField(name="$end_current_url"),
+    "$end_pathname": StringDatabaseField(name="$end_pathname"),
 }
 
 
@@ -180,8 +191,16 @@ def select_from_sessions_table_v1(
         name="path",
         args=[aggregate_fields["$entry_current_url"]],
     )
+    aggregate_fields["$entry_hostname"] = ast.Call(
+        name="domain",
+        args=[aggregate_fields["$entry_current_url"]],
+    )
     aggregate_fields["$exit_pathname"] = ast.Call(
         name="path",
+        args=[aggregate_fields["$exit_current_url"]],
+    )
+    aggregate_fields["$exit_hostname"] = ast.Call(
+        name="domain",
         args=[aggregate_fields["$exit_current_url"]],
     )
     aggregate_fields["$session_duration"] = ast.Call(
@@ -198,6 +217,11 @@ def select_from_sessions_table_v1(
         args=[aggregate_fields["$urls"]],
     )
 
+    bounce_rate_duration_seconds = (
+        context.modifiers.bounceRateDurationSeconds
+        if context.modifiers.bounceRateDurationSeconds is not None
+        else DEFAULT_BOUNCE_RATE_DURATION_SECONDS
+    )
     if context.modifiers.bounceRatePageViewMode == BounceRatePageViewMode.UNIQ_URLS:
         bounce_pageview_count = aggregate_fields["$num_uniq_urls"]
     else:
@@ -220,10 +244,13 @@ def select_from_sessions_table_v1(
                             ast.Call(
                                 name="greater", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]
                             ),
-                            # if session duration >= 10 seconds, not a bounce
+                            # if session duration >= bounce_rate_duration_seconds, not a bounce
                             ast.Call(
                                 name="greaterOrEquals",
-                                args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
+                                args=[
+                                    aggregate_fields["$session_duration"],
+                                    ast.Constant(value=bounce_rate_duration_seconds),
+                                ],
                             ),
                         ],
                     )
@@ -232,13 +259,23 @@ def select_from_sessions_table_v1(
         ],
     )
     aggregate_fields["$channel_type"] = create_channel_type_expr(
-        campaign=aggregate_fields["$entry_utm_campaign"],
-        medium=aggregate_fields["$entry_utm_medium"],
-        source=aggregate_fields["$entry_utm_source"],
-        referring_domain=aggregate_fields["$entry_referring_domain"],
-        gclid=aggregate_fields["$entry_gclid"],
-        gad_source=aggregate_fields["$entry_gad_source"],
+        context.modifiers.customChannelTypeRules,
+        ChannelTypeExprs(
+            campaign=aggregate_fields["$entry_utm_campaign"],
+            medium=aggregate_fields["$entry_utm_medium"],
+            source=aggregate_fields["$entry_utm_source"],
+            referring_domain=aggregate_fields["$entry_referring_domain"],
+            url=aggregate_fields["$entry_current_url"],
+            hostname=aggregate_fields["$entry_hostname"],
+            pathname=aggregate_fields["$entry_pathname"],
+            gclid=aggregate_fields["$entry_gclid"],
+            gad_source=aggregate_fields["$entry_gad_source"],
+        ),
     )
+
+    # aliases for people reverting from v2 to v1
+    aggregate_fields["$end_current_url"] = aggregate_fields["$exit_current_url"]
+    aggregate_fields["$end_pathname"] = aggregate_fields["$exit_pathname"]
 
     select_fields: list[ast.Expr] = []
     group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id"])]
@@ -282,6 +319,9 @@ class SessionsTableV1(LazyTable):
     def avoid_asterisk_fields(self) -> list[str]:
         return [
             "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
+            # aliases for people reverting from v2 to v1
+            "$end_current_url",
+            "$end_pathname",
         ]
 
 
@@ -318,6 +358,9 @@ def get_lazy_session_table_properties_v1(search: Optional[str]):
         "$urls",
         "duration",
         "$num_uniq_urls",
+        # aliases for people reverting from v2 to v1
+        "$end_current_url",
+        "$end_pathname",
     }
 
     # some fields should have a specific property type which isn't derivable from the type of database field
@@ -390,7 +433,7 @@ def get_lazy_session_table_values_v1(key: str, search_term: Optional[str], team:
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":
-        return [[name] for name in POSSIBLE_CHANNEL_TYPES if not search_term or search_term.lower() in name.lower()]
+        return [[entry] for entry in DEFAULT_CHANNEL_TYPES if not search_term or search_term.lower() in entry.lower()]
 
     field_definition = LAZY_SESSIONS_FIELDS.get(key)
     if not field_definition:

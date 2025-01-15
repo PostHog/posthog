@@ -41,7 +41,6 @@
         align-self: stretch; // Improves selectability
         width: 100%;
         padding: 0;
-        text-overflow: ellipsis;
         cursor: inherit;
         background: none;
         border: none;
@@ -81,6 +80,14 @@
         }
     }
 
+    &.LemonInput--large {
+        --lemon-input-height: 3rem;
+
+        .LemonIcon {
+            font-size: 1.5rem;
+        }
+    }
+
     &.LemonInput--has-content {
         > .LemonIcon {
             color: var(--primary-3000);
@@ -94,6 +101,7 @@
 
     &.LemonInput--type-number {
         .LemonInput__input {
+            font-variant-numeric: tabular-nums;
             text-overflow: clip;
         }
     }

@@ -1,26 +1,33 @@
 import { IconExternal, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { HogFunctionInputSchemaType } from '~/types'
+
 export type IntegrationConfigureProps = {
     value?: number
     onChange?: (value: number | null) => void
     redirectUrl?: string
+    schema?: HogFunctionInputSchemaType
     integration?: string
+    beforeRedirect?: () => void
 }
 
 export function IntegrationChoice({
     onChange,
     value,
+    schema,
     integration,
     redirectUrl,
+    beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
+    const { newGoogleCloudKey } = useActions(integrationsLogic)
     const kind = integration
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
@@ -31,6 +38,29 @@ export function IntegrationChoice({
 
     if (integrationsLoading) {
         return <LemonSkeleton className="h-10" />
+    }
+
+    const kindName =
+        kind == 'google-pubsub'
+            ? 'Google Cloud Pub/Sub'
+            : kind == 'google-cloud-storage'
+            ? 'Google Cloud Storage'
+            : kind == 'google-ads'
+            ? 'Google Ads'
+            : capitalizeFirstLetter(kind)
+
+    function uploadKey(kind: string): void {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.accept = '.json'
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0]
+            if (!file) {
+                return
+            }
+            newGoogleCloudKey(kind, file, (integration) => onChange?.(integration.id))
+        }
+        input.click()
     }
 
     const button = (
@@ -48,20 +78,30 @@ export function IntegrationChoice({
                           ],
                       }
                     : null,
-                {
-                    items: [
-                        {
-                            to: api.integrations.authorizeUrl({
-                                kind,
-                                next: redirectUrl,
-                            }),
-                            disableClientSideRouting: true,
-                            label: integrationsOfKind?.length
-                                ? `Connect to a different ${kind} integration`
-                                : `Connect to ${kind}`,
-                        },
-                    ],
-                },
+                ['google-pubsub', 'google-cloud-storage'].includes(kind)
+                    ? {
+                          items: [
+                              {
+                                  onClick: () => uploadKey(kind),
+                                  label: 'Upload Google Cloud .json key file',
+                              },
+                          ],
+                      }
+                    : {
+                          items: [
+                              {
+                                  to: api.integrations.authorizeUrl({
+                                      kind,
+                                      next: redirectUrl,
+                                  }),
+                                  disableClientSideRouting: true,
+                                  onClick: beforeRedirect,
+                                  label: integrationsOfKind?.length
+                                      ? `Connect to a different ${kind} integration`
+                                      : `Connect to ${kind}`,
+                              },
+                          ],
+                      },
                 {
                     items: [
                         {
@@ -83,10 +123,18 @@ export function IntegrationChoice({
             {integrationKind ? (
                 <LemonButton type="secondary">Change</LemonButton>
             ) : (
-                <LemonButton type="secondary">Choose {capitalizeFirstLetter(kind)} connection</LemonButton>
+                <LemonButton type="secondary">Choose {kindName} connection</LemonButton>
             )}
         </LemonMenu>
     )
 
-    return <>{integrationKind ? <IntegrationView integration={integrationKind} suffix={button} /> : button}</>
+    return (
+        <>
+            {integrationKind ? (
+                <IntegrationView schema={schema} integration={integrationKind} suffix={button} />
+            ) : (
+                button
+            )}
+        </>
+    )
 }

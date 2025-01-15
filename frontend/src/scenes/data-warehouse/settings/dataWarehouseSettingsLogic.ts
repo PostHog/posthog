@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema'
-import { DataWarehouseSettingsTab, ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
+import { DataWarehouseSettingsTab, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
@@ -31,16 +31,17 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         actions: [databaseTableListLogic, ['loadDatabase']],
     })),
     actions({
-        deleteSource: (source: ExternalDataStripeSource) => ({ source }),
-        reloadSource: (source: ExternalDataStripeSource) => ({ source }),
-        sourceLoadingFinished: (source: ExternalDataStripeSource) => ({ source }),
+        deleteSource: (source: ExternalDataSource) => ({ source }),
+        reloadSource: (source: ExternalDataSource) => ({ source }),
+        sourceLoadingFinished: (source: ExternalDataSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
         abortAnyRunningQuery: true,
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
+        refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
     }),
     loaders(({ cache, actions, values }) => ({
         dataWarehouseSources: [
-            null as PaginatedResponse<ExternalDataStripeSource> | null,
+            null as PaginatedResponse<ExternalDataSource> | null,
             {
                 loadSources: async (_, breakpoint) => {
                     await breakpoint(300)
@@ -58,7 +59,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
 
                     return res
                 },
-                updateSource: async (source: ExternalDataStripeSource) => {
+                updateSource: async (source: ExternalDataSource) => {
                     const updatedSource = await api.externalDataSources.update(source.id, source)
                     return {
                         ...values.dataWarehouseSources,
@@ -76,7 +77,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                     // Optimistic UI updates before sending updates to the backend
                     const clonedSources = JSON.parse(
                         JSON.stringify(values.dataWarehouseSources?.results ?? [])
-                    ) as ExternalDataStripeSource[]
+                    ) as ExternalDataSource[]
                     const sourceIndex = clonedSources.findIndex((n) => n.schemas.find((m) => m.id === schema.id))
                     const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
                     clonedSources[sourceIndex].schemas[schemaIndex] = schema
@@ -148,6 +149,12 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             await api.dataWarehouseTables.delete(tableId)
             actions.loadDatabase()
         },
+        refreshSelfManagedTableSchema: async ({ tableId }) => {
+            lemonToast.info('Updating schema...')
+            await api.dataWarehouseTables.refreshSchema(tableId)
+            lemonToast.success('Schema updated')
+            actions.loadDatabase()
+        },
         deleteSource: async ({ source }) => {
             await api.externalDataSources.delete(source.id)
             actions.loadSources(null)
@@ -159,7 +166,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             // Optimistic UI updates before sending updates to the backend
             const clonedSources = JSON.parse(
                 JSON.stringify(values.dataWarehouseSources?.results ?? [])
-            ) as ExternalDataStripeSource[]
+            ) as ExternalDataSource[]
             const sourceIndex = clonedSources.findIndex((n) => n.id === source.id)
             clonedSources[sourceIndex].status = 'Running'
             clonedSources[sourceIndex].schemas = clonedSources[sourceIndex].schemas.map((n) => {

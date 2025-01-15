@@ -13,6 +13,7 @@ import {
     DataVisualizationNode,
     DataWarehouseNode,
     DateRange,
+    ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
@@ -30,15 +31,18 @@ import {
     NodeKind,
     PathsQuery,
     PersonsNode,
+    QuerySchema,
+    QueryStatusResponse,
+    ResultCustomizationBy,
     RetentionQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
     StickinessQuery,
     TrendsQuery,
+    WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTopClicksQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { ChartDisplayType, IntervalType } from '~/types'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
@@ -77,6 +81,7 @@ export function isDataWarehouseNode(node?: Record<string, any> | null): node is 
     return node?.kind === NodeKind.DataWarehouseNode
 }
 
+/** @deprecated `ActorsQuery` is now used instead of `PersonsNode`. */
 export function isPersonsNode(node?: Record<string, any> | null): node is PersonsNode {
     return node?.kind === NodeKind.PersonsNode
 }
@@ -125,14 +130,22 @@ export function isWebStatsTableQuery(node?: Record<string, any> | null): node is
     return node?.kind === NodeKind.WebStatsTableQuery
 }
 
-export function isWebTopClicksQuery(node?: Record<string, any> | null): node is WebTopClicksQuery {
-    return node?.kind === NodeKind.WebTopClicksQuery
+export function isWebExternalClicksQuery(node?: Record<string, any> | null): boolean {
+    return node?.kind === NodeKind.WebExternalClicksTableQuery
+}
+
+export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
+    return node?.kind === NodeKind.WebGoalsQuery
 }
 
 export function isSessionAttributionExplorerQuery(
     node?: Record<string, any> | null
 ): node is SessionAttributionExplorerQuery {
     return node?.kind === NodeKind.SessionAttributionExplorerQuery
+}
+
+export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
+    return node?.kind === NodeKind.ErrorTrackingQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
@@ -193,6 +206,10 @@ export function isQueryForGroup(query: PersonsNode | ActorsQuery): boolean {
         isRetentionQuery(query.source.source) &&
         query.source.source.aggregation_group_type_index !== undefined
     )
+}
+
+export function isAsyncResponse(response: NonNullable<QuerySchema['response']>): response is QueryStatusResponse {
+    return 'query_status' in response && response.query_status
 }
 
 export function isInsightQueryWithSeries(
@@ -285,6 +302,13 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
     return undefined
 }
 
+export const getShowAlertThresholdLines = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showAlertThresholdLines
+    }
+    return undefined
+}
+
 export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showLabelsOnSeries
@@ -306,6 +330,13 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
 export const getYAxisScaleType = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.yAxisScaleType
+    }
+    return undefined
+}
+
+export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.resultCustomizationBy
     }
     return undefined
 }

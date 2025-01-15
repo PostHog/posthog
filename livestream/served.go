@@ -51,7 +51,7 @@ func statsHandler(stats *Stats) func(c echo.Context) error {
 			resp := resp{
 				Error: "no stats",
 			}
-			return c.JSON(http.StatusNotFound, resp)
+			return c.JSON(http.StatusOK, resp)
 		}
 
 		siteStats := resp{

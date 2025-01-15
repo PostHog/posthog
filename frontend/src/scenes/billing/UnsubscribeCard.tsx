@@ -1,5 +1,6 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 
 import { BillingProductV2Type } from '~/types'
@@ -8,6 +9,7 @@ import { billingProductLogic } from './billingProductLogic'
 
 export const UnsubscribeCard = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
+    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <div className="p-5 gap-4 flex">
@@ -26,7 +28,7 @@ export const UnsubscribeCard = ({ product }: { product: BillingProductV2Type }):
                         reduce your bill
                     </Link>{' '}
                     or{' '}
-                    <Link to="mailto:sales@posthog.com?subject=Help%20reducing%20PostHog%20bill" target="_blank">
+                    <Link to="" onClick={() => openSupportForm({ target_area: 'billing', isEmailFormOpen: true })}>
                         chat with support.
                     </Link>{' '}
                     Check out more about our pricing on our{' '}

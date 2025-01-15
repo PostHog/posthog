@@ -29,7 +29,7 @@ const meta: Meta = {
                 '/api/projects/:id/integrations': { results: [] },
             },
             post: {
-                '/api/projects/:team_id/query': {},
+                '/api/environments/:team_id/query': {},
             },
         }),
     ],

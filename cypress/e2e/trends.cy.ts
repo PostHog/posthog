@@ -6,7 +6,7 @@ describe('Trends', () => {
     })
 
     it('Can load a graph from a URL directly', () => {
-        cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
+        cy.intercept('POST', /api\/environments\/\d+\/query\//).as('loadNewQueryInsight')
 
         // regression test, the graph wouldn't load when going directly to a URL
         cy.visit(
@@ -169,5 +169,9 @@ describe('Trends', () => {
 
         cy.get('[data-attr=math-monthly_active-0]').trigger('mouseenter') // Activate warning tooltip
         cy.get('.Tooltip').contains('we recommend using "Unique users" here instead').should('exist')
+    })
+
+    it('Does not show delete button on single series insight', () => {
+        cy.get('[data-attr=delete-prop-filter-0]').should('not.exist')
     })
 })

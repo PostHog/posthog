@@ -24,7 +24,7 @@ from posthog.batch_exports.models import (
     BatchExportDestination,
     BatchExportRun,
 )
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
+from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -79,6 +79,7 @@ class S3BatchExportInputs:
         region: The AWS region where the bucket is located.
         prefix: A prefix for the file name to be created in S3.
             For example, for one hour batches, this should be 3600.
+        max_file_size_mb: The maximum file size in MB for each file to be uploaded.
         data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
             scheduled runs and for backfills.
     """
@@ -99,7 +100,9 @@ class S3BatchExportInputs:
     kms_key_id: str | None = None
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
+    max_file_size_mb: int | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -123,6 +126,7 @@ class SnowflakeBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -146,6 +150,7 @@ class PostgresBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -176,6 +181,8 @@ class BigQueryBatchExportInputs:
     include_events: list[str] | None = None
     use_json_type: bool = False
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
+
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -193,6 +200,7 @@ class HttpBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -357,7 +365,14 @@ def disable_and_delete_export(instance: BatchExport):
     instance.deleted = True
 
     for backfill in running_backfills_for_batch_export(instance.id):
-        async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
+        try:
+            async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
+        except Exception:
+            logger.exception(
+                "Failed to delete backfill %s for batch export %s, but will continue on with delete",
+                backfill.id,
+                instance.id,
+            )
 
     try:
         batch_export_delete_schedule(temporal, str(instance.pk))
@@ -402,13 +417,23 @@ async def cancel_running_batch_export_backfill(temporal: Client, batch_export_ba
     await batch_export_backfill.asave()
 
 
+def cancel_running_batch_export_run(temporal: Client, batch_export_run: BatchExportRun) -> None:
+    """Cancel a running BatchExportRun."""
+
+    handle = temporal.get_workflow_handle(workflow_id=batch_export_run.workflow_id)
+    async_to_sync(handle.cancel)()
+
+    batch_export_run.status = BatchExportRun.Status.CANCELLED
+    batch_export_run.save()
+
+
 @dataclass
 class BackfillBatchExportInputs:
     """Inputs for the BackfillBatchExport Workflow."""
 
     team_id: int
     batch_export_id: str
-    start_at: str
+    start_at: str | None
     end_at: str | None
     buffer_limit: int = 1
     start_delay: float = 1.0
@@ -418,7 +443,7 @@ def backfill_export(
     temporal: Client,
     batch_export_id: str,
     team_id: int,
-    start_at: dt.datetime,
+    start_at: dt.datetime | None,
     end_at: dt.datetime | None,
 ) -> str:
     """Starts a backfill for given team and batch export covering given date range.
@@ -446,17 +471,25 @@ def backfill_export(
     inputs = BackfillBatchExportInputs(
         batch_export_id=batch_export_id,
         team_id=team_id,
-        start_at=start_at.isoformat(),
+        start_at=start_at.isoformat() if start_at else None,
         end_at=end_at.isoformat() if end_at else None,
     )
-    workflow_id = start_backfill_batch_export_workflow(temporal, inputs=inputs)
+    start_at_utc_str = start_at.astimezone(tz=dt.UTC).isoformat() if start_at else "START"
+    # TODO: Should we use another signal besides "None"? i.e. "Inf" or "END".
+    # Keeping it like this for now for backwards compatibility.
+    end_at_utc_str = end_at.astimezone(tz=dt.UTC).isoformat() if end_at else "END"
+
+    workflow_id = f"{inputs.batch_export_id}-Backfill-{start_at_utc_str}-{end_at_utc_str}"
+
+    workflow_id = start_backfill_batch_export_workflow(temporal, workflow_id, inputs=inputs)
     return workflow_id
 
 
 @async_to_sync
-async def start_backfill_batch_export_workflow(temporal: Client, inputs: BackfillBatchExportInputs) -> str:
+async def start_backfill_batch_export_workflow(
+    temporal: Client, workflow_id: str, inputs: BackfillBatchExportInputs
+) -> str:
     """Async call to start a BackfillBatchExportWorkflow."""
-    workflow_id = f"{inputs.batch_export_id}-Backfill-{inputs.start_at}-{inputs.end_at}"
     await temporal.start_workflow(
         "backfill-batch-export",
         inputs,
@@ -469,7 +502,7 @@ async def start_backfill_batch_export_workflow(temporal: Client, inputs: Backfil
 
 def create_batch_export_run(
     batch_export_id: UUID,
-    data_interval_start: str,
+    data_interval_start: str | None,
     data_interval_end: str,
     status: str = BatchExportRun.Status.STARTING,
     records_total_count: int | None = None,
@@ -488,7 +521,7 @@ def create_batch_export_run(
     run = BatchExportRun(
         batch_export_id=batch_export_id,
         status=status,
-        data_interval_start=dt.datetime.fromisoformat(data_interval_start),
+        data_interval_start=dt.datetime.fromisoformat(data_interval_start) if data_interval_start else None,
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
         records_total_count=records_total_count,
     )
@@ -612,6 +645,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 
     destination_config_fields = {field.name for field in fields(workflow_inputs)}
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
+    task_queue = SYNC_BATCH_EXPORTS_TASK_QUEUE if batch_export.destination.type == "HTTP" else BATCH_EXPORTS_TASK_QUEUE
 
     temporal = sync_connect()
     schedule = Schedule(
@@ -636,7 +670,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                 )
             ),
             id=str(batch_export.id),
-            task_queue=BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=task_queue,
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
@@ -648,7 +682,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
-            jitter=(batch_export.interval_time_delta / 12),
+            jitter=min(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
             time_zone_name=batch_export.team.timezone,
         ),
         state=state,
@@ -670,7 +704,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 def create_batch_export_backfill(
     batch_export_id: UUID,
     team_id: int,
-    start_at: str,
+    start_at: str | None,
     end_at: str | None,
     status: str = BatchExportRun.Status.RUNNING,
 ) -> BatchExportBackfill:
@@ -687,7 +721,7 @@ def create_batch_export_backfill(
     backfill = BatchExportBackfill(
         batch_export_id=batch_export_id,
         status=status,
-        start_at=dt.datetime.fromisoformat(start_at),
+        start_at=dt.datetime.fromisoformat(start_at) if start_at else None,
         end_at=dt.datetime.fromisoformat(end_at) if end_at else None,
         team_id=team_id,
     )
@@ -755,3 +789,43 @@ async def aupdate_batch_export_backfill_status(backfill_id: UUID, status: str) -
         raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
 
     return await model.aget()
+
+
+async def aupdate_records_total_count(
+    batch_export_id: UUID, interval_start: dt.datetime, interval_end: dt.datetime, count: int
+) -> int:
+    """Update the expected records count for a set of batch export runs.
+
+    Typically, there is one batch export run per batch export interval, however
+    there could be multiple if data has been backfilled.
+    """
+    rows_updated = await BatchExportRun.objects.filter(
+        batch_export_id=batch_export_id,
+        data_interval_start=interval_start,
+        data_interval_end=interval_end,
+    ).aupdate(records_total_count=count)
+    return rows_updated
+
+
+async def afetch_batch_export_runs_in_range(
+    batch_export_id: UUID,
+    interval_start: dt.datetime,
+    interval_end: dt.datetime,
+) -> list[BatchExportRun]:
+    """Async fetch all BatchExportRuns for a given batch export within a time interval.
+
+    Arguments:
+        batch_export_id: The UUID of the BatchExport to fetch runs for.
+        interval_start: The start of the time interval to fetch runs from.
+        interval_end: The end of the time interval to fetch runs until.
+
+    Returns:
+        A list of BatchExportRun objects within the given interval, ordered by data_interval_start.
+    """
+    queryset = BatchExportRun.objects.filter(
+        batch_export_id=batch_export_id,
+        data_interval_start__gte=interval_start,
+        data_interval_end__lte=interval_end,
+    ).order_by("data_interval_start")
+
+    return [run async for run in queryset]

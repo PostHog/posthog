@@ -7,11 +7,10 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ActionType } from '~/types'
 
 import { ActionEdit } from './ActionEdit'
-import { ActionHogFunctions } from './ActionHogFunctions'
 
 export const scene: SceneExport = {
     logic: actionLogic,
@@ -45,7 +44,6 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
     return (
         <>
             <ActionEdit id={id} action={action} />
-            <ActionHogFunctions />
             {id && (
                 <>
                     {isComplete ? (

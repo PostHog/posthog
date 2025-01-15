@@ -92,8 +92,9 @@
     }
 
     &.LemonTag--size-small {
-        padding: 0.0625rem 0.1875rem;
+        padding: 0 0.1875rem;
         font-size: 0.625rem;
+        line-height: 0.875rem;
     }
 
     .LemonTag__icon {

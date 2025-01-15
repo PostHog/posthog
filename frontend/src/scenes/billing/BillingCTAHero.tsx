@@ -2,16 +2,22 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { BlushingHog } from 'lib/components/hedgehogs'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import useResizeObserver from 'use-resize-observer'
 
 import { BillingProductV2Type } from '~/types'
 
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { paymentEntryLogic } from './paymentEntryLogic'
 import { PlanComparisonModal } from './PlanComparison'
 
 export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { width, ref: billingHeroRef } = useResizeObserver()
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const { showPaymentEntryModal } = useActions(paymentEntryLogic)
 
     const { redirectPath } = useValues(billingLogic)
     const { isPlanComparisonModalOpen, billingProductLoading } = useValues(billingProductLogic({ product }))
@@ -31,18 +37,32 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                     <p className="italic">P.S. You still keep the monthly free allotment for every product!</p>
                 </div>
                 <div className="flex justify-start space-x-2">
-                    <BillingUpgradeCTA
-                        className="mt-4 inline-block"
-                        to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
-                        type="primary"
-                        status="alt"
-                        data-attr="billing-page-core-upgrade-cta"
-                        disableClientSideRouting
-                        loading={!!billingProductLoading}
-                        onClick={() => setBillingProductLoading(product.type)}
-                    >
-                        Upgrade now
-                    </BillingUpgradeCTA>
+                    {featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
+                        <BillingUpgradeCTA
+                            className="mt-4 inline-block"
+                            type="primary"
+                            status="alt"
+                            data-attr="billing-page-core-upgrade-cta"
+                            disableClientSideRouting
+                            loading={!!billingProductLoading}
+                            onClick={showPaymentEntryModal}
+                        >
+                            Upgrade now
+                        </BillingUpgradeCTA>
+                    ) : (
+                        <BillingUpgradeCTA
+                            className="mt-4 inline-block"
+                            to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
+                            type="primary"
+                            status="alt"
+                            data-attr="billing-page-core-upgrade-cta"
+                            disableClientSideRouting
+                            loading={!!billingProductLoading}
+                            onClick={() => setBillingProductLoading(product.type)}
+                        >
+                            Upgrade now
+                        </BillingUpgradeCTA>
+                    )}
                     <LemonButton
                         className="mt-4 inline-block"
                         onClick={() => toggleIsPlanComparisonModalOpen()}

@@ -11,7 +11,9 @@ pub fn create_new_job() -> JobInit {
         priority: 0,
         scheduled: Utc::now() - Duration::minutes(1),
         vm_state: None,
+
         parameters: None,
+        blob: None,
         metadata: None,
     }
 }

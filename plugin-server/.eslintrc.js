@@ -35,6 +35,7 @@ module.exports = {
         '@typescript-eslint/no-floating-promises': 'error',
         '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
         curly: 'error',
+        'no-fallthrough': 'warn',
     },
     overrides: [
         {

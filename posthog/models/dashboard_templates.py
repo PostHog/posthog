@@ -36,7 +36,9 @@ class DashboardTemplate(UUIDModel):
     # URL length for browsers can be as much as 64Kb
     # see https://stackoverflow.com/questions/417142/what-is-the-maximum-length-of-a-url-in-different-browsers
     # but GitHub apparently is more likely 8kb https://stackoverflow.com/a/64565317
-    github_url = models.CharField(max_length=8201, null=True)
+    github_url = models.CharField(max_length=8201, null=True, blank=True)
+    # where this template is available, e.g. "general" and/or "onboarding"
+    availability_contexts = ArrayField(models.CharField(max_length=255), blank=True, null=True)
 
     class Meta:
         constraints = [
@@ -48,6 +50,9 @@ class DashboardTemplate(UUIDModel):
                 name="unique_template_name_per_team",
             ),
         ]
+
+    def __str__(self):
+        return self.template_name
 
     @staticmethod
     def original_template() -> "DashboardTemplate":
@@ -64,12 +69,29 @@ class DashboardTemplate(UUIDModel):
                     "name": "Daily active users (DAUs)",
                     "type": "INSIGHT",
                     "color": "blue",
-                    "filters": {
-                        "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
-                        "display": "ActionsLineGraph",
-                        "insight": "TRENDS",
-                        "interval": "day",
-                        "date_from": "-30d",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {"kind": "EventsNode", "math": "dau", "name": "$pageview", "event": "$pageview"}
+                            ],
+                            "interval": "day",
+                            "dateRange": {"date_from": "-30d", "explicitDate": False},
+                            "properties": [],
+                            "trendsFilter": {
+                                "display": "ActionsLineGraph",
+                                "showLegend": False,
+                                "yAxisScaleType": "linear",
+                                "showValuesOnSeries": False,
+                                "smoothingIntervals": 1,
+                                "showPercentStackView": False,
+                                "aggregationAxisFormat": "numeric",
+                                "showAlertThresholdLines": False,
+                            },
+                            "breakdownFilter": {"breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
                     },
                     "layouts": {
                         "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
@@ -81,18 +103,29 @@ class DashboardTemplate(UUIDModel):
                     "name": "Weekly active users (WAUs)",
                     "type": "INSIGHT",
                     "color": "green",
-                    "filters": {
-                        "events": [
-                            {
-                                "id": "$pageview",
-                                "math": "dau",
-                                "type": "events",
-                            }
-                        ],
-                        "display": "ActionsLineGraph",
-                        "insight": "TRENDS",
-                        "interval": "week",
-                        "date_from": "-90d",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {"kind": "EventsNode", "math": "dau", "name": "$pageview", "event": "$pageview"}
+                            ],
+                            "interval": "week",
+                            "dateRange": {"date_from": "-90d", "explicitDate": False},
+                            "properties": [],
+                            "trendsFilter": {
+                                "display": "ActionsLineGraph",
+                                "showLegend": False,
+                                "yAxisScaleType": "linear",
+                                "showValuesOnSeries": False,
+                                "smoothingIntervals": 1,
+                                "showPercentStackView": False,
+                                "aggregationAxisFormat": "numeric",
+                                "showAlertThresholdLines": False,
+                            },
+                            "breakdownFilter": {"breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
                     },
                     "layouts": {
                         "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
@@ -104,12 +137,21 @@ class DashboardTemplate(UUIDModel):
                     "name": "Retention",
                     "type": "INSIGHT",
                     "color": "blue",
-                    "filters": {
-                        "period": "Week",
-                        "insight": "RETENTION",
-                        "target_entity": {"id": "$pageview", "type": "events"},
-                        "retention_type": "retention_first_time",
-                        "returning_entity": {"id": "$pageview", "type": "events"},
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "RetentionQuery",
+                            "dateRange": {"date_from": "-7d", "explicitDate": False},
+                            "properties": [],
+                            "retentionFilter": {
+                                "period": "Week",
+                                "targetEntity": {"id": "$pageview", "type": "events"},
+                                "retentionType": "retention_first_time",
+                                "totalIntervals": 11,
+                                "returningEntity": {"id": "$pageview", "type": "events"},
+                            },
+                            "filterTestAccounts": False,
+                        },
                     },
                     "layouts": {
                         "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
@@ -121,13 +163,17 @@ class DashboardTemplate(UUIDModel):
                     "name": "Growth accounting",
                     "type": "INSIGHT",
                     "color": "purple",
-                    "filters": {
-                        "events": [{"id": "$pageview", "type": "events"}],
-                        "insight": "LIFECYCLE",
-                        "interval": "week",
-                        "shown_as": "Lifecycle",
-                        "date_from": "-30d",
-                        "entity_type": "events",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "LifecycleQuery",
+                            "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview"}],
+                            "interval": "week",
+                            "dateRange": {"date_from": "-30d", "explicitDate": False},
+                            "properties": [],
+                            "lifecycleFilter": {"showLegend": False},
+                            "filterTestAccounts": False,
+                        },
                     },
                     "layouts": {
                         "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
@@ -139,14 +185,29 @@ class DashboardTemplate(UUIDModel):
                     "name": "Referring domain (last 14 days)",
                     "type": "INSIGHT",
                     "color": "black",
-                    "filters": {
-                        "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
-                        "display": "ActionsBarValue",
-                        "insight": "TRENDS",
-                        "interval": "day",
-                        "breakdown": "$referring_domain",
-                        "date_from": "-14d",
-                        "breakdown_type": "event",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {"kind": "EventsNode", "math": "dau", "name": "$pageview", "event": "$pageview"}
+                            ],
+                            "interval": "day",
+                            "dateRange": {"date_from": "-14d", "explicitDate": False},
+                            "properties": [],
+                            "trendsFilter": {
+                                "display": "ActionsBarValue",
+                                "showLegend": False,
+                                "yAxisScaleType": "linear",
+                                "showValuesOnSeries": False,
+                                "smoothingIntervals": 1,
+                                "showPercentStackView": False,
+                                "aggregationAxisFormat": "numeric",
+                                "showAlertThresholdLines": False,
+                            },
+                            "breakdownFilter": {"breakdown": "$referring_domain", "breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
                     },
                     "layouts": {
                         "sm": {"h": 5, "w": 6, "x": 0, "y": 10, "minH": 5, "minW": 3},
@@ -158,35 +219,46 @@ class DashboardTemplate(UUIDModel):
                     "name": "Pageview funnel, by browser",
                     "type": "INSIGHT",
                     "color": "green",
-                    "filters": {
-                        "events": [
-                            {
-                                "id": "$pageview",
-                                "type": "events",
-                                "order": 0,
-                                "custom_name": "First page view",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "FunnelsQuery",
+                            "series": [
+                                {
+                                    "kind": "EventsNode",
+                                    "name": "$pageview",
+                                    "event": "$pageview",
+                                    "custom_name": "First page view",
+                                },
+                                {
+                                    "kind": "EventsNode",
+                                    "name": "$pageview",
+                                    "event": "$pageview",
+                                    "custom_name": "Second page view",
+                                },
+                                {
+                                    "kind": "EventsNode",
+                                    "name": "$pageview",
+                                    "event": "$pageview",
+                                    "custom_name": "Third page view",
+                                },
+                            ],
+                            "interval": "day",
+                            "dateRange": {"date_from": "-7d", "explicitDate": False},
+                            "properties": [],
+                            "funnelsFilter": {
+                                "layout": "horizontal",
+                                "exclusions": [],
+                                "funnelVizType": "steps",
+                                "funnelOrderType": "ordered",
+                                "funnelStepReference": "total",
+                                "funnelWindowInterval": 14,
+                                "breakdownAttributionType": "first_touch",
+                                "funnelWindowIntervalUnit": "day",
                             },
-                            {
-                                "id": "$pageview",
-                                "type": "events",
-                                "order": 1,
-                                "custom_name": "Second page view",
-                            },
-                            {
-                                "id": "$pageview",
-                                "type": "events",
-                                "order": 2,
-                                "custom_name": "Third page view",
-                            },
-                        ],
-                        "layout": "horizontal",
-                        "display": "FunnelViz",
-                        "insight": "FUNNELS",
-                        "interval": "day",
-                        "exclusions": [],
-                        "breakdown_type": "event",
-                        "breakdown": "$browser",
-                        "funnel_viz_type": "steps",
+                            "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
                     },
                     "layouts": {
                         "sm": {"h": 5, "w": 6, "x": 6, "y": 10, "minH": 5, "minW": 3},
@@ -209,12 +281,29 @@ class DashboardTemplate(UUIDModel):
                     "name": "Daily active users (DAUs)",
                     "type": "INSIGHT",
                     "color": "blue",
-                    "filters": {
-                        "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
-                        "display": "ActionsLineGraph",
-                        "insight": "TRENDS",
-                        "interval": "day",
-                        "date_from": "-30d",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {"kind": "EventsNode", "math": "dau", "name": "$pageview", "event": "$pageview"}
+                            ],
+                            "interval": "day",
+                            "dateRange": {"date_from": "-30d", "explicitDate": False},
+                            "properties": [],
+                            "trendsFilter": {
+                                "display": "ActionsLineGraph",
+                                "showLegend": False,
+                                "yAxisScaleType": "linear",
+                                "showValuesOnSeries": False,
+                                "smoothingIntervals": 1,
+                                "showPercentStackView": False,
+                                "aggregationAxisFormat": "numeric",
+                                "showAlertThresholdLines": False,
+                            },
+                            "breakdownFilter": {"breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
                     },
                     "layouts": {
                         "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
@@ -226,18 +315,29 @@ class DashboardTemplate(UUIDModel):
                     "name": "Weekly active users (WAUs)",
                     "type": "INSIGHT",
                     "color": "green",
-                    "filters": {
-                        "events": [
-                            {
-                                "id": "$pageview",
-                                "math": "dau",
-                                "type": "events",
-                            }
-                        ],
-                        "display": "ActionsLineGraph",
-                        "insight": "TRENDS",
-                        "interval": "week",
-                        "date_from": "-90d",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {"kind": "EventsNode", "math": "dau", "name": "$pageview", "event": "$pageview"}
+                            ],
+                            "interval": "week",
+                            "dateRange": {"date_from": "-90d", "explicitDate": False},
+                            "properties": [],
+                            "trendsFilter": {
+                                "display": "ActionsLineGraph",
+                                "showLegend": False,
+                                "yAxisScaleType": "linear",
+                                "showValuesOnSeries": False,
+                                "smoothingIntervals": 1,
+                                "showPercentStackView": False,
+                                "aggregationAxisFormat": "numeric",
+                                "showAlertThresholdLines": False,
+                            },
+                            "breakdownFilter": {"breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
                     },
                     "layouts": {
                         "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},

@@ -51,8 +51,8 @@
                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
-                              pdi.person_id as person_id,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -60,21 +60,21 @@
                               if(event = 'step three', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2
                        FROM events e
-                       INNER JOIN
+                       LEFT OUTER JOIN
                          (SELECT distinct_id,
                                  argMax(person_id, version) as person_id
                           FROM person_distinct_id2
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND distinct_id IN
                               (SELECT distinct_id
                                FROM events
-                               WHERE team_id = 2
+                               WHERE team_id = 99999
                                  AND event IN ['step one', 'step three', 'step two']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
                                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND event IN ['step one', 'step three', 'step two']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
@@ -84,7 +84,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps),
+     HAVING steps = max(max_steps)),
                                           histogram_params AS
     (SELECT ifNull(floor(min(step_1_average_conversion_time_inner)), 0) AS from_seconds,
             ifNull(ceil(max(step_1_average_conversion_time_inner)), 1) AS to_seconds,
@@ -163,8 +163,8 @@
                                                                                            ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'step two', 1, 0) as step_1,
@@ -172,27 +172,27 @@
                         if(event = 'step three', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
                    AND (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps),
+     HAVING steps = max(max_steps)),
                                           histogram_params AS
     (SELECT ifNull(floor(min(step_1_average_conversion_time_inner)), 0) AS from_seconds,
             ifNull(ceil(max(step_1_average_conversion_time_inner)), 1) AS to_seconds,
@@ -269,8 +269,8 @@
                                                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'step two', 1, 0) as step_1,
@@ -278,21 +278,21 @@
                         if(event = 'step three', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND event IN ['step one', 'step three', 'step two']
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND event IN ['step one', 'step three', 'step two']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
@@ -319,8 +319,8 @@
                                                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'step two', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'step three', 1, 0) as step_1,
@@ -328,21 +328,21 @@
                         if(event = 'step one', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND event IN ['step one', 'step three', 'step two']
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND event IN ['step one', 'step three', 'step two']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
@@ -369,8 +369,8 @@
                                                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'step three', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'step one', 1, 0) as step_1,
@@ -378,21 +378,21 @@
                         if(event = 'step two', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND event IN ['step one', 'step three', 'step two']
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND event IN ['step one', 'step three', 'step two']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
@@ -402,7 +402,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps),
+     HAVING steps = max(max_steps)),
                                           histogram_params AS
     (SELECT ifNull(floor(min(step_1_average_conversion_time_inner)), 0) AS from_seconds,
             ifNull(ceil(max(step_1_average_conversion_time_inner)), 1) AS to_seconds,

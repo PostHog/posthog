@@ -4,7 +4,7 @@ use time::Duration;
 use crate::common::*;
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
-use capture::limiters::billing::QuotaResource;
+use capture::limiters::redis::QuotaResource;
 use reqwest::StatusCode;
 use serde_json::json;
 use uuid::Uuid;
@@ -28,6 +28,62 @@ async fn it_captures_one_event() -> Result<()> {
     let res = server.capture_events(event.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
+    let event = main_topic.next_event()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_drops_events_if_dropper_enabled() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+    let dropped_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let mut config = DEFAULT_CONFIG.clone();
+    config.kafka.kafka_topic = main_topic.topic_name().to_string();
+    config.kafka.kafka_historical_topic = histo_topic.topic_name().to_string();
+    config.dropped_keys = Some(format!("{}:{}", token, dropped_id));
+    let server = ServerHandle::for_config(config).await;
+
+    let event = json!({
+        "token": token,
+        "event": "testing",
+        "distinct_id": distinct_id
+    });
+
+    let dropped = json!({
+        "token": token,
+        "event": "testing",
+        "distinct_id": dropped_id
+    });
+
+    let res = server.capture_events(event.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+    let res = server.capture_events(dropped.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+    let res = server.capture_events(event.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let event = main_topic.next_event()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id
+        })
+    );
+
+    // Next event we get is identical to the first, because the dropped event is not captured
     let event = main_topic.next_event()?;
     assert_json_include!(
         actual: event,

@@ -1,8 +1,6 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
-import { createPool } from 'generic-pool'
-import Redis, { RedisOptions } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
@@ -14,16 +12,12 @@ import {
     Plugin,
     PluginConfigId,
     PluginsServerConfig,
-    RedisPool,
     TimestampFormat,
 } from '../types'
-import { Hub } from './../types'
 import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
 const GRACEFUL_EXIT_PERIOD_SECONDS = 5
-/** Number of Redis error events until the server is killed gracefully. */
-const REDIS_ERROR_COUNTER_LIMIT = 10
 
 export class NoRowsUpdatedError extends Error {}
 
@@ -217,6 +211,53 @@ export class UUIDT extends UUID {
     }
 }
 
+export class UUID7 extends UUID {
+    constructor(bufferOrUnixTimeMs?: number | Buffer, rand?: Buffer) {
+        if (bufferOrUnixTimeMs instanceof Buffer) {
+            if (bufferOrUnixTimeMs.length !== 16) {
+                throw new Error(`UUID7 from buffer requires 16 bytes, got ${bufferOrUnixTimeMs.length}`)
+            }
+            super(bufferOrUnixTimeMs)
+            return
+        }
+        const unixTimeMs = bufferOrUnixTimeMs ?? DateTime.utc().toMillis()
+        let unixTimeMsBig = BigInt(unixTimeMs)
+
+        if (!rand) {
+            rand = randomBytes(10)
+        } else if (rand.length !== 10) {
+            throw new Error(`UUID7 requires 10 bytes of random data, got ${rand.length}`)
+        }
+
+        // see https://www.rfc-editor.org/rfc/rfc9562#name-uuid-version-7
+        // a UUIDv7 is 128 bits (16 bytes) total
+        // 48 bits for unix_ts_ms,
+        // 4 bits for ver = 0b111 (7)
+        // 12 bits for rand_a
+        // 2 bits for var = 0b10
+        // 62 bits for rand_b
+        // we set fully random values for rand_a and rand_b
+
+        const array = new Uint8Array(16)
+        // 48 bits for time, WILL FAIL in 10 895 CE
+        // XXXXXXXX-XXXX-****-****-************
+        for (let i = 5; i >= 0; i--) {
+            array[i] = Number(unixTimeMsBig & 0xffn) // use last 8 binary digits to set UUID 2 hexadecimal digits
+            unixTimeMsBig >>= 8n // remove these last 8 binary digits
+        }
+        // rand_a and rand_b
+        // ********-****-*XXX-XXXX-XXXXXXXXXXXX
+        array.set(rand, 6)
+
+        // ver and var
+        // ********-****-7***-X***-************
+        array[6] = 0b0111_0000 | (array[6] & 0b0000_1111)
+        array[8] = 0b1000_0000 | (array[8] & 0b0011_1111)
+
+        super(array)
+    }
+}
+
 /* Format timestamps.
 Allowed timestamp formats support ISO and ClickHouse formats according to
 `timestampFormat`. This distinction is relevant because ClickHouse does NOT
@@ -330,58 +371,6 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
         // try one more time
         return await callback()
     }
-}
-export async function createRedis(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
-    const credentials: Partial<RedisOptions> | undefined = serverConfig.POSTHOG_REDIS_HOST
-        ? {
-              password: serverConfig.POSTHOG_REDIS_PASSWORD,
-              port: serverConfig.POSTHOG_REDIS_PORT,
-          }
-        : undefined
-
-    return createRedisClient(credentials ? serverConfig.POSTHOG_REDIS_HOST : serverConfig.REDIS_URL, credentials)
-}
-
-export async function createRedisClient(url: string, options?: RedisOptions): Promise<Redis.Redis> {
-    const redis = new Redis(url, {
-        ...options,
-        maxRetriesPerRequest: -1,
-    })
-    let errorCounter = 0
-    redis
-        .on('error', (error) => {
-            errorCounter++
-            Sentry.captureException(error)
-            if (errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
-                status.error('😡', 'Redis error encountered! Enough of this, I quit!\n', error)
-                killGracefully()
-            } else {
-                status.error('🔴', 'Redis error encountered! Trying to reconnect...\n', error)
-            }
-        })
-        .on('ready', () => {
-            if (process.env.NODE_ENV !== 'test') {
-                status.info('✅', 'Connected to Redis!')
-            }
-        })
-    await redis.info()
-    return redis
-}
-
-export function createRedisPool(serverConfig: PluginsServerConfig): RedisPool {
-    return createPool<Redis.Redis>(
-        {
-            create: () => createRedis(serverConfig),
-            destroy: async (client) => {
-                await client.quit()
-            },
-        },
-        {
-            min: serverConfig.REDIS_POOL_MIN_SIZE,
-            max: serverConfig.REDIS_POOL_MAX_SIZE,
-            autostart: true,
-        }
-    )
 }
 
 export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): string {
@@ -577,31 +566,6 @@ export class RaceConditionError extends Error {
     name = 'RaceConditionError'
 }
 
-export interface StalenessCheckResult {
-    isServerStale: boolean
-    timeSinceLastActivity: number | null
-    lastActivity?: string | null
-    lastActivityType?: string
-    instanceId?: string
-}
-
-export function stalenessCheck(hub: Hub | undefined, stalenessSeconds: number): StalenessCheckResult {
-    let isServerStale = false
-
-    const timeSinceLastActivity = hub?.lastActivity ? new Date().valueOf() - hub.lastActivity : null
-    if (timeSinceLastActivity && timeSinceLastActivity > stalenessSeconds * 1000) {
-        isServerStale = true
-    }
-
-    return {
-        isServerStale,
-        timeSinceLastActivity,
-        instanceId: hub?.instanceId.toString(),
-        lastActivity: hub?.lastActivity ? new Date(hub.lastActivity).toISOString() : null,
-        lastActivityType: hub?.lastActivityType,
-    }
-}
-
 /** Get a value from a properties object by its path. This allows accessing nested properties. */
 export function getPropertyValueByPath(properties: Properties, [firstKey, ...nestedKeys]: string[]): any {
     if (firstKey === undefined) {
@@ -619,4 +583,98 @@ export function getPropertyValueByPath(properties: Properties, [firstKey, ...nes
 
 export async function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Values of the $lib property that have been seen in the wild
+export const KNOWN_LIB_VALUES = new Set([
+    'web',
+    'posthog-python',
+    '',
+    'js',
+    'posthog-node',
+    'posthog-react-native',
+    'posthog-ruby',
+    'posthog-ios',
+    'posthog-android',
+    'Segment',
+    'posthog-go',
+    'analytics-node',
+    'RudderLabs JavaScript SDK',
+    'mobile',
+    'posthog-php',
+    'zapier',
+    'Webflow',
+    'posthog-flutter',
+    'com.rudderstack.android.sdk.core',
+    'rudder-analytics-python',
+    'rudder-ios-library',
+    'rudder-analytics-php',
+    'macos',
+    'service_data',
+    'flow',
+    'PROD',
+    'unknown',
+    'api',
+    'unbounce',
+    'backend',
+    'analytics-python',
+    'windows',
+    'cf-analytics-go',
+    'server',
+    'core',
+    'Marketing',
+    'Product',
+    'com.rudderstack.android.sdk',
+    'net-gibraltar',
+    'posthog-java',
+    'rudderanalytics-ruby',
+    'GSHEETS_AIRBYTE',
+    'posthog-plugin-server',
+    'DotPostHog',
+    'analytics-go',
+    'serverless',
+    'wordpress',
+    'hog_function',
+    'http',
+    'desktop',
+    'elixir',
+    'DEV',
+    'RudderAnalytics.NET',
+    'PR',
+    'railway',
+    'HTTP',
+    'extension',
+    'cyclotron-testing',
+    'RudderStack Shopify Cloud',
+    'GSHEETS_MONITOR',
+    'Rudder',
+    'API',
+    'rudder-sdk-ruby-sync',
+    'curl',
+])
+
+export const getKnownLibValueOrSentinel = (lib: string): string => {
+    if (lib === '') {
+        return '$empty'
+    }
+    if (!lib) {
+        return '$nil'
+    }
+    if (KNOWN_LIB_VALUES.has(lib)) {
+        return lib
+    }
+    return '$other'
+}
+
+// Check if 2 maps with primitive values are equal
+export const areMapsEqual = <K, V>(map1: Map<K, V>, map2: Map<K, V>): boolean => {
+    if (map1.size !== map2.size) {
+        return false
+    }
+    for (const [key, value] of map1) {
+        if (!map2.has(key) || map2.get(key) !== value) {
+            return false
+        }
+    }
+    return true
 }

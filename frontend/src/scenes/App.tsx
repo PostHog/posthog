@@ -135,7 +135,7 @@ function AppScene(): JSX.Element | null {
     }
 
     const wrappedSceneElement = (
-        <ErrorBoundary key={activeScene}>
+        <ErrorBoundary key={activeScene} tags={{ feature: activeScene }}>
             {activeLoadedScene?.logic ? (
                 <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
                     {sceneElement}

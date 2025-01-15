@@ -1,7 +1,14 @@
 import { FunnelLayout } from 'lib/constants'
 
 import { hiddenLegendItemsToKeys, queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, LifecycleQuery, NodeKind, PathsQuery, StickinessQuery, TrendsQuery } from '~/queries/schema'
+import {
+    FunnelsQuery,
+    LifecycleQuery,
+    NodeKind,
+    PathsQuery,
+    StickinessQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import {
     BreakdownAttributionType,
     ChartDisplayType,

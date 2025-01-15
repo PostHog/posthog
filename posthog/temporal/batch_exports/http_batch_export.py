@@ -48,18 +48,19 @@ class RetryableResponseError(Exception):
 class NonRetryableResponseError(Exception):
     """Error for HTTP status >= 400 and < 500 (excluding 429)."""
 
-    def __init__(self, status):
-        super().__init__(f"NonRetryableResponseError status: {status}")
+    def __init__(self, status, content):
+        super().__init__(f"NonRetryableResponseError (status: {status}): {content}")
 
 
-def raise_for_status(response: aiohttp.ClientResponse):
+async def raise_for_status(response: aiohttp.ClientResponse):
     """Like aiohttp raise_for_status, but it distinguishes between retryable and non-retryable
     errors."""
     if not response.ok:
         if response.status >= 500 or response.status == 429:
             raise RetryableResponseError(response.status)
         else:
-            raise NonRetryableResponseError(response.status)
+            text = await response.text()
+            raise NonRetryableResponseError(response.status, text)
 
 
 def http_default_fields() -> list[BatchExportField]:
@@ -100,7 +101,7 @@ class HttpInsertInputs:
     team_id: int
     url: str
     token: str
-    data_interval_start: str
+    data_interval_start: str | None
     data_interval_end: str
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
@@ -110,7 +111,7 @@ class HttpInsertInputs:
     batch_export_schema: BatchExportSchema | None = None
 
 
-async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str:
+async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str | None:
     """Returns the `interval_start` to use, either resuming from previous heartbeat data or
     using the `data_interval_start` from the inputs."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
@@ -155,7 +156,7 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
     data_reader.close = lambda: None  # type: ignore
 
     async with session.post(url, data=data_reader, headers=headers) as response:
-        raise_for_status(response)
+        await raise_for_status(response)
 
     data_reader.detach()
     return response
@@ -167,8 +168,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsComplete
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
     logger.info(
         "Batch exporting range %s - %s to HTTP endpoint: %s",
-        inputs.data_interval_start,
-        inputs.data_interval_end,
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
         inputs.url,
     )
 
@@ -319,11 +320,12 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: HttpBatchExportInputs):
         """Workflow implementation to export data to an HTTP Endpoint."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -352,7 +354,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             url=inputs.url,
             token=inputs.token,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,

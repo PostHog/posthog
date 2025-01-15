@@ -12,7 +12,10 @@ import { AppContext } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 
-window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
+window.POSTHOG_APP_CONTEXT = {
+    current_team: { id: MOCK_TEAM_ID },
+    current_project: { id: MOCK_TEAM_ID },
+} as unknown as AppContext
 
 describe('taxonomicFilterLogic', () => {
     let logic: ReturnType<typeof taxonomicFilterLogic.build>
@@ -33,7 +36,7 @@ describe('taxonomicFilterLogic', () => {
                         },
                     ]
                 },
-                '/api/projects/:team/sessions/property_definitions': (res) => {
+                '/api/environments/:team/sessions/property_definitions': (res) => {
                     const search = res.url.searchParams.get('search')
                     const results = search
                         ? mockSessionPropertyDefinitions.filter((e) => e.name.includes(search))

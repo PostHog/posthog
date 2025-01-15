@@ -24,8 +24,8 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 appManagementSingleton: true,
                 preflightSchedules: true,
                 cdpProcessedEvents: true,
+                cdpInternalEvents: true,
                 cdpFunctionCallbacks: true,
-                cdpFunctionOverflow: true,
                 cdpCyclotronWorker: true,
                 syncInlinePlugins: true,
                 ...sharedCapabilities,
@@ -99,14 +99,14 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpProcessedEvents: true,
                 ...sharedCapabilities,
             }
+        case PluginServerMode.cdp_internal_events:
+            return {
+                cdpInternalEvents: true,
+                ...sharedCapabilities,
+            }
         case PluginServerMode.cdp_function_callbacks:
             return {
                 cdpFunctionCallbacks: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.cdp_function_overflow:
-            return {
-                cdpFunctionOverflow: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.cdp_cyclotron_worker:

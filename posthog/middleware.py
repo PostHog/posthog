@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
+from posthog.geoip import get_geoip_properties
 import time
 from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
 from collections.abc import Callable
 from loginas.utils import is_impersonated_session, restore_original_login
-
+from posthog.rbac.user_access_control import UserAccessControl
 from django.shortcuts import redirect
 import structlog
 from corsheaders.middleware import CorsMiddleware
@@ -72,7 +73,7 @@ class AllowIPMiddleware:
     trusted_proxies: list[str] = []
 
     def __init__(self, get_response):
-        if not settings.ALLOWED_IP_BLOCKS:
+        if not settings.ALLOWED_IP_BLOCKS and not settings.BLOCKED_GEOIP_REGIONS:
             # this will make Django skip this middleware for all future requests
             raise MiddlewareNotUsed()
         self.ip_blocks = settings.ALLOWED_IP_BLOCKS
@@ -108,10 +109,15 @@ class AllowIPMiddleware:
         if request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
             return response
         ip = self.extract_client_ip(request)
-        if ip and any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
-            return response
+        if ip:
+            if settings.ALLOWED_IP_BLOCKS:
+                if any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
+                    return response
+            elif settings.BLOCKED_GEOIP_REGIONS:
+                if get_geoip_properties(ip).get("$geoip_country_code", None) not in settings.BLOCKED_GEOIP_REGIONS:
+                    return response
         return HttpResponse(
-            "Your IP is not allowed. Check your ALLOWED_IP_BLOCKS settings. If you are behind a proxy, you need to set TRUSTED_PROXIES. See https://posthog.com/docs/deployment/running-behind-proxy",
+            "PostHog is not available in your region. If you think this is in error, please contact tim@posthog.com.",
             status=403,
         )
 
@@ -268,9 +274,14 @@ class AutoProjectMiddleware:
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
         user_permissions = UserPermissions(user)
+        user_access_control = UserAccessControl(user=user, team=new_team)
+
         # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
         #   However this should be a rare operation!
-        if user_permissions.team(new_team).effective_membership_level is None:
+        if (
+            not user_access_control.check_access_level_for_object(new_team, "member")
+            and user_permissions.team(new_team).effective_membership_level is None
+        ):
             if user.is_staff:
                 # Staff users get a popup with suggested users to log in as, facilating support
                 request.suggested_users_with_access = UserBasicSerializer(  # type: ignore
@@ -306,9 +317,6 @@ class CHQueries:
             http_referer=request.META.get("HTTP_REFERER"),
             http_user_agent=request.META.get("HTTP_USER_AGENT"),
         )
-
-        if hasattr(user, "current_team_id") and user.current_team_id:
-            tag_queries(team_id=user.current_team_id)
 
         try:
             response: HttpResponse = self.get_response(request)
@@ -666,7 +674,19 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
 
     init_time = get_or_set_session_cookie_created_at(request=request)
 
-    return datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
+    last_activity_time = request.session.get(settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY, init_time)
+
+    # If the last activity time is less than the idle timeout, we extend the session
+    if time.time() - last_activity_time < settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS:
+        last_activity_time = request.session[settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY] = time.time()
+        request.session.modified = True
+
+    idle_expiry_time = datetime.fromtimestamp(last_activity_time) + timedelta(
+        seconds=settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
+    )
+    total_expiry_time = datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
+
+    return min(idle_expiry_time, total_expiry_time)
 
 
 class AutoLogoutImpersonateMiddleware:

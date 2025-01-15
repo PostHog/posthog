@@ -21,6 +21,8 @@ from posthog.hogql.ast import (
     Array,
     Dict,
     VariableDeclaration,
+    SelectSetNode,
+    SelectSetQuery,
 )
 
 from posthog.hogql.parser import parse_program
@@ -50,9 +52,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def _select(
             self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None
-        ) -> ast.SelectQuery | ast.SelectUnionQuery | ast.HogQLXTag:
+        ) -> ast.SelectQuery | ast.SelectSetQuery | ast.HogQLXTag:
             return cast(
-                ast.SelectQuery | ast.SelectUnionQuery | ast.HogQLXTag,
+                ast.SelectQuery | ast.SelectSetQuery | ast.HogQLXTag,
                 clear_locations(parse_select(query, placeholders=placeholders, backend=backend)),
             )
 
@@ -200,6 +202,50 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_lambdas(self):
             self.assertEqual(
+                self._expr("(x, y) -> x * y"),
+                ast.Lambda(
+                    args=["x", "y"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._expr("x, y -> x * y"),
+                ast.Lambda(
+                    args=["x", "y"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._expr("(x) -> x * y"),
+                ast.Lambda(
+                    args=["x"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._expr("x -> x * y"),
+                ast.Lambda(
+                    args=["x"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                ),
+            )
+            self.assertEqual(
                 self._expr("arrayMap(x -> x * 2)"),
                 ast.Call(
                     name="arrayMap",
@@ -245,6 +291,54 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                             ),
                         )
                     ],
+                ),
+            )
+
+        def test_lambda_blocks(self):
+            self.assertEqual(
+                self._expr("(x, y) -> { print('hello'); return x * y }"),
+                ast.Lambda(
+                    args=["x", "y"],
+                    expr=ast.Block(
+                        declarations=[
+                            ast.ExprStatement(expr=ast.Call(name="print", args=[ast.Constant(value="hello")])),
+                            ast.ReturnStatement(
+                                expr=ast.ArithmeticOperation(
+                                    op=ast.ArithmeticOperationOp.Mult,
+                                    left=ast.Field(chain=["x"]),
+                                    right=ast.Field(chain=["y"]),
+                                )
+                            ),
+                        ]
+                    ),
+                ),
+            )
+
+        def test_call_expr(self):
+            self.assertEqual(
+                self._expr("asd.asd(123)"),
+                ast.ExprCall(
+                    expr=ast.Field(chain=["asd", "asd"]),
+                    args=[ast.Constant(value=123)],
+                ),
+            )
+            self.assertEqual(
+                self._expr("asd['asd'](123)"),
+                ast.ExprCall(
+                    expr=ast.ArrayAccess(array=ast.Field(chain=["asd"]), property=ast.Constant(value="asd")),
+                    args=[ast.Constant(value=123)],
+                ),
+            )
+            self.assertEqual(
+                self._expr("(x -> x * 2)(3)"),
+                ast.ExprCall(
+                    expr=ast.Lambda(
+                        args=["x"],
+                        expr=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                        ),
+                    ),
+                    args=[ast.Constant(value=3)],
                 ),
             )
 
@@ -643,7 +737,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_placeholders(self):
             self.assertEqual(
                 self._expr("{foo}"),
-                ast.Placeholder(chain=["foo"]),
+                ast.Placeholder(expr=ast.Field(chain=["foo"])),
             )
             self.assertEqual(
                 self._expr("{foo}", {"foo": ast.Constant(value="bar")}),
@@ -854,7 +948,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 self._select("select 1 from {placeholder}"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Placeholder(chain=["placeholder"])),
+                    select_from=ast.JoinExpr(table=ast.Placeholder(expr=ast.Field(chain=["placeholder"]))),
                 ),
             )
             self.assertEqual(
@@ -1244,7 +1338,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     where=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Constant(value=1),
-                        right=ast.Placeholder(chain=["hogql_val_1"]),
+                        right=ast.Placeholder(expr=ast.Field(chain=["hogql_val_1"])),
                     ),
                 ),
             )
@@ -1263,15 +1357,74 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
 
+        def test_placeholder_expressions(self):
+            actual = self._select("select 1 where 1 == {1 ? hogql_val_1 : hogql_val_2}")
+            expected = clear_locations(
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    where=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Placeholder(
+                            expr=ast.Call(
+                                name="if",
+                                args=[
+                                    ast.Constant(value=1),
+                                    ast.Field(chain=["hogql_val_1"]),
+                                    ast.Field(chain=["hogql_val_2"]),
+                                ],
+                            )
+                        ),
+                    ),
+                )
+            )
+            self.assertEqual(actual, expected)
+
         def test_select_union_all(self):
             self.assertEqual(
                 self._select("select 1 union all select 2 union all select 3"),
-                ast.SelectUnionQuery(
-                    select_queries=[
-                        ast.SelectQuery(select=[ast.Constant(value=1)]),
-                        ast.SelectQuery(select=[ast.Constant(value=2)]),
-                        ast.SelectQuery(select=[ast.Constant(value=3)]),
-                    ]
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        SelectSetNode(set_operator="UNION ALL", select_query=query)
+                        for query in (
+                            ast.SelectQuery(select=[ast.Constant(value=2)]),
+                            ast.SelectQuery(select=[ast.Constant(value=3)]),
+                        )
+                    ],
+                ),
+            )
+
+        def test_nested_selects(self):
+            self.assertEqual(
+                self._select("(select 1 intersect select 2) union all (select 3 except select 4)"),
+                SelectSetQuery(
+                    initial_select_query=SelectSetQuery(
+                        initial_select_query=SelectQuery(select=[Constant(value=1)]),
+                        subsequent_select_queries=[
+                            SelectSetNode(
+                                select_query=SelectQuery(
+                                    select=[Constant(value=2)],
+                                ),
+                                set_operator="INTERSECT",
+                            )
+                        ],
+                    ),
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            select_query=SelectSetQuery(
+                                initial_select_query=SelectQuery(
+                                    select=[Constant(value=3)],
+                                ),
+                                subsequent_select_queries=[
+                                    SelectSetNode(
+                                        select_query=SelectQuery(select=[Constant(value=4)]), set_operator="EXCEPT"
+                                    )
+                                ],
+                            ),
+                            set_operator="UNION ALL",
+                        )
+                    ],
                 ),
             )
 
@@ -2054,7 +2207,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_program_function(self):
             code = """
-                fn query(a, b) {
+                fun query(a, b) {
                     let c := 3;
                 }
             """
@@ -2074,12 +2227,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(program, expected)
 
         def test_program_functions(self):
+            # test both "fn" (deprecated) and "fun"
             code = """
                 fn query(a, b) {
                     let c := 3;
                 }
 
-                fn read(a, b) {
+                fun read(a, b) {
                     print(3);
                     let b := 4;
                 }

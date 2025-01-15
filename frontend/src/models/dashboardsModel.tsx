@@ -92,7 +92,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         return { count: 0, next: null, previous: null, results: [] }
                     }
                     const dashboards: PaginatedResponse<DashboardType> = await api.get(
-                        url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=100`
+                        url || `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000`
                     )
 
                     return {
@@ -114,10 +114,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
 
                 const beforeChange = { ...values.rawDashboards[id] }
 
-                const response = (await api.update(
-                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                const response = await api.update<DashboardType>(
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     payload
-                )) as DashboardType
+                )
                 const updatedAttribute = Object.keys(payload)[0]
                 if (updatedAttribute === 'name' || updatedAttribute === 'description' || updatedAttribute === 'tags') {
                     eventUsageLogic.actions.reportDashboardFrontEndUpdate(
@@ -134,10 +134,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         button: {
                             label: 'Undo',
                             action: async () => {
-                                const reverted = (await api.update(
-                                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                                const reverted = await api.update<DashboardType>(
+                                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                                     beforeChange
-                                )) as DashboardType
+                                )
                                 actions.updateDashboardSuccess(getQueryBasedDashboard(reverted))
                                 lemonToast.success('Dashboard change reverted')
                             },
@@ -148,37 +148,46 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
             deleteDashboard: async ({ id, deleteInsights }) =>
                 getQueryBasedDashboard(
-                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: true,
                         delete_insights: deleteInsights,
                     })
                 ) as DashboardType<QueryBasedInsightModel>,
             restoreDashboard: async ({ id }) =>
                 getQueryBasedDashboard(
-                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: false,
                     })
                 ) as DashboardType<QueryBasedInsightModel>,
             pinDashboard: async ({ id, source }) => {
-                const response = (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    pinned: true,
-                })) as DashboardType
+                const response = await api.update(
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    {
+                        pinned: true,
+                    }
+                )
                 eventUsageLogic.actions.reportDashboardPinToggled(true, source)
                 return getQueryBasedDashboard(response)!
             },
             unpinDashboard: async ({ id, source }) => {
-                const response = (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    pinned: false,
-                })) as DashboardType
+                const response = await api.update<DashboardType>(
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    {
+                        pinned: false,
+                    }
+                )
                 eventUsageLogic.actions.reportDashboardPinToggled(false, source)
                 return getQueryBasedDashboard(response)!
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
-                const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`, {
-                    use_dashboard: id,
-                    name: `${name} (Copy)`,
-                    duplicate_tiles: duplicateTiles,
-                })) as DashboardType
+                const result = await api.create<DashboardType>(
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
+                    {
+                        use_dashboard: id,
+                        name: `${name} (Copy)`,
+                        duplicate_tiles: duplicateTiles,
+                    }
+                )
                 if (show) {
                     router.actions.push(urls.dashboard(result.id))
                 }
@@ -270,6 +279,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
             }
         },
         addDashboardSuccess: ({ dashboard }) => {
+            if (router.values.location.pathname.includes('onboarding')) {
+                // don't send a toast if we're in onboarding
+                return
+            }
             lemonToast.success(<>Dashboard created</>, {
                 button: {
                     label: 'View',

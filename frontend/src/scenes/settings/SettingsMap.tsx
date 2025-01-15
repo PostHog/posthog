@@ -1,73 +1,93 @@
-import { BounceRatePageViewModeSetting } from 'scenes/settings/project/BounceRatePageViewMode'
-import { PersonsJoinMode } from 'scenes/settings/project/PersonsJoinMode'
-import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
-import { SessionsTableVersion } from 'scenes/settings/project/SessionsTableVersion'
+import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
+import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
+import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
+import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
+import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
+import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
+import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
+import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
+import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 
+import { Realm } from '~/types'
+
+import {
+    AutocaptureSettings,
+    ExceptionAutocaptureSettings,
+    WebVitalsAutocaptureSettings,
+} from './environment/AutocaptureSettings'
+import { CorrelationConfig } from './environment/CorrelationConfig'
+import { DataAttributes } from './environment/DataAttributes'
+import { DataColorThemes } from './environment/DataColorThemes'
+import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
+import { HeatmapsSettings } from './environment/HeatmapsSettings'
+import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
+import { IPAllowListInfo } from './environment/IPAllowListInfo'
+import { IPCapture } from './environment/IPCapture'
+import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
+import { OtherIntegrations } from './environment/OtherIntegrations'
+import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
+import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { SessionRecordingIngestionSettings } from './environment/SessionRecordingIngestionSettings'
+import {
+    NetworkCaptureSettings,
+    ReplayAISettings,
+    ReplayAuthorizedDomains,
+    ReplayGeneral,
+} from './environment/SessionRecordingSettings'
+import { SlackIntegration } from './environment/SlackIntegration'
+import { SurveySettings } from './environment/SurveySettings'
+import { TeamAccessControl } from './environment/TeamAccessControl'
+import { TeamDangerZone } from './environment/TeamDangerZone'
+import {
+    Bookmarklet,
+    TeamDisplayName,
+    TeamTimezone,
+    TeamToolbarURLs,
+    TeamVariables,
+    WebSnippet,
+} from './environment/TeamSettings'
+import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { UserGroups } from './environment/UserGroups'
+import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrganizationLogo } from './organization/OrgLogo'
-import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
+import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
-import {
-    AutocaptureSettings,
-    ExceptionAutocaptureSettings,
-    WebVitalsAutocaptureSettings,
-} from './project/AutocaptureSettings'
-import { CorrelationConfig } from './project/CorrelationConfig'
-import { DataAttributes } from './project/DataAttributes'
-import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
-import { HeatmapsSettings } from './project/HeatmapsSettings'
-import { IPAllowListInfo } from './project/IPAllowListInfo'
-import { IPCapture } from './project/IPCapture'
-import { ManagedReverseProxy } from './project/ManagedReverseProxy'
-import { OtherIntegrations } from './project/OtherIntegrations'
-import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
-import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperties'
-import { ProjectAccessControl } from './project/ProjectAccessControl'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
-import {
-    Bookmarklet,
-    ProjectDisplayName,
-    ProjectTimezone,
-    ProjectToolbarURLs,
-    ProjectVariables,
-    WebSnippet,
-} from './project/ProjectSettings'
-import {
-    NetworkCaptureSettings,
-    ReplayAISettings,
-    ReplayAuthorizedDomains,
-    ReplayCostControl,
-    ReplayGeneral,
-} from './project/SessionRecordingSettings'
-import { SlackIntegration } from './project/SlackIntegration'
-import { SurveySettings } from './project/SurveySettings'
-import { ProjectAccountFiltersSetting } from './project/TestAccountFiltersConfig'
-import { WebhookIntegration } from './project/WebhookIntegration'
+import { ProjectDisplayName, ProjectProductDescription } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
-import { TwoFactorAuthentication } from './user/TwoFactorAuthentication'
+import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDetails } from './user/UserDetails'
 
-export const SettingsMap: SettingSection[] = [
-    // PROJECT
+export const SETTINGS_MAP: SettingSection[] = [
+    // ENVIRONMENT
     {
-        level: 'project',
-        id: 'project-details',
+        level: 'environment',
+        id: 'environment-details',
         title: 'General',
         settings: [
             {
                 id: 'display-name',
                 title: 'Display name',
-                component: <ProjectDisplayName />,
+                component: <TeamDisplayName />,
+            },
+            {
+                id: 'product-description',
+                title: 'Product description',
+                description:
+                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
+                component: <ProjectProductDescription />,
+                flag: ['ARTIFICIAL_HOG', '!ENVIRONMENTS'],
             },
             {
                 id: 'snippet',
@@ -82,13 +102,13 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: 'variables',
                 title: 'Project ID',
-                component: <ProjectVariables />,
+                component: <TeamVariables />,
             },
         ],
     },
     {
-        level: 'project',
-        id: 'project-autocapture',
+        level: 'environment',
+        id: 'environment-autocapture',
         title: 'Autocapture & heatmaps',
 
         settings: [
@@ -96,6 +116,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'autocapture',
                 title: 'Autocapture',
                 component: <AutocaptureSettings />,
+            },
+            {
+                id: 'autocapture-data-attributes',
+                title: 'Data attributes',
+                component: <DataAttributes />,
             },
             {
                 id: 'heatmaps',
@@ -106,7 +131,7 @@ export const SettingsMap: SettingSection[] = [
                 id: 'exception-autocapture',
                 title: 'Exception autocapture',
                 component: <ExceptionAutocaptureSettings />,
-                flag: 'EXCEPTION_AUTOCAPTURE',
+                flag: 'ERROR_TRACKING',
             },
             {
                 id: 'web-vitals-autocapture',
@@ -114,27 +139,33 @@ export const SettingsMap: SettingSection[] = [
                 component: <WebVitalsAutocaptureSettings />,
             },
             {
-                id: 'autocapture-data-attributes',
-                title: 'Data attributes',
-                component: <DataAttributes />,
+                id: 'dead-clicks-autocapture',
+                title: 'Dead clicks autocapture',
+                component: <DeadClicksAutocaptureSettings />,
             },
         ],
     },
 
     {
-        level: 'project',
-        id: 'project-product-analytics',
+        level: 'environment',
+        id: 'environment-product-analytics',
         title: 'Product analytics',
         settings: [
             {
                 id: 'date-and-time',
                 title: 'Date & time',
-                component: <ProjectTimezone />,
+                component: <TeamTimezone />,
             },
             {
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
+            },
+            {
+                id: 'data-theme',
+                title: 'Data colors',
+                component: <DataColorThemes />,
+                flag: 'INSIGHT_COLORS',
             },
             {
                 id: 'persons-on-events',
@@ -163,6 +194,11 @@ export const SettingsMap: SettingSection[] = [
                 component: <IPCapture />,
             },
             {
+                id: 'human-friendly-comparison-periods',
+                title: 'Human friendly comparison periods',
+                component: <HumanFriendlyComparisonPeriodsSetting />,
+            },
+            {
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
@@ -174,12 +210,6 @@ export const SettingsMap: SettingSection[] = [
                 flag: 'SETTINGS_PERSONS_JOIN_MODE',
             },
             {
-                id: 'bounce-rate-page-view-mode',
-                title: 'Bounce rate page view mode',
-                component: <BounceRatePageViewModeSetting />,
-                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
-            },
-            {
                 id: 'session-table-version',
                 title: 'Sessions Table Version',
                 component: <SessionsTableVersion />,
@@ -189,8 +219,38 @@ export const SettingsMap: SettingSection[] = [
     },
 
     {
-        level: 'project',
-        id: 'project-replay',
+        level: 'environment',
+        id: 'environment-web-analytics',
+        title: 'Web analytics',
+        settings: [
+            {
+                id: 'channel-type',
+                title: 'Custom channel type',
+                component: <CustomChannelTypes />,
+            },
+            {
+                id: 'cookieless-server-hash-mode',
+                title: 'Cookieless server hash mode',
+                component: <CookielessServerHashModeSetting />,
+                flag: 'COOKIELESS_SERVER_HASH_MODE_SETTING',
+            },
+            {
+                id: 'bounce-rate-duration',
+                title: 'Bounce rate duration',
+                component: <BounceRateDurationSetting />,
+            },
+            {
+                id: 'bounce-rate-page-view-mode',
+                title: 'Bounce rate page view mode',
+                component: <BounceRatePageViewModeSetting />,
+                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
+            },
+        ],
+    },
+
+    {
+        level: 'environment',
+        id: 'environment-replay',
         title: 'Session replay',
         settings: [
             {
@@ -207,11 +267,17 @@ export const SettingsMap: SettingSection[] = [
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
+                allowForTeam: (t) => !!t?.recording_domains?.length,
+            },
+            {
+                id: 'replay-triggers',
+                title: 'Replay triggers',
+                component: <ReplayTriggers />,
             },
             {
                 id: 'replay-ingestion',
                 title: 'Ingestion controls',
-                component: <ReplayCostControl />,
+                component: <SessionRecordingIngestionSettings />,
             },
             {
                 id: 'replay-ai-config',
@@ -222,8 +288,8 @@ export const SettingsMap: SettingSection[] = [
         ],
     },
     {
-        level: 'project',
-        id: 'project-surveys',
+        level: 'environment',
+        id: 'environment-surveys',
         title: 'Surveys',
         settings: [
             {
@@ -233,22 +299,35 @@ export const SettingsMap: SettingSection[] = [
             },
         ],
     },
-
     {
-        level: 'project',
-        id: 'project-toolbar',
+        level: 'environment',
+        id: 'environment-error-tracking',
+        title: 'Error tracking',
+        flag: 'ERROR_TRACKING',
+        settings: [
+            {
+                id: 'error-tracking-user-groups',
+                title: 'User groups',
+                description: 'Allow collections of users to be assigned to issues',
+                component: <UserGroups />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-toolbar',
         title: 'Toolbar',
         settings: [
             {
                 id: 'authorized-toolbar-urls',
                 title: 'Authorized toolbar URLs',
-                component: <ProjectToolbarURLs />,
+                component: <TeamToolbarURLs />,
             },
         ],
     },
     {
-        level: 'project',
-        id: 'project-integrations',
+        level: 'environment',
+        id: 'environment-integrations',
         title: 'Integrations',
         settings: [
             {
@@ -274,14 +353,48 @@ export const SettingsMap: SettingSection[] = [
         ],
     },
     {
-        level: 'project',
-        id: 'project-rbac',
+        level: 'environment',
+        id: 'environment-access-control',
         title: 'Access control',
         settings: [
             {
-                id: 'project-rbac',
+                id: 'environment-access-control',
                 title: 'Access control',
-                component: <ProjectAccessControl />,
+                component: <TeamAccessControl />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-danger-zone',
+        title: 'Danger zone',
+        settings: [
+            {
+                id: 'environment-delete',
+                title: 'Delete environment',
+                component: <TeamDangerZone />,
+            },
+        ],
+    },
+
+    // PROJECT - just project-details and project-danger-zone
+    {
+        level: 'project',
+        id: 'project-details',
+        title: 'General',
+        settings: [
+            {
+                id: 'display-name',
+                title: 'Display name',
+                component: <ProjectDisplayName />,
+            },
+            {
+                id: 'product-description',
+                title: 'Product description',
+                description:
+                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
+                component: <ProjectProductDescription />,
+                flag: 'ARTIFICIAL_HOG',
             },
         ],
     },
@@ -340,6 +453,18 @@ export const SettingsMap: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-roles',
+        title: 'Roles',
+        settings: [
+            {
+                id: 'organization-roles',
+                title: 'Roles',
+                component: <RoleBasedAccess />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-authentication',
         title: 'Authentication domains & SSO',
         settings: [
@@ -347,18 +472,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'authentication-domains',
                 title: 'Authentication Domains',
                 component: <VerifiedDomains />,
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-rbac',
-        title: 'Role-based access',
-        settings: [
-            {
-                id: 'organization-rbac',
-                title: 'Role-based access',
-                component: <PermissionsGrid />,
             },
         ],
     },
@@ -406,7 +519,7 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: '2fa',
                 title: 'Two-factor authentication',
-                component: <TwoFactorAuthentication />,
+                component: <TwoFactorSettings />,
             },
         ],
     },
@@ -441,6 +554,7 @@ export const SettingsMap: SettingSection[] = [
                 id: 'optout',
                 title: 'Anonymize data collection',
                 component: <OptOutCapture />,
+                hideOn: [Realm.Cloud],
             },
             {
                 id: 'hedgehog-mode',

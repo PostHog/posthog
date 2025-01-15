@@ -8,14 +8,16 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 
 import { SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
@@ -45,9 +47,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
         setSelectedPageIndex,
         duplicateSurvey,
     } = useActions(surveyLogic)
+    const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
+    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     useEffect(() => {
         if (survey.start_date) {
@@ -275,7 +279,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 content: (
                                     <div className="flex flex-row">
                                         <div className="flex flex-col w-full">
-                                            <span className="card-secondary mt-4">Display mode</span>
+                                            <span className="mt-4 card-secondary">Display mode</span>
                                             <span>
                                                 {survey.type === SurveyType.API
                                                     ? survey.type.toUpperCase()
@@ -283,9 +287,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             </span>
                                             {survey.questions[0].question && (
                                                 <>
-                                                    <span className="card-secondary mt-4">Type</span>
+                                                    <span className="mt-4 card-secondary">Type</span>
                                                     <span>{SurveyQuestionLabel[survey.questions[0].type]}</span>
-                                                    <span className="card-secondary mt-4">
+                                                    <span className="mt-4 card-secondary">
                                                         {pluralize(
                                                             survey.questions.length,
                                                             'Question',
@@ -300,20 +304,20 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             )}
                                             {survey.questions[0].type === SurveyQuestionType.Link && (
                                                 <>
-                                                    <span className="card-secondary mt-4">Link url</span>
+                                                    <span className="mt-4 card-secondary">Link url</span>
                                                     <span>{survey.questions[0].link}</span>
                                                 </>
                                             )}
                                             <div className="flex flex-row gap-8">
                                                 {survey.start_date && (
                                                     <div className="flex flex-col">
-                                                        <span className="card-secondary mt-4">Start date</span>
+                                                        <span className="mt-4 card-secondary">Start date</span>
                                                         <TZLabel time={survey.start_date} />
                                                     </div>
                                                 )}
                                                 {survey.end_date && (
                                                     <div className="flex flex-col">
-                                                        <span className="card-secondary mt-4">End date</span>
+                                                        <span className="mt-4 card-secondary">End date</span>
                                                         <TZLabel time={survey.end_date} />
                                                     </div>
                                                 )}
@@ -324,7 +328,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 survey.iteration_count > 0 &&
                                                 survey.iteration_frequency_days > 0 ? (
                                                     <div className="flex flex-col">
-                                                        <span className="card-secondary mt-4">Schedule</span>
+                                                        <span className="mt-4 card-secondary">Schedule</span>
                                                         <span>
                                                             Repeats every {survey.iteration_frequency_days}{' '}
                                                             {pluralize(
@@ -339,12 +343,23 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     </div>
                                                 ) : null}
                                             </div>
-                                            {survey.responses_limit && (
+                                            {surveyUsesLimit && (
                                                 <>
-                                                    <span className="card-secondary mt-4">Completion conditions</span>
+                                                    <span className="mt-4 card-secondary">Completion conditions</span>
                                                     <span>
                                                         The survey will be stopped once <b>{survey.responses_limit}</b>{' '}
                                                         responses are received.
+                                                    </span>
+                                                </>
+                                            )}
+                                            {surveyUsesAdaptiveLimit && (
+                                                <>
+                                                    <span className="mt-4 card-secondary">Completion conditions</span>
+                                                    <span>
+                                                        Survey response collection is limited to receive{' '}
+                                                        <b>{survey.response_sampling_limit}</b> responses every{' '}
+                                                        {survey.response_sampling_interval}{' '}
+                                                        {survey.response_sampling_interval_type}(s).
                                                     </span>
                                                 </>
                                             )}
@@ -355,10 +370,10 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 targetingFlagFilters={targetingFlagFilters}
                                             />
                                         </div>
-                                        <div className="w-full flex flex-col items-center">
+                                        <div className="flex flex-col items-center w-full">
                                             {survey.type === SurveyType.API && (
-                                                <div className="border rounded p-4">
-                                                    <div className="w-full flex flex-row gap-1 items-center">
+                                                <div className="p-4 border rounded">
+                                                    <div className="flex flex-row items-center w-full gap-1">
                                                         Learn how to set up API surveys{' '}
                                                         <Link
                                                             data-attr="survey-doc-link"
@@ -392,6 +407,38 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 key: 'overview',
                                 label: 'Overview',
                             },
+                            showLinkedHogFunctions
+                                ? {
+                                      key: 'notifications',
+                                      label: 'Notifications',
+                                      content: (
+                                          <div>
+                                              <p>Get notified whenever a survey result is submitted</p>
+                                              <LinkedHogFunctions
+                                                  type="destination"
+                                                  subTemplateId="survey-response"
+                                                  filters={{
+                                                      events: [
+                                                          {
+                                                              id: 'survey sent',
+                                                              type: 'events',
+                                                              order: 0,
+                                                              properties: [
+                                                                  {
+                                                                      key: '$survey_id',
+                                                                      type: PropertyFilterType.Event,
+                                                                      value: id,
+                                                                      operator: PropertyOperator.Exact,
+                                                                  },
+                                                              ],
+                                                          },
+                                                      ],
+                                                  }}
+                                              />
+                                          </div>
+                                      ),
+                                  }
+                                : null,
                             {
                                 label: 'History',
                                 key: 'History',
@@ -437,7 +484,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                 {question.scale === 10 && (
                                     <>
                                         <div className="text-4xl font-bold">{surveyNPSScore}</div>
-                                        <div className="font-semibold text-muted-alt mb-2">Latest NPS Score</div>
+                                        <div className="mb-2 font-semibold text-muted-alt">Latest NPS Score</div>
                                         <SurveyNPSResults survey={survey as Survey} />
                                     </>
                                 )}
@@ -497,7 +544,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     }
                 })}
             </>
-            <div className="max-w-40 mb-4">
+            <div className="mb-4 max-w-40">
                 <LemonButton
                     type="primary"
                     data-attr="survey-results-explore"
@@ -586,6 +633,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                         },
                     },
                 }}
+                readOnly={true}
             />
         </>
     )

@@ -2,11 +2,10 @@ import json
 from typing import Any, Optional, cast
 
 import structlog
-from django.db.models import Prefetch, QuerySet
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets
-from posthog.api.utils import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -16,12 +15,15 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from posthog.api.dashboards.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
-from posthog.api.monitoring import monitor, Feature
+from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
@@ -30,7 +32,7 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.utils import filters_override_requested_by_client
+from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
 
 logger = structlog.get_logger(__name__)
 
@@ -87,6 +89,7 @@ class DashboardBasicSerializer(
     TaggedItemSerializerMixin,
     serializers.ModelSerializer,
     UserPermissionsSerializerMixin,
+    UserAccessControlSerializerMixin,
 ):
     created_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
@@ -109,6 +112,7 @@ class DashboardBasicSerializer(
             "restriction_level",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
         ]
         read_only_fields = fields
 
@@ -126,6 +130,7 @@ class DashboardBasicSerializer(
 class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
     filters = serializers.SerializerMethodField()
+    variables = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
@@ -150,17 +155,25 @@ class DashboardSerializer(DashboardBasicSerializer):
             "use_dashboard",
             "delete_insights",
             "filters",
+            "variables",
             "tags",
             "tiles",
             "restriction_level",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
         ]
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared"]
+        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
     def validate_filters(self, value) -> dict:
         if not isinstance(value, dict):
             raise serializers.ValidationError("Filters must be a dictionary")
+
+        return value
+
+    def validate_variables(self, value) -> dict:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Variables must be a dictionary")
 
         return value
 
@@ -174,6 +187,8 @@ class DashboardSerializer(DashboardBasicSerializer):
         validated_data.pop("delete_insights", None)  # not used during creation
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
+        current_url = request.headers.get("Referer")
+        session_id = request.headers.get("X-Posthog-Session-Id")
 
         request_filters = request.data.get("filters")
         if request_filters:
@@ -199,7 +214,9 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         elif use_dashboard:
             try:
-                existing_dashboard = Dashboard.objects.get(id=use_dashboard, team_id=team_id)
+                existing_dashboard = Dashboard.objects.get(
+                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
+                )
                 existing_tiles = (
                     DashboardTile.objects.filter(dashboard=existing_dashboard)
                     .exclude(deleted=True)
@@ -226,6 +243,8 @@ class DashboardSerializer(DashboardBasicSerializer):
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
                 "dashboard_id": use_dashboard,
+                "$current_url": current_url,
+                "$session_id": session_id,
             },
         )
 
@@ -297,6 +316,12 @@ class DashboardSerializer(DashboardBasicSerializer):
                 raise serializers.ValidationError("Filters must be a dictionary")
             instance.filters = request_filters
 
+        request_variables = initial_data.get("variables")
+        if request_variables:
+            if not isinstance(request_variables, dict):
+                raise serializers.ValidationError("Filters must be a dictionary")
+            instance.variables = request_variables
+
         instance = super().update(instance, validated_data)
 
         user = cast(User, self.context["request"].user)
@@ -323,16 +348,16 @@ class DashboardSerializer(DashboardBasicSerializer):
             else:
                 created_by = user
                 last_modified_by = None
-            text, _ = Text.objects.update_or_create(
-                id=text_json.get("id", None),
-                defaults={
-                    **tile_data["text"],
-                    "team": instance.team,
-                    "created_by": created_by,
-                    "last_modified_by": last_modified_by,
-                    "last_modified_at": now(),
-                },
-            )
+            text_defaults = {
+                **tile_data["text"],
+                "team_id": instance.team_id,
+                "created_by": created_by,
+                "last_modified_by": last_modified_by,
+                "last_modified_at": now(),
+            }
+            if "team" in text_defaults:
+                text_defaults.pop("team")  # We're already setting `team_id`
+            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=text_defaults)
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
                 defaults={**tile_data, "text": text, "dashboard": instance},
@@ -406,6 +431,16 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         return dashboard.filters
 
+    def get_variables(self, dashboard: Dashboard) -> dict:
+        request = self.context.get("request")
+        if request:
+            variables_override = variables_override_requested_by_client(request)
+
+            if variables_override is not None:
+                return variables_override
+
+        return dashboard.variables
+
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
             raise serializers.ValidationError("`use_dashboard` and `use_template` cannot be used together")
@@ -422,6 +457,7 @@ class DashboardSerializer(DashboardBasicSerializer):
 
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
@@ -433,7 +469,12 @@ class DashboardsViewSet(
     def get_serializer_class(self) -> type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
 
-    def safely_get_queryset(self, queryset) -> QuerySet:
+    def dangerously_get_queryset(self):
+        # Dashboards are retrieved under /environments/ because they include team-specific query results,
+        # but they are in fact project-level, rather than environment-level
+        assert self.team.project_id is not None
+        queryset = self.queryset.filter(team__project_id=self.team.project_id)
+
         include_deleted = (
             self.action == "partial_update"
             and "deleted" in self.request.data
@@ -445,10 +486,7 @@ class DashboardsViewSet(
             # a dashboard can be un-deleted by patching {"deleted": False}
             queryset = queryset.exclude(deleted=True)
 
-        queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(
-            "team__organization",
-            "created_by",
-        )
+        queryset = queryset.prefetch_related("sharingconfiguration_set").select_related("created_by")
 
         if self.action != "list":
             tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
@@ -458,7 +496,7 @@ class DashboardsViewSet(
                         "insight__dashboards",
                         queryset=Dashboard.objects.filter(
                             id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
-                        ).select_related("team__organization"),
+                        ),
                     ),
                     "insight__dashboard_tiles__dashboard",
                 )
@@ -487,7 +525,7 @@ class DashboardsViewSet(
         dashboard = get_object_or_404(queryset, pk=pk)
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
-        serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
+        serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         return Response(serializer.data)
 
     @action(methods=["PATCH"], detail=True)
@@ -503,7 +541,7 @@ class DashboardsViewSet(
 
         serializer = DashboardSerializer(
             Dashboard.objects.get(id=from_dashboard),
-            context={"view": self, "request": request},
+            context=self.get_serializer_context(),
         )
         return Response(serializer.data)
 
@@ -513,10 +551,16 @@ class DashboardsViewSet(
         parser_classes=[DashboardTemplateCreationJSONSchemaParser],
     )
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        dashboard = Dashboard.objects.create(team_id=self.team_id)
+        current_url = request.headers.get("Referer")
+        session_id = request.headers.get("X-Posthog-Session-Id")
+        dashboard = Dashboard.objects.create(
+            team_id=self.team_id,
+            created_by=cast(User, request.user),
+        )
 
         try:
             dashboard_template = DashboardTemplate(**request.data["template"])
+            creation_context = request.data.get("creation_context")
             create_from_template(dashboard, dashboard_template)
 
             report_user_action(
@@ -528,13 +572,16 @@ class DashboardsViewSet(
                     "template_key": dashboard_template.template_name,
                     "duplicated": False,
                     "dashboard_id": dashboard.pk,
+                    "creation_context": creation_context,
+                    "$current_url": current_url,
+                    "$session_id": session_id,
                 },
             )
         except Exception:
             dashboard.delete()
             raise
 
-        return Response(DashboardSerializer(dashboard, context={"view": self, "request": request}).data)
+        return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):

@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import Optional
+from enum import Enum
+from typing import Literal, Optional
 
 import posthoganalytics
 import structlog
@@ -20,9 +21,19 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
 
 logger = structlog.get_logger(__name__)
+
+
+class NotificationSetting(Enum):
+    WEEKLY_PROJECT_DIGEST = "weekly_project_digest"
+    PLUGIN_DISABLED = "plugin_disabled"
+
+
+NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled"]
 
 
 def send_message_to_all_staff_users(message: EmailMessage) -> None:
@@ -30,6 +41,66 @@ def send_message_to_all_staff_users(message: EmailMessage) -> None:
         message.add_recipient(email=user.email, name=user.first_name)
 
     message.send()
+
+
+def get_members_to_notify(team: Team, notification_setting: str) -> list[OrganizationMembership]:
+    memberships_to_email = []
+    memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
+        organization_id=team.organization_id
+    )
+    for membership in memberships:
+        if not membership.user.notification_settings.get(notification_setting, True):
+            continue
+        team_permissions = UserPermissions(membership.user).team(team)
+        # Only send the email to users who have access to the affected project
+        # Those without access have `effective_membership_level` of `None`
+        if (
+            team_permissions.effective_membership_level_for_parent_membership(membership.organization, membership)
+            is not None
+        ):
+            memberships_to_email.append(membership)
+
+    return memberships_to_email
+
+
+def should_send_notification(
+    user: User,
+    notification_type: NotificationSettingType,
+    team_id: Optional[int] = None,
+) -> bool:
+    """
+    Determines if a notification should be sent to a user based on their notification settings.
+
+    Args:
+        user: The user to check settings for
+        notification_type: The type of notification being sent. It must be the enum member's value!
+        team_id: Optional team ID for team-specific notifications
+
+    Returns:
+        bool: True if the notification should be sent, False otherwise
+    """
+    settings = user.notification_settings
+
+    if notification_type == NotificationSetting.WEEKLY_PROJECT_DIGEST.value:
+        # First check global digest setting
+        if settings.get("all_weekly_digest_disabled", False):
+            return False
+
+        # Then check project-specific setting if team_id provided
+        if team_id is not None:
+            project_settings = settings.get("project_weekly_digest_disabled", {})
+            team_disabled = project_settings.get(str(team_id), False)
+            return not team_disabled
+
+        return True
+
+    elif notification_type == NotificationSetting.PLUGIN_DISABLED.value:
+        return not settings.get("plugin_disabled", True)  # Default to True (disabled) if not set
+
+    # The below typeerror is ignored because we're currently handling the notification
+    # types above, so technically it's unreachable. However if another is added but
+    # not handled in this function, we want this as a fallback.
+    return True  # type: ignore
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -124,6 +195,11 @@ def send_fatal_plugin_error(
     plugin_config: PluginConfig = PluginConfig.objects.prefetch_related("plugin", "team").get(id=plugin_config_id)
     plugin: Plugin = plugin_config.plugin
     team: Team = plugin_config.team
+
+    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    if not memberships_to_email:
+        return
+
     campaign_key: str = f"plugin_disabled_email_plugin_config_{plugin_config_id}_updated_at_{plugin_config_updated_at}"
     message = EmailMessage(
         campaign_key=campaign_key,
@@ -136,30 +212,37 @@ def send_fatal_plugin_error(
             "is_system_error": is_system_error,
         },
     )
-    memberships_to_email = []
-    memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
-        organization_id=team.organization_id
-    )
-    for membership in memberships:
-        if not membership.user.notification_settings["plugin_disabled"]:
-            continue
-        team_permissions = UserPermissions(membership.user).team(team)
-        # Only send the email to users who have access to the affected project
-        # Those without access have `effective_membership_level` of `None`
-        if (
-            team_permissions.effective_membership_level_for_parent_membership(membership.organization, membership)
-            is not None
-        ):
-            memberships_to_email.append(membership)
+    for membership in memberships_to_email:
+        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+    message.send(send_async=False)
 
-    if memberships_to_email:
-        for membership in memberships_to_email:
-            message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-        message.send(send_async=False)
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_hog_function_disabled(hog_function_id: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+    hog_function: HogFunction = HogFunction.objects.prefetch_related("team").get(id=hog_function_id)
+    team = hog_function.team
+
+    # We re-use the setting as it is the same from a user perspective
+    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    if not memberships_to_email:
+        return
+
+    campaign_key: str = f"hog_function_disabled_{hog_function_id}_updated_at_{hog_function.updated_at.timestamp()}"
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"[Alert] Destination '{hog_function.name}' has been disabled in project '{team}' due to high error rate",
+        template_name="hog_function_disabled",
+        template_context={"hog_function": hog_function, "team": team},
+    )
+    for membership in memberships_to_email:
+        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+    message.send(send_async=False)
 
 
 def send_batch_export_run_failure(
-    batch_export_run_id: str,
+    batch_export_run_id: UUIDT,
 ) -> None:
     logger = structlog.get_logger(__name__)
 
@@ -172,7 +255,10 @@ def send_batch_export_run_failure(
         id=batch_export_run_id
     )
     team: Team = batch_export_run.batch_export.team
-    logger = logger.bind(team_id=team.id, batch_export_id=batch_export_run.batch_export.id)
+
+    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    if not memberships_to_email:
+        return
 
     logger.info("Preparing notification email for batch export run %s", batch_export_run_id)
 
@@ -196,35 +282,9 @@ def send_batch_export_run_failure(
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)
 
-    memberships_to_email = []
-    memberships = OrganizationMembership.objects.select_related("user", "organization").filter(
-        organization_id=team.organization_id
-    )
-
-    for membership in memberships:
-        has_notification_settings_enabled = membership.user.notification_settings.get("batch_export_run_failure", True)
-
-        if has_notification_settings_enabled is False:
-            logger.warning("User doesn't have batch export notifications enabled")
-            continue
-
-        team_permissions = UserPermissions(membership.user).team(team)
-        # Only send the email to users who have access to the affected project
-        # Those without access have `effective_membership_level` of `None`
-        if (
-            team_permissions.effective_membership_level_for_parent_membership(membership.organization, membership)
-            is not None
-        ):
-            memberships_to_email.append(membership)
-
-    if memberships_to_email:
-        logger.info("Sending failure notification email")
-
-        for membership in memberships_to_email:
-            message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-        message.send(send_async=False)
-    else:
-        logger.info("No available recipients for notification email")
+    for membership in memberships_to_email:
+        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+    message.send(send_async=False)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

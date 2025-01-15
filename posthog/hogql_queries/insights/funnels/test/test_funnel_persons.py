@@ -60,7 +60,9 @@ def get_actors(
     return response.results
 
 
-class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
+class BaseTestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
+    __test__ = False
+
     def _create_sample_data_multiple_dropoffs(self):
         for i in range(35):
             bulk_create_persons([{"distinct_ids": [f"user_{i}"], "team_id": self.team.pk}])
@@ -809,3 +811,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 2)
         self.assertCountEqual(set(results[0][1]["distinct_ids"]), {"person1", "anon1"})
         self.assertCountEqual(set(results[1][1]["distinct_ids"]), {"person2", "anon2"})
+
+
+class TestFunnelPersons(BaseTestFunnelPersons):
+    __test__ = True

@@ -21,8 +21,7 @@
 
         &:not(.Playlist__list--collapsed) {
             width: 25%;
-            min-width: 305px;
-            max-width: 350px;
+            min-width: 285px;
         }
 
         .text-link {
@@ -49,9 +48,17 @@
     }
 }
 
+.NotebookNode__box .Playlist__filters {
+    display: none;
+}
+
+.NotebookNode__box .Playlist__list {
+    border-right: 1px solid var(--border);
+}
+
 .SessionRecordingPlaylistHeightWrapper {
     // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
-    height: calc(100vh - 14rem);
+    height: calc(100vh - 10rem);
     min-height: 25rem;
 }
 

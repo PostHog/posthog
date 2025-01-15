@@ -77,16 +77,13 @@ export function SocialLoginButtons({
     bottomDivider,
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, socialAuthAvailable } = useValues(preflightLogic)
 
-    const order: string[] = Object.keys(SSO_PROVIDER_NAMES)
-
-    if (
-        !preflight?.available_social_auth_providers ||
-        !Object.values(preflight.available_social_auth_providers).filter((val) => !!val).length
-    ) {
+    if (!preflight || !socialAuthAvailable) {
         return null
     }
+
+    const order: string[] = Object.keys(SSO_PROVIDER_NAMES)
 
     return (
         <>
@@ -112,12 +109,15 @@ export function SocialLoginButtons({
 type SSOEnforcedLoginButtonProps = SocialLoginButtonProps &
     Partial<LemonButtonWithoutSideActionProps> & {
         email: string
+    } & {
+        actionText?: string
     }
 
 export function SSOEnforcedLoginButton({
     provider,
     email,
     extraQueryParams,
+    actionText = 'Log in',
     ...props
 }: SSOEnforcedLoginButtonProps): JSX.Element {
     return (
@@ -133,7 +133,7 @@ export function SSOEnforcedLoginButton({
                 size="large"
                 {...props}
             >
-                Log in with {SSO_PROVIDER_NAMES[provider]}
+                {actionText} with {SSO_PROVIDER_NAMES[provider]}
             </LemonButton>
         </SocialLoginLink>
     )

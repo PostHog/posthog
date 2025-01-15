@@ -1,11 +1,13 @@
 import './PersonDisplay.scss'
 
+import { IconCopy } from '@posthog/icons'
 import clsx from 'clsx'
 import { router } from 'kea-router'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
-import { useMemo, useState } from 'react'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import React, { useMemo, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
 import { asDisplay, asLink } from './person-utils'
@@ -23,6 +25,8 @@ export interface PersonDisplayProps {
     noEllipsis?: boolean
     noPopover?: boolean
     isCentered?: boolean
+    children?: React.ReactChild
+    withCopyButton?: boolean
 }
 
 export function PersonIcon({
@@ -58,13 +62,26 @@ export function PersonDisplay({
     noLink,
     isCentered,
     href = asLink(person),
+    children,
+    withCopyButton,
 }: PersonDisplayProps): JSX.Element {
     const display = asDisplay(person)
     const [visible, setVisible] = useState(false)
 
     const notebookNode = useNotebookNode()
 
-    let content = (
+    const handleClick = (e: React.MouseEvent): void => {
+        if (visible && href && !noLink && person?.properties) {
+            router.actions.push(href)
+        } else if (visible && !person?.properties) {
+            e.preventDefault()
+        } else {
+            setVisible(true)
+        }
+        return
+    }
+
+    let content = children || (
         <span className={clsx('flex items-center', isCentered && 'justify-center')}>
             {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
@@ -72,26 +89,13 @@ export function PersonDisplay({
     )
 
     content = (
-        <span
-            className="PersonDisplay"
-            onClick={
-                !noPopover
-                    ? () => {
-                          if (visible && href && !noLink) {
-                              router.actions.push(href)
-                          } else {
-                              setVisible(true)
-                          }
-                      }
-                    : undefined
-            }
-        >
-            {noLink || !href ? (
+        <span className="PersonDisplay" onClick={!noPopover ? handleClick : undefined}>
+            {noLink || !href || (visible && !person?.properties) ? (
                 content
             ) : (
                 <Link
                     to={href}
-                    onClick={(e) => {
+                    onClick={(e: React.MouseEvent): void => {
                         if (!noPopover && !notebookNode) {
                             e.preventDefault()
                             return
@@ -112,10 +116,12 @@ export function PersonDisplay({
         ) : (
             <Popover
                 overlay={
-                    <PersonPreview
-                        distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
-                        onClose={() => setVisible(false)}
-                    />
+                    person?.distinct_id || person?.distinct_ids?.[0] ? (
+                        <PersonPreview
+                            distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
+                            onClose={() => setVisible(false)}
+                        />
+                    ) : null
                 }
                 visible={visible}
                 onClickOutside={() => setVisible(false)}
@@ -123,7 +129,14 @@ export function PersonDisplay({
                 fallbackPlacements={['bottom', 'right']}
                 showArrow
             >
-                {content}
+                {withCopyButton ? (
+                    <div className="flex flex-row items-center justify-between">
+                        {content}
+                        <IconCopy className="text-lg cursor-pointer" onClick={() => void copyToClipboard(display)} />
+                    </div>
+                ) : (
+                    <span>{content}</span>
+                )}
             </Popover>
         )
 

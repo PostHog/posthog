@@ -5,7 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
@@ -57,9 +57,11 @@ export interface Tab {
     dataAttr: string
 }
 
+type OmitConflictingProperties<T> = Omit<T, 'resultCustomizations'>
+
 export interface CommonInsightFilter
-    extends Partial<TrendsFilter>,
-        Partial<FunnelsFilter>,
+    extends Partial<OmitConflictingProperties<TrendsFilter>>,
+        Partial<OmitConflictingProperties<FunnelsFilter>>,
         Partial<RetentionFilter>,
         Partial<PathsFilter>,
         Partial<StickinessFilter>,
@@ -276,9 +278,11 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
         newCache.series = cache?.series
     }
 
-    // store the insight specific filter in commonFilter
+    /**  store the insight specific filter in commonFilter */
     const filterKey = filterKeyForQuery(query)
-    newCache.commonFilter = { ...cache?.commonFilter, ...query[filterKey] }
+    // exclude properties that shouldn't be shared
+    const { resultCustomizations, ...commonProperties } = query[filterKey] || {}
+    newCache.commonFilter = { ...cache?.commonFilter, ...commonProperties }
 
     return newCache
 }

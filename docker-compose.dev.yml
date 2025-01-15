@@ -55,16 +55,23 @@ services:
         extends:
             file: docker-compose.base.yml
             service: clickhouse
+        hostname: clickhouse
         ports:
             - '8123:8123'
+            - '8443:8443'
             - '9000:9000'
             - '9440:9440'
             - '9009:9009'
         volumes:
+            # this new entrypoint file is to fix a bug detailed here https://github.com/ClickHouse/ClickHouse/pull/59991
+            # revert this when we upgrade clickhouse
+            - ./docker/clickhouse/entrypoint.sh:/entrypoint.sh
             - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
         extra_hosts:
             - 'host.docker.internal:host-gateway'
         depends_on:
@@ -138,6 +145,13 @@ services:
             service: replay-capture
         depends_on:
             - redis
+            - kafka
+
+    property-defs-rs:
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
+        depends_on:
             - kafka
 
     livestream:

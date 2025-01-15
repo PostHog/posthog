@@ -15,7 +15,7 @@ use tokio::sync;
 use tokio::time::{sleep, Duration};
 use tracing::error;
 
-use hook_common::kafka_producer::KafkaContext;
+use common_kafka::kafka_producer::KafkaContext;
 use hook_common::pgqueue::PgTransactionBatch;
 use hook_common::{
     pgqueue::{Job, PgQueue, PgQueueJob, PgTransactionJob, RetryError, RetryInvalidError},
@@ -489,10 +489,9 @@ async fn process_webhook_job<W: WebhookJob>(
                                         "timeout while reading response body",
                                     ))
                                     .await
-                                    .map_err(|job_error| {
+                                    .inspect_err(|_| {
                                         metrics::counter!("webhook_jobs_database_error", &labels)
-                                            .increment(1);
-                                        job_error
+                                            .increment(1)
                                     })?;
 
                                 metrics::counter!("webhook_jobs_failed", &labels).increment(1);
@@ -523,9 +522,8 @@ async fn process_webhook_job<W: WebhookJob>(
                 ("retries", retries.to_string()),
             ];
 
-            webhook_job.complete().await.map_err(|error| {
+            webhook_job.complete().await.inspect_err(|_| {
                 metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
-                error
             })?;
 
             let insert_to_complete_duration = Utc::now() - created_at;
@@ -548,9 +546,8 @@ async fn process_webhook_job<W: WebhookJob>(
             webhook_job
                 .fail(WebhookJobError::new_parse(&e.to_string()))
                 .await
-                .map_err(|job_error| {
+                .inspect_err(|_| {
                     metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
-                    job_error
                 })?;
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
@@ -561,9 +558,8 @@ async fn process_webhook_job<W: WebhookJob>(
             webhook_job
                 .fail(WebhookJobError::new_parse(&e))
                 .await
-                .map_err(|job_error| {
-                    metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
-                    job_error
+                .inspect_err(|_| {
+                    metrics::counter!("webhook_jobs_database_error", &labels).increment(1)
                 })?;
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
@@ -574,9 +570,8 @@ async fn process_webhook_job<W: WebhookJob>(
             webhook_job
                 .fail(WebhookJobError::new_parse(&e.to_string()))
                 .await
-                .map_err(|job_error| {
-                    metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
-                    job_error
+                .inspect_err(|_| {
+                    metrics::counter!("webhook_jobs_database_error", &labels).increment(1)
                 })?;
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
@@ -614,10 +609,9 @@ async fn process_webhook_job<W: WebhookJob>(
                             webhook_job
                                 .fail(WebhookJobError::from(&error))
                                 .await
-                                .map_err(|job_error| {
+                                .inspect_err(|_| {
                                     metrics::counter!("webhook_jobs_database_error", &labels)
                                         .increment(1);
-                                    job_error
                                 })?;
 
                             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
@@ -640,13 +634,9 @@ async fn process_webhook_job<W: WebhookJob>(
                 WebhookRequestError::NonRetryableRetryableRequestError {
                     error, response, ..
                 } => {
-                    webhook_job
-                        .fail(webhook_job_error)
-                        .await
-                        .map_err(|job_error| {
-                            metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
-                            job_error
-                        })?;
+                    webhook_job.fail(webhook_job_error).await.inspect_err(|_| {
+                        metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
+                    })?;
 
                     metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
@@ -793,9 +783,9 @@ mod tests {
     // Note we are ignoring some warnings in this module.
     // This is due to a long-standing cargo bug that reports imports and helper functions as unused.
     // See: https://github.com/rust-lang/rust/issues/46379.
+    use common_kafka::test::create_mock_kafka;
     use health::HealthRegistry;
     use hook_common::pgqueue::{DatabaseError, NewJob};
-    use hook_common::test::create_mock_kafka;
     use hook_common::webhook::WebhookJobMetadata;
     use sqlx::PgPool;
 

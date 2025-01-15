@@ -73,10 +73,10 @@
     user-select: none;
     background: none;
     border-radius: var(--radius);
-    outline: none;
     transition: var(--lemon-button-transition);
 
-    .font-normal {
+    .font-normal,
+    &.font-normal {
         font-family: var(--font-sans);
     }
 
@@ -220,6 +220,16 @@
         --lemon-button-icon-opacity: 1;
     }
 
+    &.LemonButton--primary.LemonButton--status-danger {
+        --lemon-button-bg-color: var(--red-100);
+        --lemon-button-color: var(--text-3000);
+
+        [theme='dark'] & {
+            --lemon-button-bg-color: #312101;
+            --lemon-button-color: var(--red-200);
+        }
+    }
+
     &.LemonButton--secondary.LemonButton--status-alt {
         --lemon-button-color: var(--muted);
 
@@ -345,6 +355,10 @@
 
     &--full-width {
         width: 100%;
+    }
+
+    &--tertiary .LemonButtonWithSideAction__side-button {
+        --lemon-button-chrome-depth: 0px; // Tertiary buttons are flat, no depth
     }
 
     &:hover > .LemonButton--secondary.LemonButton--status-alt {

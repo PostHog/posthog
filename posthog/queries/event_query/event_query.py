@@ -2,6 +2,7 @@ from abc import ABCMeta, abstractmethod
 from typing import Any, Optional, Union
 
 from posthog.clickhouse.materialized_columns import ColumnName
+from posthog.hogql.database.database import create_hogql_database
 from posthog.models import Cohort, Filter, Property
 from posthog.models.cohort.util import is_precalculated_query
 from posthog.models.filters import AnyFilter
@@ -9,19 +10,18 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyGroup, PropertyName
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
+from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
 from posthog.schema import PersonsOnEventsMode
 from posthog.session_recordings.queries.session_query import SessionQuery
-from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
-from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 
 
 class EventQuery(metaclass=ABCMeta):
@@ -51,7 +51,6 @@ class EventQuery(metaclass=ABCMeta):
             PathFilter,
             RetentionFilter,
             StickinessFilter,
-            SessionRecordingsFilter,
             PropertiesTimelineFilter,
         ],
         team: Team,
@@ -89,6 +88,13 @@ class EventQuery(metaclass=ABCMeta):
         self._should_join_sessions = should_join_sessions
         self._extra_fields = extra_fields
         self._person_on_events_mode = alias_poe_mode_for_legacy(person_on_events_mode)
+
+        # HACK: Because we're in a legacy query, we need to override hogql_context with the legacy-alised PoE mode
+        self._filter.hogql_context.modifiers.personsOnEventsMode = self._person_on_events_mode
+        # Recreate the database with the legacy-alised PoE mode
+        self._filter.hogql_context.database = create_hogql_database(
+            team_id=self._team.pk, modifiers=self._filter.hogql_context.modifiers
+        )
 
         # Guards against a ClickHouse bug involving multiple joins against the same table with the same column name.
         # This issue manifests for us with formulas, where on queries A and B we join events against itself
@@ -131,7 +137,7 @@ class EventQuery(metaclass=ABCMeta):
         elif person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             return f"{self.EVENT_TABLE_ALIAS}.person_id"
 
-        return f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        return f"if(notEmpty({self.DISTINCT_ID_TABLE_ALIAS}.distinct_id), {self.DISTINCT_ID_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
 
     def _get_person_ids_query(self, *, relevant_events_conditions: str = "") -> str:
         if not self._should_join_distinct_ids:
@@ -144,7 +150,7 @@ class EventQuery(metaclass=ABCMeta):
             )
 
         return f"""
-            INNER JOIN (
+            LEFT OUTER JOIN (
                 {get_team_distinct_ids_query(self._team_id, relevant_events_conditions=relevant_events_conditions)}
             ) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
@@ -183,7 +189,7 @@ class EventQuery(metaclass=ABCMeta):
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
         try:
-            cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+            cohort: Cohort = Cohort.objects.get(pk=prop.value)
         except Cohort.DoesNotExist:
             return False
         if is_precalculated_query(cohort):

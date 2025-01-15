@@ -1,6 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Sparkline } from 'lib/components/Sparkline'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
@@ -36,6 +37,22 @@ export function renderHogQLX(value: any): JSX.Element {
             return (
                 <ErrorBoundary>
                     <Sparkline className="h-8" {...props} data={data ?? []} type={type} />
+                </ErrorBoundary>
+            )
+        } else if (tag === 'RecordingButton') {
+            const { sessionId, ...props } = rest
+            return (
+                <ErrorBoundary>
+                    <ViewRecordingButton
+                        inModal
+                        sessionId={sessionId}
+                        type="primary"
+                        size="xsmall"
+                        data-attr="hog-ql-view-recording-button"
+                        className="inline-block"
+                        {...props}
+                        disabledReason={sessionId ? undefined : 'No session id associated with this event'}
+                    />
                 </ErrorBoundary>
             )
         } else if (tag === 'a') {

@@ -1,5 +1,5 @@
 import { Hub, PluginConfig, PluginConfigVMResponse } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { createPluginConfigVM, TimeoutError } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
@@ -30,16 +30,15 @@ export const createReadyPluginConfigVm = async (
 
 describe('vm timeout tests', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({
+        hub = await createHub({
             TASK_TIMEOUT: 1,
         })
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     test('while loop', async () => {

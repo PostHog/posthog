@@ -6,7 +6,7 @@ from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
     DashboardFilter,
-    InsightDateRange,
+    DateRange,
     EventPropertyFilter,
     EventsNode,
     FilterLogicalOperator,
@@ -40,7 +40,7 @@ class TestTrendsDashboardFilters(BaseTest):
     ) -> TrendsQueryRunner:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
-            dateRange=InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
+            dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             interval=interval,
             series=query_series,
             trendsFilter=trends_filters,
@@ -262,7 +262,7 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.breakdownFilter is None
         assert query_runner.query.trendsFilter is None
 
-    def test_breakdown_limit_is_removed_when_too_large_for_dashboard(self):
+    def test_breakdown_limit_is_not_removed_for_dashboard(self):
         query_runner = self._create_query_runner(
             "2020-01-09",
             "2020-01-20",
@@ -290,10 +290,7 @@ class TestTrendsDashboardFilters(BaseTest):
 
         query_runner.apply_dashboard_filters(DashboardFilter())
 
-        assert query_runner.query.breakdownFilter == BreakdownFilter(
-            breakdown="abc",
-            breakdown_limit=None,  # 50 series would be too many on a dashboard, reverting to default
-        )
+        assert query_runner.query.breakdownFilter == BreakdownFilter(breakdown="abc", breakdown_limit=50)
 
     def test_compare_is_removed_for_all_time_range(self):
         query_runner = self._create_query_runner(

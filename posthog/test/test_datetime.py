@@ -1,6 +1,6 @@
 from datetime import datetime, UTC
 
-from posthog.datetime import (
+from posthog.date_util import (
     start_of_hour,
     start_of_day,
     end_of_day,

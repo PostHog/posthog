@@ -2,8 +2,21 @@
 
 set -e
 
-trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+cleanup() {
+    echo "Stopping worker..."
+    if kill -0 "$worker_pid" >/dev/null 2>&1; then
+        kill "$worker_pid"
+    else
+        echo "Worker process is not running."
+    fi
+}
 
-python3 manage.py start_temporal_worker "$@"
+trap cleanup SIGINT SIGTERM EXIT
 
-wait
+python3 manage.py start_temporal_worker "$@" &
+
+worker_pid=$!
+
+wait $worker_pid
+
+cleanup

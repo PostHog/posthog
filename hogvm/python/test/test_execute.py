@@ -4,9 +4,13 @@ from collections.abc import Callable
 
 
 from hogvm.python.execute import execute_bytecode, get_nested_value
-from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
+from hogvm.python.operation import (
+    Operation as op,
+    HOGQL_BYTECODE_IDENTIFIER as _H,
+    HOGQL_BYTECODE_VERSION as VERSION,
+)
 from hogvm.python.utils import UncaughtHogVMException
-from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program
 
 
@@ -15,7 +19,7 @@ class TestBytecodeExecute:
         globals = {
             "properties": {"foo": "bar", "nullValue": None},
         }
-        return execute_bytecode(create_bytecode(parse_expr(expr)), globals).result
+        return execute_bytecode(create_bytecode(parse_expr(expr)).bytecode, globals).result
 
     def _run_program(
         self, code: str, functions: Optional[dict[str, Callable[..., Any]]] = None, globals: Optional[dict] = None
@@ -25,7 +29,7 @@ class TestBytecodeExecute:
                 "properties": {"foo": "bar", "nullValue": None},
             }
         program = parse_program(code)
-        bytecode = create_bytecode(program, supported_functions=set(functions.keys()) if functions else None)
+        bytecode = create_bytecode(program, supported_functions=set(functions.keys()) if functions else None).bytecode
         response = execute_bytecode(bytecode, globals, functions)
         return response.result
 
@@ -115,21 +119,21 @@ class TestBytecodeExecute:
 
     def test_errors(self):
         try:
-            execute_bytecode([_H, op.TRUE, op.CALL, "notAFunction", 1], {})
+            execute_bytecode([_H, VERSION, op.TRUE, op.CALL_GLOBAL, "notAFunction", 1], {})
         except Exception as e:
             assert str(e) == "Unsupported function call: notAFunction"
         else:
             raise AssertionError("Expected Exception not raised")
 
         try:
-            execute_bytecode([_H, op.CALL, "notAFunction", 1], {})
+            execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "replaceOne", 1], {})
         except Exception as e:
             assert str(e) == "Stack underflow"
         else:
             raise AssertionError("Expected Exception not raised")
 
         try:
-            execute_bytecode([_H, op.TRUE, op.TRUE, op.NOT], {})
+            execute_bytecode([_H, VERSION, op.TRUE, op.TRUE, op.NOT], {})
         except Exception as e:
             assert str(e) == "Invalid bytecode. More than one value left on stack"
         else:
@@ -182,10 +186,6 @@ class TestBytecodeExecute:
             raise AssertionError("Expected Exception not raised")
 
     def test_memory_limits_2(self):
-        # let string := 'banana'
-        # for (let i := 0; i < 100; i := i + 1) {
-        #   string := string || string
-        # }
         bytecode = [
             "_h",
             32,
@@ -281,27 +281,40 @@ class TestBytecodeExecute:
             return "zero"
 
         functions = {"stringify": stringify}
-        assert execute_bytecode([_H, op.INTEGER, 1, op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "one"
-        assert execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "two"
         assert (
-            execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "zero"
+            execute_bytecode(
+                [_H, VERSION, op.INTEGER, 1, op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions
+            ).result
+            == "one"
+        )
+        assert (
+            execute_bytecode(
+                [_H, VERSION, op.INTEGER, 2, op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions
+            ).result
+            == "two"
+        )
+        assert (
+            execute_bytecode(
+                [_H, VERSION, op.STRING, "2", op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions
+            ).result
+            == "zero"
+        )
+
+    def test_version_0_and_1(self):
+        # version 0 of HogQL bytecode had arguments in a different order
+        assert (
+            execute_bytecode(["_h", op.STRING, "1", op.STRING, "2", op.CALL_GLOBAL, "concat", 2, op.RETURN]).result
+            == "21"
+        )
+        assert (
+            execute_bytecode(["_H", 1, op.STRING, "1", op.STRING, "2", op.CALL_GLOBAL, "concat", 2, op.RETURN]).result
+            == "12"
         )
 
     def test_bytecode_variable_assignment(self):
         program = parse_program("let a := 1 + 2; return a;")
-        bytecode = create_bytecode(program)
-        assert bytecode == [
-            _H,
-            op.INTEGER,
-            2,
-            op.INTEGER,
-            1,
-            op.PLUS,
-            op.GET_LOCAL,
-            0,
-            op.RETURN,
-            op.POP,
-        ]
+        bytecode = create_bytecode(program).bytecode
+        assert bytecode == ["_H", 1, op.INTEGER, 2, op.INTEGER, 1, op.PLUS, op.GET_LOCAL, 0, op.RETURN, op.POP]
 
         assert self._run_program("let a := 1 + 2; return a;") == 3
         assert (
@@ -317,9 +330,10 @@ class TestBytecodeExecute:
 
     def test_bytecode_if_else(self):
         program = parse_program("if (true) return 1; else return 2;")
-        bytecode = create_bytecode(program)
+        bytecode = create_bytecode(program).bytecode
         assert bytecode == [
-            _H,
+            "_H",
+            1,
             op.TRUE,
             op.JUMP_IF_FALSE,
             5,
@@ -369,9 +383,10 @@ class TestBytecodeExecute:
 
     def test_bytecode_while(self):
         program = parse_program("while (true) 1 + 1;")
-        bytecode = create_bytecode(program)
+        bytecode = create_bytecode(program).bytecode
         assert bytecode == [
-            _H,
+            "_H",
+            1,
             op.TRUE,
             op.JUMP_IF_FALSE,
             8,
@@ -386,12 +401,13 @@ class TestBytecodeExecute:
         ]
 
         program = parse_program("while (toString('a')) { 1 + 1; } return 3;")
-        bytecode = create_bytecode(program)
+        bytecode = create_bytecode(program).bytecode
         assert bytecode == [
-            _H,
+            "_H",
+            1,
             op.STRING,
             "a",
-            op.CALL,
+            op.CALL_GLOBAL,
             "toString",
             1,
             op.JUMP_IF_FALSE,
@@ -466,7 +482,7 @@ class TestBytecodeExecute:
                     print(i) -- prints 3 times
                     j := j + 2
                 }
-                print(i) -- global does not print
+                // print(i) -- global does not print
                 return j
                 """
             )
@@ -476,33 +492,39 @@ class TestBytecodeExecute:
     def test_bytecode_functions(self):
         program = parse_program(
             """
-            fn add(a, b) {
+            fun add(a, b) {
                 return a + b;
             }
             return add(3, 4);
             """
         )
-        bytecode = create_bytecode(program)
+        bytecode = create_bytecode(program).bytecode
         assert bytecode == [
-            _H,
-            op.DECLARE_FN,
+            "_H",
+            VERSION,
+            op.CALLABLE,
             "add",
             2,
+            0,
             6,
             op.GET_LOCAL,
-            0,
-            op.GET_LOCAL,
             1,
+            op.GET_LOCAL,
+            0,
             op.PLUS,
             op.RETURN,
-            op.INTEGER,
-            4,
+            op.CLOSURE,
+            0,
             op.INTEGER,
             3,
-            op.CALL,
-            "add",
+            op.INTEGER,
+            4,
+            op.GET_LOCAL,
+            0,
+            op.CALL_LOCAL,
             2,
             op.RETURN,
+            op.POP,
         ]
 
         response = execute_bytecode(bytecode).result
@@ -511,7 +533,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn add(a, b) {
+                fun add(a, b) {
                     return a + b;
                 }
                 return add(3, 4) + 100 + add(1, 1);
@@ -523,10 +545,10 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn add(a, b) {
+                fun add(a, b) {
                     return a + b;
                 }
-                fn divide(a, b) {
+                fun divide(a, b) {
                     return a / b;
                 }
                 return divide(add(3, 4) + 100 + add(2, 1), 2);
@@ -538,11 +560,11 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn add(a, b) {
+                fun add(a, b) {
                     let c := a + b;
                     return c;
                 }
-                fn divide(a, b) {
+                fun divide(a, b) {
                     return a / b;
                 }
                 return divide(add(3, 4) + 100 + add(2, 1), 10);
@@ -555,7 +577,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn fibonacci(number) {
+                fun fibonacci(number) {
                     if (number < 2) {
                         return number;
                     } else {
@@ -572,7 +594,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn doIt(a) {
+                fun doIt(a) {
                     let url := 'basdfasdf';
                     let second := 2 + 3;
                     return second;
@@ -587,7 +609,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn doIt() {
+                fun doIt() {
                     let url := 'basdfasdf';
                     let second := 2 + 3;
                     return second;
@@ -620,7 +642,12 @@ class TestBytecodeExecute:
         assert self._run_program("return {'key': 'value'};") == {"key": "value"}
         assert self._run_program("return {'key': 'value', 'other': 'thing'};") == {"key": "value", "other": "thing"}
         assert self._run_program("return {'key': {'otherKey': 'value'}};") == {"key": {"otherKey": "value"}}
-        assert self._run_program("return {key: 'value'};") == {None: "value"}
+        try:
+            self._run_program("return {key: 'value'};")
+        except Exception as e:
+            assert str(e) == "Global variable not found: key"
+        else:
+            raise AssertionError("Expected Exception not raised")
         assert self._run_program("let key := 3; return {key: 'value'};") == {3: "value"}
 
         assert self._run_program("return {'key': 'value'}.key;") == "value"
@@ -951,9 +978,15 @@ class TestBytecodeExecute:
         assert self._run_program("let a := {'b': {'d': 2}}; return (((a??{}).b)??{}).c") is None
         assert self._run_program("let a := {'b': {'d': 2}}; return (((a??{}).b)??{}).d") == 2
         assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.c") is None
+        assert self._run_program("let a := {'b': {'d': 2}}; return a.b.c") is None
         assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.d") == 2
+        assert self._run_program("let a := {'b': {'d': 2}}; return a.b.d") == 2
         assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.['c']") is None
+        assert self._run_program("let a := {'b': {'d': 2}}; return a.b['c']") is None
         assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.['d']") == 2
+        assert self._run_program("let a := {'b': {'d': 2}}; return a.b['d']") == 2
+        assert self._run_program("return properties.foo") == "bar"
+        assert self._run_program("return properties.not.here") is None
 
     def test_bytecode_uncaught_errors(self):
         try:
@@ -975,3 +1008,28 @@ class TestBytecodeExecute:
             assert e.payload == {"key": "value"}
         else:
             raise AssertionError("Expected Exception not raised")
+
+    def test_multiple_bytecodes(self):
+        ret = lambda string: {"bytecode": ["_H", 1, op.STRING, string, op.RETURN]}
+        call = lambda chunk: {"bytecode": ["_H", 1, op.STRING, chunk, op.CALL_GLOBAL, "import", 1, op.RETURN]}
+        res = execute_bytecode(
+            {
+                "root": call("code2"),
+                "code2": ret("banana"),
+            }
+        )
+        assert res.result == "banana"
+
+    def test_multiple_bytecodes_callback(self):
+        ret = lambda string: {"bytecode": ["_H", 1, op.STRING, string, op.RETURN]}
+        call = lambda chunk: {"bytecode": ["_H", 1, op.STRING, chunk, op.CALL_GLOBAL, "import", 1, op.RETURN]}
+        res = execute_bytecode(
+            {
+                "root": call("code2"),
+                "code2": call("code3"),
+                "code3": call("code4"),
+                "code4": call("code5"),
+                "code5": ret("tomato"),
+            }
+        )
+        assert res.result == "tomato"

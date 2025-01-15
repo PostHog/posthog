@@ -43,6 +43,7 @@ class Action(models.Model):
     bytecode = models.JSONField(null=True, blank=True)
     bytecode_error = models.TextField(blank=True, null=True)
     steps_json = models.JSONField(null=True, blank=True)
+    pinned_at = models.DateTimeField(blank=True, null=True, default=None)
 
     # DEPRECATED: these were used before ClickHouse was our database
     is_calculating = models.BooleanField(default=False)
@@ -71,6 +72,8 @@ class Action(models.Model):
             "match_url_count": sum(1 if step.url else 0 for step in self.steps),
             "has_properties": any(step.properties for step in self.steps),
             "deleted": self.deleted,
+            "pinned": bool(self.pinned_at),
+            "pinned_at": self.pinned_at,
         }
 
     @property
@@ -87,10 +90,10 @@ class Action(models.Model):
 
     def refresh_bytecode(self):
         from posthog.hogql.property import action_to_expr
-        from posthog.hogql.bytecode import create_bytecode
+        from posthog.hogql.compiler.bytecode import create_bytecode
 
         try:
-            new_bytecode = create_bytecode(action_to_expr(self))
+            new_bytecode = create_bytecode(action_to_expr(self)).bytecode
             if new_bytecode != self.bytecode or self.bytecode_error is not None:
                 self.bytecode = new_bytecode
                 self.bytecode_error = None

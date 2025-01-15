@@ -18,7 +18,7 @@ export const billingJson: BillingType = {
             name: 'Product analytics',
             headline: 'Product analytics with autocapture',
             description:
-                'A comprehensive product analytics platform built to natively work with session replay, feature flags, A/B testing, and surveys.',
+                'A comprehensive product analytics platform built to natively work with session replay, feature flags, experiments, and surveys.',
             price_description: null,
             usage_key: 'events',
             image_url: 'https://posthog.com/images/products/product-analytics/product-analytics.png',
@@ -32,7 +32,7 @@ export const billingJson: BillingType = {
                     product_key: 'product_analytics',
                     name: 'Free',
                     description:
-                        'A comprehensive product analytics platform built to natively work with session replay, feature flags, A/B testing, and surveys.',
+                        'A comprehensive product analytics platform built to natively work with session replay, feature flags, experiments, and surveys.',
                     image_url: 'https://posthog.com/images/products/product-analytics/product-analytics.png',
                     docs_url: 'https://posthog.com/docs/product-analytics',
                     note: null,
@@ -95,7 +95,7 @@ export const billingJson: BillingType = {
                     product_key: 'product_analytics',
                     name: 'Paid',
                     description:
-                        'A comprehensive product analytics platform built to natively work with session replay, feature flags, A/B testing, and surveys.',
+                        'A comprehensive product analytics platform built to natively work with session replay, feature flags, experiments, and surveys.',
                     image_url: 'https://posthog.com/images/products/product-analytics/product-analytics.png',
                     docs_url: 'https://posthog.com/docs/product-analytics',
                     note: null,
@@ -1444,8 +1444,8 @@ export const billingJson: BillingType = {
             ],
         },
         {
-            name: 'Feature flags & A/B testing',
-            headline: 'Safely roll out features and A/B tests to specific users or groups',
+            name: 'Feature flags & experiments',
+            headline: 'Safely roll out features and experiments to specific users or groups',
             description:
                 'Test changes with small groups of users before rolling out wider. Analyze usage with product analytics and session replay.',
             price_description: null,
@@ -1551,7 +1551,7 @@ export const billingJson: BillingType = {
                         },
                         {
                             key: 'experimentation',
-                            name: 'A/B testing',
+                            name: 'Experiments',
                             description: 'Test changes to your product and evaluate the impacts those changes make.',
                             unit: null,
                             limit: null,
@@ -1694,7 +1694,7 @@ export const billingJson: BillingType = {
                         },
                         {
                             key: 'experimentation',
-                            name: 'A/B testing',
+                            name: 'Experiments',
                             description: 'Test changes to your product and evaluate the impacts those changes make.',
                             unit: null,
                             limit: null,
@@ -1966,7 +1966,7 @@ export const billingJson: BillingType = {
                 },
                 {
                     key: 'experimentation',
-                    name: 'A/B testing',
+                    name: 'Experiments',
                     description: 'Test changes to your product and evaluate the impacts those changes make.',
                     images: null,
                     icon_key: null,

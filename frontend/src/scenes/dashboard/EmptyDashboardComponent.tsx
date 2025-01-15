@@ -1,14 +1,13 @@
 import './EmptyDashboardComponent.scss'
 
 import { IconPlus } from '@posthog/icons'
-import { useValues } from 'kea'
+import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import React from 'react'
-import { urls } from 'scenes/urls'
 
+import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
-import { dashboardLogic } from './dashboardLogic'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (
@@ -29,9 +28,7 @@ function SkeletonCardOne({ active }: { active: boolean }): JSX.Element {
                 {[100, 66, 33].map((height) => (
                     <div
                         key={height}
-                        className="border border-border-light rounded overflow-hidden flex flex-col justify-end"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: '15%', height: '80%' }}
+                        className="border border-border-light rounded overflow-hidden flex flex-col justify-end w-[15%] h-[80%]"
                     >
                         {/* eslint-disable-next-line react/forbid-dom-props */}
                         <div style={{ height: `${height}%` }}>
@@ -54,10 +51,10 @@ function SkeletonBarsRaw({ active }: { active: boolean }): JSX.Element {
                     return (
                         <div
                             key={index}
+                            className="w-[12.5%]"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 height: `${height}%`,
-                                width: '12.5%',
                             }}
                         >
                             <LemonSkeleton active={active} className="h-full w-full" />
@@ -79,8 +76,7 @@ function SkeletonCardTwo({ active }: { active: boolean }): JSX.Element {
 }
 
 export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean; canEdit: boolean }): JSX.Element {
-    const { dashboard } = useValues(dashboardLogic)
-
+    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     return (
         <div className="EmptyDashboard">
             {!loading && (
@@ -90,7 +86,7 @@ export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean
                     <div className="mt-4 text-center">
                         <LemonButton
                             data-attr="dashboard-add-graph-header"
-                            to={urls.insightNew(undefined, dashboard?.id)}
+                            onClick={showAddInsightToDashboardModal}
                             type="primary"
                             icon={<IconPlus />}
                             center
@@ -102,14 +98,12 @@ export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean
                     </div>
                 </div>
             )}
-            {/*  eslint-disable-next-line react/forbid-dom-props */}
-            <div className="flex items-center gap-2" style={{ height: '30rem' }}>
+            <div className="flex items-center gap-2 h-[30rem]">
                 <SkeletonCardOne active={loading} />
                 <SkeletonCardTwo active={loading} />
             </div>
             <div className="EmptyDashboard__fade">
-                {/*  eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex items-center gap-2" style={{ height: '30rem' }}>
+                <div className="flex items-center gap-2 h-[30rem]">
                     <SkeletonCardOne active={loading} />
                     <SkeletonCardTwo active={loading} />
                 </div>

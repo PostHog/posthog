@@ -2,6 +2,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
+import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -220,7 +221,7 @@ const meta: Meta = {
                 }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag]),
             },
             post: {
-                '/api/projects/:team_id/query/': async (req, res, ctx) => {
+                '/api/environments/:team_id/query/': async (req, res, ctx) => {
                     const body = await req.json()
                     if (body.kind == 'EventsQuery') {
                         return res(ctx.json(MOCK_SURVEY_RESULTS))
@@ -240,6 +241,13 @@ export default meta
 export const SurveysList: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.surveys())
+    }, [])
+    return <App />
+}
+
+export const SurveysGlobalSettings: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.surveys(SurveysTabs.Settings))
     }, [])
     return <App />
 }

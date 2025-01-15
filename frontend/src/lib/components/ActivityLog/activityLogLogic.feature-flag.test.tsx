@@ -340,7 +340,7 @@ describe('the activity log logic', () => {
                                         key: 'id',
                                         type: 'cohort',
                                         value: 98,
-                                        operator: null,
+                                        operator: 'in',
                                     },
                                 ],
                                 rollout_percentage: null,
@@ -351,7 +351,7 @@ describe('the activity log logic', () => {
                                         key: 'id',
                                         type: 'cohort',
                                         value: 411,
-                                        operator: null,
+                                        operator: 'not_in',
                                     },
                                 ],
                                 rollout_percentage: 100,
@@ -364,7 +364,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the filter conditions to apply to 100% of ID 98, and 100% of ID 411 on with cohort'
+                'peter changed the filter conditions to apply to 100% of User in ID 98, and 100% of User not in ID 411 on with cohort'
             )
         })
 

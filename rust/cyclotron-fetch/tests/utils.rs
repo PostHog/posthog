@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use chrono::{Duration, Utc};
 
-use cyclotron_core::{Job, JobInit, QueueError, Worker};
+use common_kafka::test::create_mock_kafka;
+use cyclotron_core::{Bytes, Job, JobInit, QueueError, Worker};
 use cyclotron_fetch::{
     config::AppConfig,
     context::AppContext,
@@ -15,7 +16,7 @@ const FETCH_QUEUE: &str = "fetch";
 const RETURN_QUEUE: &str = "return";
 
 pub async fn get_app_test_context(db: PgPool) -> AppContext {
-    let worker = Worker::from_pool(db.clone());
+    let worker = Worker::from_pool(db.clone(), Default::default());
     let client = reqwest::Client::new();
     let concurrency_limit = Arc::new(Semaphore::new(1));
     let health = health::HealthRegistry::new("test");
@@ -39,9 +40,12 @@ pub async fn get_app_test_context(db: PgPool) -> AppContext {
         allow_internal_ips: true,
     };
 
+    let (_, mock_producer) = create_mock_kafka().await;
+
     AppContext {
         worker,
         client,
+        kafka_producer: mock_producer,
         concurrency_limit,
         liveness,
         config,
@@ -55,13 +59,12 @@ pub fn construct_params(url: String, method: HttpMethod) -> FetchParameters {
         method,
         return_queue: RETURN_QUEUE.to_string(),
         headers: None,
-        body: None,
         max_tries: None,
         on_finish: None,
     }
 }
 
-pub fn construct_job(parameters: FetchParameters) -> JobInit {
+pub fn construct_job(parameters: FetchParameters, body: Option<Bytes>) -> JobInit {
     JobInit {
         team_id: 1,
         queue_name: FETCH_QUEUE.to_string(),
@@ -69,7 +72,8 @@ pub fn construct_job(parameters: FetchParameters) -> JobInit {
         scheduled: Utc::now() - Duration::seconds(1),
         function_id: None,
         vm_state: None,
-        parameters: Some(serde_json::to_string(&parameters).unwrap()),
+        parameters: Some(serde_json::to_vec(&parameters).unwrap()),
+        blob: body,
         metadata: None,
     }
 }

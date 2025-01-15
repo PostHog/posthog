@@ -1,4 +1,5 @@
-import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -12,6 +13,7 @@ import { RelatedFeatureFlag, relatedFeatureFlagsLogic } from './relatedFeatureFl
 
 interface Props {
     distinctId: string
+    groupTypeIndex?: number
     groups?: { [key: string]: string }
 }
 
@@ -33,11 +35,11 @@ const featureFlagMatchMapping = {
     [FeatureFlagMatchReason.Disabled]: 'Disabled',
 }
 
-export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element {
+export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Props): JSX.Element {
     const { filteredMappedFlags, relatedFeatureFlagsLoading, searchTerm, filters } = useValues(
-        relatedFeatureFlagsLogic({ distinctId, groups })
+        relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups })
     )
-    const { setSearchTerm, setFilters } = useActions(relatedFeatureFlagsLogic({ distinctId, groups }))
+    const { setSearchTerm, setFilters } = useActions(relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups }))
 
     const columns: LemonTableColumns<RelatedFeatureFlag> = [
         {
@@ -89,7 +91,33 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
             },
         },
         {
-            title: 'Match evaluation',
+            title: (
+                <div className="inline-flex items-center space-x-1">
+                    <div className="">Match evaluation</div>
+                    <Tooltip
+                        title={
+                            <div className="space-y-2">
+                                <div>
+                                    This column simulates the feature flag evaluation based on the selected distinct ID,
+                                    current properties, and groups associated with the user. If the actual flag value
+                                    differs, it could be due to different inputs used during evaluation.
+                                </div>
+                                <div>
+                                    If you are using local flag evaluation, you must ensure that you provide any person
+                                    properties, groups, or group properties used to evaluate the release conditions of
+                                    the flag. Read more in the{' '}
+                                    <Link to="https://posthog.com/docs/feature-flags/local-evaluation#step-3-evaluate-your-feature-flag">
+                                        documentation.
+                                    </Link>
+                                </div>
+                            </div>
+                        }
+                        closeDelayMs={200}
+                    >
+                        <IconInfo className="text-muted-alt text-base ml-1" />
+                    </Tooltip>
+                </div>
+            ),
             dataIndex: 'evaluation',
             width: 150,
             render: function Render(_, featureFlag: RelatedFeatureFlag) {

@@ -3,6 +3,7 @@ import blushingHog from 'public/hedgehog/blushing-hog.png'
 import builderHog1 from 'public/hedgehog/builder-hog-01.png'
 import builderHog2 from 'public/hedgehog/builder-hog-02.png'
 import builderHog3 from 'public/hedgehog/builder-hog-03.png'
+import burningMoneyHog from 'public/hedgehog/burning-money-hog.png'
 import detectiveHog from 'public/hedgehog/detective-hog.png'
 import experimentsHog from 'public/hedgehog/experiments-hog.png'
 import explorerHog from 'public/hedgehog/explorer-hog.png'
@@ -143,4 +144,7 @@ export const MicrophoneHog = (props: HedgehogProps): JSX.Element => {
 }
 export const PhonePairHogs = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={phonePairHogs} {...props} />
+}
+export const BurningMoneyHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={burningMoneyHog} {...props} />
 }

@@ -1,6 +1,7 @@
-import { LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -17,8 +18,8 @@ import {
     membershipLevelToName,
     organizationMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
-import { useEffect, useState } from 'react'
-import { Setup2FA } from 'scenes/authentication/Setup2FA'
+import { useEffect } from 'react'
+import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -138,20 +139,22 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 
 export function Members(): JSX.Element | null {
     const { filteredMembers, membersLoading, search } = useValues(membersLogic)
-    const { setSearch, ensureAllMembersLoaded, loadAllMembers } = useActions(membersLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { updateOrganization } = useActions(organizationLogic)
-    const [is2FAModalVisible, set2FAModalVisible] = useState(false)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
+    const { setSearch, ensureAllMembersLoaded } = useActions(membersLogic)
+    const { updateOrganization } = useActions(organizationLogic)
+    const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
 
-    if (!user) {
-        return null
-    }
+    const twoFactorRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     useEffect(() => {
         ensureAllMembersLoaded()
     }, [])
+
+    if (!user) {
+        return null
+    }
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {
@@ -165,7 +168,7 @@ export function Members(): JSX.Element | null {
             title: 'Name',
             key: 'user_name',
             render: (_, member) =>
-                member.user.uuid == user.uuid ? `${fullName(member.user)} (me)` : fullName(member.user),
+                member.user.uuid == user.uuid ? `${fullName(member.user)} (you)` : fullName(member.user),
             sorter: (a, b) => fullName(a.user).localeCompare(fullName(b.user)),
         },
         {
@@ -210,17 +213,6 @@ export function Members(): JSX.Element | null {
             render: function LevelRender(_, member) {
                 return (
                     <>
-                        {member.user.uuid == user.uuid && is2FAModalVisible && (
-                            <LemonModal title="Set up or manage 2FA" onClose={() => set2FAModalVisible(false)}>
-                                <Setup2FA
-                                    onSuccess={() => {
-                                        set2FAModalVisible(false)
-                                        userLogic.actions.updateUser({})
-                                        loadAllMembers()
-                                    }}
-                                />
-                            </LemonModal>
-                        )}
                         <Tooltip
                             title={
                                 member.user.uuid == user.uuid && !member.is_2fa_enabled
@@ -231,7 +223,7 @@ export function Members(): JSX.Element | null {
                             <LemonTag
                                 onClick={
                                     member.user.uuid == user.uuid && !member.is_2fa_enabled
-                                        ? () => set2FAModalVisible(true)
+                                        ? () => openTwoFactorSetupModal()
                                         : undefined
                                 }
                                 data-attr="2fa-enabled"
@@ -257,6 +249,19 @@ export function Members(): JSX.Element | null {
                 )
             },
             sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
+        },
+        {
+            title: 'Last Logged In',
+            dataIndex: 'last_login',
+            key: 'last_login',
+            render: function RenderLastLogin(lastLogin) {
+                return (
+                    <div className="whitespace-nowrap">
+                        {lastLogin ? <TZLabel time={lastLogin as string} /> : 'Never'}
+                    </div>
+                )
+            },
+            sorter: (a, b) => new Date(a.last_login ?? 0).getTime() - new Date(b.last_login ?? 0).getTime(),
         },
         {
             key: 'actions',
@@ -287,6 +292,7 @@ export function Members(): JSX.Element | null {
                     bordered
                     checked={!!currentOrganization?.enforce_2fa}
                     onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
+                    disabledReason={twoFactorRestrictionReason}
                 />
             </PayGateMini>
         </>

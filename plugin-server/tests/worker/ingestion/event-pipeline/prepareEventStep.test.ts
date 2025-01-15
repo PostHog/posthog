@@ -1,10 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub, Person, Team } from '../../../../src/types'
-import { createHub } from '../../../../src/utils/db/hub'
+import { Hub, Person, ProjectId, Team } from '../../../../src/types'
+import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
+import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { resetTestDatabase } from '../../../helpers/sql'
 
 jest.mock('../../../../src/utils/status')
@@ -38,6 +40,7 @@ const person: Person = {
 
 const teamTwo: Team = {
     id: 2,
+    project_id: 1 as ProjectId,
     uuid: 'af95d312-1a0a-4208-b80f-562ddafc9bcd',
     organization_id: '66f3f7bf-44e2-45dd-9901-5dbd93744e3a',
     name: 'testTeam',
@@ -49,13 +52,12 @@ const teamTwo: Team = {
 }
 
 describe('prepareEventStep()', () => {
-    let runner: any
+    let runner: Pick<EventPipelineRunner, 'hub' | 'eventsProcessor'>
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
         await resetTestDatabase()
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
 
         // :KLUDGE: We test below whether kafka messages are produced, so make sure the person exists beforehand.
         await hub.db.createPerson(person.created_at, {}, {}, {}, pluginEvent.team_id, null, false, person.uuid, [
@@ -64,18 +66,18 @@ describe('prepareEventStep()', () => {
         hub.db.kafkaProducer!.queueMessage = jest.fn()
 
         // eslint-disable-next-line @typescript-eslint/require-await
-        hub.eventsProcessor.teamManager.fetchTeam = jest.fn(async (teamId) => {
+        hub.teamManager.fetchTeam = jest.fn(async (teamId) => {
             return teamId === 2 ? teamTwo : null
         })
 
         runner = {
-            nextStep: (...args: any[]) => args,
             hub,
+            eventsProcessor: new EventsProcessor(hub),
         }
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     it('goes to `createEventStep` for normal events', async () => {
@@ -89,13 +91,14 @@ describe('prepareEventStep()', () => {
                 $ip: '127.0.0.1',
             },
             teamId: 2,
+            projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
     })
 
     it('scrubs IPs when team.anonymize_ips=true', async () => {
-        jest.mocked(runner.hub.eventsProcessor.teamManager.fetchTeam).mockReturnValue({
+        jest.mocked(runner.hub.teamManager.fetchTeam).mockReturnValue({
             ...teamTwo,
             anonymize_ips: true,
         })
@@ -107,6 +110,7 @@ describe('prepareEventStep()', () => {
             eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
             properties: {},
             teamId: 2,
+            projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
@@ -116,7 +120,7 @@ describe('prepareEventStep()', () => {
     it('extracts elements_chain from properties', async () => {
         const event: PluginEvent = { ...pluginEvent, ip: null, properties: { $elements_chain: 'random string', a: 1 } }
         const preppedEvent = await prepareEventStep(runner, event)
-        const [chEvent, _] = await runner.hub.eventsProcessor.createEvent(preppedEvent, person)
+        const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person)
 
         expect(chEvent.elements_chain).toEqual('random string')
         expect(chEvent.properties).toEqual('{"a":1}')
@@ -133,7 +137,7 @@ describe('prepareEventStep()', () => {
             },
         }
         const preppedEvent = await prepareEventStep(runner, event)
-        const [chEvent, _] = await runner.hub.eventsProcessor.createEvent(preppedEvent, person)
+        const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person)
 
         expect(chEvent.elements_chain).toEqual('random string')
         expect(chEvent.properties).toEqual('{"a":1}')
@@ -147,7 +151,7 @@ describe('prepareEventStep()', () => {
             properties: { a: 1, $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }] },
         }
         const preppedEvent = await prepareEventStep(runner, event)
-        const [chEvent, _] = await runner.hub.eventsProcessor.createEvent(preppedEvent, person)
+        const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person)
 
         expect(chEvent.elements_chain).toEqual('div:nth-child="1"nth-of-type="2"text="text"')
         expect(chEvent.properties).toEqual('{"a":1}')

@@ -11,7 +11,7 @@ import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
 
-from posthog.clickhouse.client.connection import Workload, get_pool
+from posthog.clickhouse.client.connection import Workload, get_client_from_pool
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
@@ -23,7 +23,7 @@ from sentry_sdk import set_tag
 QUERY_ERROR_COUNTER = Counter(
     "clickhouse_query_failure",
     "Query execution failure signal is dispatched when a query fails.",
-    labelnames=["exception_type"],
+    labelnames=["exception_type", "query_type"],
 )
 
 QUERY_EXECUTION_TIME_GAUGE = Gauge(
@@ -98,6 +98,7 @@ def sync_execute(
     workload: Workload = Workload.DEFAULT,
     team_id: Optional[int] = None,
     readonly=False,
+    sync_client: Optional[SyncClient] = None,
 ):
     if TEST and flush:
         try:
@@ -120,7 +121,7 @@ def sync_execute(
     if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
 
-    with get_pool(workload, team_id, readonly).get_client() as client:
+    with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
         start_time = perf_counter()
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
@@ -130,10 +131,13 @@ def sync_execute(
 
         query_type = tags.get("query_type", "Other")
         set_tag("query_type", query_type)
+        if team_id is not None:
+            set_tag("team_id", team_id)
 
         settings = {
             **core_settings,
             "log_comment": json.dumps(tags, separators=(",", ":")),
+            "query_id": query_id,
         }
 
         try:
@@ -146,7 +150,9 @@ def sync_execute(
             )
         except Exception as e:
             err = wrap_query_error(e)
-            QUERY_ERROR_COUNTER.labels(exception_type=type(err).__name__).inc()
+            exception_type = type(err).__name__
+            set_tag("clickhouse_exception_type", exception_type)
+            QUERY_ERROR_COUNTER.labels(exception_type=exception_type, query_type=query_type).inc()
 
             raise err from e
         finally:

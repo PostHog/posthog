@@ -5,19 +5,20 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
-    InsightDateRange,
+    DateRange,
     DataWarehouseNode,
     DataWarehouseEventsModifier,
     TrendsQuery,
     TrendsFilter,
 )
-from posthog.test.base import BaseTest
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
+from posthog.test.base import BaseTest, _create_event
+from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseJoin
 
 from boto3 import resource
 from botocore.config import Config
@@ -99,6 +100,9 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         )
 
     def create_parquet_file(self):
+        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
+            raise Exception("Missing vars")
+
         fs = s3fs.S3FileSystem(
             client_kwargs={
                 "region_name": "us-east-1",
@@ -128,7 +132,9 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         table_name = "test_table_1"
 
         credential = DataWarehouseCredential.objects.create(
-            access_key=OBJECT_STORAGE_ACCESS_KEY_ID, access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY, team=self.team
+            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
+            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            team=self.team,
         )
 
         # TODO: use env vars
@@ -154,7 +160,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            dateRange=DateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -179,7 +185,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            dateRange=DateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -205,7 +211,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            dateRange=DateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -223,7 +229,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
+        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown(self):
@@ -231,7 +237,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            dateRange=DateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -262,13 +268,130 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
         assert response.results[3][2] == "d"
 
+    def test_trends_breakdown_with_event_property(self):
+        table_name = self.create_parquet_file()
+
+        _create_event(
+            distinct_id="1",
+            event="a",
+            properties={"$feature/prop_1": "a"},
+            timestamp="2023-01-01 00:00:00",
+            team=self.team,
+        )
+        _create_event(
+            distinct_id="1",
+            event="b",
+            properties={"$feature/prop_1": "b"},
+            timestamp="2023-01-01 00:00:00",
+            team=self.team,
+        )
+        _create_event(
+            distinct_id="1",
+            event="c",
+            properties={"$feature/prop_1": "c"},
+            timestamp="2023-01-01 00:00:00",
+            team=self.team,
+        )
+        _create_event(
+            distinct_id="1",
+            event="d",
+            properties={"$feature/prop_1": "d"},
+            timestamp="2023-01-01 00:00:00",
+            team=self.team,
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=table_name,
+            source_table_key="prop_1",
+            joining_table_name="events",
+            joining_table_key="event",
+            field_name="events",
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="events.properties.$feature/prop_1"
+            ),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total", "breakdown_value"})
+        assert len(response.results) == 4
+        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
+        assert response.results[0][2] == "a"
+
+        assert response.results[1][1] == [0, 1, 0, 0, 0, 0, 0]
+        assert response.results[1][2] == "b"
+
+        assert response.results[2][1] == [0, 0, 1, 0, 0, 0, 0]
+        assert response.results[2][2] == "c"
+
+        assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
+        assert response.results[3][2] == "d"
+
+    @snapshot_clickhouse_queries
+    def test_trends_breakdown_on_view(self):
+        from posthog.warehouse.models import DataWarehouseSavedQuery
+
+        table_name = self.create_parquet_file()
+
+        query = f"""\
+          select
+            id as id,
+            created as created,
+            prop_1 as prop_2,
+            true as boolfield
+          from {table_name}
+        """
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="saved_view",
+            query={"query": query, "kind": "HogQLQuery"},
+        )
+        saved_query.columns = saved_query.get_columns()
+        saved_query.save()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id="saved_view",
+                    table_name="saved_view",
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_2"),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+        assert len(response.results) == 4
+
     @snapshot_clickhouse_queries
     def test_trends_breakdown_with_property(self):
         table_name = self.create_parquet_file()
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            dateRange=DateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -297,7 +420,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            dateRange=DateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -325,3 +448,49 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         self.assert_column_names_with_display_type(ChartDisplayType.BOLD_NUMBER)
         self.assert_column_names_with_display_type(ChartDisplayType.WORLD_MAP)
         self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
+
+    @snapshot_clickhouse_queries
+    def test_trends_with_multiple_property_types(self):
+        table_name = self.create_parquet_file()
+
+        _create_event(
+            distinct_id="1",
+            event="a",
+            properties={"prop_1": "a"},
+            timestamp="2023-01-02 00:00:00",
+            team=self.team,
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+            properties=clean_entity_properties(
+                [
+                    {"key": "prop_1", "value": "a", "operator": "exact", "type": "data_warehouse"},
+                    {"key": "prop_2", "value": "e", "operator": "exact", "type": "data_warehouse"},
+                    {
+                        "key": "prop_1",
+                        "value": "a",
+                        "operator": "exact",
+                        "type": "event",
+                    },  # This should be ignored for DW queries
+                ]
+            ),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total"})
+        # Should only match the row where both prop_1='a' AND prop_2='e'
+        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]

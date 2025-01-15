@@ -3,7 +3,8 @@ import { DateTime } from 'luxon'
 
 import { Group, Hub, Team } from '../../../src/types'
 import { DB } from '../../../src/utils/db/db'
-import { createHub } from '../../../src/utils/db/hub'
+import { MessageSizeTooLarge } from '../../../src/utils/db/error'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { upsertGroup } from '../../../src/worker/ingestion/properties-updater'
 import { createPromise } from '../../helpers/promises'
@@ -13,7 +14,6 @@ jest.mock('../../../src/utils/status')
 
 describe('properties-updater', () => {
     let hub: Hub
-    let closeServer: () => Promise<void>
     let db: DB
 
     let team: Team
@@ -24,7 +24,7 @@ describe('properties-updater', () => {
     const PAST_TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z')
 
     beforeEach(async () => {
-        ;[hub, closeServer] = await createHub()
+        hub = await createHub()
         await resetTestDatabase()
         db = hub.db
 
@@ -36,12 +36,12 @@ describe('properties-updater', () => {
     })
 
     afterEach(async () => {
-        await closeServer()
+        await closeHub(hub)
     })
 
     describe('upsertGroup()', () => {
         async function upsert(properties: Properties, timestamp: DateTime) {
-            await upsertGroup(hub.db, team.id, 0, 'group_key', properties, timestamp)
+            await upsertGroup(hub.db, team.id, team.project_id, 0, 'group_key', properties, timestamp)
         }
 
         async function fetchGroup(): Promise<Group> {
@@ -146,6 +146,15 @@ describe('properties-updater', () => {
             const group = await fetchGroup()
             expect(group.version).toEqual(2)
             expect(group.group_properties).toEqual({ a: 1, b: 2, d: 3 })
+        })
+
+        it('handles message size too large errors', async () => {
+            jest.spyOn(db, 'upsertGroupClickhouse').mockImplementationOnce((): Promise<void> => {
+                const error = new Error('message size too large')
+                throw new MessageSizeTooLarge(error.message, error)
+            })
+
+            await expect(upsert({ a: 1, b: 2 }, PAST_TIMESTAMP)).resolves.toEqual(undefined)
         })
     })
 })

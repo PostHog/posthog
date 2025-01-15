@@ -2,6 +2,10 @@ from rest_framework import serializers
 import structlog
 import temporalio
 from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING
+from posthog.temporal.data_imports.pipelines.bigquery import (
+    get_schemas as get_bigquery_schemas,
+    filter_incremental_fields as filter_bigquery_incremental_fields,
+)
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataJob
 from typing import Optional, Any
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -15,15 +19,15 @@ from posthog.api.log_entries import LogEntryMixin
 
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
-    is_any_external_data_job_paused,
+    is_any_external_data_schema_paused,
     sync_external_data_job_workflow,
     pause_external_data_schedule,
     trigger_external_data_workflow,
     unpause_external_data_schedule,
     cancel_external_data_workflow,
-    delete_data_import_folder,
 )
 from posthog.warehouse.models.external_data_schema import (
+    filter_mssql_incremental_fields,
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
@@ -46,6 +50,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     incremental_field = serializers.SerializerMethodField(read_only=True)
     incremental_field_type = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSchema
@@ -73,6 +78,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "latest_error",
             "status",
         ]
+
+    def get_status(self, schema: ExternalDataSchema) -> str | None:
+        if schema.status == ExternalDataSchema.Status.CANCELLED:
+            return "Billing limits"
+
+        return schema.status
 
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental
@@ -130,12 +141,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             payload = instance.sync_type_config
             payload["incremental_field"] = data.get("incremental_field")
             payload["incremental_field_type"] = data.get("incremental_field_type")
+            payload["incremental_field_last_value"] = None
+            payload["incremental_field_last_value_v2"] = None
 
             validated_data["sync_type_config"] = payload
         else:
             payload = instance.sync_type_config
             payload.pop("incremental_field", None)
             payload.pop("incremental_field_type", None)
+            payload.pop("incremental_field_last_value", None)
+            payload.pop("incremental_field_last_value_v2", None)
 
             validated_data["sync_type_config"] = payload
 
@@ -213,10 +228,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         try:
@@ -236,10 +251,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
     def resync(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         latest_running_job = (
@@ -251,17 +266,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        all_jobs = ExternalDataJob.objects.filter(
-            schema_id=instance.pk, team_id=instance.team_id, status="Completed"
-        ).all()
-
-        # Unnecessary to iterate for incremental jobs since they'll all by identified by the schema_id. Be over eager just to clear remnants
-        for job in all_jobs:
-            try:
-                delete_data_import_folder(job.folder_path())
-            except Exception as e:
-                logger.exception(f"Could not clean up data import folder: {job.folder_path()}", exc_info=e)
-                pass
+        source: ExternalDataSource = instance.source
+        source.job_inputs.update({"reset_pipeline": True})
+        source.save()
 
         try:
             trigger_external_data_workflow(instance)
@@ -278,7 +285,11 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         source: ExternalDataSource = instance.source
         incremental_columns: list[IncrementalField] = []
 
-        if source.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        if source.source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
             # TODO(@Gilbert09): Move all this into a util and replace elsewhere
             host = source.job_inputs.get("host")
             port = source.job_inputs.get("port")
@@ -295,6 +306,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
             ssh_tunnel_auth_type_password = source.job_inputs.get("ssh_tunnel_auth_type_password")
             ssh_tunnel_auth_type_passphrase = source.job_inputs.get("ssh_tunnel_auth_type_passphrase")
             ssh_tunnel_auth_type_private_key = source.job_inputs.get("ssh_tunnel_auth_type_private_key")
+
+            using_ssl = str(source.job_inputs.get("using_ssl", True)) == "True"
 
             ssh_tunnel = SSHTunnel(
                 enabled=using_ssh_tunnel,
@@ -316,13 +329,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 password=password,
                 schema=pg_schema,
                 ssh_tunnel=ssh_tunnel,
+                using_ssl=using_ssl,
             )
 
             columns = db_schemas.get(instance.name, [])
             if source.source_type == ExternalDataSource.Type.POSTGRES:
                 incremental_fields_func = filter_postgres_incremental_fields
-            else:
+            elif source.source_type == ExternalDataSource.Type.MYSQL:
                 incremental_fields_func = filter_mysql_incremental_fields
+            elif source.source_type == ExternalDataSource.Type.MSSQL:
+                incremental_fields_func = filter_mssql_incremental_fields
 
             incremental_columns = [
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
@@ -338,20 +354,51 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
             sf_schema = source.job_inputs.get("schema")
             role = source.job_inputs.get("role")
 
+            auth_type = source.job_inputs.get("auth_type", "password")
+            auth_type_username = source.job_inputs.get("user")
+            auth_type_password = source.job_inputs.get("password")
+            auth_type_passphrase = source.job_inputs.get("passphrase")
+            auth_type_private_key = source.job_inputs.get("private_key")
+
             sf_schemas = get_snowflake_schemas(
                 account_id=account_id,
                 database=database,
                 warehouse=warehouse,
-                user=user,
-                password=password,
+                user=auth_type_username,
+                password=auth_type_password,
                 schema=sf_schema,
                 role=role,
+                auth_type=auth_type,
+                passphrase=auth_type_passphrase,
+                private_key=auth_type_private_key,
             )
 
             columns = sf_schemas.get(instance.name, [])
             incremental_columns = [
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
                 for name, field_type in filter_snowflake_incremental_fields(columns)
+            ]
+        elif source.source_type == ExternalDataSource.Type.BIGQUERY:
+            dataset_id = source.job_inputs.get("dataset_id")
+            project_id = source.job_inputs.get("project_id")
+            private_key = source.job_inputs.get("private_key")
+            private_key_id = source.job_inputs.get("private_key_id")
+            client_email = source.job_inputs.get("client_email")
+            token_uri = source.job_inputs.get("token_uri")
+
+            bq_schemas = get_bigquery_schemas(
+                dataset_id=dataset_id,
+                project_id=project_id,
+                private_key=private_key,
+                private_key_id=private_key_id,
+                client_email=client_email,
+                token_uri=token_uri,
+            )
+
+            columns = bq_schemas.get(instance.name, [])
+            incremental_columns = [
+                {"field": name, "field_type": field_type, "label": name, "type": field_type}
+                for name, field_type in filter_bigquery_incremental_fields(columns)
             ]
         else:
             mapping = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source.source_type)

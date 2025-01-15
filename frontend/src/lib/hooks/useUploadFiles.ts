@@ -1,5 +1,5 @@
 import api from 'lib/api'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { MediaUploadResponse } from '~/types'
 
@@ -47,14 +47,17 @@ export function useUploadFiles({
 } {
     const [uploading, setUploading] = useState(false)
     const [filesToUpload, setFilesToUpload] = useState<File[]>([])
+    const uploadInProgressRef = useRef(false)
+
     useEffect(() => {
         const uploadFiles = async (): Promise<void> => {
-            if (filesToUpload.length === 0) {
+            if (filesToUpload.length === 0 || uploadInProgressRef.current) {
                 setUploading(false)
                 return
             }
 
             try {
+                uploadInProgressRef.current = true
                 setUploading(true)
                 const file: File = filesToUpload[0]
                 const media = await uploadFile(file)
@@ -63,12 +66,13 @@ export function useUploadFiles({
                 const errorDetail = (error as any).detail || 'unknown error'
                 onError(errorDetail)
             } finally {
+                uploadInProgressRef.current = false
                 setUploading(false)
                 setFilesToUpload([])
             }
         }
         uploadFiles().catch(console.error)
-    }, [filesToUpload])
+    }, [filesToUpload, onUpload, onError])
 
     return { setFilesToUpload, filesToUpload, uploading }
 }

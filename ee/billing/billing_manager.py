@@ -20,6 +20,7 @@ from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -28,21 +29,26 @@ class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
-def build_billing_token(license: License, organization: Organization):
+def build_billing_token(license: License, organization: Organization, user: Optional[User] = None):
     if not organization or not license:
         raise NotAuthenticated()
 
     license_id = license.key.split("::")[0]
     license_secret = license.key.split("::")[1]
 
+    payload = {
+        "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
+        "id": license_id,
+        "organization_id": str(organization.id),
+        "organization_name": organization.name,
+        "aud": "posthog:license-key",
+    }
+
+    if user:
+        payload["distinct_id"] = str(user.distinct_id)
+
     encoded_jwt = jwt.encode(
-        {
-            "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
-            "id": license_id,
-            "organization_id": str(organization.id),
-            "organization_name": organization.name,
-            "aud": "posthog:license-key",
-        },
+        payload,
         license_secret,
         algorithm="HS256",
     )
@@ -62,13 +68,20 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 
 
 class BillingManager:
     license: Optional[License]
+    user: Optional[User]
 
-    def __init__(self, license):
+    def __init__(self, license, user: Optional[User] = None):
         self.license = license or get_cached_instance_license()
+        self.user = user
 
-    def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> dict[str, Any]:
+    def get_billing(
+        self,
+        organization: Optional[Organization],
+        plan_keys: Optional[str],
+        query_params: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
         if organization and self.license and self.license.is_v2_license:
-            billing_service_response = self._get_billing(organization)
+            billing_service_response = self._get_billing(organization, query_params)
 
             # Ensure the license and org are updated with the latest info
             if billing_service_response.get("license"):
@@ -130,7 +143,7 @@ class BillingManager:
 
     def update_billing_organization_users(self, organization: Organization) -> None:
         try:
-            distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
+            distinct_ids = list(organization.members.values_list("distinct_id", flat=True))  # type: ignore
 
             first_owner_membership = (
                 OrganizationMembership.objects.filter(organization=organization, level=15)
@@ -149,11 +162,12 @@ class BillingManager:
             )
 
             org_users = list(
-                organization.members.values(
+                organization.members.values(  # type: ignore
                     "email",
                     "distinct_id",
                     "organization_membership__level",
                 )
+                .order_by("email")  # Deterministic order for tests
                 .annotate(role=F("organization_membership__level"))
                 .filter(role__gte=OrganizationMembership.Level.ADMIN)
                 .values(
@@ -216,7 +230,7 @@ class BillingManager:
 
         return self.license
 
-    def _get_billing(self, organization: Organization) -> BillingStatus:
+    def _get_billing(self, organization: Organization, query_params: Optional[dict[str, Any]] = None) -> BillingStatus:
         """
         Retrieves billing info and updates local models if necessary
         """
@@ -226,6 +240,7 @@ class BillingManager:
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=self.get_auth_headers(organization),
+            params=query_params,
         )
         handle_billing_service_error(res)
 
@@ -331,11 +346,12 @@ class BillingManager:
     def get_auth_headers(self, organization: Organization):
         if not self.license:  # mypy
             raise Exception("No license found")
-        billing_service_token = build_billing_token(self.license, organization)
+        billing_service_token = build_billing_token(self.license, organization, self.user)
         return {"Authorization": f"Bearer {billing_service_token}"}
 
     def get_invoices(self, organization: Organization, status: Optional[str]):
         res = requests.get(
+            # TODO(@zach): update this to /api/invoices
             f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
             params={"status": status},
             headers=self.get_auth_headers(organization),
@@ -346,3 +362,65 @@ class BillingManager:
         data = res.json()
 
         return data
+
+    def credits_overview(self, organization: Organization):
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/credits/overview",
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def purchase_credits(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/credits/purchase",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def activate_trial(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/trials/activate",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def cancel_trial(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/trials/cancel",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+    def authorize(self, organization: Organization):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize",
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def authorize_status(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize/status",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()

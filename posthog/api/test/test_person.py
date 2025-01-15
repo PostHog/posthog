@@ -379,6 +379,87 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNone(async_deletion.delete_verified_at)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_bulk_delete_ids(self):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1", "anonymous_id"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+        person2 = _create_person(
+            team=self.team,
+            distinct_ids=["person_2", "anonymous_id_2"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+        _create_event(event="test", team=self.team, distinct_id="person_1")
+        _create_event(event="test", team=self.team, distinct_id="anonymous_id")
+        _create_event(event="test", team=self.team, distinct_id="someone_else")
+
+        response = self.client.post(
+            f"/api/person/bulk_delete/", {"ids": [person.uuid, person2.uuid], "delete_events": True}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
+        self.assertEqual(response.content, b"")  # Empty response
+        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+
+        response = self.client.delete(f"/api/person/{person.uuid}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        ch_persons = sync_execute(
+            "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
+            {"team_id": self.team.pk, "uuid": person.uuid},
+        )
+        self.assertEqual([(100, 1, "{}")], ch_persons)
+
+        # async deletion scheduled and executed
+        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
+        self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
+        self.assertEqual(async_deletion.key, str(person.uuid))
+        self.assertIsNone(async_deletion.delete_verified_at)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_bulk_delete_distinct_id(self):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1", "anonymous_id"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["person_2", "anonymous_id_2"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+        _create_event(event="test", team=self.team, distinct_id="person_1")
+        _create_event(event="test", team=self.team, distinct_id="anonymous_id")
+        _create_event(event="test", team=self.team, distinct_id="someone_else")
+
+        response = self.client.post(f"/api/person/bulk_delete/", {"distinct_ids": ["anonymous_id", "person_2"]})
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
+        self.assertEqual(response.content, b"")  # Empty response
+        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+
+        response = self.client.delete(f"/api/person/{person.uuid}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        ch_persons = sync_execute(
+            "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
+            {"team_id": self.team.pk, "uuid": person.uuid},
+        )
+        self.assertEqual([(100, 1, "{}")], ch_persons)
+        # No async deletion is scheduled
+        self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
+        ch_events = sync_execute(
+            "SELECT count() FROM events WHERE team_id = %(team_id)s",
+            {"team_id": self.team.pk},
+        )[0][0]
+        self.assertEqual(ch_events, 3)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_split_people_keep_props(self) -> None:
         # created first
         person1 = _create_person(
@@ -792,7 +873,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(9):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -803,7 +884,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(8):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
@@ -915,63 +996,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 "hashed_personal_api_key": hash_key_value(personal_api_key),
             },
         )
-
-    @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_person_cache_invalidation(self):
-        _create_person(
-            team=self.team,
-            distinct_ids=["person_1", "anonymous_id"],
-            properties={"$os": "Chrome"},
-            immediate=True,
-        )
-        _create_event(event="test", team=self.team, distinct_id="person_1")
-        _create_event(event="test", team=self.team, distinct_id="anonymous_id")
-        _create_event(event="test", team=self.team, distinct_id="someone_else")
-        data = {
-            "events": json.dumps([{"id": "test", "type": "events"}]),
-            "entity_type": "events",
-            "entity_id": "test",
-        }
-
-        trend_response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/",
-            data=data,
-            content_type="application/json",
-        ).json()
-        response = self.client.get("/" + trend_response["result"][0]["persons_urls"][-1]["url"]).json()
-        self.assertEqual(response["results"][0]["count"], 1)
-        self.assertEqual(response["is_cached"], False)
-
-        # Create another person
-        _create_person(
-            team=self.team,
-            distinct_ids=["person_2"],
-            properties={"$os": "Chrome"},
-            immediate=True,
-        )
-        _create_event(event="test", team=self.team, distinct_id="person_2")
-
-        # Check cached response hasn't changed
-        response = self.client.get("/" + trend_response["result"][0]["persons_urls"][-1]["url"]).json()
-        self.assertEqual(response["results"][0]["count"], 1)
-        self.assertEqual(response["is_cached"], True)
-
-        new_trend_response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/",
-            data={**data, "refresh": True},
-            content_type="application/json",
-        ).json()
-
-        self.assertEqual(new_trend_response["is_cached"], False)
-        self.assertNotEqual(
-            new_trend_response["result"][0]["persons_urls"][-1]["url"],
-            trend_response["result"][0]["persons_urls"][-1]["url"],
-        )
-
-        # Cached response should have been updated
-        response = self.client.get("/" + new_trend_response["result"][0]["persons_urls"][-1]["url"]).json()
-        self.assertEqual(response["results"][0]["count"], 2)
-        self.assertEqual(response["is_cached"], False)
 
     def _get_person_activity(
         self,

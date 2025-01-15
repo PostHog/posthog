@@ -12,10 +12,11 @@ class BaseHogFunctionTemplateTest(BaseTest):
     mock_fetch = MagicMock()
     mock_print = MagicMock()
     mock_posthog_capture = MagicMock()
+    fetch_responses: dict[str, dict[Any, Any]] = {}
 
     def setUp(self):
         super().setUp()
-        self.compiled_hog = compile_hog(self.template.hog, supported_functions={"fetch", "print", "postHogCapture"})
+        self.compiled_hog = compile_hog(self.template.hog, self.template.type)
 
         self.mock_print = MagicMock(side_effect=lambda *args: print("[DEBUG HogFunctionPrint]", *args))  # noqa: T201
         # Side effect - log the fetch call and return  with sensible output
@@ -23,10 +24,11 @@ class BaseHogFunctionTemplateTest(BaseTest):
             side_effect=lambda *args: print("[DEBUG HogFunctionFetch]", *args) or self.mock_fetch_response(*args)  # noqa: T201
         )
         self.mock_posthog_capture = MagicMock(
-            side_effect=lambda *args: print("[DEBUG HogFunctionPosthogCapture]", *args)  # noqa: T201
+            side_effect=lambda *args: print("[DEBUG HogFunctionPostHogCapture]", *args)  # noqa: T201
         )
 
-    mock_fetch_response = lambda *args: {"status": 200, "body": {}}
+    def mock_fetch_response(self, url, *args):
+        return self.fetch_responses.get(url, {"status": 200, "body": {}})
 
     def get_mock_fetch_calls(self):
         # Return a simple array which is easier to debug
@@ -45,10 +47,12 @@ class BaseHogFunctionTemplateTest(BaseTest):
         data = {
             "event": {
                 "uuid": "event-id",
+                "event": "event-name",
                 "name": "event-name",
                 "distinct_id": "distinct-id",
                 "properties": {"$current_url": "https://example.com"},
                 "timestamp": "2024-01-01T00:00:00Z",
+                "elements_chain": "",
             },
             "person": {"id": "person-id", "properties": {"email": "example@posthog.com"}},
             "source": {"url": "https://us.posthog.com/hog_functions/1234"},

@@ -56,7 +56,7 @@ export const actionsLogic = kea<actionsLogicType>([
         actionsFiltered: [
             (s) => [s.actions, s.filterType, s.searchTerm, s.user],
             (actions, filterType, searchTerm, user) => {
-                let data = actions
+                let data: ActionType[] = actions
                 if (searchTerm) {
                     data = actionsFuse.search(searchTerm).map((result) => result.item)
                 }

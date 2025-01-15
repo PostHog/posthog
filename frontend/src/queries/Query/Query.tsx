@@ -8,7 +8,15 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { AnyResponseType, DataTableNode, DataVisualizationNode, InsightVizNode, Node } from '~/queries/schema'
+import {
+    AnyResponseType,
+    DashboardFilter,
+    DataTableNode,
+    DataVisualizationNode,
+    HogQLVariable,
+    InsightVizNode,
+    Node,
+} from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
@@ -39,20 +47,34 @@ export interface QueryProps<Q extends Node> {
     readOnly?: boolean
     /** Reduce UI elements to only show data */
     embedded?: boolean
+    /** Disables modals and other things */
+    inSharedMode?: boolean
+    /** Dashboard filters to override the ones in the query */
+    filtersOverride?: DashboardFilter | null
+    /** Dashboard variables to override the ones in the query */
+    variablesOverride?: Record<string, HogQLVariable> | null
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly, embedded } = props
+    const {
+        query: propsQuery,
+        setQuery: propsSetQuery,
+        readOnly,
+        embedded,
+        filtersOverride,
+        variablesOverride,
+        inSharedMode,
+    } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
         if (propsQuery !== localQuery) {
             localSetQuery(propsQuery)
         }
-    }, [propsQuery])
+    }, [propsQuery]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const query = readOnly ? propsQuery : localQuery
-    const setQuery = readOnly ? undefined : propsSetQuery ?? localSetQuery
+    const setQuery = propsSetQuery ?? localSetQuery
 
     const queryContext = props.context || {}
 
@@ -71,80 +93,71 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         }
     }
 
-    let component
+    let component: JSX.Element
     if (isDataTableNode(query)) {
         component = (
             <DataTable
                 query={query}
-                setQuery={setQuery as ((query: DataTableNode) => void) | undefined}
+                setQuery={setQuery as unknown as (query: DataTableNode) => void}
                 context={queryContext}
                 cachedResults={props.cachedResults}
                 uniqueKey={uniqueKey}
+                readOnly={readOnly}
             />
         )
     } else if (isDataVisualizationNode(query)) {
         component = (
             <DataTableVisualization
                 query={query}
-                setQuery={setQuery as ((query: DataVisualizationNode) => void) | undefined}
+                setQuery={setQuery as unknown as (query: DataVisualizationNode) => void}
                 cachedResults={props.cachedResults}
                 uniqueKey={uniqueKey}
                 context={queryContext}
                 readOnly={readOnly}
+                variablesOverride={props.variablesOverride}
             />
         )
     } else if (isSavedInsightNode(query)) {
-        component = <SavedInsight query={query} context={queryContext} />
+        component = <SavedInsight query={query} context={queryContext} readOnly={readOnly} embedded={embedded} />
     } else if (isInsightVizNode(query)) {
         component = (
             <InsightViz
                 query={query}
-                setQuery={setQuery as ((query: InsightVizNode) => void) | undefined}
+                setQuery={setQuery as unknown as (query: InsightVizNode) => void}
                 context={queryContext}
                 readOnly={readOnly}
                 uniqueKey={uniqueKey}
                 embedded={embedded}
+                inSharedMode={inSharedMode}
+                filtersOverride={filtersOverride}
+                variablesOverride={variablesOverride}
             />
         )
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {
-        component = (
-            <HogDebug
-                query={query}
-                setQuery={setQuery as undefined | ((query: any) => void)}
-                queryKey={String(uniqueKey)}
-            />
-        )
+        component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
     } else {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
     }
 
-    if (component) {
-        return (
-            <ErrorBoundary>
-                <>
-                    {props.context?.showQueryEditor ? (
-                        <>
-                            <QueryEditor
-                                query={JSON.stringify(query)}
-                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
-                                context={queryContext}
-                            />
-                            <div className="my-4">
-                                <LemonDivider />
-                            </div>
-                        </>
-                    ) : null}
-                    {component}
-                </>
-            </ErrorBoundary>
-        )
-    }
-
     return (
-        <div className="text-danger border border-danger p-2">
-            <strong>PostHoqQuery error:</strong> {query?.kind ? `Invalid node type "${query.kind}"` : 'Invalid query'}
-        </div>
+        <ErrorBoundary>
+            <>
+                {queryContext.showQueryEditor ? (
+                    <>
+                        <QueryEditor
+                            query={JSON.stringify(query)}
+                            setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
+                            context={queryContext}
+                        />
+                        <div className="my-4">
+                            <LemonDivider />
+                        </div>
+                    </>
+                ) : null}
+                {component}
+            </>
+        </ErrorBoundary>
     )
 }

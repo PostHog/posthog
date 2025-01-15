@@ -2,6 +2,7 @@ import asyncio
 import collections.abc
 import contextlib
 import functools
+import re
 import typing
 import uuid
 
@@ -124,37 +125,47 @@ class JsonScalar(pa.ExtensionScalar):
     def as_py(self) -> dict | None:
         """Try to convert value to Python representation.
 
-        We attempt to decode the value returned by `as_py` as JSON 3 times:
-        1. As returned by `as_py`, without changes.
-        2. By replacing any encoding errors.
-        3. By treating the value as a string and surrouding it with quotes.
+        We attempt to decode the value returned by `as_py` as JSON. However, to do so safely we must
+        ensure the value is a valid UTF-8 string. We try to take care of the following scenarios:
+        * Unescaped whitespace characters (e.g. \n).
+        * Unescaped surrogates without a pair.
+        * Escaped surrogates without a pair.
+        * Not a JSON document (we assume it's a string and quote it).
 
         If all else fails, we will log the offending value and re-raise the decoding error.
         """
         if self.value:
             value = self.value.as_py()
 
+            if re.search("([\t\n\r\f\v])", value):
+                value = value.encode("unicode-escape").decode("utf-8")
+
             if not value:
                 return None
 
-            try:
-                return orjson.loads(value.encode("utf-8"))
-            except orjson.JSONEncodeError:
-                pass
+            json_bytes = value.encode("utf-8", "replace")
 
             try:
-                return orjson.loads(value.encode("utf-8", "replace"))
+                return orjson.loads(json_bytes)
             except orjson.JSONDecodeError:
                 pass
 
-            if isinstance(value, str) and len(value) > 0:
-                # Handles `"$set": "Something"`
+            json_bytes = json_bytes.decode("raw-unicode-escape").encode("utf-8", "replace")
+
+            try:
+                return orjson.loads(json_bytes)
+            except orjson.JSONDecodeError:
+                pass
+
+            if isinstance(value, str) and len(value) > 0 and not value.startswith("{") and not value.endswith("}"):
+                # Handles non-valid JSON strings like `'"$set": "Something"'` by quoting them.
                 value = f'"{value}"'
 
+            json_bytes = value.encode("utf-8", "replace").decode("raw-unicode-escape").encode("utf-8", "replace")
             try:
-                return orjson.loads(value.encode("utf-8", "replace"))
+                return orjson.loads(json_bytes)
             except orjson.JSONDecodeError:
-                logger.exception("Failed to decode: %s", value)
+                logger.exception("Failed to decode with orjson: %s", value)
                 raise
 
         else:
@@ -180,7 +191,7 @@ class JsonType(pa.ExtensionType):
 
 def cast_record_batch_json_columns(
     record_batch: pa.RecordBatch,
-    json_columns: collections.abc.Sequence = ("properties", "person_properties", "set", "set_once"),
+    json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
 ) -> pa.RecordBatch:
     """Cast json_columns in record_batch to JsonType.
 
@@ -202,6 +213,27 @@ def cast_record_batch_json_columns(
         record_batch.select(remaining_column_names).columns + casted_arrays,
         names=remaining_column_names + list(intersection),
     )
+
+
+def cast_record_batch_schema_json_columns(
+    schema: pa.Schema,
+    json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
+):
+    column_names = set(schema.names)
+    intersection = column_names & set(json_columns)
+    new_fields = []
+
+    for field in schema:
+        if field.name not in intersection or not pa.types.is_string(field.type):
+            new_fields.append(field)
+            continue
+
+        casted_field = field.with_type(JsonType())
+        new_fields.append(casted_field)
+
+    new_schema = pa.schema(new_fields)
+
+    return new_schema
 
 
 _Result = typing.TypeVar("_Result")

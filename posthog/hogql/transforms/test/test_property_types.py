@@ -21,7 +21,9 @@ class TestPropertyTypes(BaseTest):
 
     def setUp(self):
         super().setUp()
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
         create_group(
             team_id=self.team.pk,
             group_type_index=0,
@@ -134,7 +136,7 @@ class TestPropertyTypes(BaseTest):
         )
         assert printed == self.snapshot
         assert (
-            "SELECT ifNull(equals(transform(events__group_0.properties___group_boolean, hogvar, hogvar, NULL), 1), 0), ifNull(equals(transform(events__group_0.properties___group_boolean, hogvar, hogvar, NULL), 0), 0), isNull(transform(events__group_0.properties___group_boolean, hogvar, hogvar, NULL))"
+            "SELECT ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL)), 1), 0), ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL)), 0), 0), isNull(toBool(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL)))"
             in re.sub(r"%\(hogql_val_\d+\)s", "hogvar", printed)
         )
 

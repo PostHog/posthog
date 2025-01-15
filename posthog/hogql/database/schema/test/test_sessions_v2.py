@@ -2,6 +2,7 @@ import uuid
 from time import time_ns
 
 import pytest
+from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.sessions_v2 import (
@@ -12,13 +13,22 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.property_definition import PropertyType
 from posthog.models.utils import uuid7
-from posthog.schema import HogQLQueryModifiers, SessionTableVersion
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.schema import HogQLQueryModifiers, SessionTableVersion, BounceRatePageViewMode, FilterLogicalOperator
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+)
 
 
 class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
-    def __execute(self, query):
-        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+    def __execute(self, query, bounce_rate_mode=BounceRatePageViewMode.COUNT_PAGEVIEWS, bounce_rate_duration=None):
+        modifiers = HogQLQueryModifiers(
+            sessionTableVersion=SessionTableVersion.V2,
+            bounceRatePageViewMode=bounce_rate_mode,
+            bounceRateDurationSeconds=bounce_rate_duration,
+        )
         return execute_hogql_query(
             query=query,
             team=self.team,
@@ -309,7 +319,105 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.results or [], [(1, 1, 1)])
 
-    def test_bounce_rate(self):
+    def test_page_screen_autocapture_count_up_to(self):
+        time = time_ns() // (10**6)
+
+        # two pageviews
+        s1 = str(uuid7(time))
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s1},
+            timestamp="2023-12-02",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s1},
+            timestamp="2023-12-03",
+        )
+        # one pageview and one autocapture
+        s2 = str(uuid7(time + 2))
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s2},
+            timestamp="2023-12-02",
+        )
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s2},
+            timestamp="2023-12-03",
+        )
+        # one pageview
+        s3 = str(uuid7(time + 3))
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s3},
+            timestamp="2023-12-02",
+        )
+        # three pageviews (should still count as 2)
+        s4 = str(uuid7(time + 4))
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s4},
+            timestamp="2023-12-02",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s4},
+            timestamp="2023-12-02",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s4},
+            timestamp="2023-12-02",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s4},
+            timestamp="2023-12-02",
+        )
+        # one screen
+        s5 = str(uuid7(time + 5))
+        _create_event(
+            event="$screen",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s5},
+            timestamp="2023-12-02",
+        )
+
+        results = (
+            self.__execute(
+                parse_select(
+                    "select $page_screen_autocapture_count_up_to from sessions ORDER BY session_id",
+                    placeholders={"session_id": ast.Constant(value=s1)},
+                ),
+            ).results
+            or []
+        )
+        assert results == [(2,), (2,), (1,), (2,), (1,)]
+
+    @parameterized.expand(
+        [[BounceRatePageViewMode.UNIQ_PAGE_SCREEN_AUTOCAPTURES], [BounceRatePageViewMode.COUNT_PAGEVIEWS]]
+    )
+    def test_bounce_rate(self, bounce_rate_mode):
         time = time_ns() // (10**6)
         # ensure the sessions ids are sortable by giving them different time components
         s1a = str(uuid7(time))
@@ -398,18 +506,72 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             parse_select(
                 "select $is_bounce, session_id from sessions ORDER BY session_id",
             ),
+            bounce_rate_mode=bounce_rate_mode,
         )
-        self.assertEqual(
-            [
-                (0, s1a),
-                (1, s1b),
-                (1, s2),
-                (0, s3),
-                (1, s4),
-                (0, s5),
-            ],
-            response.results or [],
+        assert (response.results or []) == [
+            (0, s1a),
+            (1, s1b),
+            (1, s2),
+            (0, s3),
+            (1, s4),
+            (0, s5),
+        ]
+
+    @parameterized.expand(
+        [[BounceRatePageViewMode.UNIQ_PAGE_SCREEN_AUTOCAPTURES], [BounceRatePageViewMode.COUNT_PAGEVIEWS]]
+    )
+    def test_custom_bounce_rate_duration(self, bounce_rate_mode):
+        time = time_ns() // (10**6)
+        # ensure the sessions ids are sortable by giving them different time components
+        s = str(uuid7(time))
+
+        # 15 second session with a pageleave
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d4",
+            properties={"$session_id": s, "$current_url": "https://example.com/6"},
+            timestamp="2023-12-11T12:00:00",
         )
+        _create_event(
+            event="$pageleave",
+            team=self.team,
+            distinct_id="d4",
+            properties={"$session_id": s, "$current_url": "https://example.com/6"},
+            timestamp="2023-12-11T12:00:15",
+        )
+
+        # with default settings this should not be a bounce
+        assert (
+            self.__execute(
+                parse_select(
+                    "select $is_bounce, session_id from sessions ORDER BY session_id",
+                ),
+                bounce_rate_mode=bounce_rate_mode,
+            )
+        ).results == [(0, s)]
+
+        # with a custom 10 second duration this should not be a bounce
+        assert (
+            self.__execute(
+                parse_select(
+                    "select $is_bounce, session_id from sessions ORDER BY session_id",
+                ),
+                bounce_rate_mode=bounce_rate_mode,
+                bounce_rate_duration=10,
+            )
+        ).results == [(0, s)]
+
+        # with a custom 30 second duration this should be a bounce
+        assert (
+            self.__execute(
+                parse_select(
+                    "select $is_bounce, session_id from sessions ORDER BY session_id",
+                ),
+                bounce_rate_mode=bounce_rate_mode,
+                bounce_rate_duration=30,
+            )
+        ).results == [(1, s)]
 
     def test_last_external_click_url(self):
         s1 = str(uuid7())
@@ -437,6 +599,88 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         [row1] = response.results or []
         self.assertEqual(row1, ("https://example.com/2",))
 
+    def test_lcp(self):
+        s1 = str(uuid7("2024-10-01"))
+        s2 = str(uuid7("2024-10-02"))
+        s3 = str(uuid7("2024-10-03"))
+        s4 = str(uuid7("2024-10-04"))
+
+        # should be null if there's no $web_vitals_LCP_value
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s1, "$pathname": "/1"},
+        )
+        # should be able to read the property off the regular "$web_vitals" event
+        _create_event(
+            event="$web_vitals",
+            team=self.team,
+            distinct_id=s2,
+            properties={"$session_id": s2, "$web_vitals_LCP_value": "2.0"},
+        )
+        # should be able to read the property off any event
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s3,
+            properties={"$session_id": s3, "$web_vitals_LCP_value": "3.0"},
+        )
+        # should take the first value if there's multiple
+        _create_event(
+            event="$web_vitals",
+            team=self.team,
+            distinct_id=s4,
+            properties={"$session_id": s4, "$web_vitals_LCP_value": "4.1"},
+        )
+        _create_event(
+            event="$web_vitals",
+            team=self.team,
+            distinct_id=s4,
+            properties={"$session_id": s4, "$web_vitals_LCP_value": "4.2"},
+        )
+        response = self.__execute(
+            parse_select("select $vitals_lcp from sessions order by session_id"),
+        )
+
+        rows = response.results or []
+        assert rows == [(None,), (2.0,), (3.0,), (4.1,)]
+
+    def test_can_use_v1_and_v2_fields(self):
+        session_id = str(uuid7())
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={
+                "$current_url": "https://example.com/pathname",
+                "$pathname": "/pathname",
+                "$session_id": session_id,
+            },
+        )
+
+        response = self.__execute(
+            parse_select(
+                """
+                select
+                    $session_duration,
+                    duration,
+                    $end_current_url,
+                    $exit_current_url,
+                    $end_pathname,
+                    $exit_pathname
+                from sessions
+                where session_id = {session_id}
+                """,
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        assert response.results == [
+            (0, 0, "https://example.com/pathname", "https://example.com/pathname", "/pathname", "/pathname")
+        ]
+
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
@@ -448,11 +692,13 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                 "$channel_type",
                 "$end_current_url",
                 "$end_pathname",
+                "$end_hostname",
                 "$end_timestamp",
                 "$entry_current_url",
                 "$entry_gad_source",
                 "$entry_gclid",
                 "$entry_pathname",
+                "$entry_hostname",
                 "$entry_referring_domain",
                 "$entry_utm_campaign",
                 "$entry_utm_content",
@@ -465,6 +711,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                 "$screen_count",
                 "$session_duration",
                 "$start_timestamp",
+                "$vitals_lcp",
             },
         )
         self.assertEqual(
@@ -514,3 +761,37 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         results = get_lazy_session_table_properties_v2(None)
         for prop in results:
             get_lazy_session_table_values_v2(key=prop["id"], team=self.team, search_term=None)
+
+    def test_custom_channel_types(self):
+        self.team.modifiers = {
+            "customChannelTypeRules": [
+                {"items": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Test Channel Type", "id": "1"},
+                {"items": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Paid Social", "id": "2"},
+                {"items": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Test Channel Type", "id": "3"},
+            ]
+        }
+        self.team.save()
+        results = get_lazy_session_table_values_v2(key="$channel_type", team=self.team, search_term=None)
+        # the custom channel types should be first, there's should be no duplicates, and any custom rules for existing
+        # channel types should be bumped to the top
+        assert results == [
+            ["Test Channel Type"],
+            ["Paid Social"],
+            ["Cross Network"],
+            ["Paid Search"],
+            ["Paid Video"],
+            ["Paid Shopping"],
+            ["Paid Unknown"],
+            ["Direct"],
+            ["Organic Search"],
+            ["Organic Social"],
+            ["Organic Video"],
+            ["Organic Shopping"],
+            ["Push"],
+            ["SMS"],
+            ["Audio"],
+            ["Email"],
+            ["Referral"],
+            ["Affiliate"],
+            ["Unknown"],
+        ]

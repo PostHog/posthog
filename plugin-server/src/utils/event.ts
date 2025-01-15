@@ -1,14 +1,27 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
 
 import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
-import { ClickHouseEvent, HookPayload, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
+import {
+    ClickHouseEvent,
+    HookPayload,
+    PipelineEvent,
+    PostIngestionEvent,
+    RawClickHouseEvent,
+    RawKafkaEvent,
+} from '../types'
 import { chainToElements } from './db/elements-chain'
-import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
+import {
+    hasDifferenceWithProposedNewNormalisationMode,
+    personInitialAndUTMProperties,
+    sanitizeString,
+} from './db/utils'
 import {
     clickHouseTimestampSecondPrecisionToISO,
     clickHouseTimestampToDateTime,
     clickHouseTimestampToISO,
+    getKnownLibValueOrSentinel,
 } from './utils'
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
@@ -18,6 +31,12 @@ const KNOWN_SET_EVENTS = new Set([
     'survey dismissed',
     'survey sent',
 ])
+
+const DIFFERENCE_WITH_PROPOSED_NORMALISATION_MODE_COUNTER = new Counter({
+    name: 'difference_with_proposed_normalisation_mode',
+    help: 'Counter for events that would give a different result with the new proposed normalisation mode',
+    labelNames: ['library'],
+})
 
 export function convertToOnEventPayload(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
@@ -103,7 +122,7 @@ export function convertToPostHogEvent(event: PostIngestionEvent): PostHogEvent {
 
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 // that we can keep to as a contract
-export function convertToPostIngestionEvent(event: RawClickHouseEvent): PostIngestionEvent {
+export function convertToPostIngestionEvent(event: RawKafkaEvent): PostIngestionEvent {
     const properties = event.properties ? JSON.parse(event.properties) : {}
     if (event.elements_chain) {
         properties['$elements_chain'] = event.elements_chain
@@ -113,6 +132,7 @@ export function convertToPostIngestionEvent(event: RawClickHouseEvent): PostInge
         eventUuid: event.uuid,
         event: event.event!,
         teamId: event.team_id,
+        projectId: event.project_id,
         distinctId: event.distinct_id,
         properties,
         timestamp: clickHouseTimestampToISO(event.timestamp),
@@ -197,6 +217,12 @@ export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T):
     }
     // For safety while PluginEvent still has an `ip` field
     event.ip = null
+
+    if (hasDifferenceWithProposedNewNormalisationMode(properties)) {
+        DIFFERENCE_WITH_PROPOSED_NORMALISATION_MODE_COUNTER.labels({
+            library: getKnownLibValueOrSentinel(properties['$lib']),
+        }).inc()
+    }
 
     if (!['$snapshot', '$performance_event'].includes(event.event)) {
         properties = personInitialAndUTMProperties(properties)

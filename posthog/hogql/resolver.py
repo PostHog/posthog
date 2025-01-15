@@ -1,30 +1,41 @@
 from datetime import date, datetime
-from typing import Optional, Any, cast, Literal
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from posthog.hogql import ast
-from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.functions import find_hogql_posthog_function
+from posthog.hogql.ast import ConstantType, FieldTraverserType
+from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
-    StringJSONDatabaseField,
     FunctionCallTable,
     LazyTable,
     SavedQuery,
+    StringJSONDatabaseField,
 )
+from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.mapping import validate_function_args, HOGQL_CLICKHOUSE_FUNCTIONS, compare_types
+from posthog.hogql.functions.mapping import (
+    HOGQL_CLICKHOUSE_FUNCTIONS,
+    compare_types,
+    validate_function_args,
+)
+from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
-from posthog.hogql.hogqlx import convert_to_hx, HOGQLX_COMPONENTS
+from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_cte_by_name, lookup_field_by_name
-from posthog.hogql.visitor import CloningVisitor, clone_expr, TraversingVisitor
+from posthog.hogql.resolver_utils import (
+    expand_hogqlx_query,
+    extract_select_queries,
+    lookup_cte_by_name,
+    lookup_field_by_name,
+)
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 from posthog.models.utils import UUIDT
-from posthog.hogql.database.schema.events import EventsTable
-from posthog.hogql.database.s3_table import S3Table
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
@@ -76,11 +87,11 @@ def resolve_types_from_table(
 
 
 def resolve_types(
-    node: ast.Expr | ast.SelectQuery,
+    node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     scopes: Optional[list[ast.SelectQueryType]] = None,
-) -> ast.Expr:
+) -> _T_AST:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
 
 
@@ -112,7 +123,7 @@ class Resolver(CloningVisitor):
         self.database = context.database
         self.cte_counter = 0
 
-    def visit(self, node: ast.Expr | None) -> ast.Expr:
+    def visit(self, node: ast.AST | None):
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolutionError(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
@@ -121,15 +132,17 @@ class Resolver(CloningVisitor):
             raise QueryError("Too many CTE expansions (50+). Probably a CTE loop.")
         return super().visit(node)
 
-    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
         # all expressions combined by UNION ALL can use CTEs from the first expression
         # so we put these CTEs to the scope
-        default_ctes = node.select_queries[0].ctes if node.select_queries else None
+        default_ctes = next(extract_select_queries(node)).ctes
         if default_ctes:
             self.scopes.append(ast.SelectQueryType(ctes=default_ctes))
 
-        node = super().visit_select_union_query(node)
-        node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])
+        node = super().visit_select_set_query(node)
+        node.type = ast.SelectSetQueryType(
+            types=[node.initial_select_query.type, *(x.select_query.type for x in node.subsequent_select_queries)]  # type: ignore
+        )
 
         if default_ctes:
             self.scopes.pop()
@@ -138,7 +151,6 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
-
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
@@ -182,7 +194,7 @@ class Resolver(CloningVisitor):
         for expr in node.select or []:
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
-                columns = self._asterisk_columns(new_expr.type)
+                columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
                 select_nodes.extend([self.visit(expr) for expr in columns])
             else:
                 select_nodes.append(new_expr)
@@ -245,14 +257,17 @@ class Resolver(CloningVisitor):
 
         return new_node
 
-    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> list[ast.Expr]:
-        """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
+    def _asterisk_columns(self, asterisk: ast.AsteriskType, chain_prefix: list[str]) -> list[ast.Field]:
+        """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields.
+
+        If we have a chain prefix (for example, in the case of a table alias), we prepend it to the chain of the new fields.
+        """
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table(self.context)
             database_fields = table.get_asterisk()
-            return [ast.Field(chain=[key]) for key in database_fields.keys()]
+            return [ast.Field(chain=[*chain_prefix, key]) for key in database_fields.keys()]
         elif (
-            isinstance(asterisk.table_type, ast.SelectUnionQueryType)
+            isinstance(asterisk.table_type, ast.SelectSetQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryAliasType)
             or isinstance(asterisk.table_type, ast.SelectViewType)
@@ -260,10 +275,10 @@ class Resolver(CloningVisitor):
             select = asterisk.table_type
             while isinstance(select, ast.SelectQueryAliasType) or isinstance(select, ast.SelectViewType):
                 select = select.select_query_type
-            if isinstance(select, ast.SelectUnionQueryType):
+            if isinstance(select, ast.SelectSetQueryType):
                 select = select.types[0]
             if isinstance(select, ast.SelectQueryType):
-                return [ast.Field(chain=[key]) for key in select.columns.keys()]
+                return [ast.Field(chain=[*chain_prefix, key]) for key in select.columns.keys()]
             else:
                 raise QueryError("Can't expand asterisk (*) on subquery")
         else:
@@ -305,9 +320,6 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
-
-                if self.current_view_depth > self.context.max_view_depth:
-                    raise QueryError("Nested views are not supported")
 
                 node.table = parse_select(str(database_table.query))
 
@@ -370,7 +382,7 @@ class Resolver(CloningVisitor):
 
             return node
 
-        elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectUnionQuery):
+        elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectSetQuery):
             node = cast(ast.JoinExpr, clone_expr(node))
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
@@ -463,6 +475,8 @@ class Resolver(CloningVisitor):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
+            if node.name == "recording_button":
+                return self.visit(recording_button(node=node, args=node.args))
             if node.name == "matchesAction":
                 return self.visit(matches_action(node=node, args=node.args, context=self.context))
 
@@ -517,6 +531,12 @@ class Resolver(CloningVisitor):
             return_type=return_type,
         )
         return node
+
+    def visit_expr_call(self, node: ast.ExprCall):
+        raise QueryError("You can only call simple functions in HogQL, not expressions")
+
+    def visit_block(self, node: ast.Block):
+        raise QueryError("You can not use blocks in HogQL")
 
     def visit_lambda(self, node: ast.Lambda):
         """Visit each SELECT query or subquery."""

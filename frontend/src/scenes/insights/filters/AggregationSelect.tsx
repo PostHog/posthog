@@ -10,8 +10,8 @@ import { FunnelsQuery } from '~/queries/schema'
 import { isFunnelsQuery, isInsightQueryNode, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
-function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
-    if (groupIndex !== undefined) {
+export function getHogQLValue(groupIndex?: number | null, aggregationQuery?: string): string {
+    if (groupIndex != undefined) {
         return `$group_${groupIndex}`
     } else if (aggregationQuery) {
         return aggregationQuery
@@ -19,7 +19,7 @@ function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
     return UNIQUE_USERS
 }
 
-function hogQLToFilterValue(value?: string): { groupIndex?: number; aggregationQuery?: string } {
+export function hogQLToFilterValue(value?: string): { groupIndex?: number; aggregationQuery?: string } {
     if (value?.match(/^\$group_[0-9]+$/)) {
         return { groupIndex: parseInt(value.replace('$group_', '')) }
     } else if (value === 'person_id') {
@@ -45,6 +45,9 @@ export function AggregationSelect({
     const { querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
+    const { groupTypes, aggregationLabel } = useValues(groupsModel)
+    const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
+
     if (!isInsightQueryNode(querySource)) {
         return null
     }
@@ -64,8 +67,6 @@ export function AggregationSelect({
             updateQuerySource({ aggregation_group_type_index: groupIndex } as FunnelsQuery)
         }
     }
-    const { groupTypes, aggregationLabel } = useValues(groupsModel)
-    const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
 
     const baseValues = [UNIQUE_USERS]
     const optionSections: LemonSelectSection<string>[] = [

@@ -121,6 +121,7 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
                     options={[
                         { value: 'enabled', label: 'Enabled' },
                         { value: 'disabled', label: 'Disabled' },
+                        { value: 'optimized', label: 'Enabled, with Optimizations' },
                     ]}
                     onChange={(value) =>
                         setQuery({

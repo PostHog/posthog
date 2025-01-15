@@ -14,7 +14,7 @@ def is_email_verification_disabled(user: User) -> bool:
     # using disabled here so that the default state (if no flag exists) is that verification defaults to ON.
     return user.organization is not None and posthoganalytics.feature_enabled(
         VERIFICATION_DISABLED_FLAG,
-        user.organization.id,
+        str(user.organization.id),
         groups={"organization": str(user.organization.id)},
         group_properties={"organization": {"id": str(user.organization.id)}},
     )
@@ -25,7 +25,9 @@ class EmailVerificationTokenGenerator(PasswordResetTokenGenerator):
         # Due to type differences between the user model and the token generator, we need to
         # re-fetch the user from the database to get the correct type.
         usable_user: User = User.objects.get(pk=user.pk)
-        return f"{usable_user.pk}{usable_user.email}{usable_user.pending_email}{timestamp}"
+        login_timestamp = "" if user.last_login is None else user.last_login.replace(microsecond=0, tzinfo=None)
+
+        return f"{usable_user.pk}{usable_user.email}{usable_user.pending_email}{login_timestamp}{timestamp}"
 
 
 email_verification_token_generator = EmailVerificationTokenGenerator()

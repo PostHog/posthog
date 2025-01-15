@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
 
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db.models import Q
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from loginas.utils import is_impersonated_session
@@ -13,6 +14,7 @@ from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
 
 from posthog.api.dashboards.dashboard import DashboardSerializer
+from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -72,6 +74,12 @@ def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset 
     return export_asset
 
 
+def get_themes_for_team(team: Team):
+    global_and_team_themes = DataColorTheme.objects.filter(Q(team_id=team.pk) | Q(team_id=None))
+    themes = DataColorThemeSerializer(global_and_team_themes, many=True).data
+    return themes
+
+
 class SharingConfigurationSerializer(serializers.ModelSerializer):
     class Meta:
         model = SharingConfiguration
@@ -99,12 +107,12 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         if dashboard_id:
             try:
-                context["dashboard"] = Dashboard.objects.get(id=dashboard_id, team=self.team)
+                context["dashboard"] = Dashboard.objects.get(id=dashboard_id, team__project_id=self.team.project_id)
             except Dashboard.DoesNotExist:
                 raise NotFound("Dashboard not found.")
         if insight_id:
             try:
-                context["insight"] = Insight.objects.get(id=insight_id, team=self.team)
+                context["insight"] = Insight.objects.get(id=insight_id, team__project_id=self.team.project_id)
             except Insight.DoesNotExist:
                 raise NotFound("Insight not found.")
         if recording_id:
@@ -246,6 +254,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "request": request,
             "user_permissions": UserPermissions(cast(User, request.user), resource.team),
             "is_shared": True,
+            "get_team": lambda: resource.team,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
@@ -275,6 +284,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             )
             insight_data = InsightSerializer(resource.insight, many=False, context=context).data
             exported_data.update({"insight": insight_data})
+            exported_data.update({"themes": get_themes_for_team(resource.team)})
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
             asset_description = resource.dashboard.description or ""
@@ -284,6 +294,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
                 # We don't want the dashboard to be accidentally loaded via the shared endpoint
                 exported_data.update({"dashboard": dashboard_data})
+            exported_data.update({"themes": get_themes_for_team(resource.team)})
         elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data

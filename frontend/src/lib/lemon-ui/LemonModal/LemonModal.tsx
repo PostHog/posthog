@@ -46,6 +46,11 @@ export interface LemonModalProps {
     contentRef?: React.RefCallback<HTMLDivElement>
     overlayRef?: React.RefCallback<HTMLDivElement>
     'data-attr'?: string
+    /**
+     * some components need more fine control of the z-index
+     * they can push a specific value to control their position in the stacking order
+     */
+    zIndex?: '1061' | '1062' | '1066' | '1067' | '1068' | '1069'
 }
 
 export const LemonModalHeader = ({ children, className }: LemonModalInnerProps): JSX.Element => {
@@ -84,6 +89,7 @@ export function LemonModal({
     overlayRef,
     hideCloseButton = false,
     'data-attr': dataAttr,
+    zIndex,
 }: LemonModalProps): JSX.Element {
     const nodeRef = useRef(null)
     const [ignoredOverlayClickCount, setIgnoredOverlayClickCount] = useState(0)
@@ -157,7 +163,6 @@ export function LemonModal({
 
     width = !fullScreen ? width : undefined
     maxWidth = !fullScreen ? maxWidth : undefined
-
     const floatingContainer = useFloatingContainer()
 
     return inline ? (
@@ -184,6 +189,7 @@ export function LemonModal({
             className={clsx('LemonModal', fullScreen && 'LemonModal--fullscreen')}
             overlayClassName={clsx(
                 'LemonModal__overlay',
+                zIndex && `LemonModal__overlay--z-${zIndex}`,
                 forceAbovePopovers && 'LemonModal__overlay--force-modal-above-popovers'
             )}
             style={{

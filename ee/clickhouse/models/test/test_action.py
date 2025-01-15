@@ -1,7 +1,7 @@
 import dataclasses
 
 from posthog.client import sync_execute
-from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.property import action_to_expr
 from posthog.models.action import Action
@@ -13,7 +13,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
 )
-from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
+from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_VERSION
 
 
 @dataclasses.dataclass
@@ -284,11 +284,20 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         events = _get_events_for_action(action1)
         self.assertEqual(len(events), 1)
 
-        self.assertEqual(action1.bytecode, create_bytecode(action_to_expr(action1)))
+        self.assertEqual(action1.bytecode, create_bytecode(action_to_expr(action1)).bytecode)
         self.assertEqual(
             action1.bytecode,
             [
                 _H,
+                HOGQL_BYTECODE_VERSION,
+                # event = 'insight viewed'
+                op.STRING,
+                "insight viewed",
+                op.STRING,
+                "event",
+                op.GET_GLOBAL,
+                1,
+                op.EQ,
                 # toInt(properties.filters_count) > 10
                 op.INTEGER,
                 10,
@@ -298,18 +307,10 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
                 "properties",
                 op.GET_GLOBAL,
                 2,
-                op.CALL,
+                op.CALL_GLOBAL,
                 "toInt",
                 1,
                 op.GT,
-                # event = 'insight viewed'
-                op.STRING,
-                "insight viewed",
-                op.STRING,
-                "event",
-                op.GET_GLOBAL,
-                1,
-                op.EQ,
                 # and
                 op.AND,
                 2,

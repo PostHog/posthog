@@ -1,7 +1,7 @@
 import './ExportedInsight.scss'
 
 import clsx from 'clsx'
-import { BindLogic } from 'kea'
+import { BindLogic, useMountedLogic } from 'kea'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import {
@@ -9,6 +9,7 @@ import {
     DISPLAY_TYPES_WITHOUT_LEGEND,
 } from 'lib/components/InsightLegend/utils'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 
@@ -17,15 +18,19 @@ import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { Logo } from '~/toolbar/assets/Logo'
-import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
+import { ChartDisplayType, DataColorThemeModel, InsightLogicProps, InsightModel } from '~/types'
 
 export function ExportedInsight({
     insight: legacyInsight,
+    themes,
     exportOptions: { whitelabel, noHeader, legend, detailed: detailedResults },
 }: {
     insight: InsightModel
+    themes: DataColorThemeModel[]
     exportOptions: ExportOptions
 }): JSX.Element {
+    useMountedLogic(dataThemeLogic({ themes }))
+
     const insight = getQueryBasedInsightModel(legacyInsight)
 
     if (
@@ -74,7 +79,7 @@ export function ExportedInsight({
                     <div className="ExportedInsight__header">
                         <div>
                             <h5>
-                                <TopHeading insight={insight} />
+                                <TopHeading query={query} />
                             </h5>
                             <h4 title={name} className="ExportedInsight__header__title">
                                 {name || derived_name}
@@ -102,6 +107,7 @@ export function ExportedInsight({
                         readOnly
                         context={{ insightProps: insightLogicProps }}
                         embedded
+                        inSharedMode
                     />
                     {showLegend && (
                         <div className="p-4">

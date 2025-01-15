@@ -1,8 +1,10 @@
+import hashlib
 from typing import Optional, Any
 from django.db.models import Q
 import structlog
 from django.db import transaction
 from django.db.models import QuerySet
+from django.http import JsonResponse
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
@@ -12,6 +14,8 @@ from drf_spectacular.utils import (
     extend_schema_view,
     OpenApiExample,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -93,7 +97,7 @@ class NotebookMinimalSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class NotebookSerializer(NotebookMinimalSerializer):
+class NotebookSerializer(NotebookMinimalSerializer, UserAccessControlSerializerMixin):
     class Meta:
         model = Notebook
         fields = [
@@ -108,6 +112,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -116,6 +121,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "user_access_level",
         ]
 
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
@@ -233,7 +239,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
         ],
     )
 )
-class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "notebook"
     queryset = Notebook.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -261,20 +267,20 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
 
         return queryset
 
-    def _filter_list_request(self, request: Request, queryset: QuerySet) -> QuerySet:
-        filters = request.GET.dict()
+    def _filter_list_request(self, request: Request, queryset: QuerySet, filters: dict | None = None) -> QuerySet:
+        filters = filters or request.GET.dict()
 
         for key in filters:
-            value = request.GET[key]
+            value = filters.get(key, None)
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "created_by":
                 queryset = queryset.filter(created_by__uuid=value)
             elif key == "last_modified_by":
                 queryset = queryset.filter(last_modified_by__uuid=value)
-            elif key == "date_from":
+            elif key == "date_from" and isinstance(value, str):
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(value, self.team.timezone_info))
-            elif key == "date_to":
+            elif key == "date_to" and isinstance(value, str):
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(value, self.team.timezone_info))
             elif key == "search":
                 queryset = queryset.filter(
@@ -282,7 +288,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
                     # TODO this can be removed once all/most notebooks have text_content
                     Q(title__search=value) | Q(text_content__search=value)
                 )
-            elif key == "contains":
+            elif key == "contains" and isinstance(value, str):
                 contains = value
                 match_pairs = contains.replace(",", " ").split(" ")
                 # content is a JSONB field that has an array of objects under the key "content"
@@ -344,6 +350,40 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
             return Response(None, 304)
 
         return Response(serializer.data)
+
+    @action(methods=["GET"], detail=False)
+    def recording_comments(self, request: Request, **kwargs):
+        recording_id = request.GET.get("recording_id")
+        if not recording_id:
+            return Response({"detail": "recording_id is required"}, status=400)
+
+        queryset = self.safely_get_queryset(self.queryset)
+        queryset = self._filter_list_request(request, queryset, {"contains": f"recording:{recording_id}"})
+        notebooks = queryset.all()
+        comments = []
+        for notebook in notebooks:
+            content_nodes = notebook.content.get("content", {})
+            for node in content_nodes:
+                if node.get("type", None) == "paragraph" and len(node.get("content", [])) == 2:
+                    attrs = node.get("content", [])[0].get("attrs", {})
+                    content_node_recording_id = attrs.get("sessionRecordingId", None)
+                    playback_time = attrs.get("playbackTime", None)
+                    if content_node_recording_id == recording_id and playback_time is not None:
+                        text = node.get("content", [])[1].get("text", None)
+                        comments.append(
+                            {
+                                "timeInRecording": playback_time,
+                                "comment": text,
+                                "notebookShortId": notebook.short_id,
+                                "notebookTitle": notebook.title,
+                                # the individual comments don't have an id, so we'll generate one
+                                # to save the frontend having to do it
+                                "id": hashlib.sha256(
+                                    f"{notebook.short_id}-{notebook.title}-{text}-{playback_time}".encode()
+                                ).hexdigest(),
+                            }
+                        )
+        return JsonResponse({"results": comments})
 
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: Request, **kwargs):

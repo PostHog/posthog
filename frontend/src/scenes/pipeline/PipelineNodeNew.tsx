@@ -3,9 +3,11 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
 import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -13,7 +15,8 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineStage, PluginType } from '~/types'
 
-import { DestinationOptionsTable } from './destinations/NewDestinations'
+import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
+import { NewDestinations } from './destinations/NewDestinations'
 import { frontendAppsLogic } from './frontendAppsLogic'
 import { HogFunctionConfiguration } from './hogfunctions/HogFunctionConfiguration'
 import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
@@ -71,6 +74,7 @@ function convertPluginToTableEntry(plugin: PluginType): TableEntry {
 }
 
 export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { stage, pluginId, batchExportDestination, hogFunctionId } = paramsToProps({ params })
 
     if (!stage) {
@@ -103,9 +107,13 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     if (stage === PipelineStage.Transformation) {
         return <TransformationOptionsTable />
     } else if (stage === PipelineStage.Destination) {
-        return <DestinationOptionsTable />
+        return <NewDestinations types={DESTINATION_TYPES} />
     } else if (stage === PipelineStage.SiteApp) {
-        return <SiteAppOptionsTable />
+        return featureFlags[FEATURE_FLAGS.SITE_APP_FUNCTIONS] ? (
+            <NewDestinations types={SITE_APP_TYPES} />
+        ) : (
+            <SiteAppOptionsTable />
+        )
     } else if (stage === PipelineStage.Source) {
         return <NewSourceWizardScene />
     }

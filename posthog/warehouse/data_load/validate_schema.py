@@ -13,7 +13,7 @@ from posthog.hogql.database.models import (
 )
 
 from posthog.warehouse.models import (
-    get_or_create_datawarehouse_credential,
+    aget_or_create_datawarehouse_credential,
     DataWarehouseTable,
     DataWarehouseCredential,
     get_external_data_job,
@@ -22,7 +22,6 @@ from posthog.warehouse.models import (
     asave_external_data_schema,
     get_table_by_schema_id,
     aget_schema_by_id,
-    aget_external_data_jobs_by_schema_id,
 )
 
 from posthog.warehouse.models.external_data_job import ExternalDataJob
@@ -50,7 +49,7 @@ def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
         hogql_type = IntegerDatabaseField
     elif dlt_type == "binary":
         raise Exception("DLT type 'binary' is not a supported column type")
-    elif dlt_type == "complex":
+    elif dlt_type == "json":
         hogql_type = StringJSONDatabaseField
     elif dlt_type == "decimal":
         hogql_type = IntegerDatabaseField
@@ -64,6 +63,14 @@ def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
         raise Exception(f"DLT type '{dlt_type}' is not a supported column type")
 
     return hogql_type.__name__
+
+
+async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> None:
+    job: ExternalDataJob = await get_external_data_job(job_id=job_id)
+    schema = await aget_schema_by_id(schema_id=schema_id, team_id=team_id)
+    schema.last_synced_at = job.created_at
+
+    await asave_external_data_schema(schema)
 
 
 async def validate_schema_and_update_table(
@@ -95,7 +102,7 @@ async def validate_schema_and_update_table(
 
     job: ExternalDataJob = await get_external_data_job(job_id=run_id)
 
-    credential: DataWarehouseCredential = await get_or_create_datawarehouse_credential(
+    credential: DataWarehouseCredential = await aget_or_create_datawarehouse_credential(
         team_id=team_id,
         access_key=settings.AIRBYTE_BUCKET_KEY,
         access_secret=settings.AIRBYTE_BUCKET_SECRET,
@@ -185,7 +192,6 @@ async def validate_schema_and_update_table(
 
         if schema_model:
             schema_model.table = table_created
-            schema_model.last_synced_at = job.created_at
             await asave_external_data_schema(schema_model)
 
     except ServerException as err:
@@ -206,14 +212,3 @@ async def validate_schema_and_update_table(
             exc_info=e,
         )
         raise
-
-    previous_jobs = await aget_external_data_jobs_by_schema_id(schema_id=_schema_id)
-    if len(previous_jobs) > 1:
-        for previous_job in previous_jobs[1:]:
-            try:
-                previous_job.delete_deprecated_data_in_bucket()
-            except Exception as e:
-                logger.exception(
-                    f"Data Warehouse: Could not delete deprecated data source {previous_job.pk}",
-                    exc_info=e,
-                )

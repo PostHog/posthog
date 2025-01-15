@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { Database, Hub, InternalPerson } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
-import { createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
@@ -20,7 +20,6 @@ const timestampch = '2020-01-01 12:00:05.000'
 
 describe('PersonState.update()', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     let teamId: number
     let organizationId: string
@@ -36,7 +35,7 @@ describe('PersonState.update()', () => {
     let secondUserUuid: string
 
     beforeAll(async () => {
-        ;[hub, closeHub] = await createHub({})
+        hub = await createHub({})
         await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
 
         organizationId = await createOrganization(hub.db.postgres)
@@ -62,7 +61,7 @@ describe('PersonState.update()', () => {
     })
 
     afterAll(async () => {
-        await closeHub()
+        await closeHub(hub)
         await hub.db.clickhouseQuery('SYSTEM START MERGES')
     })
 
@@ -1861,17 +1860,16 @@ describe('PersonState.update()', () => {
         // For some reason these tests failed if I ran them with a hub shared
         // with other tests, so I'm creating a new hub for each test.
         let hub: Hub
-        let closeHub: () => Promise<void>
 
         beforeEach(async () => {
-            ;[hub, closeHub] = await createHub({})
+            hub = await createHub({})
 
             jest.spyOn(hub.db, 'fetchPerson')
             jest.spyOn(hub.db, 'updatePersonDeprecated')
         })
 
         afterEach(async () => {
-            await closeHub()
+            await closeHub(hub)
         })
 
         it(`no-op if persons already merged`, async () => {

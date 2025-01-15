@@ -10,7 +10,6 @@ from posthog.caching.utils import ensure_is_date
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
     INSIGHT_FUNNELS,
-    INSIGHT_PATHS,
     INSIGHT_RETENTION,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
@@ -36,7 +35,6 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import generate_insight_filters_hash
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
-from posthog.queries.paths import Paths
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
@@ -50,7 +48,6 @@ CACHE_TYPE_TO_INSIGHT_CLASS = {
     CacheType.TRENDS: Trends,
     CacheType.STICKINESS: Stickiness,
     CacheType.RETENTION: Retention,
-    CacheType.PATHS: Paths,
 }
 
 logger = structlog.get_logger(__name__)
@@ -79,8 +76,6 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
 def get_cache_type_for_filter(cacheable: FilterType) -> CacheType:
     if cacheable.insight == INSIGHT_FUNNELS:
         return CacheType.FUNNEL
-    elif cacheable.insight == INSIGHT_PATHS:
-        return CacheType.PATHS
     elif cacheable.insight == INSIGHT_RETENTION:
         return CacheType.RETENTION
     elif (
@@ -125,23 +120,32 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[dict]) -> CacheTyp
 def calculate_for_query_based_insight(
     insight: Insight,
     *,
+    team: Team,
     dashboard: Optional[Dashboard] = None,
     execution_mode: ExecutionMode,
     user: Optional[User],
     filters_override: Optional[dict] = None,
+    variables_override: Optional[dict] = None,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
 
-    tag_queries(team_id=insight.team_id, insight_id=insight.pk)
+    tag_queries(team_id=team.id, insight_id=insight.pk)
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
     response = process_response = process_query_dict(
-        insight.team,
+        team,
         insight.query,
         dashboard_filters_json=(
             filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
+        ),
+        variables_override_json=(
+            variables_override
+            if variables_override is not None
+            else dashboard.variables
+            if dashboard is not None
+            else None
         ),
         execution_mode=execution_mode,
         user=user,
@@ -161,7 +165,7 @@ def calculate_for_query_based_insight(
     last_refresh = response.get("last_refresh")
     if isinstance(cache_key, str) and isinstance(last_refresh, datetime):
         update_cached_state(  # Updating the relevant InsightCachingState
-            insight.team_id,
+            team.id,
             cache_key,
             last_refresh,
             result=None,  # Not caching the result here, since in HogQL this is the query runner's responsibility

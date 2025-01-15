@@ -9,7 +9,13 @@ import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from
 import { useState } from 'react'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
-import { AnyResponseType, WebOverviewItem, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
+import {
+    AnyResponseType,
+    WebOverviewItem,
+    WebOverviewItemKind,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+} from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -40,6 +46,8 @@ export function WebOverview(props: {
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
 
+    const numSkeletons = props.query.conversionGoal ? 4 : 6
+
     return (
         <>
             <EvenlyDistributedRows
@@ -47,15 +55,14 @@ export function WebOverview(props: {
                 minWidthRems={OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS + 2}
             >
                 {responseLoading
-                    ? range(5).map((i) => <WebOverviewItemCellSkeleton key={i} />)
+                    ? range(numSkeletons).map((i) => <WebOverviewItemCellSkeleton key={i} />)
                     : webOverviewQueryResponse?.results?.map((item) => (
                           <WebOverviewItemCell key={item.key} item={item} />
                       )) || []}
-                {}
             </EvenlyDistributedRows>
             {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
                 <LemonBanner type="info" className="my-4">
-                    These results using a sampling factor of {samplingRate.numerator}
+                    These results are using a sampling factor of {samplingRate.numerator}
                     {samplingRate.denominator ?? 1 !== 1 ? `/${samplingRate.denominator}` : ''}. Sampling is currently
                     in beta.
                 </LemonBanner>
@@ -131,10 +138,8 @@ const formatPercentage = (x: number, options?: { precise?: boolean }): string =>
     } else if (x >= 1000) {
         return humanFriendlyLargeNumber(x) + '%'
     }
-    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 0 })
+    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
 }
-
-const formatSeconds = (x: number): string => humanFriendlyDuration(Math.round(x))
 
 const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     if (options?.precise) {
@@ -143,17 +148,13 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
-const formatItem = (
-    value: number | undefined,
-    kind: WebOverviewItem['kind'],
-    options?: { precise?: boolean }
-): string => {
+const formatItem = (value: number | undefined, kind: WebOverviewItemKind, options?: { precise?: boolean }): string => {
     if (value == null) {
         return '-'
     } else if (kind === 'percentage') {
         return formatPercentage(value, options)
     } else if (kind === 'duration_s') {
-        return formatSeconds(value)
+        return humanFriendlyDuration(value, { secondsPrecision: 3 })
     }
     return formatUnit(value, options)
 }
@@ -170,6 +171,14 @@ const labelFromKey = (key: string): string => {
             return 'Session duration'
         case 'bounce rate':
             return 'Bounce rate'
+        case 'lcp score':
+            return 'LCP Score'
+        case 'conversion rate':
+            return 'Conversion rate'
+        case 'total conversions':
+            return 'Total conversions'
+        case 'unique conversions':
+            return 'Unique conversions'
         default:
             return key
                 .split(' ')

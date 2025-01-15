@@ -3,6 +3,7 @@ from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import replace_placeholders, find_placeholders
+from posthog.hogql.visitor import clear_locations
 from posthog.test.base import BaseTest
 
 
@@ -12,23 +13,23 @@ class TestParser(BaseTest):
         self.assertEqual(sorted(find_placeholders(expr)), sorted(["foo", "bar"]))
 
     def test_replace_placeholders_simple(self):
-        expr = parse_expr("{foo}")
+        expr = clear_locations(parse_expr("{foo}"))
         self.assertEqual(
             expr,
-            ast.Placeholder(chain=["foo"], start=0, end=5),
+            ast.Placeholder(expr=ast.Field(chain=["foo"])),
         )
         expr2 = replace_placeholders(expr, {"foo": ast.Constant(value="bar")})
         self.assertEqual(
             expr2,
-            ast.Constant(value="bar", start=0, end=5),
+            ast.Constant(value="bar"),
         )
 
     def test_replace_placeholders_error(self):
-        expr = ast.Placeholder(chain=["foo"])
+        expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))
         with self.assertRaises(QueryError) as context:
             replace_placeholders(expr, {})
         self.assertEqual(
-            "Placeholders, such as {foo}, are not supported in this context",
+            "Unresolved placeholder: {foo}",
             str(context.exception),
         )
         with self.assertRaises(QueryError) as context:
@@ -39,35 +40,31 @@ class TestParser(BaseTest):
         )
 
     def test_replace_placeholders_comparison(self):
-        expr = parse_expr("timestamp < {timestamp}")
+        expr = clear_locations(parse_expr("timestamp < {timestamp}"))
         self.assertEqual(
             expr,
             ast.CompareOperation(
-                start=0,
-                end=23,
                 op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=["timestamp"], start=0, end=9),
-                right=ast.Placeholder(chain=["timestamp"], start=12, end=23),
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Placeholder(expr=ast.Field(chain=["timestamp"])),
             ),
         )
         expr2 = replace_placeholders(expr, {"timestamp": ast.Constant(value=123)})
         self.assertEqual(
             expr2,
             ast.CompareOperation(
-                start=0,
-                end=23,
                 op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=["timestamp"], start=0, end=9),
-                right=ast.Constant(value=123, start=12, end=23),
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=123),
             ),
         )
 
     def test_assert_no_placeholders(self):
-        expr = ast.Placeholder(chain=["foo"])
+        expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))
         with self.assertRaises(QueryError) as context:
             replace_placeholders(expr, None)
         self.assertEqual(
-            "Placeholders, such as {foo}, are not supported in this context",
+            "Unresolved placeholder: {foo}",
             str(context.exception),
         )
 

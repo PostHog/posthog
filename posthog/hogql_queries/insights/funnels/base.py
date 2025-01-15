@@ -5,7 +5,7 @@ from typing import Any, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.clickhouse.materialized_columns.column import ColumnName
+from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.hogql import ast
 from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
@@ -25,7 +25,6 @@ from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID, get_breakdown_c
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
-    BaseMathType,
     BreakdownAttributionType,
     BreakdownType,
     DataWarehouseNode,
@@ -33,8 +32,12 @@ from posthog.schema import (
     FunnelExclusionActionsNode,
     FunnelTimeToConvertResults,
     FunnelVizType,
+    FunnelExclusionEventsNode,
+    FunnelMathType,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
+
+JOIN_ALGOS = "auto"
 
 
 class FunnelBase(ABC):
@@ -88,14 +91,35 @@ class FunnelBase(ABC):
     def get_step_counts_without_aggregation_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
+    # This is a simple heuristic to reduce the number of events we look at in UDF funnels (thus are serialized and sent over)
+    # We remove an event if it matches one or zero steps and there was already the same type of event before and after it (that don't have the same timestamp)
+    # arrayRotateRight turns [1,2,3] into [3,1,2]
+    # arrayRotateLeft turns [1,2,3] into [2,3,1]
+    # For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
+    def _udf_event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
+        return f"""arrayFilter(
+                    (x, x_before, x_after) -> not (
+                        length(x.{steps_index}) <= 1
+                        and x.{steps_index} == x_before.{steps_index}
+                        and x.{steps_index} == x_after.{steps_index}
+                        and x.{prop_val_index} == x_before.{prop_val_index}
+                        and x.{prop_val_index} == x_after.{prop_val_index}
+                        and x.{timestamp_index} > x_before.{timestamp_index}
+                        and x.{timestamp_index} < x_after.{timestamp_index}),
+                    events_array,
+                    arrayRotateRight(events_array, 1),
+                    arrayRotateLeft(events_array, 1))"""
+
     @cached_property
     def breakdown_cohorts(self) -> list[Cohort]:
         team, breakdown = self.context.team, self.context.breakdown
 
         if isinstance(breakdown, list):
-            cohorts = Cohort.objects.filter(team_id=team.pk, pk__in=[b for b in breakdown if b != "all"])
+            cohorts = Cohort.objects.filter(
+                team__project_id=team.project_id, pk__in=[b for b in breakdown if b != "all"]
+            )
         else:
-            cohorts = Cohort.objects.filter(team_id=team.pk, pk=breakdown)
+            cohorts = Cohort.objects.filter(team__project_id=team.project_id, pk=breakdown)
 
         return list(cohorts)
 
@@ -299,9 +323,11 @@ class FunnelBase(ABC):
             action_id = step.event
             type = "events"
         elif isinstance(step, DataWarehouseNode):
-            raise NotImplementedError("DataWarehouseNode is not supported in funnels")
+            raise ValidationError(
+                "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
+            )
         else:
-            action = Action.objects.get(pk=step.id)
+            action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
             name = action.name
             action_id = step.id
             type = "actions"
@@ -408,6 +434,86 @@ class FunnelBase(ABC):
 
         return funnel_events_query
 
+    # This version of the inner event query modifies how exclusions are returned to
+    # make them behave more like steps. It returns a boolean "exclusion_{0..n}" for each event
+    def _get_inner_event_query_for_udf(
+        self,
+        entities: list[EntityNode] | None = None,
+        entity_name="events",
+        skip_entity_filter=False,
+        skip_step_filter=False,
+    ) -> ast.SelectQuery:
+        query, funnelsFilter, breakdown, breakdownType, breakdownAttributionType = (
+            self.context.query,
+            self.context.funnelsFilter,
+            self.context.breakdown,
+            self.context.breakdownType,
+            self.context.breakdownAttributionType,
+        )
+        entities_to_use = entities or query.series
+
+        extra_fields: list[str] = []
+
+        for prop in self.context.includeProperties:
+            extra_fields.append(prop)
+
+        funnel_events_query = FunnelEventQuery(
+            context=self.context, extra_fields=[*self.extra_event_fields_and_properties, *extra_fields]
+        ).to_query(
+            skip_entity_filter=skip_entity_filter,
+        )
+
+        all_step_cols: list[ast.Expr] = []
+        all_exclusions: list[list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]] = []
+        for index, entity in enumerate(entities_to_use):
+            step_cols = self._get_step_col(entity, index, entity_name, for_udf=True)
+            all_step_cols.extend(step_cols)
+            all_exclusions.append([])
+
+        if funnelsFilter.exclusions:
+            for excluded_entity in funnelsFilter.exclusions:
+                for i in range(excluded_entity.funnelFromStep + 1, excluded_entity.funnelToStep + 1):
+                    all_exclusions[i].append(excluded_entity)
+
+            for index, exclusions in enumerate(all_exclusions):
+                exclusion_col_expr = self._get_exclusions_col(exclusions, index, entity_name)
+                all_step_cols.append(exclusion_col_expr)
+
+        breakdown_select_prop = self._get_breakdown_select_prop()
+
+        if breakdown_select_prop:
+            all_step_cols.extend(breakdown_select_prop)
+
+        funnel_events_query.select = [*funnel_events_query.select, *all_step_cols]
+
+        if breakdown and breakdownType == BreakdownType.COHORT:
+            assert funnel_events_query.select_from is not None
+            funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
+
+        if not skip_step_filter:
+            assert isinstance(funnel_events_query.where, ast.Expr)
+            steps_conditions = self._get_steps_conditions_for_udf(all_exclusions, length=len(entities_to_use))
+            funnel_events_query.where = ast.And(exprs=[funnel_events_query.where, steps_conditions])
+
+        if breakdown and breakdownAttributionType != BreakdownAttributionType.ALL_EVENTS:
+            # ALL_EVENTS attribution is the old default, which doesn't need the subquery
+            return self._add_breakdown_attribution_subquery(funnel_events_query)
+
+        return funnel_events_query
+
+    def _get_exclusions_col(
+        self,
+        exclusions: list[ExclusionEntityNode],
+        index: int,
+        entity_name: str,
+    ) -> ast.Expr:
+        if not exclusions:
+            return parse_expr(f"0 as exclusion_{index}")
+        conditions = [self._build_step_query(exclusion, index, entity_name, "") for exclusion in exclusions]
+        return parse_expr(
+            f"if({{condition}}, 1, 0) as exclusion_{index}", placeholders={"condition": ast.Or(exprs=conditions)}
+        )
+
     def _get_cohort_breakdown_join(self) -> ast.JoinExpr:
         breakdown = self.context.breakdown
 
@@ -430,7 +536,7 @@ class FunnelBase(ABC):
 
         return ast.JoinExpr(
             join_type="INNER JOIN",
-            table=ast.SelectUnionQuery(select_queries=cohort_queries),
+            table=ast.SelectSetQuery.create_from_queries(cohort_queries, "UNION ALL"),
             alias="cohort_join",
             constraint=ast.JoinConstraint(
                 expr=ast.CompareOperation(
@@ -532,6 +638,7 @@ class FunnelBase(ABC):
             ],
             select_from=ast.JoinExpr(table=select_query),
             group_by=[ast.Field(chain=["final_prop"])],
+            limit=ast.Constant(value=self.get_breakdown_limit() + 1),
         )
 
     def _get_steps_conditions(self, length: int) -> ast.Expr:
@@ -545,12 +652,23 @@ class FunnelBase(ABC):
 
         return ast.Or(exprs=step_conditions)
 
+    def _get_steps_conditions_for_udf(self, exclusions, length: int) -> ast.Expr:
+        step_conditions: list[ast.Expr] = []
+
+        for index in range(length):
+            step_conditions.append(parse_expr(f"step_{index} = 1"))
+            if exclusions[index]:
+                step_conditions.append(parse_expr(f"exclusion_{index} = 1"))
+
+        return ast.Or(exprs=step_conditions)
+
     def _get_step_col(
         self,
         entity: EntityNode | ExclusionEntityNode,
         index: int,
         entity_name: str,
         step_prefix: str = "",
+        for_udf: bool = False,
     ) -> list[ast.Expr]:
         # step prefix is used to distinguish actual steps, and exclusion steps
         # without the prefix, we get the same parameter binding for both, which borks things up
@@ -559,14 +677,15 @@ class FunnelBase(ABC):
         step_cols.append(
             parse_expr(f"if({{condition}}, 1, 0) as {step_prefix}step_{index}", placeholders={"condition": condition})
         )
-        step_cols.append(
-            parse_expr(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
-        )
-
-        for field in self.extra_event_fields_and_properties:
+        if not for_udf:
             step_cols.append(
-                parse_expr(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
+                parse_expr(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
             )
+
+            for field in self.extra_event_fields_and_properties:
+                step_cols.append(
+                    parse_expr(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
+                )
 
         return step_cols
 
@@ -581,10 +700,12 @@ class FunnelBase(ABC):
 
         if isinstance(entity, ActionsNode) or isinstance(entity, FunnelExclusionActionsNode):
             # action
-            action = Action.objects.get(pk=int(entity.id), team=self.context.team)
+            action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):
-            raise NotImplementedError("DataWarehouseNode is not supported in funnels")
+            raise ValidationError(
+                "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
+            )
         elif entity.event is None:
             # all events
             event_expr = ast.Constant(value=1)
@@ -600,8 +721,14 @@ class FunnelBase(ABC):
             filter_expr = property_to_expr(entity.properties, self.context.team)
             filters.append(filter_expr)
 
-        if entity.math == BaseMathType.FIRST_TIME_FOR_USER:
+        if entity.math == FunnelMathType.FIRST_TIME_FOR_USER:
             subquery = FirstTimeForUserAggregationQuery(self.context, filter_expr, event_expr).to_query()
+            first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
+            return ast.And(exprs=[*filters, first_time_filter])
+        elif entity.math == FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS:
+            subquery = FirstTimeForUserAggregationQuery(
+                self.context, ast.Constant(value=1), ast.And(exprs=filters)
+            ).to_query()
             first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
             return ast.And(exprs=[*filters, first_time_filter])
         elif len(filters) > 1:
@@ -655,12 +782,15 @@ class FunnelBase(ABC):
 
         return ast.And(exprs=conditions)
 
-    def _get_funnel_person_step_events(self) -> list[ast.Expr]:
-        if (
+    def _include_matched_events(self):
+        return (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
             and self.context.actorsQuery.includeRecordings
-        ):
+        )
+
+    def _get_funnel_person_step_events(self) -> list[ast.Expr]:
+        if self._include_matched_events():
             if self.context.includeFinalMatchingEvents:
                 # Always returns the user's final step of the funnel
                 return [parse_expr("final_matching_events as matching_events")]

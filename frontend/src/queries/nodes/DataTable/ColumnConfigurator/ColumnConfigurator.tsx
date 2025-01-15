@@ -21,7 +21,7 @@ import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery, taxonomicEventFilterToHogQL, trimQuotes } from '~/queries/utils'
 import { PropertyFilterType } from '~/types'
 
@@ -157,8 +157,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     </div>
                     <div className="HalfColumn">
                         <h4 className="secondary uppercase text-muted">Available columns</h4>
-                        {/* eslint-disable-next-line react/forbid-dom-props */}
-                        <div style={{ height: 360 }}>
+                        <div className="h-[360px]">
                             <AutoSizer>
                                 {({ height, width }: { height: number; width: number }) => (
                                     <TaxonomicFilter

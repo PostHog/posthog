@@ -17,7 +17,7 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'
@@ -123,7 +123,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                 ref={valueRef}
                 onMouseEnter={() => setIsTooltipShown(true)}
             >
-                <Textfit min={32} max={120}>
+                <Textfit min={32} max={64}>
                     {formatAggregationAxisValue(trendsFilter, resultSeries.aggregated_value)}
                 </Textfit>
             </div>
@@ -214,7 +214,7 @@ export function HogQLBoldNumber(): JSX.Element {
 
     const displayValue =
         ((!response || responseLoading) && 'Loading...') ||
-        tabularData?.[0]?.[0] ||
+        tabularData?.[0]?.[0]?.formattedValue ||
         response?.[0]?.[0] ||
         response?.results?.[0]?.[0] ||
         response?.result?.[0]?.[0] ||

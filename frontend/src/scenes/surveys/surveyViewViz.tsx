@@ -1,14 +1,29 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonTable } from '@posthog/lemon-ui'
+import { offset } from '@floating-ui/react'
+import {
+    IconInfo,
+    IconSparkles,
+    IconThumbsDown,
+    IconThumbsDownFilled,
+    IconThumbsUp,
+    IconThumbsUpFilled,
+    IconX,
+} from '@posthog/icons'
+import { LemonButton, LemonTable, Popover, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyNumber } from 'lib/utils'
+import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { surveyDataProcessingLogic } from 'scenes/surveys/suveyDataProcessingLogic'
 
 import { GraphType } from '~/types'
 import { InsightLogicProps, SurveyQuestionType } from '~/types'
@@ -36,7 +51,7 @@ const formatCount = (count: number, total: number): string => {
     if ((count / total) * 100 < 3) {
         return ''
     }
-    return `${count}`
+    return `${humanFriendlyNumber(count)}`
 }
 
 export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
@@ -48,12 +63,12 @@ export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserSta
     return (
         <div className="inline-flex mb-4">
             <div>
-                <div className="text-4xl font-bold">{total}</div>
+                <div className="text-4xl font-bold">{humanFriendlyNumber(total)}</div>
                 <div className="font-semibold text-muted-alt">{labelTotal}</div>
             </div>
             {sent > 0 && (
                 <div className="ml-10">
-                    <div className="text-4xl font-bold">{sent}</div>
+                    <div className="text-4xl font-bold">{humanFriendlyNumber(sent)}</div>
                     <div className="font-semibold text-muted-alt">{labelSent}</div>
                 </div>
             )}
@@ -77,7 +92,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                         {[
                             {
                                 count: seen,
-                                label: 'Shown',
+                                label: 'Unanswered',
                                 classes: `rounded-l ${dismissed === 0 && sent === 0 ? 'rounded-r' : ''}`,
                                 style: { backgroundColor: '#1D4AFF', width: `${seenPercentage}%` },
                             },
@@ -123,7 +138,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                     <div className="w-full flex justify-center">
                         <div className="flex items-center">
                             {[
-                                { count: seen, label: 'Viewed', style: { backgroundColor: '#1D4AFF' } },
+                                { count: seen, label: 'Unanswered', style: { backgroundColor: '#1D4AFF' } },
                                 { count: dismissed, label: 'Dismissed', style: { backgroundColor: '#E3A506' } },
                                 { count: sent, label: 'Submitted', style: { backgroundColor: '#529B08' } },
                             ].map(
@@ -192,6 +207,7 @@ export function RatingQuestionBarChart({
     }
     useEffect(() => {
         loadSurveyRatingResults({ questionIndex, iteration })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     return (
@@ -203,7 +219,13 @@ export function RatingQuestionBarChart({
             ) : (
                 <div className="mb-8">
                     <div className="font-semibold text-muted-alt">{`${
-                        question.scale === 10 ? '0 - 10' : '1 - 5'
+                        question.scale === 10
+                            ? '0 - 10'
+                            : question.scale === 7
+                            ? '1 - 7'
+                            : question.scale === 5
+                            ? '1 - 5'
+                            : '1 - 3'
                     } rating`}</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
                     <div className=" h-50 border rounded pt-8">
@@ -237,7 +259,11 @@ export function RatingQuestionBarChart({
                                     labels={
                                         question.scale === 10
                                             ? ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
-                                            : ['1', '2', '3', '4', '5']
+                                            : question.scale === 7
+                                            ? ['1', '2', '3', '4', '5', '6', '7']
+                                            : question.scale === 5
+                                            ? ['1', '2', '3', '4', '5']
+                                            : ['1', '2', '3']
                                     }
                                 />
                             </BindLogic>
@@ -276,6 +302,7 @@ export function NPSSurveyResultsBarChart({
 
     useEffect(() => {
         loadSurveyRecurringNPSResults({ questionIndex })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     return (
@@ -372,6 +399,7 @@ export function SingleChoiceQuestionPieChart({
 
     useEffect(() => {
         loadSurveySingleChoiceResults({ questionIndex })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     return (
@@ -474,12 +502,15 @@ export function MultipleChoiceQuestionBarChart({
 
     useEffect(() => {
         loadSurveyMultipleChoiceResults({ questionIndex })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     useEffect(() => {
         if (surveyMultipleChoiceResults?.[questionIndex]?.data?.length) {
             setChartHeight(100 + 20 * surveyMultipleChoiceResults[questionIndex].data.length)
         }
+        // TODO this one maybe should have questionIndex as a dependency
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [surveyMultipleChoiceResults])
 
     return (
@@ -494,7 +525,7 @@ export function MultipleChoiceQuestionBarChart({
                     <div className="text-xl font-bold mb-2">{question.question}</div>
 
                     <div
-                        className="border rounded pt-6 pr-10"
+                        className="border rounded pt-8 pr-10 overflow-y-scroll"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ height: Math.min(chartHeight, 600) }}
                     >
@@ -556,6 +587,7 @@ export function OpenTextViz({
 
     useEffect(() => {
         loadSurveyOpenTextResults({ questionIndex })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     return (
@@ -566,15 +598,19 @@ export function OpenTextViz({
                 <></>
             ) : (
                 <>
-                    <Tooltip title="See all Open Text responses in the Events table at the bottom.">
-                        <div className="inline-flex gap-1">
-                            <div className="font-semibold text-muted-alt">Open text</div>
-                            <LemonDivider vertical className="my-1 mx-1" />
-                            <div className="font-semibold text-muted-alt">random selection</div>
-                            <IconInfo className="text-lg text-muted-alt shrink-0 ml-0.5 mt-0.5" />
-                        </div>
-                    </Tooltip>
+                    <div className="flex flex-row justify-between items-center">
+                        <Tooltip title="See all Open Text responses in the Events table at the bottom.">
+                            <div className="inline-flex gap-1">
+                                <div className="font-semibold text-muted-alt">Open text</div>
+                                <LemonDivider vertical className="my-1 mx-1" />
+                                <div className="font-semibold text-muted-alt">random selection</div>
+                                <IconInfo className="text-lg text-muted-alt shrink-0 ml-0.5 mt-0.5" />
+                            </div>
+                        </Tooltip>
+                        <ResponseSummariesButton questionIndex={questionIndex} />
+                    </div>
                     <div className="text-xl font-bold mb-4">{question.question}</div>
+                    <ResponseSummariesDisplay />
                     <div className="mt-4 mb-8 masonry-container">
                         {surveyOpenTextResults[questionIndex].events.map((event, i) => {
                             const personProp = {
@@ -602,6 +638,137 @@ export function OpenTextViz({
                         })}
                     </div>
                 </>
+            )}
+        </div>
+    )
+}
+
+function ResponseSummariesButton({ questionIndex }: { questionIndex: number | undefined }): JSX.Element {
+    const [popOverClosed, setPopOverClosed] = useState(false)
+
+    const { summarize } = useActions(surveyLogic)
+    const { responseSummary, responseSummaryLoading } = useValues(surveyLogic)
+    const { surveyDataProcessingAccepted, surveyDataProcessingRefused } = useValues(surveyDataProcessingLogic)
+    const { acceptSurveyDataProcessing, refuseSurveyDataProcessing } = useActions(surveyDataProcessingLogic)
+
+    const summarizeButton = (
+        <LemonButton
+            type="secondary"
+            data-attr="summarize-survey"
+            onClick={() => summarize({ questionIndex })}
+            disabledReason={
+                surveyDataProcessingRefused
+                    ? 'OpenAI processing refused'
+                    : responseSummaryLoading
+                    ? 'Let me think...'
+                    : responseSummary
+                    ? 'Already summarized'
+                    : undefined
+            }
+            icon={<IconSparkles />}
+        >
+            {responseSummaryLoading ? (
+                <>
+                    Let me think...
+                    <Spinner />
+                </>
+            ) : (
+                <>Summarize responses</>
+            )}
+        </LemonButton>
+    )
+    return (
+        <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
+            {surveyDataProcessingAccepted ? (
+                summarizeButton
+            ) : (
+                <Popover
+                    overlay={
+                        <div className="mx-1.5 my 0.5 flex flex-col gap-1">
+                            <div className="flex justify-end">
+                                <LemonButton size="small" icon={<IconX />} onClick={() => setPopOverClosed(true)} />
+                            </div>
+                            <div>
+                                <p className="font-medium text-pretty mb-1.5">
+                                    Uses OpenAI services to analyze your survey responses,
+                                    <br />
+                                    This <em>can</em> include personal data of your users,
+                                    <br />
+                                    if they include it in their responses.
+                                    <br />
+                                    <em>Your data won't be used for training models.</em>
+                                </p>
+                            </div>
+                            <LemonButton type="secondary" size="small" onClick={() => acceptSurveyDataProcessing()}>
+                                Got it, I accept OpenAI processing survey data
+                            </LemonButton>
+                            <LemonButton type="secondary" size="small" onClick={() => refuseSurveyDataProcessing()}>
+                                No thanks, I don't want OpenAI processing survey data
+                            </LemonButton>
+                        </div>
+                    }
+                    middleware={[offset(-12)]}
+                    showArrow
+                    visible={!popOverClosed && !surveyDataProcessingAccepted && !surveyDataProcessingRefused}
+                >
+                    {summarizeButton}
+                </Popover>
+            )}
+        </FlaggedFeature>
+    )
+}
+
+function ResponseSummariesDisplay(): JSX.Element {
+    const { survey, responseSummary } = useValues(surveyLogic)
+
+    return (
+        <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
+            {responseSummary ? (
+                <>
+                    <h1>Responses summary</h1>
+                    <LemonMarkdown>{responseSummary.content}</LemonMarkdown>
+                    <LemonDivider dashed={true} />
+                    <ResponseSummaryFeedback surveyId={survey.id} />
+                </>
+            ) : null}
+        </FlaggedFeature>
+    )
+}
+
+function ResponseSummaryFeedback({ surveyId }: { surveyId: string }): JSX.Element {
+    const [rating, setRating] = useState<'good' | 'bad' | null>(null)
+
+    function submitRating(newRating: 'good' | 'bad'): void {
+        if (rating) {
+            return // Already rated
+        }
+        setRating(newRating)
+        posthog.capture('ai_survey_summary_rated', {
+            survey_id: surveyId,
+            answer_rating: newRating,
+        })
+    }
+
+    return (
+        <div className="flex items-center justify-end">
+            {rating === null ? <>Summaries are generated by AI. What did you think?</> : null}
+            {rating !== 'bad' && (
+                <LemonButton
+                    icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
+                    type="tertiary"
+                    size="small"
+                    tooltip="Good summary"
+                    onClick={() => submitRating('good')}
+                />
+            )}
+            {rating !== 'good' && (
+                <LemonButton
+                    icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
+                    type="tertiary"
+                    size="small"
+                    tooltip="Bad summary"
+                    onClick={() => submitRating('bad')}
+                />
             )}
         </div>
     )

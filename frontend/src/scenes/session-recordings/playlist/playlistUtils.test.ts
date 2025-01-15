@@ -99,6 +99,7 @@ describe('summarizePlaylistFilters()', () => {
                     {
                         key: 'id',
                         type: PropertyFilterType.Cohort,
+                        operator: PropertyOperator.In,
                         value: 1,
                     },
                 ],
@@ -114,6 +115,7 @@ describe('summarizePlaylistFilters()', () => {
                     {
                         key: 'id',
                         type: PropertyFilterType.Cohort,
+                        operator: PropertyOperator.In,
                         value: 1,
                     },
                 ],
@@ -156,6 +158,7 @@ describe('summarizePlaylistFilters()', () => {
                     {
                         key: 'id',
                         type: PropertyFilterType.Cohort,
+                        operator: PropertyOperator.In,
                         value: 1,
                     },
                 ],

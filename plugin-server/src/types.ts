@@ -13,12 +13,14 @@ import {
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
+import { BatchConsumer } from 'kafka/batch-consumer'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { Job } from 'node-schedule'
 import { VM } from 'vm2'
 
+import { EncryptedFields } from './cdp/encryption-utils'
 import { ObjectStorage } from './main/services/object_storage'
+import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from './utils/db/postgres'
@@ -28,7 +30,6 @@ import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
-import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
 import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
@@ -83,8 +84,8 @@ export enum PluginServerMode {
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     cdp_processed_events = 'cdp-processed-events',
+    cdp_internal_events = 'cdp-internal-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
-    cdp_function_overflow = 'cdp-function-overflow',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     functional_tests = 'functional-tests',
 }
@@ -95,6 +96,13 @@ export const stringToPluginServerMode = Object.fromEntries(
         PluginServerMode[key as keyof typeof PluginServerMode],
     ])
 ) as Record<string, PluginServerMode>
+
+export type PluginServerService = {
+    id: string
+    onShutdown: () => Promise<any>
+    healthcheck: () => boolean | Promise<boolean>
+    batchConsumer?: BatchConsumer
+}
 
 export type CdpConfig = {
     CDP_WATCHER_COST_ERROR: number // The max cost of an erroring function
@@ -108,10 +116,14 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
-    CDP_ASYNC_FUNCTIONS_CYCLOTRON_TEAMS: string
+    CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
+    CDP_CYCLOTRON_ENABLED_TEAMS: string
+    CDP_CYCLOTRON_BATCH_SIZE: number
+    CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
+    CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
 }
 
 export interface PluginsServerConfig extends CdpConfig {
@@ -140,12 +152,19 @@ export interface PluginsServerConfig extends CdpConfig {
     CLICKHOUSE_SECURE: boolean // whether to secure ClickHouse connection
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean // whether to disallow external schemas like protobuf for clickhouse kafka engine
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
-    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events to for clickhouse ingestion
-    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data to for clickhouse ingestion
+    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events for clickhouse ingestion
+    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data for clickhouse ingestion
+    EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
+    // Redis url pretty much only used locally / self hosted
     REDIS_URL: string
+    // Redis params for the ingestion services
+    INGESTION_REDIS_HOST: string
+    INGESTION_REDIS_PORT: number
+    // Redis params for the core posthog (django+celery) services
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
     POSTHOG_REDIS_PORT: number
+    // Common redis params
     REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
     REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
@@ -202,10 +221,6 @@ export interface PluginsServerConfig extends CdpConfig {
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string | null
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
-    CONVERSION_BUFFER_ENABLED: boolean
-    CONVERSION_BUFFER_ENABLED_TEAMS: string
-    CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: string
-    BUFFER_CONVERSION_SECONDS: number
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
@@ -282,7 +297,10 @@ export interface PluginsServerConfig extends CdpConfig {
     // kafka debug stats interval
     SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
 
+    ENCRYPTION_SALT_KEYS: string
+
     CYCLOTRON_DATABASE_URL: string
+    CYCLOTRON_SHARD_DEPTH_LIMIT: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -296,9 +314,7 @@ export interface Hub extends PluginsServerConfig {
     clickhouse: ClickHouse
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
-    objectStorage: ObjectStorage
-    // metrics
-    pluginMetricsJob: Job | undefined
+    objectStorage?: ObjectStorage
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
     pluginConfigs: Map<PluginConfigId, PluginConfig>
@@ -312,25 +328,21 @@ export interface Hub extends PluginsServerConfig {
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
-    eventsProcessor: EventsProcessor
     actionManager: ActionManager
     actionMatcher: ActionMatcher
     appMetrics: AppMetrics
     rustyHook: RustyHook
     groupTypeManager: GroupTypeManager
+    celery: Celery
     // geoip database, setup in workers
     mmdb?: ReaderModel
-    // diagnostics
-    lastActivity: number
-    lastActivityType: string
-    statelessVms: StatelessInstanceMap
-    conversionBufferEnabledTeams: Set<number>
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
+    encryptedFields: EncryptedFields
 }
 
 export interface PluginServerCapabilities {
@@ -347,8 +359,8 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
     cdpProcessedEvents?: boolean
+    cdpInternalEvents?: boolean
     cdpFunctionCallbacks?: boolean
-    cdpFunctionOverflow?: boolean
     cdpCyclotronWorker?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
@@ -380,6 +392,11 @@ export enum JobName {
 export type PluginId = Plugin['id']
 export type PluginConfigId = PluginConfig['id']
 export type TeamId = Team['id']
+/**
+ * An integer, just like team ID. In fact project ID = ID of its first team, the one was created along with the project.
+ * A branded type here so that we don't accidentally pass a team ID as a project ID, or vice versa.
+ */
+export type ProjectId = Team['id'] & { __brand: 'ProjectId' }
 
 export enum MetricMathOperations {
     Increment = 'increment',
@@ -513,6 +530,12 @@ export enum PluginLogLevel {
     Critical = 4, // only error type and system source
 }
 
+export enum CookielessServerHashMode {
+    Disabled = 0,
+    Stateless = 1,
+    Stateful = 2,
+}
+
 export interface PluginLogEntry {
     id: string
     team_id: number
@@ -610,6 +633,7 @@ export interface RawOrganization {
 /** Usable Team model. */
 export interface Team {
     id: number
+    project_id: ProjectId
     uuid: string
     organization_id: string
     name: string
@@ -617,12 +641,15 @@ export interface Team {
     api_token: string
     slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
+    person_processing_opt_out: boolean | null
     heatmaps_opt_in: boolean | null
     ingested_event: boolean
     person_display_name_properties: string[] | null
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null
+    cookieless_server_hash_mode: CookielessServerHashMode | null
+    timezone: string
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
@@ -660,7 +687,7 @@ export interface EventMessage extends BaseEventMessage {
 interface BaseEvent {
     uuid: string
     event: string
-    team_id: number
+    team_id: TeamId
     distinct_id: string
     /** Person UUID. */
     person_id?: string
@@ -692,6 +719,14 @@ export interface RawClickHouseEvent extends BaseEvent {
     person_mode: PersonMode
 }
 
+export interface RawKafkaEvent extends RawClickHouseEvent {
+    /**
+     * The project ID field is only included in the `clickhouse_events_json` topic, not present in ClickHouse.
+     * That's because we need it in `property-defs-rs` and not elsewhere.
+     */
+    project_id: ProjectId
+}
+
 /** Parsed event row from ClickHouse. */
 export interface ClickHouseEvent extends BaseEvent {
     timestamp: DateTime
@@ -720,6 +755,7 @@ export interface PreIngestionEvent {
     eventUuid: string
     event: string
     teamId: TeamId
+    projectId: ProjectId
     distinctId: string
     properties: Properties
     timestamp: ISOTimestamp
@@ -1016,6 +1052,7 @@ export interface RawAction {
     steps_json: ActionStep[] | null
     bytecode: any[] | null
     bytecode_error: string | null
+    pinned_at: string | null
 }
 
 /** Usable Action model. */
@@ -1076,6 +1113,7 @@ export interface EventDefinitionType {
     volume_30_day: number | null
     query_usage_30_day: number | null
     team_id: number
+    project_id: number | null
     last_seen_at: string // DateTime
     created_at: string // DateTime
 }
@@ -1115,6 +1153,7 @@ export interface PropertyDefinitionType {
     volume_30_day: number | null
     query_usage_30_day: number | null
     team_id: number
+    project_id: number | null
     property_type?: PropertyType
     type: PropertyDefinitionTypeEnum
     group_type_index: number | null
@@ -1125,6 +1164,7 @@ export interface EventPropertyType {
     event: string
     property: string
     team_id: number
+    project_id: number | null
 }
 
 export type PluginFunction = 'onEvent' | 'processEvent' | 'pluginTask'
@@ -1218,6 +1258,14 @@ export type AppMetric2Type = {
     app_source_id: string
     instance_id?: string
     metric_kind: 'failure' | 'success' | 'other'
-    metric_name: 'succeeded' | 'failed' | 'filtered' | 'disabled_temporarily' | 'disabled_permanently' | 'masked'
+    metric_name:
+        | 'succeeded'
+        | 'failed'
+        | 'filtered'
+        | 'disabled_temporarily'
+        | 'disabled_permanently'
+        | 'masked'
+        | 'filtering_failed'
+        | 'fetch'
     count: number
 }

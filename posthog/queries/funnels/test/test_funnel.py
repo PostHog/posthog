@@ -3685,6 +3685,35 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["count"], 1)
             self.assertEqual(result[1]["count"], 1)
 
+        def test_funnel_personless_events_are_supported(self):
+            personless_user = uuid.uuid4()
+            self._signup_event(distinct_id=personless_user, person_id=personless_user)
+            self._add_to_cart_event(distinct_id=personless_user, person_id=personless_user)
+
+            filters = {
+                "events": [
+                    {
+                        "type": "events",
+                        "id": "user signed up",
+                        "order": 0,
+                        "name": "user signed up",
+                        "math": "total",
+                    },
+                    {
+                        "type": "events",
+                        "id": "added to cart",
+                        "order": 1,
+                        "name": "added to cart",
+                        "math": "total",
+                    },
+                ],
+                "funnel_window_days": 14,
+            }
+
+            result = self._basic_funnel(filters=filters).run()
+            self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(result[1]["count"], 1)
+
     return TestGetFunnel
 
 

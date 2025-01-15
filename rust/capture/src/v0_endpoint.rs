@@ -8,16 +8,19 @@ use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
+use common_types::CapturedEvent;
 use metrics::counter;
 use serde_json::json;
 use serde_json::Value;
 use tracing::instrument;
 
-use crate::limiters::billing::QuotaResource;
+use crate::limiters::token_dropper::TokenDropper;
 use crate::prometheus::report_dropped_events;
-use crate::v0_request::{Compression, ProcessingContext, RawRequest};
+use crate::v0_request::{
+    Compression, DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
+};
 use crate::{
-    api::{CaptureError, CaptureResponse, CaptureResponseCode, DataType, ProcessedEvent},
+    api::{CaptureError, CaptureResponse, CaptureResponseCode},
     router, sinks,
     utils::uuid_v7,
     v0_request::{EventFormData, EventQuery, RawEvent},
@@ -29,7 +32,6 @@ use crate::{
 ///
 /// Because it must accommodate several shapes, it is inefficient in places. A v1
 /// endpoint should be created, that only accepts the BatchedRequest payload shape.
-#[allow(clippy::too_many_arguments)]
 async fn handle_common(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
@@ -37,7 +39,6 @@ async fn handle_common(
     headers: &HeaderMap,
     method: &Method,
     path: &MatchedPath,
-    quota_resource: QuotaResource,
     body: Bytes,
 ) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
     let user_agent = headers
@@ -77,12 +78,12 @@ async fn handle_common(
                     tracing::error!("failed to decode form data: {}", e);
                     CaptureError::RequestDecodingError(String::from("missing data field"))
                 })?;
-            RawRequest::from_bytes(payload.into())
+            RawRequest::from_bytes(payload.into(), state.event_size_limit)
         }
         ct => {
             tracing::Span::current().record("content_type", ct);
 
-            RawRequest::from_bytes(body)
+            RawRequest::from_bytes(body, state.event_size_limit)
         }
     }?;
 
@@ -102,6 +103,7 @@ async fn handle_common(
     tracing::Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
+        tracing::log::warn!("rejected empty batch");
         return Err(CaptureError::EmptyBatch);
     }
 
@@ -117,8 +119,8 @@ async fn handle_common(
     };
 
     let billing_limited = state
-        .billing
-        .is_limited(context.token.as_str(), quota_resource)
+        .billing_limiter
+        .is_limited(context.token.as_str())
         .await;
 
     if billing_limited {
@@ -156,18 +158,7 @@ pub async fn event(
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
-    match handle_common(
-        &state,
-        &ip,
-        &meta,
-        &headers,
-        &method,
-        &path,
-        QuotaResource::Events,
-        body,
-    )
-    .await
-    {
+    match handle_common(&state, &ip, &meta, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => {
             // for v0 we want to just return ok 🙃
             // this is because the clients are pretty dumb and will just retry over and over and
@@ -182,7 +173,14 @@ pub async fn event(
         }
         Err(err) => Err(err),
         Ok((context, events)) => {
-            if let Err(err) = process_events(state.sink.clone(), &events, &context).await {
+            if let Err(err) = process_events(
+                state.sink.clone(),
+                state.token_dropper.clone(),
+                &events,
+                &context,
+            )
+            .await
+            {
                 let cause = match err {
                     CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
@@ -226,34 +224,30 @@ pub async fn recording(
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
-    match handle_common(
-        &state,
-        &ip,
-        &meta,
-        &headers,
-        &method,
-        &path,
-        QuotaResource::Recordings,
-        body,
-    )
-    .await
-    {
+    match handle_common(&state, &ip, &meta, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => Ok(Json(CaptureResponse {
             status: CaptureResponseCode::Ok,
             quota_limited: Some(vec!["recordings".to_string()]),
         })),
         Err(err) => Err(err),
         Ok((context, events)) => {
-            if let Err(err) = process_replay_events(state.sink.clone(), &events, &context).await {
+            let count = events.len() as u64;
+            if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
                 let cause = match err {
                     CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
-                    CaptureError::MissingSessionId => "missing_event_name",
-                    CaptureError::MissingWindowId => "missing_event_name",
+                    CaptureError::MissingSessionId => "missing_session_id",
+                    CaptureError::MissingWindowId => "missing_window_id",
                     CaptureError::MissingEventName => "missing_event_name",
+                    CaptureError::RequestDecodingError(_) => "request_decoding_error",
+                    CaptureError::RequestParsingError(_) => "request_parsing_error",
+                    CaptureError::EventTooBig => "event_too_big",
+                    CaptureError::NonRetryableSinkError => "sink_error",
+                    CaptureError::InvalidSessionId => "invalid_session_id",
+                    CaptureError::MissingSnapshotData => "missing_snapshot_data",
                     _ => "process_events_error",
                 };
-                report_dropped_events(cause, events.len() as u64);
+                report_dropped_events(cause, count);
                 tracing::log::warn!("rejected invalid payload: {}", err);
                 return Err(err);
             }
@@ -294,8 +288,12 @@ pub fn process_single_event(
         CaptureError::NonRetryableSinkError
     })?;
 
-    Ok(ProcessedEvent {
+    let metadata = ProcessedEventMetadata {
         data_type,
+        session_id: None,
+    };
+
+    let event = CapturedEvent {
         uuid: event.uuid.unwrap_or_else(uuid_v7),
         distinct_id: event.extract_distinct_id()?,
         ip: context.client_ip.clone(),
@@ -303,20 +301,30 @@ pub fn process_single_event(
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
-        session_id: None,
-    })
+    };
+    Ok(ProcessedEvent { metadata, event })
 }
 
 #[instrument(skip_all, fields(events = events.len()))]
 pub async fn process_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
+    dropper: Arc<TokenDropper>,
     events: &'a [RawEvent],
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
-    let events: Vec<ProcessedEvent> = events
+    let mut events: Vec<ProcessedEvent> = events
         .iter()
         .map(|e| process_single_event(e, context))
         .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
+
+    events.retain(|e| {
+        if dropper.should_drop(&e.event.token, &e.event.distinct_id) {
+            report_dropped_events("token_dropper", 1);
+            false
+        } else {
+            true
+        }
+    });
 
     tracing::debug!(events=?events, "processed {} events", events.len());
 
@@ -330,51 +338,73 @@ pub async fn process_events<'a>(
 #[instrument(skip_all, fields(events = events.len()))]
 pub async fn process_replay_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
-    events: &'a [RawEvent],
+    mut events: Vec<RawEvent>,
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
-    let snapshot_items: Vec<Value> = events
-        .iter()
-        .map(|e| match e.properties.get("$snapshot_data") {
-            Some(Value::Array(value)) => Ok(value.to_vec()),
-            Some(Value::Object(value)) => Ok([Value::Object(value.clone())].to_vec()),
-            _ => Err(CaptureError::MissingSnapshotData),
-        })
-        .collect::<Result<Vec<Vec<_>>, CaptureError>>()?
-        .into_iter()
-        .flatten()
-        .collect();
-
+    // Grab metadata about the whole batch from the first event before
+    // we drop all the events as we rip out the snapshot data
     let session_id = events[0]
         .properties
-        .get("$session_id")
-        .ok_or(CaptureError::MissingSessionId)?
-        .as_str()
-        .ok_or(CaptureError::InvalidSessionId)?;
+        .remove("$session_id")
+        .ok_or(CaptureError::MissingSessionId)?;
     let window_id = events[0]
         .properties
-        .get("$window_id")
-        .ok_or(CaptureError::MissingWindowId)?;
-    let event = ProcessedEvent {
+        .remove("$window_id")
+        .unwrap_or(session_id.clone());
+    let uuid = events[0].uuid.unwrap_or_else(uuid_v7);
+    let distinct_id = events[0].extract_distinct_id()?;
+    let snapshot_source = events[0]
+        .properties
+        .remove("$snapshot_source")
+        .unwrap_or(Value::String(String::from("web")));
+
+    let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
+    for mut event in events {
+        let Some(snapshot_data) = event.properties.remove("$snapshot_data") else {
+            return Err(CaptureError::MissingSnapshotData);
+        };
+        match snapshot_data {
+            Value::Array(value) => {
+                snapshot_items.extend(value);
+            }
+            Value::Object(value) => {
+                snapshot_items.push(Value::Object(value));
+            }
+            _ => {
+                return Err(CaptureError::MissingSnapshotData);
+            }
+        }
+    }
+
+    let metadata = ProcessedEventMetadata {
         data_type: DataType::SnapshotMain,
-        uuid: events[0].uuid.unwrap_or_else(uuid_v7),
-        distinct_id: events[0].extract_distinct_id()?,
+        session_id: Some(
+            session_id
+                .as_str()
+                .ok_or(CaptureError::InvalidSessionId)?
+                .to_string(),
+        ),
+    };
+
+    let event = CapturedEvent {
+        uuid,
+        distinct_id: distinct_id.clone(),
         ip: context.client_ip.clone(),
         data: json!({
             "event": "$snapshot_items",
             "properties": {
-                "distinct_id": events[0].extract_distinct_id()?,
+                "distinct_id": distinct_id,
                 "$session_id": session_id,
                 "$window_id": window_id,
-                "$snapshot_source": events[0].properties.get("$snapshot_source").unwrap_or(&Value::String(String::from("web"))),
+                "$snapshot_source": snapshot_source,
                 "$snapshot_items": snapshot_items,
             }
-        }).to_string(),
+        })
+        .to_string(),
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
-        session_id: Some(session_id.to_string()),
     };
 
-    sink.send(event).await
+    sink.send(ProcessedEvent { metadata, event }).await
 }

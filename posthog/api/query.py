@@ -4,18 +4,18 @@ import uuid
 from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
-from rest_framework import status
-from rest_framework import viewsets
-from posthog.api.utils import action
-from rest_framework.exceptions import ValidationError, NotAuthenticated
+from rest_framework import status, viewsets
+from rest_framework.exceptions import NotAuthenticated, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception, set_tag
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
+from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
+from posthog.api.utils import action
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
     get_query_status,
@@ -24,16 +24,24 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql_queries.apply_dashboard_filters import (
+    apply_dashboard_filters_to_dict,
+    apply_dashboard_variables_to_dict,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, PersonalApiKeyRateThrottle
-from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
-from posthog.api.monitoring import monitor, Feature
-
-
-class QueryThrottle(PersonalApiKeyRateThrottle):
-    scope = "query"
-    rate = "120/hour"
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AISustainedRateThrottle,
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    HogQLQueryThrottle,
+)
+from posthog.schema import (
+    QueryRequest,
+    QueryResponseAlternative,
+    QueryStatusResponse,
+)
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -47,8 +55,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
-        else:
-            return [QueryThrottle()]
+        if query := self.request.data.get("query"):
+            if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
+                return [HogQLQueryThrottle()]
+        return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 
     @extend_schema(
         request=QueryRequest,
@@ -59,6 +69,19 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
+        if data.filters_override is not None:
+            data.query = apply_dashboard_filters_to_dict(
+                data.query.model_dump(), data.filters_override.model_dump(), self.team
+            )  # type: ignore
+
+        if data.variables_override is not None:
+            if isinstance(data.query, BaseModel):
+                query_as_dict = data.query.model_dump()
+            else:
+                query_as_dict = data.query
+
+            data.query = apply_dashboard_variables_to_dict(query_as_dict, data.variables_override, self.team)  # type: ignore
+
         client_query_id = data.client_query_id or uuid.uuid4().hex
         execution_mode = execution_mode_from_refresh(data.refresh)
         response_status: int = status.HTTP_200_OK

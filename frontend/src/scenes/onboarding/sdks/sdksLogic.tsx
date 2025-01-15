@@ -2,11 +2,15 @@ import { actions, afterMount, connect, events, kea, listeners, path, reducers, s
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { ProductKey, SDK, SDKInstructionsMap } from '~/types'
+import { ProductKey, SDK, SDKInstructionsMap, SDKKey } from '~/types'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { allSDKs } from './allSDKs'
@@ -38,10 +42,27 @@ Products that will often be installed in multiple places, eg. web and mobile
 */
 export const multiInstallProducts = [ProductKey.PRODUCT_ANALYTICS, ProductKey.FEATURE_FLAGS]
 
+const getProductAnalyticsOrderedSDKs = (sdks: SDK[]): SDK[] => {
+    return [
+        ...sdks.filter((sdk) => sdk.key === SDKKey.HTML_SNIPPET),
+        ...sdks.filter((sdk) => sdk.key === SDKKey.JS_WEB),
+        ...sdks.filter((sdk) => ![SDKKey.HTML_SNIPPET, SDKKey.JS_WEB].includes(sdk.key as SDKKey)),
+    ]
+}
+
 export const sdksLogic = kea<sdksLogicType>([
     path(['scenes', 'onboarding', 'sdks', 'sdksLogic']),
     connect({
-        values: [onboardingLogic, ['productKey']],
+        values: [
+            onboardingLogic,
+            ['productKey'],
+            liveEventsTableLogic,
+            ['eventHosts'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user', 'isUserNonTechnical'],
+        ],
     }),
     actions({
         setSourceFilter: (sourceFilter: string | null) => ({ sourceFilter }),
@@ -54,6 +75,7 @@ export const sdksLogic = kea<sdksLogicType>([
         setShowSideBySide: (showSideBySide: boolean) => ({ showSideBySide }),
         setPanel: (panel: 'instructions' | 'options') => ({ panel }),
         setHasSnippetEvents: (hasSnippetEvents: boolean) => ({ hasSnippetEvents }),
+        setSnippetHosts: (snippetHosts: string[]) => ({ snippetHosts }),
     }),
     reducers({
         sourceFilter: [
@@ -101,6 +123,12 @@ export const sdksLogic = kea<sdksLogicType>([
         hasSnippetEvents: {
             setHasSnippetEvents: (_, { hasSnippetEvents }) => hasSnippetEvents,
         },
+        snippetHosts: [
+            [] as string[],
+            {
+                setSnippetHosts: (_, { snippetHosts }) => snippetHosts,
+            },
+        ],
     }),
     selectors({
         showSourceOptionsSelect: [
@@ -111,35 +139,71 @@ export const sdksLogic = kea<sdksLogicType>([
                 return Object.keys(availableSDKInstructionsMap).length > 5 && sourceOptions.length > 2
             },
         ],
+        combinedSnippetAndLiveEventsHosts: [
+            (selectors) => [selectors.snippetHosts, selectors.eventHosts],
+            (snippetHosts: string[], eventHosts: string[]): string[] => {
+                const combinedSnippetAndLiveEventsHosts = snippetHosts
+                for (const host of eventHosts) {
+                    const hostProtocol = new URL(host).protocol
+                    const currentProtocol = window.location.protocol
+                    if (hostProtocol === currentProtocol && !combinedSnippetAndLiveEventsHosts.includes(host)) {
+                        combinedSnippetAndLiveEventsHosts.push(host)
+                    }
+                }
+                return combinedSnippetAndLiveEventsHosts
+            },
+        ],
+        isUserInNonTechnicalTest: [
+            (s) => [s.productKey, s.featureFlags, s.isUserNonTechnical],
+            (productKey, featureFlags, isUserNonTechnical): boolean => {
+                return (
+                    productKey === ProductKey.PRODUCT_ANALYTICS &&
+                    featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_MODIFIED_SDK_LIST] === 'test' &&
+                    isUserNonTechnical
+                )
+            },
+        ],
     }),
-    loaders({
+    loaders(({ actions }) => ({
         hasSnippetEvents: [
             null as boolean | null,
             {
                 loadSnippetEvents: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$lib_version AS lib_version,
-                                            max(timestamp)          AS latest_timestamp,
-                                            count(lib_version) as count
-                                     FROM events
-                                     WHERE timestamp >= now() - INTERVAL 3 DAY
-                                       AND timestamp <= now()
-                                       AND properties.$lib = 'web'
-                                     GROUP BY lib_version
-                                     ORDER BY latest_timestamp DESC
-                                         limit 10`,
+                        query: hogql`SELECT
+                                        max(timestamp) AS latest_timestamp,
+                                        concat(
+                                            concat({protocol}, '//'),
+                                            properties.$host
+                                        ) AS full_host,
+                                    FROM events
+                                    WHERE timestamp >= now() - INTERVAL 3 DAY
+                                    AND timestamp <= now()
+                                    AND properties.$lib = 'web'
+                                    AND properties.$host is not null
+                                    AND startsWith(properties.$current_url, {protocol})
+                                    GROUP BY full_host
+                                    ORDER BY latest_timestamp DESC
+                                    LIMIT 7`,
+                        values: {
+                            protocol: window.location.protocol,
+                        },
                     }
-
                     const res = await api.query(query)
-                    return !!(res.results?.length ?? 0 > 0)
+                    const hasEvents = !!(res.results?.length ?? 0 > 0)
+                    const snippetHosts = res.results?.map((result) => result[1]).filter((val) => !!val) ?? []
+                    if (hasEvents) {
+                        actions.setSnippetHosts(snippetHosts)
+                    }
+                    return hasEvents
                 },
             },
         ],
-    }),
+    })),
     listeners(({ actions, values }) => ({
         filterSDKs: () => {
-            const filteredSDks: SDK[] = allSDKs
+            let filteredSDks: SDK[] = allSDKs
                 .filter((sdk) => {
                     if (!values.sourceFilter || !sdk) {
                         return true
@@ -147,6 +211,9 @@ export const sdksLogic = kea<sdksLogicType>([
                     return sdk.tags.includes(values.sourceFilter)
                 })
                 .filter((sdk) => Object.keys(values.availableSDKInstructionsMap).includes(sdk.key))
+            if (values.isUserInNonTechnicalTest) {
+                filteredSDks = getProductAnalyticsOrderedSDKs(filteredSDks)
+            }
             actions.setSDKs(filteredSDks)
             actions.setSourceOptions(getSourceOptions(values.availableSDKInstructionsMap))
         },

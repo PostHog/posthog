@@ -10,7 +10,7 @@ on:
 
 jobs:
     build:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
 
         permissions:
             contents: read
@@ -59,7 +59,7 @@ jobs:
                   labels: ${{ steps.meta.outputs.labels }}
 
     deploy:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         needs: build
         steps:
             - name: get deployer token
@@ -84,5 +84,6 @@ jobs:
                         },
                         "release": "livestream",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }}
+                        "repository": ${{ toJson(github.repository) }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

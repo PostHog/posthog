@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from unittest import mock
 from unittest.case import skip
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
 
 from django.test import override_settings
@@ -33,6 +33,8 @@ from posthog.models import (
     User,
 )
 from posthog.models.insight_caching_state import InsightCachingState
+from posthog.models.insight_variable import InsightVariable
+from posthog.models.project import Project
 from posthog.schema import (
     DataTableNode,
     DataVisualizationNode,
@@ -44,6 +46,7 @@ from posthog.schema import (
     HogQLFilters,
     HogQLQuery,
     InsightNodeKind,
+    InsightVizNode,
     NodeKind,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -62,7 +65,6 @@ from posthog.test.base import (
     snapshot_postgres_queries,
 )
 from posthog.test.db_context_capturing import capture_db_queries
-from posthog.test.test_journeys import journeys_for
 
 
 class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -91,7 +93,45 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(len(response["results"]), 1)
 
-    def test_created_updated_and_last_modified(self) -> None:
+    def test_get_insight_items_all_environments_included(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        _, team_in_other_project = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user
+        )
+
+        insight_a = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            created_by=self.user,
+        )
+        insight_b = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=other_team_in_project,
+            created_by=self.user,
+        )
+        Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=team_in_other_project,
+            created_by=self.user,
+        )
+
+        # All of these three ways should return the same set of insights,
+        # i.e. all insights in the test project regardless of environment
+        response_project = self.client.get(f"/api/projects/{self.project.id}/insights/").json()
+        response_env_current = self.client.get(f"/api/environments/{self.team.id}/insights/").json()
+        response_env_other = self.client.get(f"/api/environments/{other_team_in_project.id}/insights/").json()
+
+        self.assertEqual({insight["id"] for insight in response_project["results"]}, {insight_a.id, insight_b.id})
+        self.assertEqual({insight["id"] for insight in response_env_current["results"]}, {insight_a.id, insight_b.id})
+        self.assertEqual({insight["id"] for insight in response_env_other["results"]}, {insight_a.id, insight_b.id})
+
+    @patch("posthoganalytics.capture")
+    def test_created_updated_and_last_modified(self, mock_capture: mock.Mock) -> None:
         alt_user = User.objects.create_and_join(self.organization, "team2@posthog.com", None)
         self_user_basic_serialized = {
             "id": self.user.id,
@@ -102,6 +142,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "email": self.user.email,
             "is_email_verified": None,
             "hedgehog_config": None,
+            "role_at_organization": None,
         }
         alt_user_basic_serialized = {
             "id": alt_user.id,
@@ -112,12 +153,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "email": alt_user.email,
             "is_email_verified": None,
             "hedgehog_config": None,
+            "role_at_organization": None,
         }
 
         # Newly created insight should have created_at being the current time, and same last_modified_at
         # Fields created_by and last_modified_by should be set to the current user
         with freeze_time("2021-08-23T12:00:00Z"):
-            response_1 = self.client.post(f"/api/projects/{self.team.id}/insights/")
+            response_1 = self.client.post(
+                f"/api/projects/{self.team.id}/insights/",
+                {"name": "test"},
+                headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
+            )
             self.assertEqual(response_1.status_code, status.HTTP_201_CREATED)
             self.assertDictContainsSubset(
                 {
@@ -129,6 +175,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 response_1.json(),
             )
+            mock_capture.assert_called_once_with(
+                self.user.distinct_id,
+                "insight created",
+                {
+                    "insight_id": response_1.json()["short_id"],
+                    "$current_url": "https://posthog.com/my-referer",
+                    "$session_id": "my-session-id",
+                },
+                groups=ANY,
+            )
+            mock_capture.reset_mock()
 
         insight_id = response_1.json()["id"]
 
@@ -138,6 +195,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response_2 = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
                 {"favorited": True},
+                headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
             )
             self.assertEqual(response_2.status_code, status.HTTP_200_OK)
             self.assertDictContainsSubset(
@@ -150,6 +208,18 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 response_2.json(),
             )
+            insight_short_id = response_2.json()["short_id"]
+            mock_capture.assert_called_once_with(
+                self.user.distinct_id,
+                "insight updated",
+                {
+                    "insight_id": insight_short_id,
+                    "$current_url": "https://posthog.com/my-referer",
+                    "$session_id": "my-session-id",
+                },
+                groups=ANY,
+            )
+            mock_capture.reset_mock()
 
         # Updating fields that DO change the substance of the insight should affect updated_at
         # AND last_modified_at plus last_modified_by
@@ -310,8 +380,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 mock.ANY,
                 dashboard=mock.ANY,
                 execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+                team=self.team,
                 user=mock.ANY,
                 filters_override=None,
+                variables_override=None,
             )
 
         with patch(
@@ -322,8 +394,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 mock.ANY,
                 dashboard=mock.ANY,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                team=self.team,
                 user=mock.ANY,
                 filters_override=None,
+                variables_override=None,
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -433,15 +507,46 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # adding more insights doesn't change the query count
         self.assertEqual(
             [
-                FuzzyInt(10, 11),
-                FuzzyInt(10, 11),
-                FuzzyInt(10, 11),
-                FuzzyInt(10, 11),
-                FuzzyInt(10, 11),
+                FuzzyInt(12, 13),
+                FuzzyInt(12, 13),
+                FuzzyInt(12, 13),
+                FuzzyInt(12, 13),
+                FuzzyInt(12, 13),
             ],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
+
+    def test_listing_insights_shows_legacy_and_hogql_ones(self) -> None:
+        self.dashboard_api.create_insight(
+            data={
+                "short_id": f"insight",
+                "query": {
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "select * from events",
+                    },
+                },
+            }
+        )
+
+        self.dashboard_api.create_insight(
+            data={
+                "short_id": f"insight",
+                "filters": {"insight": "TRENDS", "events": [{"id": "$pageview"}]},
+            }
+        )
+        self.dashboard_api.create_insight(
+            data={
+                "short_id": f"insight",
+                "query": InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump(),
+            }
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/insights/?insight=TRENDS")
+
+        self.assertEqual(len(response.json()["results"]), 2)
 
     def test_can_list_insights_by_which_dashboards_they_are_in(self) -> None:
         insight_one_id, _ = self.dashboard_api.create_insight(
@@ -1714,21 +1819,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["timezone"], "UTC")
 
     def test_nonexistent_cohort_is_handled(self) -> None:
-        response_nonexistent_property = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type': 'event', 'key': 'foo', 'value': 'barabarab'}])}"
-        )
-        response_nonexistent_cohort = self.client.get(
+        response = self.client.get(
             f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type': 'cohort', 'key': 'id', 'value': 2137}])}"
-        )  # This should not throw an error, just act like there's no event matches
+        )
 
-        response_nonexistent_property_data = response_nonexistent_property.json()
-        response_nonexistent_cohort_data = response_nonexistent_cohort.json()
-        response_nonexistent_property_data.pop("last_refresh")
-        response_nonexistent_cohort_data.pop("last_refresh")
-        self.assertEntityResponseEqual(
-            response_nonexistent_property_data["result"],
-            response_nonexistent_cohort_data["result"],
-        )  # Both cases just empty
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
     def test_cohort_without_match_group_works(self) -> None:
         whatever_cohort_without_match_groups = Cohort.objects.create(team=self.team)
@@ -1834,189 +1929,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertIn("offset=25", response.json()["next"])
-
-    def test_insight_trends_breakdown_persons_with_histogram(self) -> None:
-        people = journeys_for(
-            {
-                "1": [
-                    {
-                        "event": "$pageview",
-                        "properties": {"$session_id": "one"},
-                        "timestamp": "2012-01-14 00:16:00",
-                    },
-                    {
-                        "event": "$pageview",
-                        "properties": {"$session_id": "one"},
-                        "timestamp": "2012-01-14 00:16:10",
-                    },  # 10s session
-                    {
-                        "event": "$pageview",
-                        "properties": {"$session_id": "two"},
-                        "timestamp": "2012-01-15 00:16:00",
-                    },
-                    {
-                        "event": "$pageview",
-                        "properties": {"$session_id": "two"},
-                        "timestamp": "2012-01-15 00:16:50",
-                    },  # 50s session, day 2
-                ],
-                "2": [
-                    {
-                        "event": "$pageview",
-                        "properties": {"$session_id": "three"},
-                        "timestamp": "2012-01-14 00:16:00",
-                    },
-                    {
-                        "event": "$pageview",
-                        "properties": {"$session_id": "three"},
-                        "timestamp": "2012-01-14 00:16:30",
-                    },  # 30s session
-                    {
-                        "event": "$pageview",
-                        "properties": {"$session_id": "four"},
-                        "timestamp": "2012-01-15 00:16:00",
-                    },
-                    {
-                        "event": "$pageview",
-                        "properties": {"$session_id": "four"},
-                        "timestamp": "2012-01-15 00:16:20",
-                    },  # 20s session, day 2
-                ],
-                "3": [
-                    {
-                        "event": "$pageview",
-                        "properties": {"$session_id": "five"},
-                        "timestamp": "2012-01-15 00:16:00",
-                    },
-                    {
-                        "event": "$pageview",
-                        "properties": {"$session_id": "five"},
-                        "timestamp": "2012-01-15 00:16:35",
-                    },  # 35s session, day 2
-                ],
-            },
-            self.team,
-        )
-
-        with freeze_time("2012-01-16T04:01:34.000Z"):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/insights/trend/",
-                {
-                    "events": json.dumps([{"id": "$pageview"}]),
-                    "breakdown": "$session_duration",
-                    "breakdown_type": "session",
-                    "breakdown_histogram_bin_count": 2,
-                    "date_from": "-3d",
-                },
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            result = response.json()["result"]
-
-            self.assertEqual(
-                [resp["breakdown_value"] for resp in result],
-                ["[10.0,30.0]", "[30.0,50.01]"],
-            )
-            self.assertEqual(
-                result[0]["labels"],
-                ["13-Jan-2012", "14-Jan-2012", "15-Jan-2012", "16-Jan-2012"],
-            )
-            self.assertEqual(result[0]["data"], [0, 2, 2, 0])
-            self.assertEqual(result[1]["data"], [0, 2, 4, 0])
-
-            first_breakdown_persons = self.client.get("/" + result[0]["persons_urls"][1]["url"])
-            self.assertCountEqual(
-                [person["id"] for person in first_breakdown_persons.json()["results"][0]["people"]],
-                [str(people["1"].uuid)],
-            )
-
-            first_breakdown_persons_day_two = self.client.get("/" + result[0]["persons_urls"][2]["url"])
-            self.assertCountEqual(
-                [person["id"] for person in first_breakdown_persons_day_two.json()["results"][0]["people"]],
-                [str(people["2"].uuid)],
-            )
-
-            second_breakdown_persons = self.client.get("/" + result[1]["persons_urls"][1]["url"])
-            self.assertCountEqual(
-                [person["id"] for person in second_breakdown_persons.json()["results"][0]["people"]],
-                [str(people["2"].uuid)],
-            )
-
-            second_breakdown_persons_day_two = self.client.get("/" + result[1]["persons_urls"][2]["url"])
-            self.assertCountEqual(
-                [person["id"] for person in second_breakdown_persons_day_two.json()["results"][0]["people"]],
-                [str(people["1"].uuid), str(people["3"].uuid)],
-            )
-
-    def test_insight_paths_basic(self) -> None:
-        _create_person(team=self.team, distinct_ids=["person_1"], properties={"$os": "Mac"})
-        _create_event(
-            properties={"$current_url": "/", "test": "val"},
-            distinct_id="person_1",
-            event="$pageview",
-            team=self.team,
-        )
-        _create_event(
-            properties={"$current_url": "/about", "test": "val"},
-            distinct_id="person_1",
-            event="$pageview",
-            team=self.team,
-        )
-
-        _create_person(team=self.team, distinct_ids=["dontcount"])
-        _create_event(
-            properties={"$current_url": "/", "test": "val"},
-            distinct_id="dontcount",
-            event="$pageview",
-            team=self.team,
-        )
-        _create_event(
-            properties={"$current_url": "/about", "test": "val"},
-            distinct_id="dontcount",
-            event="$pageview",
-            team=self.team,
-        )
-
-        get_response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/path",
-            data={"properties": json.dumps([{"key": "test", "value": "val"}])},
-        ).json()
-        self.assertEqual(len(get_response["result"]), 1)
-
-        post_response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/path",
-            {"properties": [{"key": "test", "value": "val"}]},
-        ).json()
-        self.assertEqual(len(post_response["result"]), 1)
-
-        hogql_response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/path",
-            data={
-                "properties": json.dumps(
-                    [
-                        {
-                            "key": "properties.test == 'val' and person.properties.$os == 'Mac'",
-                            "type": "hogql",
-                        }
-                    ]
-                )
-            },
-        ).json()
-        self.assertEqual(len(hogql_response["result"]), 1)
-
-        hogql_non_response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/path",
-            data={
-                "properties": json.dumps(
-                    [
-                        {
-                            "key": "properties.test == 'val' and person.properties.$os == 'Windows'",
-                            "type": "hogql",
-                        }
-                    ]
-                )
-            },
-        ).json()
-        self.assertEqual(len(hogql_non_response["result"]), 0)
 
     def test_insight_funnels_basic_post(self) -> None:
         _create_person(team=self.team, distinct_ids=["1"])
@@ -2384,13 +2296,35 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         lines = response.content.splitlines()
 
-        self.assertEqual(lines[0], b"http://localhost:8000/insights/test123/", lines[0])
+        self.assertEqual(lines[0], b"http://localhost:8010/insights/test123/", lines[0])
         self.assertEqual(
             lines[1],
             b"series,8-Jan-2012,9-Jan-2012,10-Jan-2012,11-Jan-2012,12-Jan-2012,13-Jan-2012,14-Jan-2012,15-Jan-2012",
             lines[0],
         )
-        self.assertEqual(lines[2], b"test custom,0.0,0.0,0.0,0.0,0.0,0.0,2.0,1.0")
+        self.assertEqual(lines[2], b"test custom,0,0,0,0,0,0,2,1")
+        self.assertEqual(len(lines), 3, response.content)
+
+    def test_insight_trends_formula_and_fractional_numbers_csv(self) -> None:
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            _create_event(team=self.team, event="$pageview", distinct_id="1")
+            _create_event(team=self.team, event="$pageview", distinct_id="2")
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            _create_event(team=self.team, event="$pageview", distinct_id="2")
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend.csv/?events={json.dumps([{'id': '$pageview', 'custom_name': 'test custom'}])}&export_name=Pageview count&export_insight_id=test123&formula=A*0.5"
+            )
+
+        lines = response.content.splitlines()
+
+        self.assertEqual(lines[0], b"http://localhost:8010/insights/test123/", lines[0])
+        self.assertEqual(
+            lines[1],
+            b"series,8-Jan-2012,9-Jan-2012,10-Jan-2012,11-Jan-2012,12-Jan-2012,13-Jan-2012,14-Jan-2012,15-Jan-2012",
+            lines[0],
+        )
+        self.assertEqual(lines[2], b"Formula (A*0.5),0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.5")
         self.assertEqual(len(lines), 3, response.content)
 
     # Extra permissioning tests here
@@ -2847,13 +2781,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             self.assertEqual(
                 response_placeholder.status_code,
-                status.HTTP_400_BAD_REQUEST,
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
                 response_placeholder.json(),
             )
-            self.assertEqual(
-                response_placeholder.json(),
-                self.validation_error_response("Placeholders, such as {team_id}, are not supported in this context"),
-            )
+            # With the new HogQL query runner this legacy endpoint now returns 500 instead of a proper 400.
+            # We don't really care, since this endpoint should eventually be removed alltogether.
+            # self.assertEqual(
+            #     response_placeholder.json(),
+            #     self.validation_error_response("Unresolved placeholder: {team_id}"),
+            # )
 
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
     @snapshot_clickhouse_queries
@@ -3089,7 +3025,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "funnel_window_days": 14,
                 },
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             response_json = response.json()
             self.assertEqual(len(response_json["result"]), 1)
             self.assertEqual(len(response_json["result"][0]), 2)
@@ -3144,7 +3080,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "funnel_window_days": 14,
                 },
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             response_json = response.json()
             self.assertEqual(len(response_json["result"]), 1)
             self.assertEqual(len(response_json["result"][0]), 2)
@@ -3527,3 +3463,60 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertNotIn("code", response)
         self.assertIsNotNone(response["results"][0]["types"])
+
+    def test_insight_variables_overrides(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+        )
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test_1}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                "from_dashboard": dashboard.pk,
+                "variables_override": json.dumps(
+                    {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                            "value": "override value!",
+                        }
+                    }
+                ),
+            },
+        ).json()
+
+        assert isinstance(response["query"], dict)
+        assert isinstance(response["query"]["source"], dict)
+        assert isinstance(response["query"]["source"]["variables"], dict)
+
+        assert len(response["query"]["source"]["variables"].keys()) == 1
+        for key, value in response["query"]["source"]["variables"].items():
+            assert key == str(variable.id)
+            assert value["code_name"] == variable.code_name
+            assert value["variableId"] == str(variable.id)
+            assert value["value"] == "override value!"

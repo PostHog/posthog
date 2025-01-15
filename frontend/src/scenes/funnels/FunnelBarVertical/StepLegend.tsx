@@ -121,7 +121,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                     </LemonRow>
                     {showTime && (
                         <LemonRow icon={<IconClock />} title="Median time of conversion from previous step">
-                            {humanFriendlyDuration(step.median_conversion_time, 3) || '–'}
+                            {humanFriendlyDuration(step.median_conversion_time, { maxUnits: 3 }) || '–'}
                         </LemonRow>
                     )}
                 </>

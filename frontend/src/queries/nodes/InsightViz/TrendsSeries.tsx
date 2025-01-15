@@ -19,7 +19,9 @@ import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 
 export function TrendsSeries(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, isLifecycle, isStickiness, display, hasFormula } = useValues(insightVizDataLogic(insightProps))
+    const { querySource, isLifecycle, isStickiness, display, hasFormula, series } = useValues(
+        insightVizDataLogic(insightProps)
+    )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     const { showGroupsOptions, groupsTaxonomicTypes } = useValues(groupsModel)
@@ -88,6 +90,7 @@ export function TrendsSeries(): JSX.Element | null {
                     TaxonomicFilterGroupType.Actions,
                     TaxonomicFilterGroupType.DataWarehouse,
                 ]}
+                hideDeleteBtn={series?.length === 1}
             />
         </>
     )

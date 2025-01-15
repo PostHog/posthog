@@ -4,13 +4,15 @@ use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use base64::engine::general_purpose;
 use base64::Engine;
-use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode, DataType, ProcessedEvent};
+use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use capture::config::CaptureMode;
-use capture::limiters::billing::BillingLimiter;
+use capture::limiters::redis::{QuotaResource, RedisLimiter, QUOTA_LIMITER_CACHE_KEY};
+use capture::limiters::token_dropper::TokenDropper;
 use capture::redis::MockRedisClient;
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
+use capture::v0_request::{DataType, ProcessedEvent};
 use health::HealthRegistry;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -101,17 +103,26 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         let timesource = FixedTime { time: case.now };
 
         let redis = Arc::new(MockRedisClient::new());
-        let billing = BillingLimiter::new(Duration::weeks(1), redis.clone(), None)
-            .expect("failed to create billing limiter");
+        let billing_limiter = RedisLimiter::new(
+            Duration::weeks(1),
+            redis.clone(),
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            None,
+            QuotaResource::Events,
+        )
+        .expect("failed to create billing limiter");
 
         let app = router(
             timesource,
             liveness.clone(),
             sink.clone(),
             redis,
-            billing,
+            billing_limiter,
+            TokenDropper::default(),
             false,
             CaptureMode::Events,
+            None,
+            25 * 1024 * 1024,
         );
 
         let client = TestClient::new(app);
@@ -153,9 +164,9 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         {
             // Ensure the data type matches
             if case.historical_migration {
-                assert_eq!(DataType::AnalyticsHistorical, message.data_type);
+                assert_eq!(DataType::AnalyticsHistorical, message.metadata.data_type);
             } else {
-                assert_eq!(DataType::AnalyticsMain, message.data_type);
+                assert_eq!(DataType::AnalyticsMain, message.metadata.data_type);
             }
 
             // Normalizing the expected event to align with known django->rust inconsistencies
@@ -185,7 +196,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
                     object.remove("library_version");
                 }
 
-                let found_props: Value = serde_json::from_str(&message.data)?;
+                let found_props: Value = serde_json::from_str(&message.event.data)?;
                 let match_config =
                     assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict);
                 if let Err(e) =
@@ -197,7 +208,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
                     );
                     mismatches += 1;
                 } else {
-                    *expected_data = json!(&message.data)
+                    *expected_data = json!(&message.event.data)
                 }
             }
 
@@ -213,7 +224,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
 
             let match_config = assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict);
             if let Err(e) =
-                assert_json_matches_no_panic(&json!(expected), &json!(message), match_config)
+                assert_json_matches_no_panic(&json!(expected), &json!(message.event), match_config)
             {
                 println!(
                     "record mismatch at line {}, event {}: {}",

@@ -3,7 +3,7 @@ from unittest.mock import ANY, patch
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Action, Tag, User
+from posthog.models import Action, Tag, User, HogFunction
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -54,7 +54,9 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
             "created_at": ANY,
             "created_by": ANY,
+            "pinned_at": None,
             "deleted": False,
+            "creation_context": None,
             "is_calculating": False,
             "last_calculated_at": ANY,
             "team_id": self.team.id,
@@ -79,6 +81,9 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "match_url_count": 1,
                 "has_properties": False,
                 "deleted": False,
+                "pinned": False,
+                "pinned_at": None,
+                "creation_context": None,
             },
         )
 
@@ -100,7 +105,42 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         action = Action.objects.get(pk=response.json()["id"])
-        assert action.bytecode == ["_h", 32, "%/signup%", 32, "$current_url", 32, "properties", 1, 2, 17]
+        assert action.bytecode == ["_H", 1, 32, "%/signup%", 32, "$current_url", 32, "properties", 1, 2, 17]
+
+    def test_action_migration(self):
+        self.team.slack_incoming_webhook = "https://slack.com"
+        self.team.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "user signed up",
+                "steps": [
+                    {
+                        "text": "sign up",
+                        "selector": "div > button",
+                        "url": "/signup",
+                    }
+                ],
+                "description": "Test description",
+                "post_to_slack": True,
+            },
+            HTTP_ORIGIN="http://testserver",
+        )
+        action = Action.objects.get(pk=response.json()["id"])
+        assert action.post_to_slack is True
+
+        migrate_response = self.client.post(f"/api/projects/{self.team.id}/actions/{action.id}/migrate/")
+        self.assertEqual(migrate_response.status_code, status.HTTP_200_OK)
+
+        action.refresh_from_db()
+        assert action.post_to_slack is False
+
+        function: HogFunction | None = None  # type: ignore
+        for hog_function in HogFunction.objects.all():
+            if action.id in hog_function.filter_action_ids:
+                function = hog_function
+        assert function is not None
+        assert function.enabled
 
     def test_cant_create_action_with_the_same_name(self, *args):
         original_action = Action.objects.create(name="user signed up", team=self.team)
@@ -128,6 +168,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(Action.objects.count(), count)
 
+    @freeze_time("2021-12-12")
     @patch("posthog.api.action.report_user_action")
     def test_update_action(self, patch_capture, *args):
         user = self._create_user("test_user_update")
@@ -159,6 +200,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "first_name": "person",
                     "email": "person@email.com",
                 },
+                "pinned_at": "2021-12-11T00:00:00Z",
             },
             HTTP_ORIGIN="http://testserver",
         )
@@ -213,11 +255,13 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "has_properties": True,
                 "updated_by_creator": False,
                 "deleted": False,
+                "pinned": True,
+                "pinned_at": "2021-12-12T00:00:00+00:00",
             },
         )
 
         # test queries
-        with self.assertNumQueries(FuzzyInt(6, 8)):
+        with self.assertNumQueries(FuzzyInt(9, 11)):
             # Django session,  user,  team,  org membership, instance setting,  org,
             # count, action
             self.client.get(f"/api/projects/{self.team.id}/actions/")
@@ -317,7 +361,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Pre-query to cache things like instance settings
         self.client.get(f"/api/projects/{self.team.id}/actions/")
 
-        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -326,7 +370,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "a", ""),
         )
 
-        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -335,7 +379,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "b", ""),
         )
 
-        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     def test_get_tags_on_non_ee_returns_empty_list(self):

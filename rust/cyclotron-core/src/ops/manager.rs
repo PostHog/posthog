@@ -6,7 +6,7 @@ use crate::{
     types::{JobInit, JobState},
 };
 
-pub async fn create_job<'c, E>(executor: E, data: JobInit) -> Result<(), QueueError>
+pub async fn create_job<'c, E>(executor: E, data: JobInit) -> Result<Uuid, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
@@ -30,10 +30,11 @@ INSERT INTO cyclotron_jobs
         priority,
         vm_state,
         metadata,
-        parameters
+        parameters,
+        blob
     )
 VALUES
-    ($1, $2, $3, NOW(), NULL, NULL, 0, 0, NOW(), $4, $5, $6, $7, $8, $9, $10)
+    ($1, $2, $3, NOW(), NULL, NULL, 0, 0, NOW(), $4, $5, $6, $7, $8, $9, $10, $11)
     "#,
         id,
         data.team_id,
@@ -44,15 +45,16 @@ VALUES
         data.priority,
         data.vm_state,
         data.metadata,
-        data.parameters
+        data.parameters,
+        data.blob
     )
     .execute(executor)
     .await?;
 
-    Ok(())
+    Ok(id)
 }
 
-pub async fn bulk_create_jobs<'c, E>(executor: E, jobs: &[JobInit]) -> Result<(), QueueError>
+pub async fn bulk_create_jobs<'c, E>(executor: E, jobs: &[JobInit]) -> Result<Vec<Uuid>, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
@@ -74,6 +76,7 @@ where
     let mut vm_states = Vec::with_capacity(jobs.len());
     let mut metadatas = Vec::with_capacity(jobs.len());
     let mut parameters = Vec::with_capacity(jobs.len());
+    let mut blob = Vec::with_capacity(jobs.len());
 
     for d in jobs {
         ids.push(Uuid::now_v7());
@@ -92,6 +95,7 @@ where
         vm_states.push(d.vm_state.clone());
         metadatas.push(d.metadata.clone());
         parameters.push(d.parameters.clone());
+        blob.push(d.blob.clone());
     }
 
     // Using the "unnest" function to turn an array of rows into a set of rows
@@ -114,7 +118,8 @@ INSERT INTO cyclotron_jobs
         priority,
         vm_state,
         metadata,
-        parameters
+        parameters,
+        blob
     )
 SELECT *
 FROM UNNEST(
@@ -133,11 +138,12 @@ FROM UNNEST(
         $13,
         $14,
         $15,
-        $16
+        $16,
+        $17
     )
 "#,
     )
-    .bind(ids)
+    .bind(&ids)
     .bind(team_ids)
     .bind(function_ids)
     .bind(created_at)
@@ -153,8 +159,9 @@ FROM UNNEST(
     .bind(vm_states)
     .bind(metadatas)
     .bind(parameters)
+    .bind(blob)
     .execute(executor)
     .await?;
 
-    Ok(())
+    Ok(ids)
 }

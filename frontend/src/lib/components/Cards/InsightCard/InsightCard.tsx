@@ -11,6 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
+import { HogQLVariable } from '~/queries/schema'
 import {
     DashboardBasicType,
     DashboardPlacement,
@@ -24,7 +25,7 @@ import {
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import { InsightMeta } from './InsightMeta'
 
-export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLDivElement> {
+export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
     insight: QueryBasedInsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
@@ -60,6 +61,10 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     /** Priority for loading the insight, lower is earlier. */
     loadPriority?: number
     doNotLoad?: boolean
+    /** Dashboard variables to override the ones in the insight */
+    variablesOverride?: Record<string, HogQLVariable>
+    className?: string
+    style?: React.CSSProperties
 }
 
 function InsightCardInternal(
@@ -85,11 +90,11 @@ function InsightCardInternal(
         duplicate,
         moveToDashboard,
         className,
-        children,
         moreButtons,
         placement,
         loadPriority,
         doNotLoad,
+        variablesOverride,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -121,7 +126,7 @@ function InsightCardInternal(
             style={{ ...(divProps?.style ?? {}), ...(theme?.boxStyle ?? {}) }}
             ref={ref}
         >
-            <ErrorBoundary>
+            <ErrorBoundary tags={{ feature: 'insight' }}>
                 <BindLogic logic={insightLogic} props={insightLogicProps}>
                     <InsightMeta
                         insight={insight}
@@ -141,6 +146,7 @@ function InsightCardInternal(
                         showEditingControls={showEditingControls}
                         showDetailsControls={showDetailsControls}
                         moreButtons={moreButtons}
+                        variablesOverride={variablesOverride}
                     />
                     <div className="InsightCard__viz">
                         <Query
@@ -151,6 +157,8 @@ function InsightCardInternal(
                             }}
                             readOnly
                             embedded
+                            inSharedMode={placement === DashboardPlacement.Public}
+                            variablesOverride={variablesOverride}
                         />
                     </div>
                 </BindLogic>
@@ -161,7 +169,6 @@ function InsightCardInternal(
                         {canResizeWidth ? <ResizeHandle2D /> : null}
                     </>
                 )}
-                {children /* Extras, such as resize handles */}
             </ErrorBoundary>
         </div>
     )

@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from uuid import UUID
 
@@ -6,7 +8,6 @@ from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog import datetime
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
@@ -78,7 +79,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             random_uuid = self._create_random_events()
 
             response = execute_hogql_query(
-                "select count, event from (select count() as count, event from events where properties.random_uuid = {random_uuid} group by event) group by count, event",
+                "select cnt, event from (select count() as cnt, event from events where properties.random_uuid = {random_uuid} group by event) group by cnt, event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
                 pretty=False,
@@ -92,7 +93,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             random_uuid = self._create_random_events()
 
             response = execute_hogql_query(
-                "select count, event from (select count(*) as count, event from events where properties.random_uuid = {random_uuid} group by event) as c group by count, event",
+                "select cnt, event from (select count(*) as cnt, event from events where properties.random_uuid = {random_uuid} group by event) as c group by cnt, event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
                 pretty=False,
@@ -530,6 +531,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 session_id="111",
                 first_timestamp=timezone.now(),
                 team_id=self.team.pk,
+                ensure_analytics_event_in_session=False,
             )
 
             response = execute_hogql_query(

@@ -10,6 +10,7 @@ import { KafkaConfig } from '../../utils/db/hub'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
+import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { addMetricsEventListeners } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
@@ -166,20 +167,18 @@ type EachBatchFunction = (messages: Message[], queue: IngestionConsumer) => Prom
 
 export class IngestionConsumer {
     public pluginsServer: Hub
-    public consumerReady: boolean
     public topic: string
     public consumerGroupId: string
     public eachBatch: EachBatchFunction
     public consumer?: BatchConsumer
+    public eventsProcessor: EventsProcessor
 
     constructor(pluginsServer: Hub, topic: string, consumerGroupId: string, batchHandler: EachBatchFunction) {
         this.pluginsServer = pluginsServer
         this.topic = topic
         this.consumerGroupId = consumerGroupId
-
-        this.consumerReady = false
-
         this.eachBatch = batchHandler
+        this.eventsProcessor = new EventsProcessor(pluginsServer)
     }
 
     async start(): Promise<BatchConsumer> {
@@ -200,7 +199,6 @@ export class IngestionConsumer {
             topicMetadataRefreshInterval: this.pluginsServer.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
             eachBatch: (payload) => this.eachBatchConsumer(payload),
         })
-        this.consumerReady = true
         return this.consumer
     }
 
@@ -216,8 +214,6 @@ export class IngestionConsumer {
         } catch (error) {
             status.error('⚠️', 'An error occurred while stopping Kafka queue:\n', error)
         }
-
-        this.consumerReady = false
     }
 }
 

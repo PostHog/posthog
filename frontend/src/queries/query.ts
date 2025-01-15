@@ -6,8 +6,25 @@ import posthog from 'posthog-js'
 
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
-import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode, QueryStatus } from './schema'
-import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isInsightVizNode, isPersonsNode } from './utils'
+import {
+    DashboardFilter,
+    DataNode,
+    HogQLQuery,
+    HogQLQueryResponse,
+    HogQLVariable,
+    NodeKind,
+    PersonsNode,
+    QueryStatus,
+    RefreshType,
+} from './schema'
+import {
+    isAsyncResponse,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightVizNode,
+    isPersonsNode,
+} from './utils'
 
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
@@ -29,17 +46,14 @@ export function queryExportContext<N extends DataNode>(
 const SYNC_ONLY_QUERY_KINDS = [
     'HogQuery',
     'HogQLMetadata',
-    'EventsQuery',
     'HogQLAutocomplete',
     'DatabaseSchemaQuery',
-    'ErrorTrackingQuery',
 ] satisfies NodeKind[keyof NodeKind][]
 
 export async function pollForResults(
     queryId: string,
-    showProgress: boolean,
     methodOptions?: ApiMethodOptions,
-    callback?: (response: QueryStatus) => void
+    onPoll?: (response: QueryStatus) => void
 ): Promise<QueryStatus> {
     const pollStart = performance.now()
     let currentDelay = 300 // start low, because all queries will take at minimum this
@@ -49,13 +63,12 @@ export async function pollForResults(
         currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
         try {
-            const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
-
+            const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
             if (statusResponse.complete) {
                 return statusResponse
             }
-            if (callback) {
-                callback(statusResponse)
+            if (onPoll) {
+                onPoll(statusResponse)
             }
         } catch (e: any) {
             e.detail = e.data?.query_status?.error_message
@@ -73,27 +86,52 @@ async function executeQuery<N extends DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string,
-    setPollResponse?: (response: QueryStatus) => void
+    setPollResponse?: (response: QueryStatus) => void,
+    filtersOverride?: DashboardFilter | null,
+    variablesOverride?: Record<string, HogQLVariable> | null,
+    /**
+     * Whether to limit the function to just polling the provided query ID.
+     * This is important in shared contexts, where we cannot create arbitrary queries via POST – we can only GET.
+     */
+    pollOnly = false
 ): Promise<NonNullable<N['response']>> {
     const isAsyncQuery =
         methodOptions?.async !== false &&
         !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 
-    const showProgress = !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.INSIGHT_LOADING_BAR]
+    if (!pollOnly) {
+        const refreshParam: RefreshType | undefined =
+            refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
+        const response = await api.query(
+            queryNode,
+            methodOptions,
+            queryId,
+            refreshParam,
+            filtersOverride,
+            variablesOverride
+        )
 
-    const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
+        if (!isAsyncResponse(response)) {
+            // Executed query synchronously or from cache
+            return response
+        }
 
-    if (!response.query_status?.query_async) {
-        // Executed query synchronously or from cache
-        return response
+        if (response.query_status.complete) {
+            // Async query returned immediately
+            return response.results
+        }
+
+        queryId = response.query_status.id
+    } else {
+        if (!isAsyncQuery) {
+            throw new Error('pollOnly is only supported for async queries')
+        }
+        if (!queryId) {
+            throw new Error('pollOnly requires a queryId')
+        }
     }
-    if (response.query_status?.complete) {
-        // Async query returned immediately
-        return response.results
-    }
-
-    const statusResponse = await pollForResults(response.query_status.id, showProgress, methodOptions, setPollResponse)
+    const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
     return statusResponse.results
 }
 
@@ -103,7 +141,10 @@ export async function performQuery<N extends DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string,
-    setPollResponse?: (status: QueryStatus) => void
+    setPollResponse?: (status: QueryStatus) => void,
+    filtersOverride?: DashboardFilter | null,
+    variablesOverride?: Record<string, HogQLVariable> | null,
+    pollOnly = false
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
@@ -113,15 +154,34 @@ export async function performQuery<N extends DataNode>(
         if (isPersonsNode(queryNode)) {
             response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
         } else {
-            response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
+            response = await executeQuery(
+                queryNode,
+                methodOptions,
+                refresh,
+                queryId,
+                setPollResponse,
+                filtersOverride,
+                variablesOverride,
+                pollOnly
+            )
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
         }
-        posthog.capture('query completed', { query: queryNode, duration: performance.now() - startTime, ...logParams })
+        posthog.capture('query completed', {
+            query: queryNode,
+            queryId,
+            duration: performance.now() - startTime,
+            ...logParams,
+        })
         return response
     } catch (e) {
-        posthog.capture('query failed', { query: queryNode, duration: performance.now() - startTime, ...logParams })
+        posthog.capture('query failed', {
+            query: queryNode,
+            queryId,
+            duration: performance.now() - startTime,
+            ...logParams,
+        })
         throw e
     }
 }

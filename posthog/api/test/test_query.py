@@ -11,8 +11,10 @@ from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
 from posthog.schema import (
     CachedEventsQueryResponse,
+    DataWarehouseNode,
     EventPropertyFilter,
     EventsQuery,
+    FunnelsQuery,
     HogQLPropertyFilter,
     HogQLQuery,
     PersonPropertyFilter,
@@ -341,16 +343,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_safe_clickhouse_error_passed_through(self):
         query = {"kind": "EventsQuery", "select": ["timestamp + 'string'"]}
 
-        response_post = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
-        self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response_post.json(),
-            self.validation_error_response(
-                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: "
-                "While processing toTimeZone(timestamp, 'UTC') + 'string'.",
-                "illegal_type_of_argument",
-            ),
-        )
+        with freeze_time("2024-10-16 22:10:29.691212"):
+            response_post = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
+            self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
+
+            self.assertEqual(
+                response_post.json(),
+                {
+                    "type": "validation_error",
+                    "code": "illegal_type_of_argument",
+                    "detail": f"Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: In scope SELECT toTimeZone(events.timestamp, 'UTC') + 'string' FROM events WHERE (events.team_id = {self.team.id}) AND (toTimeZone(events.timestamp, 'UTC') < toDateTime64('2024-10-16 22:10:34.691212', 6, 'UTC')) AND (toTimeZone(events.timestamp, 'UTC') > toDateTime64('2024-10-15 22:10:29.691212', 6, 'UTC')) ORDER BY toTimeZone(events.timestamp, 'UTC') + 'string' ASC LIMIT 0, 101 SETTINGS readonly = 2, max_execution_time = 60, allow_experimental_object_type = 1, format_csv_allow_double_quotes = 0, max_ast_elements = 4000000, max_expanded_ast_elements = 4000000, max_bytes_before_external_group_by = 0.",
+                    "attr": None,
+                },
+            )
 
     @patch(
         "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", {})
@@ -731,6 +736,39 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             api_response.content,
         )
 
+    def test_funnel_query_with_data_warehouse_node_temporarily_raises(self):
+        # As of September 2024, funnels don't support data warehouse tables YET, so we want a helpful error message
+        api_response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {
+                "query": FunnelsQuery(
+                    series=[
+                        DataWarehouseNode(
+                            id="xyz",
+                            table_name="xyz",
+                            id_field="id",
+                            distinct_id_field="customer_email",
+                            timestamp_field="created",
+                        ),
+                        DataWarehouseNode(
+                            id="abc",
+                            table_name="abc",
+                            id_field="id",
+                            distinct_id_field="customer_email",
+                            timestamp_field="timestamp",
+                        ),
+                    ],
+                ).model_dump()
+            },
+        )
+        self.assertEqual(api_response.status_code, 400)
+        self.assertDictEqual(
+            api_response.json(),
+            self.validation_error_response(
+                "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
+            ),
+        )
+
     def test_missing_query(self):
         api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": {}})
         self.assertEqual(api_response.status_code, 400)
@@ -1066,3 +1104,12 @@ class TestQueryRetrieve(APIBaseTest):
         response = self.client.delete(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 204)
         self.assertEqual(self.redis_client_mock.delete.call_count, 2)
+
+
+class TestQueryDraftSql(APIBaseTest):
+    @patch("posthog.hogql.ai.hit_openai", return_value=("SELECT 1", 21, 37))
+    def test_draft_sql(self, hit_openai_mock):
+        response = self.client.get(f"/api/projects/{self.team.id}/query/draft_sql/", {"prompt": "I need the number 1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"sql": "SELECT 1"})
+        hit_openai_mock.assert_called_once()

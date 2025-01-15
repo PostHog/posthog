@@ -1,21 +1,23 @@
 import './EmptyStates.scss'
 
-// eslint-disable-next-line no-restricted-imports
-import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
-import { IconArchive, IconInfo, IconPlus, IconWarning } from '@posthog/icons'
+import {
+    IconArchive,
+    IconInfo,
+    IconPieChart,
+    IconPlus,
+    IconPlusSmall,
+    IconPlusSquare,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
@@ -24,11 +26,12 @@ import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFi
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, Node } from '~/queries/schema'
+import { FunnelsQuery, Node, QueryStatus } from '~/queries/schema'
 import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
@@ -69,7 +72,7 @@ function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JS
                     })
                 }}
             >
-                <ThunderboltFilled className="mt-1" /> {suggestedSamplingPercentage}% sampling
+                <IconPieChart className="mt-1" /> {suggestedSamplingPercentage}% sampling
             </Link>
         </Tooltip>
     )
@@ -79,23 +82,22 @@ function humanFileSize(size: number): string {
     return (+(size / Math.pow(1024, i))).toFixed(2) + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i]
 }
 
-export function InsightLoadingStateWithLoadingBar({
+export function StatelessInsightLoadingState({
     queryId,
-    insightProps,
+    pollResponse,
+    suggestion,
 }: {
     queryId?: string | null
-    insightProps: InsightLogicProps
+    pollResponse?: Record<string, QueryStatus | null> | null
+    suggestion?: JSX.Element
 }): JSX.Element {
-    const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { insightPollResponse } = useValues(insightDataLogic(insightProps))
-
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
     const [secondsElapsed, setSecondsElapsed] = useState(0)
 
     useEffect(() => {
-        const status = insightPollResponse?.status?.query_progress
-        const previousStatus = insightPollResponse?.previousStatus?.query_progress
+        const status = pollResponse?.status?.query_progress
+        const previousStatus = pollResponse?.previousStatus?.query_progress
         setRowsRead(previousStatus?.rows_read || 0)
         setBytesRead(previousStatus?.bytes_read || 0)
         const interval = setInterval(() => {
@@ -108,24 +110,25 @@ export function InsightLoadingStateWithLoadingBar({
                 return Math.min(bytesRead + diff / 30, status?.bytes_read || 0)
             })
             setSecondsElapsed(() => {
-                return dayjs().diff(dayjs(insightPollResponse?.status?.start_time), 'milliseconds')
+                return dayjs().diff(dayjs(pollResponse?.status?.start_time), 'milliseconds')
             })
         }, 100)
 
         return () => clearInterval(interval)
-    }, [insightPollResponse])
+    }, [pollResponse])
+
     const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
-    const estimatedRows = insightPollResponse?.status?.query_progress?.estimated_rows_total
+    const estimatedRows = pollResponse?.status?.query_progress?.estimated_rows_total
 
     const cpuUtilization =
-        (insightPollResponse?.status?.query_progress?.active_cpu_time || 0) /
-        (insightPollResponse?.status?.query_progress?.time_elapsed || 1) /
+        (pollResponse?.status?.query_progress?.active_cpu_time || 0) /
+        (pollResponse?.status?.query_progress?.time_elapsed || 1) /
         10000
 
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                <p className="mx-auto text-center">Crunching through hogloads of data...</p>
+                <p className="mx-auto text-center font-medium italic">Crunching through hogloads of data…</p>
                 <LoadingBar />
                 <p className="mx-auto text-center text-xs">
                     {rowsRead > 0 && bytesRead > 0 && (
@@ -142,29 +145,18 @@ export function InsightLoadingStateWithLoadingBar({
                         </>
                     )}
                 </p>
-                <div className="p-4 rounded bg-bg-3000 flex gap-x-2 max-w-120">
-                    <div className="flex">
-                        <IconInfo className="w-4 h-4" />
+                {suggestion ? (
+                    suggestion
+                ) : (
+                    <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
+                        <IconInfo className="text-xl shrink-0" />
+                        <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
                     </div>
-                    <p className="text-xs m-0 leading-5">
-                        {suggestedSamplingPercentage && !samplingPercentage ? (
-                            <span data-attr="insight-loading-waiting-message">
-                                Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
-                                <SamplingLink insightProps={insightProps} />.
-                            </span>
-                        ) : suggestedSamplingPercentage && samplingPercentage ? (
-                            <>
-                                Still waiting around? You must have lots of data! Kick it up a notch with{' '}
-                                <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
-                                removing breakdowns.
-                            </>
-                        ) : (
-                            <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
-                        )}
-                    </p>
-                </div>
+                )}
                 {queryId ? (
-                    <div className="text-muted text-xs mx-auto text-center mt-6">Query ID: {queryId}</div>
+                    <div className="text-muted text-xs mx-auto text-center mt-5">
+                        Query ID: <span className="font-mono">{queryId}</span>
+                    </div>
                 ) : null}
             </div>
         </div>
@@ -178,43 +170,55 @@ export function InsightLoadingState({
     queryId?: string | null
     insightProps: InsightLogicProps
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
+    const { insightPollResponse } = useValues(insightDataLogic(insightProps))
+    const { currentTeam } = useValues(teamLogic)
 
-    if (featureFlags[FEATURE_FLAGS.INSIGHT_LOADING_BAR]) {
-        return <InsightLoadingStateWithLoadingBar queryId={queryId} insightProps={insightProps} />
-    }
+    const personsOnEventsMode =
+        currentTeam?.modifiers?.personsOnEventsMode ?? currentTeam?.default_modifiers?.personsOnEventsMode ?? 'disabled'
 
     return (
-        <div className="insight-empty-state warning">
-            <Animation type={AnimationType.LaptopHog} />
-            <div className="empty-state-inner">
-                <p className="mx-auto text-center">Crunching through hogloads of data...</p>
-                <div className="p-4 rounded bg-bg-3000 flex gap-x-2 max-w-120">
-                    <div className="flex">
-                        <IconInfo className="w-4 h-4" />
-                    </div>
-                    <p className="text-xs m-0 leading-5">
-                        {suggestedSamplingPercentage && !samplingPercentage ? (
-                            <span data-attr="insight-loading-waiting-message">
-                                Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
-                                <SamplingLink insightProps={insightProps} />.
-                            </span>
-                        ) : suggestedSamplingPercentage && samplingPercentage ? (
+        <div>
+            <StatelessInsightLoadingState
+                queryId={queryId}
+                pollResponse={insightPollResponse}
+                suggestion={
+                    <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
+                        {personsOnEventsMode === 'person_id_override_properties_joined' ? (
                             <>
-                                Still waiting around? You must have lots of data! Kick it up a notch with{' '}
-                                <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
-                                removing breakdowns.
+                                <IconWarning className="text-xl shrink-0 text-warning" />
+                                <p className="text-xs m-0">
+                                    You can speed this query up by changing the{' '}
+                                    <Link to="/settings/project#persons-on-events">person properties mode</Link>{' '}
+                                    setting.
+                                </p>
                             </>
                         ) : (
-                            <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
+                            <>
+                                <IconInfo className="text-xl shrink-0" />
+                                <p className="text-xs m-0">
+                                    {suggestedSamplingPercentage && !samplingPercentage ? (
+                                        <span data-attr="insight-loading-waiting-message">
+                                            Need to speed things up? Try reducing the date range, removing breakdowns,
+                                            or turning on <SamplingLink insightProps={insightProps} />.
+                                        </span>
+                                    ) : suggestedSamplingPercentage && samplingPercentage ? (
+                                        <>
+                                            Still waiting around? You must have lots of data! Kick it up a notch with{' '}
+                                            <SamplingLink insightProps={insightProps} />. Or try reducing the date range
+                                            and removing breakdowns.
+                                        </>
+                                    ) : (
+                                        <>
+                                            Need to speed things up? Try reducing the date range or removing breakdowns.
+                                        </>
+                                    )}
+                                </p>
+                            </>
                         )}
-                    </p>
-                </div>
-                {queryId ? (
-                    <div className="text-muted text-xs mx-auto text-center mt-6">Query ID: {queryId}</div>
-                ) : null}
-            </div>
+                    </div>
+                }
+            />
         </div>
     )
 }
@@ -231,11 +235,9 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                     </div>
                     <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
                 </>
-                <div className="p-4 rounded bg-bg-3000 flex gap-x-2 max-w-120">
-                    <div className="flex">
-                        <IconInfo className="w-4 h-4" />
-                    </div>
-                    <p className="text-xs m-0 leading-5">
+                <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
+                    <IconInfo className="text-xl shrink-0" />
+                    <p className="text-xs m-0">
                         <>
                             Sometimes this happens. Try refreshing the page, reducing the date range, or removing
                             breakdowns. If you're still having issues,{' '}
@@ -251,7 +253,9 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                     </p>
                 </div>
                 {queryId ? (
-                    <div className="text-muted text-xs mx-auto text-center mt-6">Query ID: {queryId}</div>
+                    <div className="text-muted text-xs mx-auto text-center mt-5">
+                        Query ID: <span className="font-mono">{queryId}</span>
+                    </div>
                 ) : null}
             </div>
         </div>
@@ -303,7 +307,11 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
                         </ol>
                     </div>
                 )}
-                {queryId ? <div className="text-muted text-xs text-center">Query ID: {queryId}</div> : null}
+                {queryId && (
+                    <div className="text-muted text-xs text-center">
+                        Query ID: <span className="font-mono">{queryId}</span>
+                    </div>
+                )}
                 {query && (
                     <LemonButton
                         data-attr="insight-error-query"
@@ -341,10 +349,10 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
         <div className="insight-empty-state funnels-empty-state">
             <div className="empty-state-inner">
                 <div className="illustration-main">
-                    <PlusCircleOutlined />
+                    <IconPlusSquare />
                 </div>
                 <h2 className="text-xl leading-tight funnels-empty-state__title">Add another step!</h2>
-                <p className="text-sm text-center text-balance">
+                <p className="mb-0 text-sm text-center text-balance">
                     You’re almost there! Funnels require at least two steps before calculating.
                     {actionable &&
                         ' Once you have two steps defined, additional changes will recalculate automatically.'}
@@ -480,7 +488,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 data-attr="add-insight-button-empty-state"
-                                icon={<PlusCircleOutlined />}
+                                icon={<IconPlusSmall />}
                                 className="add-insight-button"
                             >
                                 New insight

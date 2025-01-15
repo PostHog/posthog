@@ -1,13 +1,11 @@
 import { afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { projectLogic } from 'scenes/projectLogic'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
@@ -28,8 +26,6 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
             ['activeScene', 'sceneParams'],
             navigation3000Logic,
             ['searchTerm'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [savedInsightsLogic, ['loadInsights', 'setSavedInsightsFilters', 'duplicateInsight']],
     })),
@@ -49,13 +45,9 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
         ],
     })),
     selectors(({ actions, values, cache }) => ({
-        queryBasedInsightSaving: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
-        ],
         contents: [
-            (s) => [s.insights, s.infiniteInsights, s.insightsLoading, teamLogic.selectors.currentTeamId],
-            (insights, infiniteInsights, insightsLoading, currentTeamId) => [
+            (s) => [s.insights, s.infiniteInsights, s.insightsLoading, projectLogic.selectors.currentProjectId],
+            (insights, infiniteInsights, insightsLoading, currentProjectId) => [
                 {
                     key: 'insights',
                     noun: 'insight',
@@ -100,11 +92,8 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                             onClick: () => {
                                                 void deleteInsightWithUndo({
                                                     object: insight,
-                                                    endpoint: `projects/${currentTeamId}/insights`,
+                                                    endpoint: `projects/${currentProjectId}/insights`,
                                                     callback: actions.loadInsights,
-                                                    options: {
-                                                        writeAsQuery: values.queryBasedInsightSaving,
-                                                    },
                                                 })
                                             },
                                             status: 'danger',
@@ -114,11 +103,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                 },
                             ],
                             onRename: async (newName) => {
-                                const updatedItem = await insightsApi.update(
-                                    insight.id,
-                                    { name: newName },
-                                    { writeAsQuery: values.queryBasedInsightSaving }
-                                )
+                                const updatedItem = await insightsApi.update(insight.id, { name: newName })
                                 insightsModel.actions.renameInsightSuccess(updatedItem)
                             },
                         } as BasicListItem

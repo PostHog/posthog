@@ -1,15 +1,12 @@
 import { LemonDropdown, LemonTag, LemonTagProps } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
 
-import { HogWatcherState } from '~/types'
-
-import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
+import { HogFunctionType, HogWatcherState } from '~/types'
 
 type DisplayOptions = { tagType: LemonTagProps['type']; display: string; description: JSX.Element }
 const displayMap: Record<HogWatcherState, DisplayOptions> = {
     [HogWatcherState.healthy]: {
         tagType: 'success',
-        display: 'Healthy',
+        display: 'Active',
         description: <>The function is running as expected.</>,
     },
     [HogWatcherState.overflowed]: {
@@ -53,16 +50,30 @@ const DEFAULT_DISPLAY: DisplayOptions = {
     ),
 }
 
-export function HogFunctionStatusIndicator(): JSX.Element | null {
-    const { hogFunction } = useValues(hogFunctionConfigurationLogic)
+const DISABLED_MANUALLY_DISPLAY: DisplayOptions = {
+    tagType: 'default',
+    display: 'Paused',
+    description: <>This function is paused</>,
+}
 
-    if (!hogFunction || !hogFunction.enabled) {
+export type HogFunctionStatusIndicatorProps = {
+    hogFunction: HogFunctionType | null
+}
+export function HogFunctionStatusIndicator({ hogFunction }: HogFunctionStatusIndicatorProps): JSX.Element | null {
+    if (!hogFunction) {
         return null
     }
 
-    const { tagType, display, description } = hogFunction.status?.state
-        ? displayMap[hogFunction.status.state]
-        : DEFAULT_DISPLAY
+    const { tagType, display, description } =
+        hogFunction.type === 'site_app' || hogFunction.type === 'site_destination'
+            ? hogFunction.enabled
+                ? displayMap[HogWatcherState.healthy]
+                : DISABLED_MANUALLY_DISPLAY
+            : hogFunction.status?.state
+            ? displayMap[hogFunction.status.state]
+            : hogFunction.enabled
+            ? DEFAULT_DISPLAY
+            : DISABLED_MANUALLY_DISPLAY
 
     return (
         <LemonDropdown

@@ -3,6 +3,7 @@ from typing import Any, Literal, Optional
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+from django.core.cache import cache
 from freezegun import freeze_time
 from pydantic import BaseModel
 
@@ -13,6 +14,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     MaterializationMode,
+    PersonsOnEventsMode,
     TestBasicQueryResponse,
     TestCachedBasicQueryResponse,
 )
@@ -27,6 +29,10 @@ class TestQuery(BaseModel):
 
 class TestQueryRunner(BaseTest):
     maxDiff = None
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
 
     def setup_test_query_runner_class(self):
         """Setup required methods and attributes of the abstract base class."""
@@ -93,7 +99,7 @@ class TestQueryRunner(BaseTest):
                     "materializationMode": "legacy_null_as_null",
                     "personsArgMaxVersion": "auto",
                     "optimizeJoinedFilters": False,
-                    "personsOnEventsMode": "disabled",
+                    "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                     "bounceRatePageViewMode": "count_pageviews",
                     "sessionTableVersion": "auto",
                 },
@@ -114,7 +120,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_c4e20e19f3cad552478257f71f80b52f")
+        self.assertEqual(cache_key, "cache_93427f8f06e6cc8643a394ae002de2c1")
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -128,7 +134,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_db0fcd4797812983cbf9df57cd9f3032")
+        self.assertEqual(cache_key, "cache_bb6398a99867dfbdc45a2fc4fccb8f27")
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -139,7 +145,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_8c92e69a656cc68522e5b48a7304b97d")
+        self.assertEqual(cache_key, "cache_e0c2bb1ad091102533399ebdddbfb24d")
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -203,6 +209,43 @@ class TestQueryRunner(BaseTest):
             response = runner.run(execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
+            mock_on_commit.assert_called_once()
+
+    @mock.patch("django.db.transaction.on_commit")
+    def test_recent_cache_calculate_async_if_stale_and_blocking_on_miss(self, mock_on_commit):
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            # in cache-only mode, returns cache miss response if uncached
+            response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+            self.assertIsInstance(response, CacheMissResponse)
+
+            response = runner.run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+            self.assertIsInstance(response, TestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, False)
+            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
+            self.assertEqual(response.next_allowed_client_refresh.isoformat(), "2023-02-04T13:41:42+00:00")
+
+            # returns cached response afterwards
+            response = runner.run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+            self.assertIsInstance(response, TestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, True)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
+            # returns fresh response if stale
+            response = runner.run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+            self.assertIsInstance(response, TestCachedBasicQueryResponse)
+            # Should kick off the calculation in the background
+            self.assertEqual(response.is_cached, True)
+            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
             mock_on_commit.assert_called_once()
 
     def test_modifier_passthrough(self):

@@ -1,6 +1,7 @@
 """Test utilities that deal with test event generation."""
 
 import datetime as dt
+import itertools
 import json
 import random
 import typing
@@ -45,52 +46,66 @@ def generate_test_events(
     set_field: dict | None = None,
     set_once: dict | None = None,
     start: int = 0,
+    distinct_ids: list[str] | None = None,
 ):
     """Generate a list of events for testing."""
-    _timestamp = random.choice(possible_datetimes)
+    datetime_sample = random.sample(possible_datetimes, len(possible_datetimes))
+    datetime_cycle = itertools.cycle(datetime_sample)
+    _timestamp = next(datetime_cycle)
 
-    if inserted_at == "_timestamp":
-        inserted_at_value = _timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
-    elif inserted_at == "random":
-        inserted_at_value = random.choice(possible_datetimes).strftime("%Y-%m-%d %H:%M:%S.%f")
-    elif inserted_at is None:
-        inserted_at_value = None
+    if distinct_ids:
+        distinct_id_sample = random.sample(distinct_ids, len(distinct_ids))
+        distinct_id_cycle = itertools.cycle(distinct_id_sample)
     else:
-        if not isinstance(inserted_at, dt.datetime):
-            raise ValueError(f"Unsupported value for inserted_at: '{inserted_at}'")
-        inserted_at_value = inserted_at.strftime("%Y-%m-%d %H:%M:%S.%f")
+        distinct_id_cycle = None
 
-    events: list[EventValues] = [
-        {
-            "_timestamp": _timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            "created_at": random.choice(possible_datetimes).strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "distinct_id": str(uuid.uuid4()),
-            "elements": json.dumps("css selectors;"),
-            "elements_chain": "css selectors;",
-            "event": event_name.format(i=i),
-            "inserted_at": inserted_at_value,
-            "person_id": str(uuid.uuid4()),
-            "person_properties": person_properties,
-            "properties": properties,
-            "team_id": team_id,
-            "timestamp": random.choice(possible_datetimes).strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "uuid": str(uuid.uuid4()),
-            "ip": ip,
-            "site_url": site_url,
-            "set": set_field,
-            "set_once": set_once,
-        }
-        for i in range(start, count + start)
-    ]
+    def compute_inserted_at():
+        if inserted_at == "_timestamp":
+            inserted_at_value = _timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+        elif inserted_at == "random":
+            inserted_at_value = next(datetime_cycle).strftime("%Y-%m-%d %H:%M:%S.%f")
+        elif inserted_at is None:
+            inserted_at_value = None
+        else:
+            if not isinstance(inserted_at, dt.datetime):
+                raise ValueError(f"Unsupported value for inserted_at: '{inserted_at}'")
+            inserted_at_value = inserted_at.strftime("%Y-%m-%d %H:%M:%S.%f")
+        return inserted_at_value
+
+    events: list[EventValues] = []
+    for i in range(start, count + start):
+        events.append(
+            {
+                "_timestamp": _timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                "created_at": next(datetime_cycle).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "distinct_id": next(distinct_id_cycle) if distinct_id_cycle else str(uuid.uuid4()),
+                "elements": json.dumps("css selectors;"),
+                "elements_chain": "css selectors;",
+                "event": event_name.format(i=i),
+                "inserted_at": compute_inserted_at(),
+                "person_id": str(uuid.uuid4()),
+                "person_properties": person_properties,
+                "properties": properties,
+                "team_id": team_id,
+                "timestamp": next(datetime_cycle).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "uuid": str(uuid.uuid4()),
+                "ip": ip,
+                "site_url": site_url,
+                "set": set_field,
+                "set_once": set_once,
+            }
+        )
 
     return events
 
 
-async def insert_event_values_in_clickhouse(client: ClickHouseClient, events: list[EventValues]):
+async def insert_event_values_in_clickhouse(
+    client: ClickHouseClient, events: list[EventValues], table: str = "sharded_events"
+):
     """Execute an insert query to insert provided EventValues into sharded_events."""
     await client.execute_query(
         f"""
-        INSERT INTO `sharded_events` (
+        INSERT INTO `{table}` (
             uuid,
             event,
             timestamp,
@@ -139,9 +154,11 @@ async def generate_test_events_in_clickhouse(
     event_name: str = "test-{i}",
     properties: dict | None = None,
     person_properties: dict | None = None,
-    inserted_at: str | dt.datetime | None = "_timestamp",
+    inserted_at: str | dt.datetime | None = "random",
+    distinct_ids: list[str] | None = None,
     duplicate: bool = False,
     batch_size: int = 10000,
+    table: str = "sharded_events",
 ) -> tuple[list[EventValues], list[EventValues], list[EventValues]]:
     """Insert test events into the sharded_events table.
 
@@ -180,6 +197,7 @@ async def generate_test_events_in_clickhouse(
             person_properties=person_properties,
             inserted_at=inserted_at,
             start=len(events),
+            distinct_ids=distinct_ids,
         )
 
         # Add duplicates if required
@@ -187,7 +205,7 @@ async def generate_test_events_in_clickhouse(
         if duplicate is True:
             duplicate_events = events_to_insert
 
-        await insert_event_values_in_clickhouse(client=client, events=events_to_insert + duplicate_events)
+        await insert_event_values_in_clickhouse(client=client, events=events_to_insert + duplicate_events, table=table)
 
         events.extend(events_to_insert)
 
@@ -205,6 +223,7 @@ async def generate_test_events_in_clickhouse(
         properties=properties,
         person_properties=person_properties,
         inserted_at=inserted_at,
+        distinct_ids=distinct_ids,
     )
 
     # Events generated for a different team
@@ -216,7 +235,10 @@ async def generate_test_events_in_clickhouse(
         properties=properties,
         person_properties=person_properties,
         inserted_at=inserted_at,
+        distinct_ids=distinct_ids,
     )
 
-    await insert_event_values_in_clickhouse(client=client, events=events_outside_range + events_from_other_team)
+    await insert_event_values_in_clickhouse(
+        client=client, events=events_outside_range + events_from_other_team, table=table
+    )
     return (events, events_outside_range, events_from_other_team)

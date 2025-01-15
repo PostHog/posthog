@@ -1,12 +1,13 @@
 import { IconCollapse, IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
-import { heatmapDateOptions } from 'lib/components/heatmaps/utils'
 import { DetectiveHog } from 'lib/components/hedgehogs'
+import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconOpenInNew } from 'lib/lemon-ui/icons'
 import React, { useEffect, useRef } from 'react'
@@ -152,7 +153,7 @@ function FilterPanel(): JSX.Element {
     } = useActions(logic)
 
     return (
-        <div className="flex flex-col gap-y-2 px-2 py-1 border-r w-100">
+        <div className={clsx('flex flex-col gap-y-2 px-2 py-1 border-r', !filterPanelCollapsed && 'w-100')}>
             {filterPanelCollapsed ? (
                 <Tooltip title="Expand heatmap settings">
                     <LemonButton
@@ -209,14 +210,12 @@ function IframeErrorOverlay(): JSX.Element | null {
     ) : null
 }
 
-function LoadingOverlay(): JSX.Element | null {
-    const logic = heatmapsBrowserLogic()
-    const { loading } = useValues(logic)
-    return loading ? (
+function LoadingOverlay(): JSX.Element {
+    return (
         <div className="absolute flex flex-col w-full h-full items-center justify-center pointer-events-none">
             <Spinner className="text-5xl" textColored={true} />
         </div>
-    ) : null
+    )
 }
 
 function EmbeddedHeatmapBrowser({
@@ -226,7 +225,7 @@ function EmbeddedHeatmapBrowser({
 }): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
 
-    const { browserUrl } = useValues(logic)
+    const { browserUrl, loading, iframeBanner } = useValues(logic)
     const { onIframeLoad, setIframeWidth } = useActions(logic)
 
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
@@ -238,18 +237,14 @@ function EmbeddedHeatmapBrowser({
         <div className="flex flex-row gap-x-2 w-full">
             <FilterPanel />
             <div className="relative flex-1 w-full h-full">
-                <IframeErrorOverlay />
-                <LoadingOverlay />
+                {loading ? <LoadingOverlay /> : null}
+                {!loading && iframeBanner ? <IframeErrorOverlay /> : null}
                 <iframe
                     ref={iframeRef}
-                    className="w-full h-full"
+                    className="w-full h-full bg-white"
                     src={appEditorUrl(browserUrl, {
                         userIntent: 'heatmaps',
                     })}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        background: '#FFF',
-                    }}
                     onLoad={onIframeLoad}
                     // these two sandbox values are necessary so that the site and toolbar can run
                     // this is a very loose sandbox,

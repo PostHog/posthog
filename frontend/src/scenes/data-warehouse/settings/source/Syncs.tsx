@@ -11,7 +11,7 @@ const StatusTagSetting: Record<ExternalDataJob['status'], LemonTagType> = {
     Running: 'primary',
     Completed: 'success',
     Failed: 'danger',
-    Cancelled: 'default',
+    'Billing limits': 'danger',
 }
 
 interface SyncsProps {
@@ -24,6 +24,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
 
     return (
         <LemonTable
+            hideScrollbar
             dataSource={jobs}
             loading={jobsLoading}
             disableTableWhileLoading={false}

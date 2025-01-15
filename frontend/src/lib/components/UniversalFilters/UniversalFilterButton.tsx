@@ -1,6 +1,6 @@
 import './UniversalFilterButton.scss'
 
-import { IconFilter, IconX } from '@posthog/icons'
+import { IconFilter, IconLogomark, IconX } from '@posthog/icons'
 import { LemonButton, PopoverReferenceContext } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
@@ -11,12 +11,11 @@ import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ActionFilter, AnyPropertyFilter } from '~/types'
+import { ActionFilter, AnyPropertyFilter, FeaturePropertyFilter, UniversalFilterValue } from '~/types'
 
 import { EntityFilterInfo } from '../EntityFilterInfo'
 import { formatPropertyLabel } from '../PropertyFilters/utils'
-import { UniversalFilterValue } from './UniversalFilters'
-import { isActionFilter, isEditableFilter, isEventFilter } from './utils'
+import { isActionFilter, isEditableFilter, isEventFilter, isFeatureFlagFilter } from './utils'
 
 export interface UniversalFilterButtonProps {
     onClick?: () => void
@@ -33,7 +32,7 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
         const isEditable = isEditableFilter(filter)
         const isAction = isActionFilter(filter)
         const isEvent = isEventFilter(filter)
-
+        const isFeatureFlag = isFeatureFlagFilter(filter)
         const button = (
             <div
                 ref={ref as any}
@@ -48,6 +47,8 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
                     <EventLabel filter={filter} onClick={onClick} />
                 ) : isAction ? (
                     <EntityFilterInfo filter={filter} />
+                ) : isFeatureFlag ? (
+                    <FeatureFlagLabel filter={filter} />
                 ) : (
                     <PropertyLabel filter={filter} />
                 )}
@@ -77,15 +78,19 @@ const PropertyLabel = ({ filter }: { filter: AnyPropertyFilter }): JSX.Element =
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const label = formatPropertyLabel(
+    let label = formatPropertyLabel(
         filter,
         cohortsById,
         (s) => formatPropertyValueForDisplay(filter.key, s)?.toString() || '?'
     )
+    const isEventFeature = label.startsWith('$feature/')
+    if (isEventFeature) {
+        label = label.replace('$feature/', 'Feature: ')
+    }
 
     return (
         <>
-            <PropertyFilterIcon type={filter.type} />
+            {isEventFeature ? <IconLogomark /> : <PropertyFilterIcon type={filter.type} />}
             <span className="UniversalFilterButton-content" title={label}>
                 {typeof label === 'string' ? midEllipsis(label, 32) : label}
             </span>
@@ -115,4 +120,8 @@ const EventLabel = ({
             />
         </div>
     )
+}
+
+const FeatureFlagLabel = ({ filter }: { filter: FeaturePropertyFilter }): JSX.Element => {
+    return <div>{filter.key}</div>
 }

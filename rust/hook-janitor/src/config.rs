@@ -1,6 +1,6 @@
 use envconfig::Envconfig;
 
-use hook_common::config::KafkaConfig;
+use common_kafka::config::KafkaConfig;
 
 #[derive(Envconfig)]
 pub struct Config {

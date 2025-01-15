@@ -2,12 +2,11 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { AlertType } from 'lib/components/Alerts/types'
 import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -51,7 +50,7 @@ export interface SavedInsightFilters {
     dashboardId: number | undefined | null
 }
 
-function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
+export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
     return {
         layoutView: values.layoutView || LayoutView.List,
         order: values.order || '-last_modified_at', // Sync with `sorting` selector
@@ -69,7 +68,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], sceneLogic, ['activeScene']],
+        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeScene']],
         logic: [eventUsageLogic],
     })),
     actions({
@@ -87,6 +86,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         loadInsights: (debounce: boolean = true) => ({ debounce }),
         updateInsight: (insight: QueryBasedInsightModel) => ({ insight }),
         addInsight: (insight: QueryBasedInsightModel) => ({ insight }),
+        openAlertModal: (alertId: AlertType['id']) => ({ alertId }),
+        closeAlertModal: true,
+        setDashboardUpdateLoading: (insightId: number, loading: boolean) => ({ insightId, loading }),
     }),
     loaders(({ values }) => ({
         insights: {
@@ -103,7 +105,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 }
 
                 const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
+                    `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
                 const response = {
                     ...legacyResponse,
@@ -141,13 +143,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
             },
             updateFavoritedInsight: async ({ insight, favorited }) => {
-                const response = await insightsApi.update(
-                    insight.id,
-                    {
-                        favorited,
-                    },
-                    { writeAsQuery: values.queryBasedInsightSaving }
-                )
+                const response = await insightsApi.update(insight.id, {
+                    favorited,
+                })
                 const updatedInsights = values.insights.results.map((i) =>
                     i.short_id === insight.short_id ? response : i
                 )
@@ -179,12 +177,23 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     }),
             },
         ],
+        alertModalId: [
+            null as AlertType['id'] | null,
+            {
+                openAlertModal: (_, { alertId }) => alertId,
+                closeAlertModal: () => null,
+            },
+        ],
+        dashboardUpdatesInProgress: [
+            {} as Record<number, boolean>,
+            {
+                setDashboardUpdateLoading: (state, { insightId, loading }) => {
+                    return { ...state, [insightId]: loading }
+                },
+            },
+        ],
     }),
     selectors({
-        queryBasedInsightSaving: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
-        ],
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         count: [(s) => [s.insights], (insights) => insights.count],
         usingFilters: [
@@ -287,9 +296,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            const newInsight = await insightsApi.duplicate(insight, {
-                writeAsQuery: values.queryBasedInsightSaving,
-            })
+            const newInsight = await insightsApi.duplicate(insight)
             actions.addInsight(newInsight)
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
@@ -349,7 +356,17 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.savedInsights()]: async (_, searchParams, hashParams) => {
+        [urls.savedInsights()]: async (
+            _,
+            { alert_id, ...searchParams }, // search params,
+            hashParams
+        ) => {
+            if (alert_id) {
+                actions.openAlertModal(alert_id)
+            } else {
+                actions.closeAlertModal()
+            }
+
             if (hashParams.fromItem && String(hashParams.fromItem).match(/^[0-9]+$/)) {
                 // `fromItem` for legacy /insights url redirect support
                 const insightNumericId = parseInt(hashParams.fromItem)

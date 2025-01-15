@@ -8,7 +8,14 @@ import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaTable, DatabaseSerializedFieldType, HogQLQuery, NodeKind } from '~/queries/schema'
+import {
+    DatabaseSchemaMaterializedViewTable,
+    DatabaseSchemaTable,
+    DatabaseSchemaViewTable,
+    DatabaseSerializedFieldType,
+    HogQLQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
@@ -25,6 +32,8 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         values: [
             databaseTableListLogic,
             ['database', 'posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
+            dataWarehouseViewsLogic,
+            ['dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -47,7 +56,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         deleteDataWarehouseTable: (tableId: string) => ({ tableId }),
         toggleSchemaModal: true,
         setEditingView: (id: string | null) => ({ id }),
-        updateView: (query: string) => ({ query }),
+        updateView: (query: string, types: string[][]) => ({ query, types }),
     })),
     reducers({
         selectedRow: [
@@ -173,6 +182,30 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 return [...dataWarehouseTables, ...views]
             },
         ],
+        nonMaterializedViews: [
+            (s) => [s.views, s.dataWarehouseSavedQueryMapById],
+            (views, dataWarehouseSavedQueryMapById): DatabaseSchemaTable[] => {
+                return views
+                    .filter((view) => !dataWarehouseSavedQueryMapById[view.id]?.status)
+                    .map((view) => ({
+                        ...view,
+                        type: 'view',
+                    }))
+            },
+        ],
+        materializedViews: [
+            (s) => [s.views, s.dataWarehouseSavedQueryMapById],
+            (views, dataWarehouseSavedQueryMapById): DatabaseSchemaMaterializedViewTable[] => {
+                return views
+                    .filter((view) => dataWarehouseSavedQueryMapById[view.id]?.status)
+                    .map((view) => ({
+                        ...view,
+                        type: 'materialized_view',
+                        last_run_at: dataWarehouseSavedQueryMapById[view.id]?.last_run_at,
+                        status: dataWarehouseSavedQueryMapById[view.id]?.status,
+                    }))
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         deleteDataWarehouseSavedQuery: async (tableId) => {
@@ -246,16 +279,17 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 })
             }
         },
-        updateView: ({ query }) => {
+        updateView: ({ query, types }) => {
             if (values.editingView) {
                 const newViewQuery: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: query,
                 }
                 const oldView = values.viewsMapById[values.editingView]
-                const newView = {
+                const newView: DatabaseSchemaViewTable & { types: string[][] } = {
                     ...oldView,
                     query: newViewQuery,
+                    types,
                 }
                 actions.updateDataWarehouseSavedQuery(newView)
             }

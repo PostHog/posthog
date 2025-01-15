@@ -203,6 +203,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                     "key": feature_flag_key,
                     "name": f"Feature Flag for Feature {validated_data['name']}",
                     "filters": filters,
+                    "creation_context": "early_access_features",
                 },
                 context=self.context,
             )
@@ -269,9 +270,9 @@ def early_access_features(request: Request):
         )
 
     early_access_features = MinimalEarlyAccessFeatureSerializer(
-        EarlyAccessFeature.objects.filter(team_id=team.id, stage=EarlyAccessFeature.Stage.BETA).select_related(
-            "feature_flag"
-        ),
+        EarlyAccessFeature.objects.filter(
+            team__project_id=team.project_id, stage=EarlyAccessFeature.Stage.BETA
+        ).select_related("feature_flag"),
         many=True,
     ).data
 

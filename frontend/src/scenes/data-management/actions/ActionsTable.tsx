@@ -1,4 +1,4 @@
-import { IconCheckCircle } from '@posthog/icons'
+import { IconCheckCircle, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import api from 'lib/api'
@@ -12,13 +12,14 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { stripHTTP } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { ActionType, AvailableFeature, ChartDisplayType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
 
 import { NewActionButton } from '../../actions/NewActionButton'
@@ -28,7 +29,7 @@ import { urls } from '../../urls'
 export function ActionsTable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
-    const { loadActions } = useActions(actionsModel)
+    const { loadActions, pinAction, unpinAction } = useActions(actionsModel)
 
     const { filterType, searchTerm, actionsFiltered, shouldShowEmptyState } = useValues(actionsLogic)
     const { setFilterType, setSearchTerm } = useActions(actionsLogic)
@@ -56,6 +57,24 @@ export function ActionsTable(): JSX.Element {
     }
 
     const columns: LemonTableColumns<ActionType> = [
+        {
+            width: 0,
+            title: 'Pinned',
+            dataIndex: 'pinned_at',
+            sorter: (a: ActionType, b: ActionType) =>
+                (b.pinned_at ? new Date(b.pinned_at).getTime() : 0) -
+                (a.pinned_at ? new Date(a.pinned_at).getTime() : 0),
+            render: function Render(pinned, action) {
+                return (
+                    <LemonButton
+                        size="small"
+                        onClick={pinned ? () => unpinAction(action) : () => pinAction(action)}
+                        tooltip={pinned ? 'Unpin action' : 'Pin action'}
+                        icon={pinned ? <IconPinFilled /> : <IconPin />}
+                    />
+                )
+            },
+        },
         {
             title: 'Name',
             dataIndex: 'name',
@@ -170,7 +189,7 @@ export function ActionsTable(): JSX.Element {
                                     Duplicate
                                 </LemonButton>
                                 <LemonButton
-                                    to={urls.replay(ReplayTabs.Recent, {
+                                    to={urls.replay(ReplayTabs.Home, {
                                         filter_group: {
                                             type: FilterLogicalOperator.And,
                                             values: [
@@ -200,13 +219,15 @@ export function ActionsTable(): JSX.Element {
                                 <LemonDivider />
                                 <LemonButton
                                     status="danger"
-                                    onClick={() =>
-                                        void deleteWithUndo({
+                                    onClick={() => {
+                                        deleteWithUndo({
                                             endpoint: api.actions.determineDeleteEndpoint(),
                                             object: action,
                                             callback: loadActions,
+                                        }).catch((e: any) => {
+                                            lemonToast.error(`Error deleting action: ${e.detail}`)
                                         })
-                                    }
+                                    }}
                                     fullWidth
                                 >
                                     Delete action

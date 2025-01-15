@@ -17,19 +17,26 @@ from posthog.hogql.database.models import (
     LazyTableToAdd,
     LazyJoinToAdd,
 )
-from posthog.hogql.database.schema.channel_type import create_channel_type_expr, POSSIBLE_CHANNEL_TYPES
-from posthog.hogql.database.schema.sessions_v1 import null_if_empty
+from posthog.hogql.database.schema.channel_type import (
+    create_channel_type_expr,
+    ChannelTypeExprs,
+    DEFAULT_CHANNEL_TYPES,
+)
+from posthog.hogql.database.schema.sessions_v1 import null_if_empty, DEFAULT_BOUNCE_RATE_DURATION_SECONDS
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.models.property_definition import PropertyType
 from posthog.models.raw_sessions.sql import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL,
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema import BounceRatePageViewMode, CustomChannelRule
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
@@ -54,6 +61,8 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "autocapture_uniq": DatabaseField(name="autocapture_uniq"),
     "screen_uniq": DatabaseField(name="screen_uniq"),
     "last_external_click_url": StringDatabaseField(name="last_external_click_url"),
+    "page_screen_autocapture_uniq_up_to": DatabaseField(name="page_screen_autocapture_uniq_up_to"),
+    "vitals_lcp": DatabaseField(name="vitals_lcp"),
 }
 
 LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
@@ -69,8 +78,10 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$num_uniq_urls": IntegerDatabaseField(name="$num_uniq_urls"),
     "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
     "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
+    "$entry_hostname": StringDatabaseField(name="$entry_host"),
     "$end_current_url": StringDatabaseField(name="$end_current_url"),
     "$end_pathname": StringDatabaseField(name="$end_pathname"),
+    "$end_hostname": StringDatabaseField(name="$end_hostname"),
     "$entry_utm_source": StringDatabaseField(name="$entry_utm_source"),
     "$entry_utm_campaign": StringDatabaseField(name="$entry_utm_campaign"),
     "$entry_utm_medium": StringDatabaseField(name="$entry_utm_medium"),
@@ -90,6 +101,11 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
     "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
     "$last_external_click_url": StringDatabaseField(name="$last_external_click_url"),
+    "$page_screen_autocapture_count_up_to": DatabaseField(name="$$page_screen_autocapture_count_up_to"),
+    # some aliases for people upgrading from v1 to v2
+    "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
+    "$exit_pathname": StringDatabaseField(name="$exit_pathname"),
+    "$vitals_lcp": FloatDatabaseField(name="vitals_lcp", nullable=True),
 }
 
 
@@ -121,6 +137,8 @@ class RawSessionsTableV2(Table):
             "autocapture_uniq",
             "screen_uniq",
             "last_external_click_url",
+            "page_screen_autocapture_uniq_up_to",
+            "vitals_lcp",
         ]
 
 
@@ -204,6 +222,12 @@ def select_from_sessions_table_v2(
         "$screen_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),
         "$autocapture_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "autocapture_uniq"])]),
         "$last_external_click_url": null_if_empty(arg_max_merge_field("last_external_click_url")),
+        "$page_screen_autocapture_count_up_to": ast.Call(
+            name="uniqUpToMerge",
+            params=[ast.Constant(value=1)],
+            args=[ast.Field(chain=[table_name, "page_screen_autocapture_uniq_up_to"])],
+        ),
+        "$vitals_lcp": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "vitals_lcp"])]),
     }
     # Alias
     aggregate_fields["id"] = aggregate_fields["session_id"]
@@ -213,8 +237,16 @@ def select_from_sessions_table_v2(
         name="path",
         args=[aggregate_fields["$entry_current_url"]],
     )
+    aggregate_fields["$entry_hostname"] = ast.Call(
+        name="domain",
+        args=[aggregate_fields["$entry_current_url"]],
+    )
     aggregate_fields["$end_pathname"] = ast.Call(
         name="path",
+        args=[aggregate_fields["$end_current_url"]],
+    )
+    aggregate_fields["$end_hostname"] = ast.Call(
+        name="domain",
         args=[aggregate_fields["$end_current_url"]],
     )
     aggregate_fields["$session_duration"] = ast.Call(
@@ -231,44 +263,92 @@ def select_from_sessions_table_v2(
         args=[aggregate_fields["$urls"]],
     )
 
-    bounce_pageview_count = aggregate_fields["$pageview_count"]
-    aggregate_fields["$is_bounce"] = ast.Call(
-        name="if",
-        args=[
-            # if pageview_count is 0, return NULL so it doesn't contribute towards the bounce rate either way
-            ast.Call(name="equals", args=[bounce_pageview_count, ast.Constant(value=0)]),
-            ast.Constant(value=None),
-            ast.Call(
-                name="not",
-                args=[
-                    ast.Call(
-                        name="or",
-                        args=[
-                            # if > 1 pageview, not a bounce
-                            ast.Call(name="greater", args=[bounce_pageview_count, ast.Constant(value=1)]),
-                            # if > 0 autocapture events, not a bounce
-                            ast.Call(
-                                name="greater", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]
-                            ),
-                            # if session duration >= 10 seconds, not a bounce
-                            ast.Call(
-                                name="greaterOrEquals",
-                                args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
-                            ),
-                        ],
-                    )
-                ],
-            ),
-        ],
+    bounce_rate_duration_seconds = (
+        context.modifiers.bounceRateDurationSeconds
+        if context.modifiers.bounceRateDurationSeconds is not None
+        else DEFAULT_BOUNCE_RATE_DURATION_SECONDS
     )
+    if context.modifiers.bounceRatePageViewMode == BounceRatePageViewMode.UNIQ_PAGE_SCREEN_AUTOCAPTURES:
+        bounce_event_count = aggregate_fields["$page_screen_autocapture_count_up_to"]
+        aggregate_fields["$is_bounce"] = ast.Call(
+            name="if",
+            args=[
+                # if the count is 0, return NULL, so it doesn't contribute towards the bounce rate either way
+                ast.Call(name="equals", args=[bounce_event_count, ast.Constant(value=0)]),
+                ast.Constant(value=None),
+                ast.Call(
+                    name="not",
+                    args=[
+                        ast.Call(
+                            name="or",
+                            args=[
+                                # if pageviews + autocaptures > 1, not a bounce
+                                ast.Call(name="greater", args=[bounce_event_count, ast.Constant(value=1)]),
+                                # if session duration >= bounce_rate_duration_seconds, not a bounce
+                                ast.Call(
+                                    name="greaterOrEquals",
+                                    args=[
+                                        aggregate_fields["$session_duration"],
+                                        ast.Constant(value=bounce_rate_duration_seconds),
+                                    ],
+                                ),
+                            ],
+                        )
+                    ],
+                ),
+            ],
+        )
+    else:
+        bounce_pageview_count = aggregate_fields["$pageview_count"]
+        aggregate_fields["$is_bounce"] = ast.Call(
+            name="if",
+            args=[
+                # if pageview_count is 0, return NULL so it doesn't contribute towards the bounce rate either way
+                ast.Call(name="equals", args=[bounce_pageview_count, ast.Constant(value=0)]),
+                ast.Constant(value=None),
+                ast.Call(
+                    name="not",
+                    args=[
+                        ast.Call(
+                            name="or",
+                            args=[
+                                # if > 1 pageview, not a bounce
+                                ast.Call(name="greater", args=[bounce_pageview_count, ast.Constant(value=1)]),
+                                # if > 0 autocapture events, not a bounce
+                                ast.Call(
+                                    name="greater", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]
+                                ),
+                                # if session duration >= bounce_rate_duration_seconds, not a bounce
+                                ast.Call(
+                                    name="greaterOrEquals",
+                                    args=[
+                                        aggregate_fields["$session_duration"],
+                                        ast.Constant(value=bounce_rate_duration_seconds),
+                                    ],
+                                ),
+                            ],
+                        )
+                    ],
+                ),
+            ],
+        )
     aggregate_fields["$channel_type"] = create_channel_type_expr(
-        campaign=aggregate_fields["$entry_utm_campaign"],
-        medium=aggregate_fields["$entry_utm_medium"],
-        source=aggregate_fields["$entry_utm_source"],
-        referring_domain=aggregate_fields["$entry_referring_domain"],
-        gclid=aggregate_fields["$entry_gclid"],
-        gad_source=aggregate_fields["$entry_gad_source"],
+        context.modifiers.customChannelTypeRules,
+        ChannelTypeExprs(
+            campaign=aggregate_fields["$entry_utm_campaign"],
+            medium=aggregate_fields["$entry_utm_medium"],
+            source=aggregate_fields["$entry_utm_source"],
+            url=aggregate_fields["$entry_current_url"],
+            hostname=aggregate_fields["$entry_hostname"],
+            pathname=aggregate_fields["$entry_pathname"],
+            referring_domain=aggregate_fields["$entry_referring_domain"],
+            gclid=aggregate_fields["$entry_gclid"],
+            gad_source=aggregate_fields["$entry_gad_source"],
+        ),
     )
+    # some aliases for people upgrading from v1 to v2
+    aggregate_fields["$exit_current_url"] = aggregate_fields["$end_current_url"]
+    aggregate_fields["$exit_pathname"] = aggregate_fields["$end_pathname"]
 
     select_fields: list[ast.Expr] = []
     group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id_v7"])]
@@ -314,6 +394,9 @@ class SessionsTableV2(LazyTable):
             "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
             "id",  # prefer to use session_id
             "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
+            # aliases for people upgrading from v1 to v2
+            "$exit_current_url",
+            "$exit_pathname",
         ]
 
 
@@ -358,6 +441,10 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
         "$urls",
         "duration",
         "$num_uniq_urls",
+        "$page_screen_autocapture_count_up_to",
+        # aliases for people upgrading from v1 to v2
+        "$exit_current_url",
+        "$exit_pathname",
     }
 
     # some fields should have a specific property type which isn't derivable from the type of database field
@@ -425,6 +512,8 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_pathname": "path(finalizeAggregation(entry_url))",
     "$end_current_url": "finalizeAggregation(end_url)",
     "$end_pathname": "path(finalizeAggregation(end_url))",
+    "$last_external_click_url": "finalizeAggregation(last_external_click_url)",
+    "$vitals_lcp": "finalizeAggregation(vitals_lcp)",
 }
 
 
@@ -432,7 +521,17 @@ def get_lazy_session_table_values_v2(key: str, search_term: Optional[str], team:
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":
-        return [[name] for name in POSSIBLE_CHANNEL_TYPES if not search_term or search_term.lower() in name.lower()]
+        modifiers = create_default_modifiers_for_team(team)
+        custom_channel_type_rules: Optional[list[CustomChannelRule]] = modifiers.customChannelTypeRules
+        if custom_channel_type_rules:
+            custom_channel_types = [rule.channel_type for rule in custom_channel_type_rules]
+        else:
+            custom_channel_types = []
+        default_channel_types = [
+            entry for entry in DEFAULT_CHANNEL_TYPES if not search_term or search_term.lower() in entry.lower()
+        ]
+        # merge the list, keep the order, and remove duplicates
+        return [[name] for name in list(dict.fromkeys(custom_channel_types + default_channel_types))]
 
     field_definition = LAZY_SESSIONS_FIELDS.get(key)
     if not field_definition:

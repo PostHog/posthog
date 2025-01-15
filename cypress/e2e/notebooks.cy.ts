@@ -3,13 +3,13 @@ import { urls } from 'scenes/urls'
 describe('Notebooks', () => {
     beforeEach(() => {
         cy.fixture('api/session-recordings/recordings.json').then((recordings) => {
-            cy.intercept('GET', /api\/projects\/\d+\/session_recordings\/?\?.*/, { body: recordings }).as(
+            cy.intercept('GET', /api\/environments\/\d+\/session_recordings\/?\?.*/, { body: recordings }).as(
                 'loadSessionRecordingsList'
             )
         })
 
         cy.fixture('api/session-recordings/recording.json').then((recording) => {
-            cy.intercept('GET', /api\/projects\/\d+\/session_recordings\/.*\?.*/, { body: recording }).as(
+            cy.intercept('GET', /api\/environments\/\d+\/session_recordings\/.*\?.*/, { body: recording }).as(
                 'loadSessionRecording'
             )
         })
@@ -50,18 +50,6 @@ describe('Notebooks', () => {
 
         cy.get('.ProseMirror').type('{esc}')
         cy.get('.NotebookRecordingTimestamp.opacity-50').should('not.exist')
-    })
-
-    // FIXME: fix commenting on recordings
-    it.skip('Can comment on a recording', () => {
-        cy.visit(urls.replay())
-
-        cy.get('[data-attr="notebooks-add-button"]').click()
-        cy.get('[data-attr="notebooks-select-button-create"]').click()
-
-        cy.get('.Notebook.Notebook--editable').should('be.visible')
-        cy.get('.ph-recording.NotebookNode').should('be.visible')
-        cy.get('.NotebookRecordingTimestamp').should('contain.text', '0:00')
     })
 
     describe('text types', () => {

@@ -1,10 +1,11 @@
+import { captureException } from '@sentry/node'
 import * as schedule from 'node-schedule'
 
-import { PluginsServerConfig, Team } from '../types'
-import { PostgresRouter, PostgresUse } from '../utils/db/postgres'
+import { Hub, Team } from '../types'
+import { PostgresUse } from '../utils/db/postgres'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { HogFunctionType, IntegrationType } from './types'
+import { HogFunctionType, HogFunctionTypeType, IntegrationType } from './types'
 
 type HogFunctionCache = {
     functions: Record<HogFunctionType['id'], HogFunctionType | undefined>
@@ -17,10 +18,13 @@ const HOG_FUNCTION_FIELDS = [
     'name',
     'enabled',
     'inputs',
+    'encrypted_inputs',
     'inputs_schema',
     'filters',
+    'mappings',
     'bytecode',
     'masking',
+    'type',
 ]
 
 export class HogFunctionManager {
@@ -29,8 +33,9 @@ export class HogFunctionManager {
     private cache: HogFunctionCache
     private pubSub: PubSub
     private refreshJob?: schedule.Job
+    private hogTypes: HogFunctionTypeType[] = []
 
-    constructor(private postgres: PostgresRouter, private serverConfig: PluginsServerConfig) {
+    constructor(private hub: Hub) {
         this.started = false
         this.ready = false
         this.cache = {
@@ -38,7 +43,7 @@ export class HogFunctionManager {
             teams: {},
         }
 
-        this.pubSub = new PubSub(this.serverConfig, {
+        this.pubSub = new PubSub(this.hub, {
             'reload-hog-functions': async (message) => {
                 const { hogFunctionIds, teamId } = JSON.parse(message)
                 await this.reloadHogFunctions(teamId, hogFunctionIds)
@@ -55,7 +60,8 @@ export class HogFunctionManager {
         })
     }
 
-    public async start(): Promise<void> {
+    public async start(hogTypes: HogFunctionTypeType[]): Promise<void> {
+        this.hogTypes = hogTypes
         // TRICKY - when running with individual capabilities, this won't run twice but locally or as a complete service it will...
         if (this.started) {
             return
@@ -95,6 +101,7 @@ export class HogFunctionManager {
         if (!this.ready) {
             throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
         }
+
         return this.cache.functions[id]
     }
 
@@ -102,30 +109,32 @@ export class HogFunctionManager {
         if (!this.ready) {
             throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
         }
+
         const fn = this.cache.functions[hogFunctionId]
         if (fn?.team_id === teamId) {
             return fn
         }
     }
 
-    public teamHasHogFunctions(teamId: Team['id']): boolean {
+    public teamHasHogDestinations(teamId: Team['id']): boolean {
         return !!Object.keys(this.getTeamHogFunctions(teamId)).length
     }
 
     public async reloadAllHogFunctions(): Promise<void> {
         const items = (
-            await this.postgres.query<HogFunctionType>(
+            await this.hub.postgres.query<HogFunctionType>(
                 PostgresUse.COMMON_READ,
                 `
             SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
             FROM posthog_hogfunction
-            WHERE deleted = FALSE AND enabled = TRUE
+            WHERE deleted = FALSE AND enabled = TRUE AND type = ANY($1)
         `,
-                [],
+                [this.hogTypes],
                 'fetchAllHogFunctions'
             )
         ).rows
 
+        this.sanitize(items)
         await this.enrichWithIntegrations(items)
 
         const cache: HogFunctionCache = {
@@ -147,16 +156,17 @@ export class HogFunctionManager {
         status.info('🍿', `Reloading hog functions ${ids} from DB`)
 
         const items: HogFunctionType[] = (
-            await this.postgres.query(
+            await this.hub.postgres.query(
                 PostgresUse.COMMON_READ,
                 `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
                 FROM posthog_hogfunction
-                WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE`,
-                [ids],
+                WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE AND type = ANY($2)`,
+                [ids, this.hogTypes],
                 'fetchEnabledHogFunctions'
             )
         ).rows
 
+        this.sanitize(items)
         await this.enrichWithIntegrations(items)
 
         for (const id of ids) {
@@ -173,7 +183,7 @@ export class HogFunctionManager {
 
     public async fetchHogFunction(id: HogFunctionType['id']): Promise<HogFunctionType | null> {
         const items: HogFunctionType[] = (
-            await this.postgres.query(
+            await this.hub.postgres.query(
                 PostgresUse.COMMON_READ,
                 `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
                 FROM posthog_hogfunction
@@ -182,6 +192,8 @@ export class HogFunctionManager {
                 'fetchHogFunction'
             )
         ).rows
+
+        this.sanitize(items)
         await this.enrichWithIntegrations(items)
         return items[0] ?? null
     }
@@ -193,6 +205,30 @@ export class HogFunctionManager {
         const itemsToReload = items.filter((item) => ids.some((id) => item.depends_on_integration_ids?.has(id)))
 
         return this.enrichWithIntegrations(itemsToReload)
+    }
+
+    public sanitize(items: HogFunctionType[]): void {
+        items.forEach((item) => {
+            const encryptedInputsString = item.encrypted_inputs as string | undefined
+
+            if (!Array.isArray(item.inputs_schema)) {
+                // NOTE: The sql lib can sometimes return an empty object instead of an empty array
+                item.inputs_schema = []
+            }
+
+            if (encryptedInputsString) {
+                try {
+                    const decrypted = this.hub.encryptedFields.decrypt(encryptedInputsString || '')
+                    item.encrypted_inputs = decrypted ? JSON.parse(decrypted) : {}
+                } catch (error) {
+                    status.error('🍿', 'Error parsing encrypted inputs:', error)
+                    captureException(error)
+                    // Quietly fail - not ideal but better then crashing out
+                }
+            }
+        })
+
+        return
     }
 
     public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
@@ -216,7 +252,7 @@ export class HogFunctionManager {
         }
 
         const integrations: IntegrationType[] = (
-            await this.postgres.query(
+            await this.hub.postgres.query(
                 PostgresUse.COMMON_READ,
                 `SELECT id, team_id, kind, config, sensitive_config
                 FROM posthog_integration
@@ -228,11 +264,14 @@ export class HogFunctionManager {
 
         const integrationConfigsByTeamAndId: Record<string, Record<string, any>> = integrations.reduce(
             (acc, integration) => {
+                // Decrypt the sensitive config here
                 return {
                     ...acc,
                     [`${integration.team_id}:${integration.id}`]: {
                         ...integration.config,
-                        ...integration.sensitive_config,
+                        ...this.hub.encryptedFields.decryptObject(integration.sensitive_config || {}, {
+                            ignoreDecryptionErrors: true,
+                        }),
                     },
                 }
             },

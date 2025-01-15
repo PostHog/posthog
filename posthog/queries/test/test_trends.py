@@ -3612,6 +3612,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._test_math_property_aggregation("median", values=range(101, 201), expected_value=150)
 
     @also_test_with_materialized_columns(["some_number"])
+    def test_p75_filtering(self):
+        self._test_math_property_aggregation("p75", values=range(101, 201), expected_value=175)
+
+    @also_test_with_materialized_columns(["some_number"])
     def test_p90_filtering(self):
         self._test_math_property_aggregation("p90", values=range(101, 201), expected_value=190)
 
@@ -7768,7 +7772,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_trends_count_per_group_average_daily(self):
         self._create_event_count_per_actor_events()
-        GroupTypeMapping.objects.create(team=self.team, group_type="shape", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="shape", group_type_index=0
+        )
         create_group(team_id=self.team.pk, group_type_index=0, group_key="bouba")
         create_group(team_id=self.team.pk, group_type_index=0, group_key="kiki")
 
@@ -7815,7 +7821,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_trends_count_per_group_average_aggregated(self):
         self._create_event_count_per_actor_events()
-        GroupTypeMapping.objects.create(team=self.team, group_type="shape", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="shape", group_type_index=0
+        )
         create_group(team_id=self.team.pk, group_type_index=0, group_key="bouba")
         create_group(team_id=self.team.pk, group_type_index=0, group_key="kiki")
 
@@ -7876,8 +7884,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert daily_response[2]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
 
     def _create_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         create_group(
             team_id=self.team.pk,
@@ -8479,8 +8491,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_filtering_by_multiple_groups_person_on_events(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=2)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=2
+        )
 
         create_group(
             team_id=self.team.pk,

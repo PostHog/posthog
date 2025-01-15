@@ -14,7 +14,7 @@ import {
     HeatmapJsDataPoint,
     HeatmapRequestType,
 } from 'lib/components/heatmaps/types'
-import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/heatmaps/utils'
+import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 import { dateFilterToText } from 'lib/utils'
 import { createVersionChecker } from 'lib/utils/semver'
 import { PostHog } from 'posthog-js'
@@ -437,7 +437,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
         scrollDepthPosthogJsError: [
             (s) => [s.posthog],
-            (posthog: PostHog): 'version' | 'disabled' | null => {
+            (posthog: PostHog | null): 'version' | 'disabled' | null => {
+                if (!posthog) {
+                    return null
+                }
+
                 const posthogVersion =
                     posthog?.version ??
                     posthog?._calculate_event_properties('test', {}, new Date())?.['$lib_version'] ??

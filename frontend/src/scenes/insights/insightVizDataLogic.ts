@@ -11,10 +11,11 @@ import { dayjs } from 'lib/dayjs'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -34,7 +35,7 @@ import {
     NodeKind,
     TrendsFilter,
     TrendsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     filterKeyForQuery,
@@ -43,7 +44,9 @@ import {
     getDisplay,
     getFormula,
     getInterval,
+    getResultCustomizationBy,
     getSeries,
+    getShowAlertThresholdLines,
     getShowLabelsOnSeries,
     getShowLegend,
     getShowPercentStackView,
@@ -85,6 +88,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['filterTestAccountsDefault'],
             databaseTableListLogic,
             ['dataWarehouseTablesMap'],
+            dataThemeLogic,
+            ['getTheme'],
         ],
         actions: [insightDataLogic, ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure']],
     })),
@@ -99,6 +104,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
+        setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
     }),
 
     reducers({
@@ -106,6 +112,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             null as null | string,
             {
                 setTimedOutQueryId: (_, { id }) => id,
+            },
+        ],
+
+        // Whether the interval has been manually set by the user. If true, prevents auto-adjusting the interval when date range changes. Reference: https://github.com/PostHog/posthog/issues/22785
+        isIntervalManuallySet: [
+            false,
+            {
+                updateQuerySource: (state, { querySource }) => {
+                    // If interval is explicitly included in the update, mark it as manually set
+                    return 'interval' in querySource ? true : state
+                },
+                setIsIntervalManuallySet: (_, { isIntervalManuallySet }) => isIntervalManuallySet,
             },
         ],
     }),
@@ -148,6 +166,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return false
             },
         ],
+        supportsResultCustomizationBy: [
+            (s) => [s.isTrends, s.display],
+            (isTrends, display) =>
+                isTrends && [ChartDisplayType.ActionsLineGraph].includes(display || ChartDisplayType.ActionsLineGraph),
+        ],
 
         dateRange: [(s) => [s.querySource], (q) => (q ? q.dateRange : null)],
         breakdownFilter: [(s) => [s.querySource], (q) => (q ? getBreakdown(q) : null)],
@@ -158,11 +181,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
+        showAlertThresholdLines: [(s) => [s.querySource], (q) => (q ? getShowAlertThresholdLines(q) : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
         showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
         yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
+        resultCustomizationBy: [(s) => [s.querySource], (q) => (q ? getResultCustomizationBy(q) : null)],
         vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
@@ -330,7 +355,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 // We use 512 for query timeouts
                 // Async queries put the error message on data.error_message, while synchronous ones use detail
                 return insightDataError?.status === 400 || insightDataError?.status === 512
-                    ? (insightDataError.detail || insightDataError.data?.error_message)?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
+                    ? (insightDataError.detail || insightDataError.data?.error_message)?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
                     : null
             },
         ],
@@ -372,6 +397,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.querySource, actionsModel.selectors.actions],
             (querySource, actions) => (querySource ? getAllEventNames(querySource, actions) : []),
         ],
+
+        theme: [(s) => [s.getTheme, s.querySource], (getTheme, querySource) => getTheme(querySource?.dataColorTheme)],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -399,7 +426,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 ...values.query,
                 source: {
                     ...values.querySource,
-                    ...handleQuerySourceUpdateSideEffects(querySource, values.querySource as InsightQueryNode),
+                    ...handleQuerySourceUpdateSideEffects(
+                        querySource,
+                        values.querySource as InsightQueryNode,
+                        values.isIntervalManuallySet
+                    ),
                 },
             } as Node)
         },
@@ -485,7 +516,8 @@ const getActiveUsersMath = (
 
 const handleQuerySourceUpdateSideEffects = (
     update: QuerySourceUpdate,
-    currentState: InsightQueryNode
+    currentState: InsightQueryNode,
+    isIntervalManuallySet: boolean
 ): QuerySourceUpdate => {
     const mergedUpdate = { ...update } as InsightQueryNode
 
@@ -534,7 +566,8 @@ const handleQuerySourceUpdateSideEffects = (
         update.dateRange &&
         update.dateRange.date_from &&
         (update.dateRange.date_from !== currentState.dateRange?.date_from ||
-            update.dateRange.date_to !== currentState.dateRange?.date_to)
+            update.dateRange.date_to !== currentState.dateRange?.date_to) &&
+        !isIntervalManuallySet // Only auto-adjust interval if not manually set
     ) {
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
 

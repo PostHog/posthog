@@ -165,6 +165,12 @@ export function BatchExportsEditFields({
                                         { value: 'eu-north-1', label: 'Europe (Stockholm)' },
                                         { value: 'me-south-1', label: 'Middle East (Bahrain)' },
                                         { value: 'sa-east-1', label: 'South America (São Paulo)' },
+                                        { value: 'auto', label: 'Automatic (AUTO)' },
+                                        { value: 'apac', label: 'Asia Pacific (APAC)' },
+                                        { value: 'eeur', label: 'Eastern Europe (EEUR)' },
+                                        { value: 'enam', label: 'Eastern North America (ENAM)' },
+                                        { value: 'weur', label: 'Western Europe (WEUR)' },
+                                        { value: 'wnam', label: 'Western North America (WNAM)' },
                                     ]}
                                 />
                             </LemonField>
@@ -172,6 +178,32 @@ export function BatchExportsEditFields({
                         <LemonField name="prefix" label="Key prefix">
                             <LemonInput placeholder="e.g. posthog-events/" />
                         </LemonField>
+
+                        <div className="flex gap-4">
+                            <LemonField name="file_format" label="Format" className="flex-1">
+                                <LemonSelect
+                                    options={[
+                                        { value: 'JSONLines', label: 'JSON lines' },
+                                        { value: 'Parquet', label: 'Apache Parquet' },
+                                    ]}
+                                />
+                            </LemonField>
+
+                            <LemonField
+                                name="max_file_size_mb"
+                                label="Max file size (MiB)"
+                                showOptional
+                                className="flex-1"
+                                info={
+                                    <>
+                                        Files over this max file size will be split into multiple files. Leave empty or
+                                        set to 0 for no splitting regardless of file size
+                                    </>
+                                }
+                            >
+                                <LemonInput type="number" min={0} />
+                            </LemonField>
+                        </div>
 
                         <div className="flex gap-4">
                             <LemonField name="compression" label="Compression" className="flex-1">
@@ -190,15 +222,6 @@ export function BatchExportsEditFields({
                                         { value: 'AES256', label: 'AES256' },
                                         { value: 'aws:kms', label: 'aws:kms' },
                                         { value: null, label: 'No encryption' },
-                                    ]}
-                                />
-                            </LemonField>
-
-                            <LemonField name="file_format" label="Format" className="flex-1">
-                                <LemonSelect
-                                    options={[
-                                        { value: 'JSONLines', label: 'JSON lines' },
-                                        { value: 'Parquet', label: 'Apache Parquet' },
                                     ]}
                                 />
                             </LemonField>
@@ -405,7 +428,6 @@ export function BatchExportsEditFields({
                                     { value: 'varchar', label: 'VARCHAR(65535)' },
                                     { value: 'super', label: 'SUPER' },
                                 ]}
-                                value="varchar"
                             />
                         </LemonField>
 

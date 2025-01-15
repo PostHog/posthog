@@ -1,16 +1,30 @@
 import './ErrorBoundary.scss'
 
 import { ErrorBoundary as SentryErrorBoundary, getCurrentHub } from '@sentry/react'
-import { useActions } from 'kea'
+import type { Primitive } from '@sentry/types'
+import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { teamLogic } from 'scenes/teamLogic'
 
-export function ErrorBoundary({ children }: { children?: React.ReactNode }): JSX.Element {
+interface ErrorBoundaryProps {
+    children?: React.ReactNode
+    tags?: Record<string, Primitive>
+}
+
+export function ErrorBoundary({ children, tags = {} }: ErrorBoundaryProps): JSX.Element {
     const isSentryInitialized = !!getCurrentHub().getClient()
+    const { currentTeamId } = useValues(teamLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     return (
         <SentryErrorBoundary
+            beforeCapture={(scope) => {
+                if (currentTeamId !== undefined) {
+                    scope.setTag('team_id', currentTeamId)
+                }
+                scope.setTags(tags)
+            }}
             fallback={({ error, eventId }) => (
                 <div className="ErrorBoundary">
                     <>

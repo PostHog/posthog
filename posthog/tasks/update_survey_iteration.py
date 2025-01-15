@@ -58,7 +58,7 @@ def _get_targeting_flag(survey: Survey) -> ForeignKey | ForeignKey | Any:
             team=survey.team,
             created_by=survey.created_by,
             active=True,
-            key=survey.id,
+            key=str(survey.id),
             filters=user_submitted_dismissed_filter,
         )
         new_flag.save()
