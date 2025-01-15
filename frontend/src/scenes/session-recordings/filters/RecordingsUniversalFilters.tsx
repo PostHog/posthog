@@ -125,7 +125,7 @@ export const RecordingsUniversalFilters = ({
                     />
                 </div>
             </div>
-            <div className="flex gap-2 p-2">
+            <div className="flex flex-wrap gap-2 p-2">
                 <UniversalFilters
                     rootKey="session-recordings"
                     group={filters.filter_group}
