@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
     isActionFilter,
@@ -674,6 +675,38 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.pinnedRecordings, s.otherRecordings],
             (pinnedRecordings, otherRecordings): number => {
                 return otherRecordings.length + pinnedRecordings.length
+            },
+        ],
+
+        allowFlagsFilters: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_FLAGS_FILTERS],
+        ],
+
+        allowHogQLFilters: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS],
+        ],
+
+        taxonomicGroupTypes: [
+            (s) => [s.allowFlagsFilters, s.allowHogQLFilters],
+            (allowFlagsFilters, allowHogQLFilters): string[] => {
+                const taxonomicGroupTypes = [
+                    TaxonomicFilterGroupType.Replay,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.SessionProperties,
+                ]
+
+                if (allowHogQLFilters) {
+                    taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
+                }
+                if (allowFlagsFilters) {
+                    taxonomicGroupTypes.push(TaxonomicFilterGroupType.EventFeatureFlags)
+                }
+                return taxonomicGroupTypes
             },
         ],
     }),
