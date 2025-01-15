@@ -318,7 +318,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         },
     })),
-    reducers(() => ({
+    reducers({
         featureFlag: [
             { ...NEW_FLAG } as FeatureFlagType,
             {
@@ -524,7 +524,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setScheduledChangeOperation: (_, { changeType }) => changeType,
             },
         ],
-    })),
+    }),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
