@@ -2172,23 +2172,24 @@ export interface LLMGeneration {
     baseUrl?: string
 }
 
+// Snake-case here for the DataTable component.
 export interface LLMTracePerson {
     uuid: string
-    createdAt: string
+    created_at: string
     properties: Record<string, any>
-    distinctId: string
+    distinct_id: string
 }
 
 export interface LLMTrace {
     id: string
     createdAt: string
     person: LLMTracePerson
-    totalLatency: number
-    inputTokens: number
-    outputTokens: number
-    inputCost: number
-    outputCost: number
-    totalCost: number
+    totalLatency?: number
+    inputTokens?: number
+    outputTokens?: number
+    inputCost?: number
+    outputCost?: number
+    totalCost?: number
     events: LLMGeneration[]
 }
 

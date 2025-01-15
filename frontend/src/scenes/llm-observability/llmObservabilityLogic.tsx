@@ -283,11 +283,25 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             (dateFilter) => ({
                 kind: NodeKind.DataTableNode,
                 source: {
-                    // kind: NodeKind.TracesQuery,
-                    dateFilter,
+                    kind: NodeKind.TracesQuery,
+                    dateRange: {
+                        date_from: dateFilter.dateFrom || undefined,
+                        date_to: dateFilter.dateTo || undefined,
+                    },
                 },
                 showActions: false,
                 showTimings: false,
+                columns: [
+                    'id',
+                    'created_at',
+                    'person',
+                    'totalLatency',
+                    'inputTokens',
+                    'outputTokens',
+                    'inputCost',
+                    'outputCost',
+                    'totalCost',
+                ],
             }),
         ],
         generationsQuery: [
@@ -338,6 +352,11 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         [urls.llmObservability('dashboard')]: () => {
             if (values.activeTab !== 'dashboard') {
                 actions.setActiveTab('dashboard')
+            }
+        },
+        [urls.llmObservability('traces')]: () => {
+            if (values.activeTab !== 'traces') {
+                actions.setActiveTab('traces')
             }
         },
         [urls.llmObservability('generations')]: () => {

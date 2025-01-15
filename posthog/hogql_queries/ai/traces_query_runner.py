@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 import orjson
@@ -95,18 +95,6 @@ class TracesQueryRunner(QueryRunner):
         return TracesQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
 
     def _map_results(self, columns: list[str], query_results: list):
-        TRACE_FIELDS_MAPPING = {
-            "id": "id",
-            "created_at": "createdAt",
-            "person": "person",
-            "total_latency": "totalLatency",
-            "input_tokens": "inputTokens",
-            "output_tokens": "outputTokens",
-            "input_cost": "inputCost",
-            "output_cost": "outputCost",
-            "total_cost": "totalCost",
-            "events": "events",
-        }
         mapped_results = [dict(zip(columns, value)) for value in query_results]
         traces = []
 
@@ -119,23 +107,39 @@ class TracesQueryRunner(QueryRunner):
             ):
                 continue
 
-            generations = []
-            for uuid, timestamp, properties in result["events"]:
-                generations.append(self._map_generation(uuid, timestamp, properties))
-
-            trace_dict = {
-                **result,
-                "created_at": timestamp_dt.isoformat(),
-                "person": self._map_person(result["person"]),
-                "events": generations,
-            }
-            # Remap keys from snake case to camel case
-            trace = LLMTrace.model_validate(
-                {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
-            )
-            traces.append(trace)
+            traces.append(self._map_trace(result, timestamp_dt))
 
         return traces
+
+    def _map_trace(self, result: dict[str, Any], created_at: datetime) -> LLMTrace:
+        TRACE_FIELDS_MAPPING = {
+            "id": "id",
+            "created_at": "createdAt",
+            "person": "person",
+            "total_latency": "totalLatency",
+            "input_tokens": "inputTokens",
+            "output_tokens": "outputTokens",
+            "input_cost": "inputCost",
+            "output_cost": "outputCost",
+            "total_cost": "totalCost",
+            "events": "events",
+        }
+
+        generations = []
+        for uuid, timestamp, properties in result["events"]:
+            generations.append(self._map_generation(uuid, timestamp, properties))
+
+        trace_dict = {
+            **result,
+            "created_at": created_at.isoformat(),
+            "person": self._map_person(result["person"]),
+            "events": generations,
+        }
+        # Remap keys from snake case to camel case
+        trace = LLMTrace.model_validate(
+            {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
+        )
+        return trace
 
     def _map_generation(self, event_uuid: UUID, event_timestamp: datetime, event_properties: str) -> LLMGeneration:
         properties: dict = orjson.loads(event_properties)
@@ -156,7 +160,7 @@ class TracesQueryRunner(QueryRunner):
         }
         GENERATION_JSON_FIELDS = {"$ai_input", "$ai_output"}
 
-        generation = {
+        generation: dict[str, Any] = {
             "id": str(event_uuid),
             "createdAt": event_timestamp.isoformat(),
         }
@@ -164,7 +168,11 @@ class TracesQueryRunner(QueryRunner):
         for event_prop, model_prop in GENERATION_MAPPING.items():
             if event_prop in properties:
                 if event_prop in GENERATION_JSON_FIELDS:
-                    generation[model_prop] = orjson.loads(properties[event_prop])
+                    try:
+                        generation[model_prop] = orjson.loads(properties[event_prop])
+                    except orjson.JSONDecodeError:
+                        if event_prop == "$ai_input":
+                            generation[model_prop] = []
                 else:
                     generation[model_prop] = properties[event_prop]
 
@@ -174,8 +182,8 @@ class TracesQueryRunner(QueryRunner):
         uuid, distinct_id, created_at, properties = person
         return LLMTracePerson(
             uuid=str(uuid),
-            distinctId=str(distinct_id),
-            createdAt=created_at.isoformat(),
+            distinct_id=str(distinct_id),
+            created_at=created_at.isoformat(),
             properties=orjson.loads(properties) if properties else {},
         )
 
