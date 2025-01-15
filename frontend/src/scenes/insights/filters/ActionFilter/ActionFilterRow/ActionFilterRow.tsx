@@ -685,7 +685,6 @@ function useMathSelectorOptions({
         if (isPropertyValueMath(math)) {
             return math
         }
-        // If onlyPropertyMathDefinitions is defined, use its first value as default
         if (onlyPropertyMathDefinitions?.length) {
             return onlyPropertyMathDefinitions[0] as PropertyMathType
         }
