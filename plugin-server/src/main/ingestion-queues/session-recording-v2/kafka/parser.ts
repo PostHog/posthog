@@ -7,7 +7,7 @@ import { status } from '../../../../utils/status'
 import { KafkaMetrics } from './metrics'
 import { ParsedMessageData } from './types'
 
-const GZIP_HEADER = Buffer.from([0x1f, 0x8b, 0x08, 0x00])
+const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 const decompressWithGzip = promisify(gunzip)
 
 export class KafkaParser {
@@ -86,16 +86,6 @@ export class KafkaParser {
     }
 
     private isGzipped(buffer: Buffer): boolean {
-        if (buffer.length < GZIP_HEADER.length) {
-            return false
-        }
-
-        for (let i = 0; i < GZIP_HEADER.length; i++) {
-            if (buffer[i] !== GZIP_HEADER[i]) {
-                return false
-            }
-        }
-
-        return true
+        return buffer.slice(0, GZIP_HEADER.length).equals(GZIP_HEADER)
     }
 }
