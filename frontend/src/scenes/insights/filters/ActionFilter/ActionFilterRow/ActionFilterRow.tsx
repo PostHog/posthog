@@ -681,9 +681,17 @@ function useMathSelectorOptions({
         staticActorsOnlyMathDefinitions,
     } = useValues(mathsLogic)
 
-    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
-        isPropertyValueMath(math) ? math : PropertyMathType.Average
-    )
+    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(() => {
+        if (isPropertyValueMath(math)) {
+            return math
+        }
+        // If onlyPropertyMathDefinitions is defined, use its first value as default
+        if (onlyPropertyMathDefinitions?.length) {
+            return onlyPropertyMathDefinitions[0] as PropertyMathType
+        }
+        return PropertyMathType.Average
+    })
+
     const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average
     )
