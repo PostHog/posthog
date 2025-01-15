@@ -6,12 +6,9 @@ import { LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SettingsMenu } from 'lib/components/PanelLayout/PanelLayout'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 
@@ -21,12 +18,8 @@ import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 import { sessionRecordingsPlaylistLogic } from '../sessionRecordingsPlaylistLogic'
 
 export const FiltersPanel = (): JSX.Element => {
-    const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
+    const { filters, taxonomicGroupTypes } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
     const { setFilters } = useActions(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
-
-    const featureFlags = useValues(featureFlagLogic)
-    const allowReplayHogQLFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS]
-    const allowReplayFlagsFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_FLAGS_FILTERS]
 
     /** For the internal users filter */
     const onChangeOperator = (type: FilterLogicalOperator): void => {
@@ -43,22 +36,6 @@ export const FiltersPanel = (): JSX.Element => {
     }
 
     const durationFilter = filters.duration[0]
-
-    const taxonomicGroupTypes = [
-        TaxonomicFilterGroupType.Replay,
-        TaxonomicFilterGroupType.Events,
-        TaxonomicFilterGroupType.Actions,
-        TaxonomicFilterGroupType.Cohorts,
-        TaxonomicFilterGroupType.PersonProperties,
-        TaxonomicFilterGroupType.SessionProperties,
-    ]
-
-    if (allowReplayHogQLFilters) {
-        taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
-    }
-    if (allowReplayFlagsFilters) {
-        taxonomicGroupTypes.push(TaxonomicFilterGroupType.EventFeatureFlags)
-    }
 
     return (
         <>
