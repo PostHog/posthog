@@ -466,7 +466,13 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 vmState: serializeHogFunctionInvocation(item),
             }
         })
-        await this.cyclotronManager?.bulkCreateJobs(cyclotronJobs)
+        try {
+            await this.cyclotronManager?.bulkCreateJobs(cyclotronJobs)
+        } catch (e) {
+            status.error('⚠️', 'Error creating cyclotron jobs', e)
+            status.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
+            throw e
+        }
 
         if (kafkaInvocations.length) {
             // As we don't want to over-produce to kafka we invoke the hog functions and then queue the results

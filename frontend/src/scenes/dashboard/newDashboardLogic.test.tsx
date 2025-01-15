@@ -1,4 +1,4 @@
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 
 import { applyTemplate } from './newDashboardLogic'
 

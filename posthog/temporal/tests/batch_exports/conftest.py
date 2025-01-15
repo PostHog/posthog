@@ -250,9 +250,26 @@ def test_properties(request):
     return {"$browser": "Chrome", "$os": "Mac OS X"}
 
 
+@pytest.fixture
+def test_person_properties(request):
+    """Set test person data properties."""
+    try:
+        return request.param
+    except AttributeError:
+        pass
+    return {"utm_medium": "referral", "$initial_os": "Linux"}
+
+
 @pytest_asyncio.fixture
 async def generate_test_data(
-    ateam, clickhouse_client, exclude_events, data_interval_start, data_interval_end, interval, test_properties
+    ateam,
+    clickhouse_client,
+    exclude_events,
+    data_interval_start,
+    data_interval_end,
+    interval,
+    test_properties,
+    test_person_properties,
 ):
     """Generate test data in ClickHouse."""
     if interval != "every 5 minutes":
@@ -310,7 +327,7 @@ async def generate_test_data(
         end_time=data_interval_end,
         count=10,
         count_other_team=1,
-        properties={"utm_medium": "referral", "$initial_os": "Linux"},
+        properties=test_person_properties,
     )
 
     persons_to_export_created = []

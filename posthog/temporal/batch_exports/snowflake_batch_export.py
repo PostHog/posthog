@@ -12,6 +12,7 @@ import pyarrow as pa
 import snowflake.connector
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
+from snowflake.connector.cursor import ResultMetadata
 from snowflake.connector.errors import InterfaceError, OperationalError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -49,10 +50,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
     WriterFormat,
 )
-from posthog.temporal.batch_exports.utils import (
-    JsonType,
-    set_status_to_running_task,
-)
+from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -67,6 +65,8 @@ NON_RETRYABLE_ERROR_TYPES = [
     "ForbiddenError",
     # Our own exception when we can't connect to Snowflake, usually due to invalid parameters.
     "SnowflakeConnectionError",
+    # Raised when a table is not found in Snowflake.
+    "SnowflakeTableNotFoundError",
 ]
 
 
@@ -98,6 +98,13 @@ class SnowflakeRetryableConnectionError(Exception):
     """Raised when a connection to Snowflake is not established."""
 
     pass
+
+
+class SnowflakeTableNotFoundError(Exception):
+    """Raised when a table is not found in Snowflake."""
+
+    def __init__(self, table_name: str):
+        super().__init__(f"Table '{table_name}' not found in Snowflake")
 
 
 @dataclasses.dataclass
@@ -228,7 +235,7 @@ class SnowflakeClient:
         parameters: dict | None = None,
         file_stream=None,
         poll_interval: float = 1.0,
-    ) -> list[tuple] | list[dict]:
+    ) -> tuple[list[tuple] | list[dict], list[ResultMetadata]]:
         """Wrap Snowflake connector's polling API in a coroutine.
 
         This enables asynchronous execution of queries to release the event loop to execute other tasks
@@ -239,6 +246,11 @@ class SnowflakeClient:
             query: A query string to run asynchronously.
             parameters: An optional dictionary of parameters to bind to the query.
             poll_interval: Specify how long to wait in between polls.
+
+        Returns:
+            A tuple containing:
+            - The query results as a list of tuples or dicts
+            - The cursor description (containing list of fields in result)
         """
         with self.connection.cursor() as cursor:
             # Snowflake docs incorrectly state that the 'params' argument is named 'parameters'.
@@ -255,7 +267,8 @@ class SnowflakeClient:
         with self.connection.cursor() as cursor:
             cursor.get_results_from_sfqid(query_id)
             results = cursor.fetchall()
-        return results
+            description = cursor.description
+        return results, description
 
     async def aremove_internal_stage_files(self, table_name: str, table_stage_prefix: str) -> None:
         """Asynchronously remove files from internal table stage.
@@ -297,6 +310,27 @@ class SnowflakeClient:
 
         await self.execute_async_query(query)
         return None
+
+    async def aget_table_columns(self, table_name: str) -> list[str]:
+        """Get the column names for a given table.
+
+        Arguments:
+            table_name: The name of the table to get columns for.
+
+        Returns:
+            A list of column names.
+        """
+        try:
+            _, metadata = await self.execute_async_query(f"""
+                SELECT * FROM "{table_name}" LIMIT 0
+            """)
+        except snowflake.connector.errors.ProgrammingError as e:
+            if "does not exist" in str(e):
+                raise SnowflakeTableNotFoundError(table_name)
+            else:
+                raise
+
+        return [row.name for row in metadata]
 
     @contextlib.asynccontextmanager
     async def managed_table(
@@ -390,7 +424,7 @@ class SnowflakeClient:
         MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
         PURGE = TRUE
         """
-        results = await self.execute_async_query(query)
+        results, _ = await self.execute_async_query(query)
 
         for query_result in results:
             if not isinstance(query_result, tuple):
@@ -426,6 +460,12 @@ class SnowflakeClient:
         person_distinct_id_version_key: str = "person_distinct_id_version",
     ):
         """Merge two identical person model tables in Snowflake."""
+
+        # handle the case where the final table doesn't contain all the fields present in the stage table
+        # (for example, if we've added new fields to the person model)
+        final_table_column_names = await self.aget_table_columns(final_table)
+        update_when_matched = [field for field in update_when_matched if field[0] in final_table_column_names]
+
         merge_condition = "ON "
 
         for n, field in enumerate(merge_key):
@@ -666,6 +706,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
+            use_latest_schema=True,
         )
         records_completed = 0
 
