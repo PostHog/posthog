@@ -12,14 +12,14 @@ source_roots = [
 [[modules]]
 path = "<root>"
 depends_on = [
-    { path = "posthog" },
+    "posthog",
 ]
 
 [[modules]]
 path = "ee"
 depends_on = [
-    { path = "hogvm.python" },
-    { path = "posthog" },
+    "hogvm.python",
+    "posthog",
 ]
 
 [[modules]]
@@ -29,23 +29,23 @@ depends_on = []
 [[modules]]
 path = "hogvm.python"
 depends_on = [
-    { path = "posthog" },
+    "posthog",
 ]
 
 [[modules]]
 path = "posthog"
 depends_on = [
-    { path = "<root>" },
-    { path = "ee" },
-    { path = "hogql_parser" },
-    { path = "hogvm.python" },
-    { path = "products.early_access_features" },
+    "<root>",
+    "ee",
+    "hogql_parser",
+    "hogvm.python",
+    "products.early_access_features",
 ]
 
 [[modules]]
 path = "products.early_access_features"
 depends_on = [
-    { path = "posthog" },
+    "posthog",
 ]
 
 [[modules]]
