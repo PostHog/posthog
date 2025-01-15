@@ -1,3 +1,5 @@
 export const urls = {
-    llmObservability: (): string => '/llmObservability',
+    llmObservability: (tab?: 'dashboard' | 'generations'): string =>
+        `/llm-observability${tab !== 'dashboard' ? '/' + tab : ''}`,
+
 }
