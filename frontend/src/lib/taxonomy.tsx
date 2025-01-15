@@ -1423,6 +1423,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
                 'The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace',
             examples: ['c9222e05-8708-41b8-98ea-d4a21849e761'],
         },
+        $ai_request_url: {
+            label: 'AI Request URL (LLM)',
+            description: 'The full URL of the request made to the LLM API',
+            examples: ['https://api.openai.com/v1/chat/completions'],
+        },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
     person_properties: {}, // Currently person properties are the same as event properties, see assignment below

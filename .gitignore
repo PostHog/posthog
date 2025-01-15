@@ -83,3 +83,6 @@ ee/support_sidebar_max/.env
 temp_test_run_data.json
 .temp-deepeval-cache.json
 .eslintcache
+
+# ignore all dagster tmp directories that may be created
+tmp*/
