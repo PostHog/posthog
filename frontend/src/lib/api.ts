@@ -732,6 +732,10 @@ class ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('merge')
     }
 
+    public errorTrackingAssignIssue(into: ErrorTrackingIssue['id']): ApiRequest {
+        return this.errorTrackingIssue(into).addPathComponent('assign')
+    }
+
     public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('symbol_sets')
     }
@@ -1924,6 +1928,13 @@ const api = {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
 
+        async assignIssue(
+            id: ErrorTrackingIssue['id'],
+            assignee: ErrorTrackingIssue['assignee']
+        ): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingAssignIssue(id).update({ data: { assignee } })
+        },
+
         async mergeInto(
             primaryIssueId: ErrorTrackingIssue['id'],
             mergingIssueIds: ErrorTrackingIssue['id'][]
@@ -2742,7 +2753,7 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
         error = e
     }
 
-    apiStatusLogic.findMounted()?.actions.onApiResponse(response, error)
+    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
 
     if (error || !response) {
         if (error && (error as any).name === 'AbortError') {

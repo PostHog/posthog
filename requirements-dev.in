@@ -52,7 +52,7 @@ pytest-xdist==3.6.1
 python-dateutil>=2.8.2
 responses==0.23.1
 syrupy~=4.6.0
-watchdog==2.1.8
+watchdog==5.0.3
 flaky==3.7.0
 aioresponses==0.7.6
 prance==23.06.21.0

@@ -7,17 +7,14 @@ from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from rest_framework import request, response, serializers, viewsets
 from posthog.api.utils import action
-from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import AvailableFeature
 from posthog.models import (
     SessionRecording,
     SessionRecordingPlaylist,
     SessionRecordingPlaylistItem,
-    Team,
     User,
 )
 from posthog.models.activity_logging.activity_log import (
@@ -26,7 +23,6 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
-from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -108,8 +104,6 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
 
-        self._check_can_create_playlist(team)
-
         created_by = validated_data.pop("created_by", request.user)
         playlist = SessionRecordingPlaylist.objects.create(
             team=team,
@@ -157,12 +151,6 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         )
 
         return updated_playlist
-
-    def _check_can_create_playlist(self, team: Team) -> bool:
-        playlist_count = SessionRecordingPlaylist.objects.filter(deleted=False, team=team).count()
-        if not check_is_feature_available_for_team(team.pk, AvailableFeature.RECORDINGS_PLAYLISTS, playlist_count):
-            raise PermissionDenied("You have hit the limit for playlists for this team.")
-        return True
 
 
 class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):

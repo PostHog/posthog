@@ -8,7 +8,6 @@ import {
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
@@ -24,19 +23,15 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
-import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
+import { NotebookNodeType, ReplayTabs } from '~/types'
 
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
-import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
 
 function Header(): JSX.Element {
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
-    const { playlists } = useValues(playlistsLogic)
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
@@ -84,17 +79,11 @@ function Header(): JSX.Element {
                                 data-attr="session-recordings-filters-save-as-playlist"
                                 type="primary"
                                 onClick={(e) =>
-                                    guardAvailableFeature(
-                                        AvailableFeature.RECORDINGS_PLAYLISTS,
-                                        () => {
-                                            // choose the type of playlist handler so that analytics correctly report
-                                            // whether filters have been changed before saving
-                                            totalFiltersCount === 0
-                                                ? newPlaylistHandler.onEvent?.(e)
-                                                : saveFiltersPlaylistHandler.onEvent?.(e)
-                                        },
-                                        { currentUsage: playlists.count }
-                                    )
+                                    // choose the type of playlist handler so that analytics correctly report
+                                    // whether filters have been changed before saving
+                                    totalFiltersCount === 0
+                                        ? newPlaylistHandler.onEvent?.(e)
+                                        : saveFiltersPlaylistHandler.onEvent?.(e)
                                 }
                             >
                                 Save as playlist
@@ -112,13 +101,7 @@ function Header(): JSX.Element {
                     {tab === ReplayTabs.Playlists && (
                         <LemonButton
                             type="primary"
-                            onClick={(e) =>
-                                guardAvailableFeature(
-                                    AvailableFeature.RECORDINGS_PLAYLISTS,
-                                    () => newPlaylistHandler.onEvent?.(e),
-                                    { currentUsage: playlists.count }
-                                )
-                            }
+                            onClick={(e) => newPlaylistHandler.onEvent?.(e)}
                             data-attr="save-recordings-playlist-button"
                             loading={newPlaylistHandler.loading}
                         >

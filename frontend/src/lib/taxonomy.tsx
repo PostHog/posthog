@@ -176,8 +176,8 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'Automatically captured web vitals data',
         },
         $ai_generation: {
-            label: 'AI Generation (LLM)',
-            description: 'A call to an LLM model. Contains the input prompt, output, model used and costs.',
+            label: 'AI Generation',
+            description: 'A call to a generative AI model, e.g. an LLM',
         },
         // Mobile SDKs events
         'Application Opened': {
@@ -1382,10 +1382,25 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The number of tokens in the output from the LLM API',
             examples: [23],
         },
+        $ai_input_cost_usd: {
+            label: 'AI Input Cost USD (LLM)',
+            description: 'The cost in USD of the input tokens sent to the LLM API',
+            examples: [0.0017],
+        },
+        $ai_output_cost_usd: {
+            label: 'AI Output Cost USD (LLM)',
+            description: 'The cost in USD of the output tokens received from the LLM API',
+            examples: [0.0024],
+        },
+        $ai_total_cost_usd: {
+            label: 'AI Total Cost USD (LLM)',
+            description: 'The total cost in USD of the request made to the LLM API (input + output costs)',
+            examples: [0.0041],
+        },
         $ai_latency: {
             label: 'AI Latency (LLM)',
             description: 'The latency of the request made to the LLM API, in seconds',
-            examples: [1000],
+            examples: [0.361],
         },
         $ai_model: {
             label: 'AI Model (LLM)',
@@ -1407,6 +1422,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description:
                 'The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace',
             examples: ['c9222e05-8708-41b8-98ea-d4a21849e761'],
+        },
+        $ai_request_url: {
+            label: 'AI Request URL (LLM)',
+            description: 'The full URL of the request made to the LLM API',
+            examples: ['https://api.openai.com/v1/chat/completions'],
         },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
