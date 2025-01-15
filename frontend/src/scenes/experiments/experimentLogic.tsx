@@ -985,7 +985,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 const dashboardUrl = window.location.origin + addProjectIdIfMissing(urls.dashboard(dashboard.id))
                 actions.updateExperiment({
                     description:
-                        (values.experiment.description + `\n\n` || '') +
+                        (values.experiment.description ? values.experiment.description + `\n\n` : '') +
                         `Dashboard: [${dashboardUrl}](${dashboardUrl})`,
                 })
 
