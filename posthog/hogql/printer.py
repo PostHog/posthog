@@ -113,9 +113,8 @@ def prepare_ast_for_printing(
     stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
 ) -> _T_AST | None:
-    if context.database is None:
-        with context.timings.measure("create_hogql_database"):
-            context.database = create_hogql_database(context.team_id, context.modifiers, context.team)
+    with context.timings.measure("create_hogql_database"):
+        context.database = context.database or create_hogql_database(context.team_id, context.modifiers, context.team)
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
