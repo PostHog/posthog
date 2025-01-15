@@ -1,4 +1,4 @@
-from datetime import datetime, UTC
+from datetime import datetime
 from typing import Literal
 from unittest.mock import ANY
 from uuid import uuid4
@@ -11,100 +11,33 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Cohort, GroupTypeMapping, Person
+from posthog.models import GroupTypeMapping, Person
 from posthog.models.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
-from posthog.schema import RecordingsQuery, DateRange
 from posthog.session_recordings.queries.session_recording_list_from_query import (
+    SessionRecordingListFromQuery,
     SessionRecordingQueryResult,
 )
-from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import ttl_days
+from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
+    create_event,
+    assert_query_matches_session_ids,
+    filter_recordings_by,
+)
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
-from posthog.session_recordings.session_recording_api import query_as_params_to_dict
 from posthog.session_recordings.sql.session_replay_event_sql import (
     TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    _create_event,
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-
-
-@freeze_time("2021-01-01T13:46:23")
-class TestSessionRecordingQueryDateRange(APIBaseTest):
-    def test_with_relative_dates(self) -> None:
-        query_date_range = QueryDateRange(
-            date_range=DateRange(date_from="-3d", date_to="-24h", explicitDate=True),
-            team=self.team,
-            interval=None,
-            now=datetime.now(UTC),
-        )
-
-        assert query_date_range.date_from() == datetime(2020, 12, 29, 0, 0, 0, 0, UTC)
-        assert query_date_range.date_to() == datetime(
-            year=2020, month=12, day=31, hour=13, minute=46, second=23, tzinfo=UTC
-        )
-
-    def test_with_string_dates(self) -> None:
-        query_date_range = QueryDateRange(
-            date_range=DateRange(date_from="2020-12-29", date_to="2021-01-01", explicitDate=True),
-            team=self.team,
-            interval=None,
-            now=datetime.now(UTC),
-        )
-
-        assert query_date_range.date_from() == datetime(2020, 12, 29, 0, 0, 0, 0, UTC)
-        assert query_date_range.date_to() == datetime(year=2021, month=1, day=1, hour=0, minute=0, second=0, tzinfo=UTC)
-
-    def test_with_string_date_times(self) -> None:
-        query_date_range = QueryDateRange(
-            date_range=DateRange(date_from="2020-12-29T12:23:45Z", date_to="2021-01-01T13:34:42Z", explicitDate=True),
-            team=self.team,
-            interval=None,
-            now=datetime.now(UTC),
-        )
-
-        assert query_date_range.date_from() == datetime(2020, 12, 29, 12, 23, 45, tzinfo=UTC)
-        assert query_date_range.date_to() == datetime(
-            year=2021, month=1, day=1, hour=13, minute=34, second=42, tzinfo=UTC
-        )
-
-    def test_with_no_date_from(self) -> None:
-        query_date_range = QueryDateRange(
-            date_range=DateRange(date_from=None, date_to="2021-01-01T13:34:42Z", explicitDate=True),
-            team=self.team,
-            interval=None,
-            now=datetime.now(UTC),
-        )
-
-        # defaults to start of 7 days ago
-        assert query_date_range.date_from() == datetime(2020, 12, 25, 0, 0, 0, 0, UTC)
-        assert query_date_range.date_to() == datetime(
-            year=2021, month=1, day=1, hour=13, minute=34, second=42, tzinfo=UTC
-        )
-
-    def test_with_no_date_to(self) -> None:
-        query_date_range = QueryDateRange(
-            date_range=DateRange(date_from="2021-01-01T11:34:42Z", date_to=None, explicitDate=True),
-            team=self.team,
-            interval=None,
-            now=datetime.now(UTC),
-        )
-
-        assert query_date_range.date_from() == datetime(2021, 1, 1, 11, 34, 42, tzinfo=UTC)
-        # defaults to now
-        assert query_date_range.date_to() == datetime(
-            year=2021, month=1, day=1, hour=13, minute=46, second=23, tzinfo=UTC
-        )
 
 
 @freeze_time("2021-01-01T13:46:23")
@@ -131,32 +64,17 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
         return action
 
-    def create_event(
-        self,
-        distinct_id,
-        timestamp,
-        team=None,
-        event_name="$pageview",
-        properties=None,
-    ):
-        if team is None:
-            team = self.team
-        if properties is None:
-            properties = {"$os": "Windows 95", "$current_url": "aloha.com/2"}
-        return _create_event(
-            team=team,
-            event=event_name,
-            timestamp=timestamp,
-            distinct_id=distinct_id,
-            properties=properties,
-        )
-
+    # wrap the util so we don't have to pass the team every time
     def _filter_recordings_by(self, recordings_filter: dict | None = None) -> SessionRecordingQueryResult:
-        the_query = RecordingsQuery.model_validate(query_as_params_to_dict(recordings_filter or {}))
-        session_recording_list_instance = SessionRecordingListFromQuery(
-            query=the_query, team=self.team, hogql_query_modifiers=None
+        return filter_recordings_by(team=self.team, recordings_filter=recordings_filter)
+
+    # wrap the util so we don't have to pass team every time
+    def _assert_query_matches_session_ids(
+        self, query: dict | None, expected: list[str], sort_results_when_asserting: bool = True
+    ) -> None:
+        assert_query_matches_session_ids(
+            team=self.team, query=query, expected=expected, sort_results_when_asserting=sort_results_when_asserting
         )
-        return session_recording_list_instance.run()
 
     def _a_session_with_two_events(self, team: Team, session_id: str) -> None:
         produce_replay_summary(
@@ -165,35 +83,20 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=team.pk,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             team=team,
             event_name="$pageview",
             properties={"$session_id": session_id, "$window_id": "1"},
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             team=team,
             event_name="$pageleave",
             properties={"$session_id": session_id, "$window_id": "1"},
         )
-
-    def _assert_query_matches_session_ids(
-        self, query: dict | None, expected: list[str], sort_results_when_asserting: bool = True
-    ) -> None:
-        (session_recordings, more_recordings_available, _) = self._filter_recordings_by(query)
-
-        # in some tests we care about the order of results e.g. when testing sorting
-        # generally we want to sort results since the order is not guaranteed
-        # e.g. we're using UUIDs for the IDs
-        if sort_results_when_asserting:
-            assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(expected)
-        else:
-            assert [sr["session_id"] for sr in session_recordings] == expected
-
-        assert more_recordings_available is False
 
     @property
     def an_hour_ago(self):
@@ -803,9 +706,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            user,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
             properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
         )
         produce_replay_summary(
@@ -857,9 +761,11 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
         # but the page view event is outside TTL
-        self.create_event(
-            user,
-            self.an_hour_ago - relativedelta(days=SessionRecordingListFromQuery.SESSION_RECORDINGS_DEFAULT_LIMIT + 1),
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago
+            - relativedelta(days=SessionRecordingListFromQuery.SESSION_RECORDINGS_DEFAULT_LIMIT + 1),
             properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
         )
 
@@ -999,9 +905,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         session_id_total_is_61 = f"test_basic_query_active_sessions-total-{str(uuid4())}"
         session_id_active_is_61 = f"test_basic_query_active_sessions-active-{str(uuid4())}"
 
-        self.create_event(
-            user,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": session_id_total_is_61,
                 "$window_id": str(uuid4()),
@@ -1021,9 +928,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             active_milliseconds=59000,
         )
 
-        self.create_event(
-            user,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": session_id_active_is_61,
                 "$window_id": str(uuid4()),
@@ -1091,18 +999,20 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            user,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": session_id_one,
                 "$window_id": str(uuid4()),
             },
         )
-        self.create_event(
-            user,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
             event_name="a_different_event",
             properties={
                 "$browser": "Safari",
@@ -1217,19 +1127,22 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        self.create_event(
-            user,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
             properties={"$session_id": session_id, "$window_id": "1", "foo": "bar"},
         )
-        self.create_event(
-            user,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
             properties={"$session_id": session_id, "$window_id": "1", "bar": "foo"},
         )
-        self.create_event(
-            user,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
             properties={"$session_id": session_id, "$window_id": "1", "bar": "foo"},
             event_name="new-event",
         )
@@ -1398,9 +1311,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            user,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
             event_name="custom-event",
             properties={
                 "$browser": "Chrome",
@@ -1503,9 +1417,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
             first_url="https://recieved-out-of-order.com/second",
         )
-        self.create_event(
-            user,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
             properties={"$session_id": session_id, "$window_id": window_id},
         )
         produce_replay_summary(
@@ -1669,9 +1584,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
-        self.create_event(
-            user,
-            self.an_hour_ago + relativedelta(seconds=10),
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago + relativedelta(seconds=10),
             properties={"$session_id": session_id_one},
         )
 
@@ -1683,9 +1599,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
-        self.create_event(
-            user,
-            self.an_hour_ago + relativedelta(seconds=10),
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago + relativedelta(seconds=10),
             event_name="custom_event",
             properties={"$session_id": session_id_two},
         )
@@ -1831,9 +1748,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
-        self.create_event(
-            user,
-            self.an_hour_ago + relativedelta(seconds=10),
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago + relativedelta(seconds=10),
             properties={"$session_id": session_id_one},
         )
 
@@ -2084,14 +2002,16 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=(self.an_hour_ago - relativedelta(days=3)),
             team_id=self.team.id,
         )
-        self.create_event(
-            three_user_ids[0],
-            self.an_hour_ago - relativedelta(days=3),
+        create_event(
+            team=self.team,
+            distinct_id=three_user_ids[0],
+            timestamp=self.an_hour_ago - relativedelta(days=3),
             properties={"$session_id": target_session_id},
         )
-        self.create_event(
-            three_user_ids[0],
-            self.an_hour_ago - relativedelta(days=3),
+        create_event(
+            team=self.team,
+            distinct_id=three_user_ids[0],
+            timestamp=self.an_hour_ago - relativedelta(days=3),
             event_name="custom-event",
             properties={"$browser": "Chrome", "$session_id": target_session_id},
         )
@@ -2149,7 +2069,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(1, self.an_hour_ago + relativedelta(seconds=15), team=another_team)
+        create_event(distinct_id=user, timestamp=self.an_hour_ago + relativedelta(seconds=15), team=another_team)
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
@@ -2209,410 +2129,23 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @also_test_with_materialized_columns(person_properties=["$some_prop"])
-    def test_filter_with_cohort_properties(self) -> None:
-        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            with freeze_time("2021-08-21T20:00:00.000Z"):
-                user_one = "test_filter_with_cohort_properties-user"
-                user_two = "test_filter_with_cohort_properties-user2"
-                session_id_one = "session_not_in_cohort"
-                session_id_two = "session_in_cohort"
-
-                Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
-                Person.objects.create(
-                    team=self.team,
-                    distinct_ids=[user_two],
-                    properties={"email": "bla2", "$some_prop": "some_val"},
-                )
-                cohort = Cohort.objects.create(
-                    team=self.team,
-                    name="cohort1",
-                    groups=[
-                        {
-                            "properties": [
-                                {
-                                    "key": "$some_prop",
-                                    "value": "some_val",
-                                    "type": "person",
-                                }
-                            ]
-                        }
-                    ],
-                )
-                cohort.calculate_people_ch(pending_version=0)
-
-                produce_replay_summary(
-                    distinct_id=user_one,
-                    session_id=session_id_one,
-                    first_timestamp=self.an_hour_ago,
-                    team_id=self.team.id,
-                )
-                # self.create_event(user_one, self.base_time, team=self.team)
-                produce_replay_summary(
-                    distinct_id=user_one,
-                    session_id=session_id_one,
-                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
-                    team_id=self.team.id,
-                )
-                produce_replay_summary(
-                    distinct_id=user_two,
-                    session_id=session_id_two,
-                    first_timestamp=self.an_hour_ago,
-                    team_id=self.team.id,
-                )
-                # self.create_event(user_two, self.base_time, team=self.team)
-                produce_replay_summary(
-                    distinct_id=user_two,
-                    session_id=session_id_two,
-                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
-                    team_id=self.team.id,
-                )
-
-                self._assert_query_matches_session_ids(
-                    {
-                        "properties": [
-                            {
-                                "key": "id",
-                                "value": cohort.pk,
-                                "operator": "in",
-                                "type": "cohort",
-                            }
-                        ]
-                    },
-                    [session_id_two],
-                )
-
-                self._assert_query_matches_session_ids(
-                    {
-                        "properties": [
-                            {
-                                "key": "id",
-                                "value": cohort.pk,
-                                "operator": "not_in",
-                                "type": "cohort",
-                            }
-                        ]
-                    },
-                    [session_id_one],
-                )
-
-    @snapshot_clickhouse_queries
-    @also_test_with_materialized_columns(person_properties=["$some_prop"])
-    def test_filter_with_static_and_dynamic_cohort_properties(self):
-        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            with freeze_time("2021-08-21T20:00:00.000Z"):
-                user_one = "test_filter_with_cohort_properties-user-in-static-cohort"
-                user_two = "test_filter_with_cohort_properties-user2-in-dynamic-cohort"
-                user_three = "test_filter_with_cohort_properties-user3-in-both-cohort"
-                user_four = "test_filter_with_cohort_properties-user4-not-in-any-cohort"
-
-                session_id_one = (
-                    f"in-static-cohort-test_filter_with_static_and_dynamic_cohort_properties-1-{str(uuid4())}"
-                )
-                session_id_two = (
-                    f"in-dynamic-cohort-test_filter_with_static_and_dynamic_cohort_properties-2-{str(uuid4())}"
-                )
-                session_id_three = (
-                    f"in-both-cohort-test_filter_with_static_and_dynamic_cohort_properties-3-{str(uuid4())}"
-                )
-                session_id_four = (
-                    f"not-in-any-cohort-test_filter_with_static_and_dynamic_cohort_properties-4-{str(uuid4())}"
-                )
-
-                Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "in@static.cohort"})
-                Person.objects.create(
-                    team=self.team,
-                    distinct_ids=[user_two],
-                    properties={"email": "in@dynamic.cohort", "$some_prop": "some_val"},
-                )
-                Person.objects.create(
-                    team=self.team,
-                    distinct_ids=[user_three],
-                    properties={"email": "in@both.cohorts", "$some_prop": "some_val"},
-                )
-
-                dynamic_cohort = Cohort.objects.create(
-                    team=self.team,
-                    name="cohort1",
-                    groups=[
-                        {
-                            "properties": [
-                                {
-                                    "key": "$some_prop",
-                                    "value": "some_val",
-                                    "type": "person",
-                                }
-                            ]
-                        }
-                    ],
-                )
-
-                static_cohort = Cohort.objects.create(team=self.team, name="a static cohort", groups=[], is_static=True)
-                static_cohort.insert_users_by_list([user_one, user_three])
-
-                dynamic_cohort.calculate_people_ch(pending_version=0)
-                static_cohort.calculate_people_ch(pending_version=0)
-
-                replay_summaries = [
-                    (user_one, session_id_one),
-                    (user_two, session_id_two),
-                    (user_three, session_id_three),
-                ]
-                for distinct_id, session_id in replay_summaries:
-                    produce_replay_summary(
-                        distinct_id=distinct_id,
-                        session_id=session_id,
-                        first_timestamp=self.an_hour_ago,
-                        team_id=self.team.id,
-                    )
-                    produce_replay_summary(
-                        distinct_id=distinct_id,
-                        session_id=session_id,
-                        first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
-                        team_id=self.team.id,
-                    )
-
-                self._assert_query_matches_session_ids(
-                    {
-                        "properties": [
-                            {
-                                "key": "id",
-                                "value": static_cohort.pk,
-                                "operator": "in",
-                                "type": "cohort",
-                            },
-                        ]
-                    },
-                    [session_id_one, session_id_three],
-                )
-
-                self._assert_query_matches_session_ids(
-                    {
-                        "properties": [
-                            {
-                                "key": "id",
-                                "value": static_cohort.pk,
-                                "operator": "not_in",
-                                "type": "cohort",
-                            },
-                        ]
-                    },
-                    [session_id_two],
-                )
-
-                self._assert_query_matches_session_ids(
-                    {
-                        "properties": [
-                            {
-                                "key": "id",
-                                "value": dynamic_cohort.pk,
-                                "operator": "in",
-                                "type": "cohort",
-                            },
-                        ]
-                    },
-                    [session_id_two, session_id_three],
-                )
-
-                self._assert_query_matches_session_ids(
-                    {
-                        "properties": [
-                            {
-                                "key": "id",
-                                "value": dynamic_cohort.pk,
-                                "operator": "not_in",
-                                "type": "cohort",
-                            },
-                        ]
-                    },
-                    [session_id_one],
-                )
-
-                self._assert_query_matches_session_ids(
-                    {
-                        "properties": [
-                            {
-                                "key": "id",
-                                "value": dynamic_cohort.pk,
-                                "operator": "not_in",
-                                "type": "cohort",
-                            },
-                            {
-                                "key": "id",
-                                "value": static_cohort.pk,
-                                "operator": "not_in",
-                                "type": "cohort",
-                            },
-                        ]
-                    },
-                    [],
-                )
-
-                # and now with users not in any cohort
-
-                Person.objects.create(
-                    team=self.team, distinct_ids=[user_four], properties={"email": "not.in.any@cohorts.com"}
-                )
-                produce_replay_summary(
-                    distinct_id=user_four,
-                    session_id=session_id_four,
-                    team_id=self.team.id,
-                )
-
-                self._assert_query_matches_session_ids(
-                    {
-                        "properties": [
-                            {
-                                "key": "id",
-                                "value": dynamic_cohort.pk,
-                                "operator": "not_in",
-                                "type": "cohort",
-                            },
-                            {
-                                "key": "id",
-                                "value": static_cohort.pk,
-                                "operator": "not_in",
-                                "type": "cohort",
-                            },
-                        ]
-                    },
-                    [session_id_four],
-                )
-
-    @snapshot_clickhouse_queries
-    @also_test_with_materialized_columns(person_properties=["$some_prop"])
-    def test_filter_with_events_and_cohorts(self):
-        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            with freeze_time("2021-08-21T20:00:00.000Z"):
-                user_one = "test_filter_with_events_and_cohorts-user"
-                user_two = "test_filter_with_events_and_cohorts-user2"
-                session_id_one = f"test_filter_with_events_and_cohorts-1-{str(uuid4())}"
-                session_id_two = f"test_filter_with_events_and_cohorts-2-{str(uuid4())}"
-
-                Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
-                Person.objects.create(
-                    team=self.team,
-                    distinct_ids=[user_two],
-                    properties={"email": "bla2", "$some_prop": "some_val"},
-                )
-                cohort = Cohort.objects.create(
-                    team=self.team,
-                    name="cohort1",
-                    groups=[
-                        {
-                            "properties": [
-                                {
-                                    "key": "$some_prop",
-                                    "value": "some_val",
-                                    "type": "person",
-                                }
-                            ]
-                        }
-                    ],
-                )
-                cohort.calculate_people_ch(pending_version=0)
-
-                produce_replay_summary(
-                    distinct_id=user_one,
-                    session_id=session_id_one,
-                    first_timestamp=self.an_hour_ago,
-                    team_id=self.team.id,
-                )
-                self.create_event(
-                    user_one,
-                    self.an_hour_ago,
-                    team=self.team,
-                    event_name="custom_event",
-                    properties={"$session_id": session_id_one},
-                )
-                produce_replay_summary(
-                    distinct_id=user_one,
-                    session_id=session_id_one,
-                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
-                    team_id=self.team.id,
-                )
-                produce_replay_summary(
-                    distinct_id=user_two,
-                    session_id=session_id_two,
-                    first_timestamp=self.an_hour_ago,
-                    team_id=self.team.id,
-                )
-                self.create_event(
-                    user_two,
-                    self.an_hour_ago,
-                    team=self.team,
-                    event_name="custom_event",
-                    properties={"$session_id": session_id_two},
-                )
-                produce_replay_summary(
-                    distinct_id=user_two,
-                    session_id=session_id_two,
-                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
-                    team_id=self.team.id,
-                )
-
-                self._assert_query_matches_session_ids(
-                    {
-                        # has to be in the cohort and pageview has to be in the events
-                        # test data has one user in the cohort but no pageviews
-                        "properties": [
-                            {
-                                "key": "id",
-                                "value": cohort.pk,
-                                "operator": "in",
-                                "type": "cohort",
-                            }
-                        ],
-                        "events": [
-                            {
-                                "id": "$pageview",
-                                "type": "events",
-                                "order": 0,
-                                "name": "$pageview",
-                            }
-                        ],
-                    },
-                    [],
-                )
-
-                self._assert_query_matches_session_ids(
-                    {
-                        "properties": [
-                            {
-                                "key": "id",
-                                "value": cohort.pk,
-                                "operator": "in",
-                                "type": "cohort",
-                            }
-                        ],
-                        "events": [
-                            {
-                                "id": "custom_event",
-                                "type": "events",
-                                "order": 0,
-                                "name": "custom_event",
-                            }
-                        ],
-                    },
-                    [session_id_two],
-                )
-
-    @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$current_url"])
     def test_event_filter_with_matching_on_session_id(self):
         user_distinct_id = "test_event_filter_with_matching_on_session_id-user"
         Person.objects.create(team=self.team, distinct_ids=[user_distinct_id], properties={"email": "bla"})
         session_id = f"test_event_filter_with_matching_on_session_id-1-{str(uuid4())}"
 
-        self.create_event(
-            user_distinct_id,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user_distinct_id,
+            timestamp=self.an_hour_ago,
             event_name="$pageview",
             properties={"$session_id": session_id},
         )
-        self.create_event(
-            user_distinct_id,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user_distinct_id,
+            timestamp=self.an_hour_ago,
             event_name="$autocapture",
             properties={"$session_id": str(uuid4())},
         )
@@ -2666,9 +2199,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id = f"test_event_filter_with_hogql_properties-1-{str(uuid4())}"
-        self.create_event(
-            user,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": session_id,
@@ -2728,9 +2262,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id = f"test_event_filter_with_hogql_properties-1-{str(uuid4())}"
-        self.create_event(
-            user,
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": session_id,
@@ -2801,9 +2336,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         my_custom_event_session_id = f"my-custom-event-session-{str(uuid4())}"
         non_matching__event_session_id = f"non-matching-event-session-{str(uuid4())}"
 
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": page_view_session_id,
@@ -2812,9 +2348,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             event_name="$pageview",
         )
 
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": my_custom_event_session_id,
@@ -2823,9 +2360,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             event_name="my-custom-event",
         )
 
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$browser": "Safari",
                 "$session_id": non_matching__event_session_id,
@@ -3369,9 +2907,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -3441,9 +2980,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={"$session_id": "1", "$window_id": "1", "$browser": "Chrome"},
         )
         produce_replay_summary(
@@ -3459,9 +2999,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user2",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user2",
+            timestamp=self.an_hour_ago,
             properties={"$session_id": "2", "$window_id": "1", "$browser": "Firefox"},
         )
 
@@ -3551,9 +3092,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -3573,9 +3115,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user2",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user2",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "2",
                 "$window_id": "1",
@@ -3642,9 +3185,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 first_timestamp=self.an_hour_ago,
                 team_id=self.team.id,
             )
-            self.create_event(
-                "user",
-                self.an_hour_ago,
+            create_event(
+                team=self.team,
+                distinct_id="user",
+                timestamp=self.an_hour_ago,
                 properties={
                     "$session_id": "1",
                     "$window_id": "1",
@@ -3664,9 +3208,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 first_timestamp=self.an_hour_ago,
                 team_id=self.team.id,
             )
-            self.create_event(
-                "user2",
-                self.an_hour_ago,
+            create_event(
+                team=self.team,
+                distinct_id="user2",
+                timestamp=self.an_hour_ago,
                 properties={
                     "$session_id": "2",
                     "$window_id": "1",
@@ -3726,9 +3271,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -3748,9 +3294,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user2",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user2",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "2",
                 "$window_id": "1",
@@ -3810,9 +3357,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -3832,9 +3380,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user2",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user2",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "2",
                 "$window_id": "1",
@@ -3892,9 +3441,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "event": "something that won't match",
                 "$session_id": "1",
@@ -3903,9 +3453,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -3925,9 +3476,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user2",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user2",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "2",
                 "$window_id": "1",
@@ -4033,9 +3585,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             properties={"name": "org one"},
         )
 
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             team=self.team,
             event_name="$pageview",
             properties={
@@ -4044,9 +3596,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "$group_1": "org:1",
             },
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             team=self.team,
             event_name="$pageview",
             properties={
@@ -4174,9 +3726,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
         # the session needs to have multiple matching or not matching events
         for _ in range(10):
-            self.create_event(
-                "user",
-                self.an_hour_ago,
+            create_event(
+                team=self.team,
+                distinct_id="user",
+                timestamp=self.an_hour_ago,
                 properties={
                     "$session_id": "1",
                     "$window_id": "1",
@@ -4193,9 +3746,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         for _ in range(10):
-            self.create_event(
-                "user2",
-                self.an_hour_ago,
+            create_event(
+                team=self.team,
+                distinct_id="user2",
+                timestamp=self.an_hour_ago,
                 properties={
                     "$session_id": "2",
                     "$window_id": "1",
@@ -4298,9 +3852,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -4314,9 +3869,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "2",
                 "$window_id": "1",
@@ -4330,9 +3886,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "3",
                 "$window_id": "1",
@@ -4346,9 +3903,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "4",
                 "$window_id": "1",
@@ -4368,9 +3926,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -4385,9 +3944,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "3",
                 "$window_id": "1",
@@ -4402,9 +3962,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "4",
                 "$window_id": "1",
@@ -4434,9 +3995,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -4450,9 +4012,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "3",
                 "$window_id": "1",
@@ -4466,9 +4029,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "4",
                 "$window_id": "1",
@@ -4501,9 +4065,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -4517,9 +4082,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "3",
                 "$window_id": "1",
@@ -4533,9 +4099,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(
-            "user",
-            self.an_hour_ago,
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
             properties={
                 "$session_id": "4",
                 "$window_id": "1",
