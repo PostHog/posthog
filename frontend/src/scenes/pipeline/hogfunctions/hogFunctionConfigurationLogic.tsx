@@ -841,7 +841,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             { resultEqualityCheck: equal },
         ],
 
-        eventsListQuery: [
+        eventsDataTableNode: [
             (s) => [s.baseEventsQuery],
             (baseEventsQuery): DataTableNode | null => {
                 return baseEventsQuery
@@ -851,13 +851,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                               ...baseEventsQuery,
                               select: defaultDataTableColumns(NodeKind.EventsQuery),
                           },
-                          full: false,
-                          showEventFilter: false,
-                          showPropertyFilter: false,
-                          embedded: true,
-                          showOpenEditorButton: true,
-                          showHogQLEditor: false,
-                          showTimings: false,
                       }
                     : null
             },
