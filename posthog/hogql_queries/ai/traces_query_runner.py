@@ -9,6 +9,7 @@ import structlog
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -231,6 +232,11 @@ class TracesQueryRunner(QueryRunner):
                 right=self._date_range.date_to_as_hogql(),
             ),
         ]
+
+        if self.query.filterTestAccounts:
+            with self.timings.measure("test_account_filters"):
+                for prop in self.team.test_account_filters or []:
+                    exprs.append(property_to_expr(prop, self.team))
 
         if self.query.traceId is not None:
             exprs.append(

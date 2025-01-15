@@ -5521,6 +5521,7 @@ class TracesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
+    filterTestAccounts: Optional[bool] = None
     kind: Literal["TracesQuery"] = "TracesQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(

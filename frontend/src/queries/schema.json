@@ -13192,6 +13192,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "TracesQuery",
                     "type": "string"

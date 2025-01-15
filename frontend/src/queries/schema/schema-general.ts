@@ -2206,6 +2206,7 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     dateRange?: DateRange
     limit?: integer
     offset?: integer
+    filterTestAccounts?: boolean
 }
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>

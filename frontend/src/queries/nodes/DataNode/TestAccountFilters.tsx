@@ -4,7 +4,7 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DataNode, EventsQuery, HogQLQuery } from '~/queries/schema'
-import { isEventsQuery, isHogQLQuery } from '~/queries/utils'
+import { isEventsQuery, isHogQLQuery, isTracesQuery } from '~/queries/utils'
 
 interface TestAccountFiltersProps {
     query: DataNode
@@ -15,7 +15,7 @@ export function TestAccountFilters({ query, setQuery }: TestAccountFiltersProps)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     const { setLocalDefault } = useActions(filterTestAccountsDefaultsLogic)
 
-    if (!isEventsQuery(query) && !isHogQLQuery(query)) {
+    if (!isEventsQuery(query) && !isHogQLQuery(query) && !isTracesQuery(query)) {
         return null
     }
     const checked = hasFilters
