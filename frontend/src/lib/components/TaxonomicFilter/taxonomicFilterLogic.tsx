@@ -24,6 +24,7 @@ import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/Replay
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -367,7 +368,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Cohorts',
                         searchPlaceholder: 'cohorts',
                         type: TaxonomicFilterGroupType.CohortsWithAllUsers,
-                        endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
+                        logic: cohortsModel,
                         value: 'cohortsWithAllUsers',
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
