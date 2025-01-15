@@ -1,3 +1,4 @@
+import { TZLabel } from '@posthog/apps-common'
 import { useActions, useValues } from 'kea'
 import { llmObservabilityLogic } from 'scenes/llm-observability/llmObservabilityLogic'
 
@@ -27,8 +28,9 @@ export function LLMObservabilityTraces(): JSX.Element {
                     id: {
                         title: 'ID',
                     },
-                    createdAt: {
-                        title: 'Timestamp',
+                    timestamp: {
+                        title: 'Time',
+                        render: TimestampColumn,
                     },
                     person: {
                         title: 'Person',
@@ -38,7 +40,7 @@ export function LLMObservabilityTraces(): JSX.Element {
                         render: LatencyColumn,
                     },
                     usage: {
-                        title: 'Usage',
+                        title: 'Token Usage',
                         render: UsageColumn,
                     },
                     totalCost: {
@@ -50,6 +52,11 @@ export function LLMObservabilityTraces(): JSX.Element {
             uniqueKey="llm-observability-traces"
         />
     )
+}
+
+const TimestampColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    return <TZLabel time={row.createdAt} />
 }
 
 const LatencyColumn: QueryContextColumnComponent = ({ record }) => {
