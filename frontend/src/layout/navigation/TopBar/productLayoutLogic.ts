@@ -12,6 +12,7 @@ export interface ProductLayoutTopbarTab {
     buttons?: React.ReactNode
     featureFlag?: keyof typeof FEATURE_FLAGS
     default?: boolean
+    active?: boolean
     isNew?: boolean
 }
 
@@ -23,10 +24,7 @@ export interface ProductLayoutConfig {
 export const productLayoutLogic = kea<productLayoutLogicType>([
     path(() => ['layout', 'navigation', 'TopBar', 'productLayoutLogic']),
     connect(() => ({
-        values: [breadcrumbsLogic, ['productLayoutTabs', 'productLayoutTabConfig', 'productBaseUrl']],
+        values: [breadcrumbsLogic, ['productLayoutConfig']],
     })),
-    actions({
-        setProductLayoutConfig: (config: ProductLayoutConfig) => ({ config }),
-        setTab: (tab: string) => ({ tab }),
-    }),
+    actions({}),
 ])

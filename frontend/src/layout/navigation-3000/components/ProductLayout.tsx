@@ -155,11 +155,12 @@ function ProjectButton({ team, disabled }: { team: TeamBasicType; disabled?: boo
 
 function TopBarTabs(): JSX.Element {
     // const { productLayoutTabs } = useValues(productLayoutLogic)
-    const { productLayoutTabs } = useValues(breadcrumbsLogic)
-    if (!productLayoutTabs || productLayoutTabs.length === 0) {
+    const { productLayoutConfig } = useValues(breadcrumbsLogic)
+    if (!productLayoutConfig || !productLayoutConfig.baseTabs || productLayoutConfig.baseTabs.length === 0) {
         return <></>
     }
-    const lemonTabs = productLayoutTabs.map((tab: ProductLayoutTopbarTab) => ({
+    const tabs = productLayoutConfig.baseTabs
+    const lemonTabs = tabs.map((tab: ProductLayoutTopbarTab) => ({
         key: tab.key,
         label: (
             <>
@@ -172,12 +173,9 @@ function TopBarTabs(): JSX.Element {
 
     return (
         <LemonTabs
-            activeKey={productLayoutTabs[0].key}
+            activeKey={(tabs.find((t) => t.active) ?? tabs[0])?.key}
             onChange={(newKey) => {
-                // setActiveTab(newKey)
-                router.actions.push(
-                    productLayoutTabs.find((tab: ProductLayoutTopbarTab) => tab.key === newKey)?.url || ''
-                )
+                router.actions.push(tabs.find((tab: ProductLayoutTopbarTab) => tab.key === newKey)?.url || '')
                 // if (tabs.find((tab) => tab.key === newKey)?.removeNewWhenVisited) {
                 //     hideNewBadge()
                 // }

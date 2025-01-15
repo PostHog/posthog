@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS, SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -6,11 +6,11 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { ProductLayoutConfig, ProductLayoutTopbarTab } from '~/layout/navigation/TopBar/productLayoutLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, ReplayTabs } from '~/types'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+
 import type { sessionReplaySceneLogicType } from './sessionReplaySceneLogicType'
-import { productLayoutLogic, ProductLayoutConfig } from '~/layout/navigation/TopBar/productLayoutLogic'
 
 export const humanFriendlyTabName = (tab: ReplayTabs): string => {
     switch (tab) {
@@ -46,7 +46,7 @@ const tabConfigs: ProductLayoutConfig = {
             url: urls.replay(ReplayTabs.Templates),
             isNew: true,
         },
-    ]
+    ],
 }
 
 export const PLAYLIST_LIMIT_REACHED_MESSAGE = `You have reached the free limit of ${SESSION_RECORDINGS_PLAYLIST_FREE_COUNT} saved playlists`
@@ -55,9 +55,9 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     path(() => ['scenes', 'session-recordings', 'sessionReplaySceneLogic']),
     connect({
         values: [featureFlagLogic, ['featureFlags']],
-        actions: [
-            productLayoutLogic, ['setProductLayoutConfig']
-        ],
+        // actions: [
+        //     productLayoutLogic, ['setProductLayoutConfig']
+        // ],
     }),
     actions({
         setTab: (tab: ReplayTabs = ReplayTabs.Home) => ({ tab }),
@@ -87,29 +87,24 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
         },
     })),
 
-
     actionToUrl(({ values }) => {
         return {
             setTab: () => [urls.replay(values.tab), router.values.searchParams],
         }
     }),
 
-
     selectors(() => ({
-        productLayoutTabs: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
+        productLayoutConfig: [
+            (s) => [s.featureFlags, s.tab],
+            (featureFlags, tab): ProductLayoutConfig => {
                 const hasTemplates = !!featureFlags[FEATURE_FLAGS.REPLAY_TEMPLATES]
-                const tabs = tabConfigs.baseTabs.filter((tab) => (tab.key == ReplayTabs.Templates ? hasTemplates : true))
-                return tabs
-            },
-        ],
-
-        // NEW
-        productBaseUrl: [
-            (s) => [s.tab],
-            () => {
-                return tabConfigs.baseUrl
+                const tabs: ProductLayoutTopbarTab[] = tabConfigs.baseTabs.filter((tab) =>
+                    tab.key == ReplayTabs.Templates ? hasTemplates : true
+                )
+                return {
+                    baseUrl: tabConfigs.baseUrl,
+                    baseTabs: tab ? tabs.map((t) => ({ ...t, active: t.key === tab })) : tabs,
+                }
             },
         ],
 
@@ -160,9 +155,5 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
                 }
             },
         }
-    }),
-
-    afterMount(({ actions }) => {
-        actions.setProductLayoutConfig(tabConfigs)
     }),
 ])

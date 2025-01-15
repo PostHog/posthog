@@ -16,9 +16,8 @@ import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwi
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { Breadcrumb } from '~/types'
 
+import { ProductLayoutConfig } from '../TopBar/productLayoutLogic'
 import type { breadcrumbsLogicType } from './breadcrumbsLogicType'
-import { ProductLayoutTopbarTab } from '../TopBar/productLayoutLogic'
-
 
 export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
     path(['layout', 'navigation', 'Breadcrumbs', 'breadcrumbsLogic']),
@@ -225,40 +224,26 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 ].join(' • '),
         ],
 
-        // NEW
-        productLayoutTabConfig: [
-            (s) => [s.activeScene, s.sceneConfig],
-            () => {
-                const currentScene = sceneLogic.findMounted()?.values
-                const currentProductLayoutTabConfig = currentScene?.activeSceneLogic?.values.productLayoutTabConfig
-                return currentProductLayoutTabConfig
-            },
-        ],
-        // NEW
-        productBaseUrl: [
-            (s) => [s.activeScene, s.sceneConfig],
-            () => {
-                const currentScene = sceneLogic.findMounted()?.values
-                const currentSceneBaseUrl = currentScene?.activeSceneLogic?.values.productBaseUrl
-                return currentSceneBaseUrl
-            },
-        ],
-        productLayoutTabs: [
+        productLayoutConfig: [
             () => [
-                (state, props): ProductLayoutTopbarTab[] => {
+                (state, props): ProductLayoutConfig | null => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
-
-                    if (activeSceneLogic && 'productLayoutTabs' in activeSceneLogic.selectors) {
-                        const currentSceneProductLayoutTabs = activeSceneLogic.selectors.productLayoutTabs(state, props)
-                        return currentSceneProductLayoutTabs
+                    if (activeSceneLogic && 'productLayoutConfig' in activeSceneLogic.selectors) {
+                        try {
+                            const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
+                            return activeSceneLogic.selectors.productLayoutConfig(
+                                state,
+                                activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
+                            )
+                        } catch (e) {
+                            // ignore
+                        }
                     }
-                    return []
-                }
+                    return null
+                },
             ],
-            (sceneTabs: ProductLayoutTopbarTab[]) => {
-                console.log('sceneTabs', sceneTabs)
-                return sceneTabs
-            },
+            (config): ProductLayoutConfig | null => config,
+            { equalityCheck: objectsEqual },
         ],
     })),
     subscriptions({
