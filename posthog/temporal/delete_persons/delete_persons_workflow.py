@@ -58,39 +58,40 @@ class MogrifyDeleteQueriesActivityInputs:
 
 @temporalio.activity.defn
 async def mogrify_delete_queries_activity(inputs: MogrifyDeleteQueriesActivityInputs) -> None:
-    logger = get_internal_logger()
+    """Mogrify and log queries to delete persons and associated entities."""
+    async with Heartbeater():
+        logger = get_internal_logger()
 
-    select_query = SELECT_QUERY.format(
-        person_ids_filter=f"AND id IN ({inputs.person_ids})" if inputs.person_ids else ""
-    )
-    delete_query_person_distinct_ids = DELETE_QUERY_PERSON_DISTINCT_IDS.format(select_query=select_query)
-    delete_query_person_override = DELETE_QUERY_PERSON_OVERRIDE.format(select_query=select_query)
-    delete_query_cohort_people = DELETE_QUERY_COHORT_PEOPLE.format(select_query=select_query)
-    delete_query_person = DELETE_QUERY_PERSON.format(select_query=select_query)
+        select_query = SELECT_QUERY.format(
+            person_ids_filter=f"AND id IN ({inputs.person_ids})" if inputs.person_ids else ""
+        )
+        delete_query_person_distinct_ids = DELETE_QUERY_PERSON_DISTINCT_IDS.format(select_query=select_query)
+        delete_query_person_override = DELETE_QUERY_PERSON_OVERRIDE.format(select_query=select_query)
+        delete_query_cohort_people = DELETE_QUERY_COHORT_PEOPLE.format(select_query=select_query)
+        delete_query_person = DELETE_QUERY_PERSON.format(select_query=select_query)
 
-    conn = await psycopg.AsyncConnection.connect(settings.DATABASE_URL)
-    conn.cursor_factory = psycopg.AsyncClientCursor
+        conn = await psycopg.AsyncConnection.connect(settings.DATABASE_URL)
+        conn.cursor_factory = psycopg.AsyncClientCursor
+        async with conn:
+            async with conn.cursor() as cursor:
+                cursor = typing.cast(psycopg.AsyncClientCursor, cursor)
 
-    async with Heartbeater(), conn:
-        async with conn.cursor() as cursor:
-            cursor = typing.cast(psycopg.AsyncClientCursor, cursor)
-
-            prepared_person_distinct_ids_query = cursor.mogrify(
-                delete_query_person_distinct_ids,
-                {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-            )
-            prepared_person_override_query = cursor.mogrify(
-                delete_query_person_override,
-                {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-            )
-            prepared_cohort_people_query = cursor.mogrify(
-                delete_query_cohort_people,
-                {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-            )
-            prepared_person_query = cursor.mogrify(
-                delete_query_person,
-                {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-            )
+                prepared_person_distinct_ids_query = cursor.mogrify(
+                    delete_query_person_distinct_ids,
+                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
+                )
+                prepared_person_override_query = cursor.mogrify(
+                    delete_query_person_override,
+                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
+                )
+                prepared_cohort_people_query = cursor.mogrify(
+                    delete_query_cohort_people,
+                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
+                )
+                prepared_person_query = cursor.mogrify(
+                    delete_query_person,
+                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
+                )
         await logger.ainfo("Delete query for person distinct ids: %s", prepared_person_distinct_ids_query)
         await logger.ainfo("Delete query for person overrides: %s", prepared_person_override_query)
         await logger.ainfo("Delete query for cohort people: %s", prepared_cohort_people_query)
@@ -110,52 +111,53 @@ class DeletePersonsActivityInputs:
 
 @temporalio.activity.defn
 async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[int, bool]:
-    logger = get_internal_logger()
+    """Run queries to delete persons and associated entities."""
+    async with Heartbeater():
+        logger = get_internal_logger()
 
-    select_query = SELECT_QUERY.format(
-        person_ids_filter=f"AND id IN ({inputs.person_ids})" if inputs.person_ids else ""
-    )
-    delete_query_person_distinct_ids = DELETE_QUERY_PERSON_DISTINCT_IDS.format(select_query=select_query)
-    delete_query_person_override = DELETE_QUERY_PERSON_OVERRIDE.format(select_query=select_query)
-    delete_query_cohort_people = DELETE_QUERY_COHORT_PEOPLE.format(select_query=select_query)
-    delete_query_person = DELETE_QUERY_PERSON.format(select_query=select_query)
+        select_query = SELECT_QUERY.format(
+            person_ids_filter=f"AND id IN ({inputs.person_ids})" if inputs.person_ids else ""
+        )
+        delete_query_person_distinct_ids = DELETE_QUERY_PERSON_DISTINCT_IDS.format(select_query=select_query)
+        delete_query_person_override = DELETE_QUERY_PERSON_OVERRIDE.format(select_query=select_query)
+        delete_query_cohort_people = DELETE_QUERY_COHORT_PEOPLE.format(select_query=select_query)
+        delete_query_person = DELETE_QUERY_PERSON.format(select_query=select_query)
 
-    conn = await psycopg.AsyncConnection.connect(settings.DATABASE_URL)
+        conn = await psycopg.AsyncConnection.connect(settings.DATABASE_URL)
+        async with conn:
+            async with conn.cursor() as cursor:
+                await logger.ainfo("Deleting batch %d of {batches} (%d rows)", inputs.batch_number, inputs.batch_size)
 
-    async with Heartbeater(), conn:
-        async with conn.cursor() as cursor:
-            await logger.ainfo("Deleting batch %d of {batches} (%d rows)", inputs.batch_number, inputs.batch_size)
+                await cursor.execute(
+                    delete_query_person_distinct_ids,
+                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
+                )
+                await logger.ainfo("Deleted %d distinct_ids", cursor.rowcount)
 
-            await cursor.execute(
-                delete_query_person_distinct_ids,
-                {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-            )
-            await logger.ainfo("Deleted %d distinct_ids", cursor.rowcount)
+                await cursor.execute(
+                    delete_query_person_override,
+                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
+                )
+                await logger.ainfo("Deleted %d person overrides", cursor.rowcount)
 
-            await cursor.execute(
-                delete_query_person_override,
-                {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-            )
-            await logger.ainfo("Deleted %d person overrides", cursor.rowcount)
+                await cursor.execute(
+                    delete_query_cohort_people,
+                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
+                )
+                await logger.ainfo(f"Deleted %d cohort people", cursor.rowcount)
 
-            await cursor.execute(
-                delete_query_cohort_people,
-                {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-            )
-            await logger.ainfo(f"Deleted %d cohort people", cursor.rowcount)
+                await cursor.execute(
+                    delete_query_person,
+                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
+                )
+                await logger.info("Deleted %d persons", cursor.rowcount)
 
-            await cursor.execute(
-                delete_query_person,
-                {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-            )
-            await logger.info("Deleted %d persons", cursor.rowcount)
+                should_continue = True
+                if cursor.rowcount < inputs.batch_size:
+                    await logger.ainfo("Workflow will exit early as we received less than %d rows", inputs.batch_size)
+                    should_continue = False
 
-            should_continue = True
-            if cursor.rowcount < inputs.batch_size:
-                await logger.ainfo("Workflow will exit early as we received less than %d rows", inputs.batch_size)
-                should_continue = False
-
-            return cursor.rowcount, should_continue
+                return cursor.rowcount, should_continue
 
 
 @dataclasses.dataclass
@@ -203,11 +205,11 @@ class DeletePersonsWorkflow(PostHogWorkflow):
             mogrify_delete_queries_activity,
             mogrify_delete_queries_activity_inputs,
             heartbeat_timeout=dt.timedelta(seconds=30),
-            start_to_close_timeout=dt.timedelta(hours=1),
+            start_to_close_timeout=dt.timedelta(hours=2),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
+                maximum_attempts=1,
                 non_retryable_error_types=[],
             ),
         )
@@ -228,11 +230,11 @@ class DeletePersonsWorkflow(PostHogWorkflow):
                 delete_persons_activity,
                 delete_persons_activity_inputs,
                 heartbeat_timeout=dt.timedelta(seconds=30),
-                start_to_close_timeout=dt.timedelta(hours=1),
+                start_to_close_timeout=dt.timedelta(hours=2),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
+                    maximum_attempts=1,
                     non_retryable_error_types=[],
                 ),
             )
