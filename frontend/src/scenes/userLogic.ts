@@ -76,6 +76,12 @@ export const userLogic = kea<userLogicType>([
                         return values.user
                     }
                 },
+                deleteUser: async () => {
+                    return await api.delete('api/users/@me/').catch((error) => {
+                        console.error(error)
+                        actions.updateUserFailure(error.message)
+                    })
+                },
                 setUserScenePersonalisation: async ({ scene, dashboard }) => {
                     if (!values.user) {
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')

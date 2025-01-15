@@ -67,6 +67,7 @@ import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
+import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
 
 export const SETTINGS_MAP: SettingSection[] = [
@@ -560,6 +561,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'hedgehog-mode',
                 title: 'Hedgehog mode',
                 component: <HedgehogModeSettings />,
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-danger-zone',
+        title: 'Danger zone',
+        settings: [
+            {
+                id: 'user-delete',
+                title: 'Delete account',
+                component: <UserDangerZone />,
             },
         ],
     },

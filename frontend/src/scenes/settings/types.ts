@@ -47,6 +47,7 @@ export type SettingSectionId =
     | 'user-profile'
     | 'user-api-keys'
     | 'user-customization'
+    | 'user-danger-zone'
 
 export type SettingId =
     | 'replay-triggers'
@@ -111,6 +112,7 @@ export type SettingId =
     | 'channel-type'
     | 'cookieless-server-hash-mode'
     | 'user-groups'
+    | 'user-delete'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
