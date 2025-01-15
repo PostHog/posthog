@@ -279,7 +279,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             ],
         ],
         tracesQuery: [
-            (s) => [s.dateFilter],
+            (s) => [s.dateFilter, s.shouldFilterTestAccounts],
             (dateFilter) => ({
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -288,6 +288,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         date_from: dateFilter.dateFrom || undefined,
                         date_to: dateFilter.dateTo || undefined,
                     },
+                    // filterTestAccounts: shouldFilterTestAccounts,
                 },
                 showActions: false,
                 showTimings: false,
@@ -302,6 +303,11 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     'outputCost',
                     'totalCost',
                 ],
+                showDateRange: true,
+                showReload: true,
+                showSearch: true,
+                showTestAccountFilters: true,
+                showExport: true,
             }),
         ],
         generationsQuery: [
