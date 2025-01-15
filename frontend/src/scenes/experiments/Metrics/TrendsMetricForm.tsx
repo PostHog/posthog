@@ -74,6 +74,19 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             MathAvailability.All
                                         )
 
+                                        // Custom exposure metrics are not supported for data warehouse metrics
+                                        if (series[0].kind === NodeKind.DataWarehouseNode) {
+                                            const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
+                                            setExperiment({
+                                                ...experiment,
+                                                [metricsField]: metrics.map((metric, idx) =>
+                                                    idx === metricIdx
+                                                        ? { ...metric, exposure_query: undefined }
+                                                        : metric
+                                                ),
+                                            })
+                                        }
+
                                         setTrendsMetric({
                                             metricIdx,
                                             series,
