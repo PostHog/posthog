@@ -33,6 +33,7 @@ from posthog.schema import (
     GroupPropertyFilter,
     HogQLPropertyFilter,
     PropertyOperator,
+    CohortPropertyFilter,
 )
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 
@@ -141,6 +142,8 @@ class SessionRecordingsListingBaseQuery:
                     prop_filters.append(GroupPropertyFilter(**prop))
                 case "hogql":
                     prop_filters.append(HogQLPropertyFilter(**prop))
+                case "cohort":
+                    prop_filters.append(CohortPropertyFilter(**prop))
                 case None:
                     logger.warn("test account filter had no type", filter=prop)
                     prop_filters.append(EventPropertyFilter(**prop))
