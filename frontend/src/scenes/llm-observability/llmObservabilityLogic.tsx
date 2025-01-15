@@ -285,7 +285,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 s.propertyFilters,
                 groupsModel.selectors.groupsTaxonomicTypes,
             ],
-            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes) => ({
+            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.TracesQuery,
