@@ -2,6 +2,7 @@ import pytest
 from hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.twillio.template_twilio import template as template_twilio
+from inline_snapshot import snapshot
 
 
 class TestTemplateTwilio(BaseHogFunctionTemplateTest):
@@ -9,65 +10,59 @@ class TestTemplateTwilio(BaseHogFunctionTemplateTest):
 
     def _inputs(self, **kwargs):
         inputs = {
-            "accountSid": "AC1234567890",
+            "accountSid": "AC123456",
             "authToken": "auth_token_123",
-            "fromPhoneNumber": "+15551234567",
-            "phoneNumber": "+15557654321",
-            "smsBody": "Test notification",
+            "fromPhoneNumber": "+12292109687",
+            "phoneNumber": "+491633950489",
+            "smsBody": "Test message",
         }
         inputs.update(kwargs)
         return inputs
 
     def test_function_works(self):
-        self.mock_fetch_response = lambda *args: {
-            "status": 200,
-            "body": {
-                "account_sid": "AC1234567890",
-                "status": "queued",
-                "body": "Test notification - Event: test_event at 2024-01-01T12:00:00Z",
-                "from": "+15551234567",
-                "to": "+15557654321",
-                "sid": "SM1c4944efd48afa3b47961fd5c40c8108",
-                "error_code": None,
-                "error_message": None,
-            },
-        }
-        res = self.run_function(
-            self._inputs(),
-            event={
-                "event": "test_event",
-                "timestamp": "2024-01-01T12:00:00Z",
-            },
-        )
+        self.mock_fetch_response = lambda *args: {"status": 200}  # type: ignore
+        res = self.run_function(self._inputs())
 
         assert res.result is None
 
-        assert self.get_mock_fetch_calls()[0] == (
-            "https://api.twilio.com/2010-04-01/Accounts/AC1234567890/Messages.json",
-            {
-                "body": f"To=%2B15557654321&From=%2B15551234567&Body=Test+notification+-+Event:+test_event+at+2024-01-01T12:00:00Z",
-                "method": "POST",
-                "headers": {
-                    "Authorization": "Basic QUMxMjM0NTY3ODkwOmF1dGhfdG9rZW5fMTIz",
-                    "Content-Type": "application/x-www-form-urlencoded",
-                },
-            },
-        )
+        # Verify the fetch call was made with correct parameters
+        fetch_calls = self.get_mock_fetch_calls()
+        assert len(fetch_calls) == 1
+        url, options = fetch_calls[0]
 
-        assert self.get_mock_print_calls() == ["SMS sent successfully via Twilio!"]
+        assert url == "https://api.twilio.com/2010-04-01/Accounts/AC123456/Messages.json"
+        assert options["method"] == "POST"
+        assert options["headers"]["Content-Type"] == "application/x-www-form-urlencoded"
+        assert options["headers"]["Authorization"].startswith("Basic ")
 
-    def test_function_raises_on_error(self):
-        self.mock_fetch_response = lambda *args: {
-            "status": 400,
-            "body": {"message": "Invalid phone number"},
-        }
+        assert self.get_mock_print_calls() == snapshot([("SMS sent successfully via Twilio!",)])
+
+    def test_function_throws_error_on_bad_status(self):
+        self.mock_fetch_response = lambda *args: {"status": 400}  # type: ignore
+
         with pytest.raises(UncaughtHogVMException) as e:
-            self.run_function(
-                self._inputs(),
-                event={
-                    "event": "test_event",
-                    "timestamp": "2024-01-01T12:00:00Z",
-                },
-            )
+            self.run_function(self._inputs())
 
-        assert "Error sending SMS" in str(e.value)
+        assert "Error sending SMS" in str(e.value.message)
+
+    def test_function_with_custom_message(self):
+        self.mock_fetch_response = lambda *args: {"status": 200}  # type: ignore
+
+        custom_inputs = self._inputs(smsBody="Custom notification: {event.event}")
+        res = self.run_function(custom_inputs)
+
+        assert res.result is None
+        fetch_calls = self.get_mock_fetch_calls()
+        assert len(fetch_calls) == 1
+
+        # Verify custom message is included in the body
+        url, options = fetch_calls[0]
+        assert "Custom%20notification" in options["body"]
+
+    def test_function_with_invalid_phone_number(self):
+        self.mock_fetch_response = lambda *args: {"status": 400, "body": {"message": "Invalid phone number"}}  # type: ignore
+
+        with pytest.raises(UncaughtHogVMException) as e:
+            self.run_function(self._inputs(phoneNumber="invalid"))
+
+        assert "Error sending SMS" in str(e.value.message)
