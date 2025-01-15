@@ -1,3 +1,5 @@
+import './TrendsMetricForm.scss'
+
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonLabel, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -127,7 +129,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                             <>
                                 <div className="flex gap-4 mb-4">
                                     <LemonButton
-                                        className={`flex-1 cursor-pointer p-4 rounded border ${
+                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             !currentMetric.exposure_query
                                                 ? 'border-primary bg-primary-highlight'
                                                 : 'border-border'
@@ -144,23 +146,21 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             })
                                         }}
                                     >
-                                        <div>
-                                            <div className="font-semibold flex justify-between items-center">
-                                                <span>Default</span>
-                                                {!currentMetric.exposure_query && (
-                                                    <IconCheckCircle fontSize={18} color="var(--primary)" />
-                                                )}
-                                            </div>
-                                            <div className="text-muted text-sm leading-relaxed">
-                                                Uses the number of unique users who trigger the{' '}
-                                                <LemonTag>$feature_flag_called</LemonTag> event as your exposure count.
-                                                This is the recommended setting for most experiments, as it accurately
-                                                tracks variant exposure.
-                                            </div>
+                                        <div className="font-semibold flex justify-between items-center">
+                                            <span>Default</span>
+                                            {!currentMetric.exposure_query && (
+                                                <IconCheckCircle fontSize={18} color="var(--primary)" />
+                                            )}
+                                        </div>
+                                        <div className="text-muted text-sm leading-relaxed mt-1">
+                                            Uses the number of unique users who trigger the{' '}
+                                            <LemonTag>$feature_flag_called</LemonTag> event as your exposure count. This
+                                            is the recommended setting for most experiments, as it accurately tracks
+                                            variant exposure.
                                         </div>
                                     </LemonButton>
                                     <LemonButton
-                                        className={`flex-1 cursor-pointer p-4 rounded border ${
+                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             currentMetric.exposure_query
                                                 ? 'border-primary bg-primary-highlight'
                                                 : 'border-border'
@@ -209,18 +209,16 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             })
                                         }}
                                     >
-                                        <div>
-                                            <div className="font-semibold flex justify-between items-center">
-                                                <span>Custom</span>
-                                                {currentMetric.exposure_query && (
-                                                    <IconCheckCircle fontSize={18} color="var(--primary)" />
-                                                )}
-                                            </div>
-                                            <div className="text-muted text-sm leading-relaxed">
-                                                Define your own exposure metric for specific use cases, such as counting
-                                                by sessions instead of users. This gives you full control but requires
-                                                careful configuration.
-                                            </div>
+                                        <div className="font-semibold flex justify-between items-center">
+                                            <span>Custom</span>
+                                            {currentMetric.exposure_query && (
+                                                <IconCheckCircle fontSize={18} color="var(--primary)" />
+                                            )}
+                                        </div>
+                                        <div className="text-muted text-sm leading-relaxed mt-1">
+                                            Define your own exposure metric for specific use cases, such as counting by
+                                            sessions instead of users. This gives you full control but requires careful
+                                            configuration.
                                         </div>
                                     </LemonButton>
                                 </div>
