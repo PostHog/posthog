@@ -35,7 +35,7 @@ import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
-import { HogFunctionMapping } from './mapping/HogFunctionMapping'
+import { HogFunctionMappings } from './mapping/HogFunctionMappings'
 
 const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 
@@ -427,7 +427,7 @@ export function HogFunctionConfiguration({
                                 </div>
                             </div>
 
-                            <HogFunctionMapping />
+                            <HogFunctionMappings />
 
                             {canEditSource && (
                                 <div
