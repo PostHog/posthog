@@ -83,6 +83,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
     [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
+    [Scene.ClientAuthorization]: () => import('./authorization/ClientAuthorizationScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.MessagingProviders]: () => import('./messaging/Providers'),

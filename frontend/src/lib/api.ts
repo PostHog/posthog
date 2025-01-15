@@ -1109,21 +1109,11 @@ const api = {
         async get(actionId: ActionType['id']): Promise<ActionType> {
             return await new ApiRequest().actionsDetail(actionId).get()
         },
-        async create(actionData: Partial<ActionType>, temporaryToken?: string): Promise<ActionType> {
-            return await new ApiRequest()
-                .actions()
-                .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
-                .create({ data: actionData })
+        async create(actionData: Partial<ActionType>): Promise<ActionType> {
+            return await new ApiRequest().actions().create({ data: actionData })
         },
-        async update(
-            actionId: ActionType['id'],
-            actionData: Partial<ActionType>,
-            temporaryToken?: string
-        ): Promise<ActionType> {
-            return await new ApiRequest()
-                .actionsDetail(actionId)
-                .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
-                .update({ data: actionData })
+        async update(actionId: ActionType['id'], actionData: Partial<ActionType>): Promise<ActionType> {
+            return await new ApiRequest().actionsDetail(actionId).update({ data: actionData })
         },
         async migrate(id: ActionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().actionsDetail(id).withAction('migrate').create()
@@ -2698,13 +2688,14 @@ const api = {
         )
     },
 
-    async delete(url: string): Promise<any> {
+    async delete(url: string, options?: ApiMethodOptions): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         return await handleFetch(url, 'DELETE', () =>
             fetch(url, {
                 method: 'DELETE',
                 headers: {
+                    ...objectClean(options?.headers ?? {}),
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
