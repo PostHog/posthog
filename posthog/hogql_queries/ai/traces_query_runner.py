@@ -194,12 +194,12 @@ class TracesQueryRunner(QueryRunner):
                     properties.$ai_trace_id as id,
                     min(timestamp) as trace_timestamp,
                     tuple(max(person.id), max(distinct_id), max(person.created_at), max(person.properties)) as person,
-                    sum(properties.$ai_latency) as total_latency,
+                    round(toFloat(sum(properties.$ai_latency)), 2) as total_latency,
                     sum(properties.$ai_input_tokens) as input_tokens,
                     sum(properties.$ai_output_tokens) as output_tokens,
-                    sum(properties.$ai_input_cost_usd) as input_cost,
-                    sum(properties.$ai_output_cost_usd) as output_cost,
-                    sum(properties.$ai_total_cost_usd) as total_cost,
+                    round(toFloat(sum(properties.$ai_input_cost_usd)), 4) as input_cost,
+                    round(toFloat(sum(properties.$ai_output_cost_usd)), 4) as output_cost,
+                    round(toFloat(sum(properties.$ai_total_cost_usd)), 4) as total_cost,
                     arraySort(x -> x.2, groupArray(tuple(uuid, timestamp, properties))) as events
                 FROM
                     events

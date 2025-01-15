@@ -12,9 +12,10 @@ import { urls } from 'scenes/urls'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isEventsQuery, isTracesQuery } from '~/queries/utils'
+import { isEventsQuery } from '~/queries/utils'
 
 import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from './llmObservabilityLogic'
+import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
 
 export const scene: SceneExport = {
     component: LLMObservabilityScene,
@@ -117,58 +118,6 @@ function LLMObservabilityGenerations(): JSX.Element {
                 emptyStateDetail: 'Try changing the date range or filters.',
             }}
             uniqueKey="llm-observability-generations"
-        />
-    )
-}
-
-export function LLMObservabilityTraces(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
-    const { tracesQuery } = useValues(llmObservabilityLogic)
-    return (
-        <DataTable
-            query={tracesQuery}
-            setQuery={(query) => {
-                if (!isTracesQuery(query.source)) {
-                    throw new Error('Invalid query')
-                }
-                setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
-                setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-                setPropertyFilters(query.source.properties || [])
-            }}
-            context={{
-                emptyStateHeading: 'There were no traces in this period',
-                emptyStateDetail: 'Try changing the date range or filters.',
-                columns: {
-                    id: {
-                        title: 'ID',
-                    },
-                    createdAt: {
-                        title: 'Timestamp',
-                    },
-                    person: {
-                        title: 'Person',
-                    },
-                    totalLatency: {
-                        title: 'Latency',
-                    },
-                    inputTokens: {
-                        title: 'Input Tokens',
-                    },
-                    outputTokens: {
-                        title: 'Output Tokens',
-                    },
-                    inputCost: {
-                        title: 'Input Cost',
-                    },
-                    outputCost: {
-                        title: 'Output Cost',
-                    },
-                    totalCost: {
-                        title: 'Total Cost',
-                    },
-                },
-            }}
-            uniqueKey="llm-observability-traces"
         />
     )
 }
