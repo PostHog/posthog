@@ -189,7 +189,7 @@ Action: [Test Action]({project.url}/data-management/actions/1) {project.url}/dat
                         name=f"Action {i} for team {team.id}",
                         post_to_slack=True,
                         deleted=False,
-                        steps=[{"event": None}],
+                        steps_json=[{"event": None}],
                     )
                 )
 
