@@ -67,6 +67,7 @@ if (res.status >= 200 and res.status < 300) {
             "key": "smsBody",
             "type": "string",
             "label": "SMS Body Template",
+            "description": "Limited to 1600 characters - exceeding this will cause failures.",
             "default": "Event Notification: {event.event} occurred.",
             "secret": False,
             "required": True,
