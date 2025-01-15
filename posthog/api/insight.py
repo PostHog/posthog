@@ -4,6 +4,7 @@ import logging
 from typing import Any, Optional, Union, cast
 
 import posthoganalytics
+from pydantic import BaseModel
 import structlog
 from django.db import transaction
 from django.db.models import Count, Prefetch, QuerySet
@@ -85,7 +86,6 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.alert import are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
-from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
@@ -97,7 +97,6 @@ from posthog.queries.funnels import (
     ClickhouseFunnelTrends,
 )
 from posthog.queries.funnels.utils import get_funnel_order_class
-from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
@@ -747,7 +746,6 @@ class InsightViewSet(
     sharing_enabled_actions = ["retrieve", "list"]
     queryset = Insight.objects_including_soft_deleted.all()
 
-    retention_query_class = Retention
     stickiness_query_class = Stickiness
     parser_classes = (QuerySchemaParser,)
 
@@ -960,8 +958,6 @@ When set, the specified dashboard's filters and date range override will be appl
     # Calculated Insight Endpoints
     # /projects/:id/insights/trend
     # /projects/:id/insights/funnel
-    # /projects/:id/insights/retention
-    # /projects/:id/insights/path
     #
     # Request parameters and caching are handled here and passed onto respective .queries classes
     # ******************************************
@@ -1097,10 +1093,17 @@ When set, the specified dashboard's filters and date range override will be appl
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
-                funnel = self.calculate_funnel(request)
+                query_method = get_query_method(request=request, team=self.team)
+                if query_method == "hogql":
+                    funnel = self.calculate_funnel_hogql(request)
+                else:
+                    funnel = self.calculate_funnel(request)
+
         except ExposedHogQLError as e:
             raise ValidationError(str(e))
 
+        if isinstance(funnel["result"], BaseModel):
+            funnel["result"] = funnel["result"].model_dump()
         funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])
         funnel["timings"] = [val.model_dump() for val in timings.to_list()]
 
@@ -1128,36 +1131,19 @@ When set, the specified dashboard's filters and date range override will be appl
                 "timezone": team.timezone,
             }
 
-    # ******************************************
-    # /projects/:id/insights/retention
-    # params:
-    # - start_entity: (dict) specifies id and type of the entity to focus retention on
-    # - **shared filter types
-    # ******************************************
-    @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
-    def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        capture_legacy_api_call(request, self.team)
-
-        timings = HogQLTimings()
-        try:
-            with timings.measure("calculate"):
-                result = self.calculate_retention(request)
-        except ExposedHogQLError as e:
-            raise ValidationError(str(e))
-
-        result["timings"] = [val.model_dump() for val in timings.to_list()]
-        return Response(result)
-
     @cached_by_filters
-    def calculate_retention(self, request: request.Request) -> dict[str, Any]:
+    def calculate_funnel_hogql(self, request: request.Request) -> dict[str, Any]:
         team = self.team
-        data = {}
-        if not request.GET.get("date_from") and not request.data.get("date_from"):
-            data.update({"date_from": "-11d"})
-        filter = RetentionFilter(data=data, request=request, team=self.team)
-        base_uri = request.build_absolute_uri("/")
-        result = self.retention_query_class(base_uri=base_uri).run(filter, team)
-        return {"result": result, "timezone": team.timezone}
+        filter = Filter(request=request, team=team)
+        filter = filter.shallow_clone(overrides={"insight": "FUNNELS"})
+        query = filter_to_query(filter.to_dict())
+        query_runner = get_query_runner(query, team, limit_context=None)
+
+        # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(result, schema.CachedFunnelsQueryResponse)
+
+        return {"result": result.results, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/:short_id/viewed
