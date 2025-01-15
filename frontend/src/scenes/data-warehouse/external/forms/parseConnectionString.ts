@@ -19,6 +19,11 @@ export function parseConnectionString(str: string): Config {
     let result: URL
     let dummyHost = false
 
+    // Allow "postgres://" and "postgresql://"
+    if (str.startsWith('postgres://')) {
+        str = 'postgresql://' + str.substring('postgres://'.length)
+    }
+
     if (/ |%[^a-f0-9]|%[a-f0-9][^a-f0-9]/i.test(str)) {
         str = encodeURI(str).replace(/%25(\d\d)/g, '%$1') // Encode spaces as %20
     }

@@ -14,6 +14,10 @@ export interface SourceFormProps {
     jobInputs?: Record<string, any>
 }
 
+const CONNECTION_STRING_DEFAULT_PORT = {
+    Postgres: 5432,
+}
+
 const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConfig, lastValue?: any): JSX.Element => {
     if (field.type === 'text' && field.name === 'connection_string') {
         return (
@@ -32,13 +36,12 @@ const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConf
                                     parseConnectionString(updatedConnectionString)
 
                                 if (isValid) {
-                                    // fix uncontrolled input issue here
                                     sourceWizardLogic.actions.setSourceConnectionDetailsValues({
                                         payload: {
                                             dbname: database || '',
                                             host: host || '',
                                             user: user || '',
-                                            port: port || 5432,
+                                            port: port || CONNECTION_STRING_DEFAULT_PORT[sourceConfig.name],
                                             password: password || '',
                                         },
                                     })
