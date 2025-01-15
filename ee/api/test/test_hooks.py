@@ -1,6 +1,8 @@
 from typing import cast
 from unittest.mock import ANY
 
+from inline_snapshot import snapshot
+
 from ee.api.hooks import valid_domain
 from ee.api.test.base import APILicensedTest
 from ee.models.hook import Hook
@@ -117,6 +119,19 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11, 3, 1, 4, 1],
         }
 
+        assert hog_function.hog == snapshot(
+            """\
+let res := fetch(f'https://hooks.zapier.com/{inputs.hook}', {
+  'method': 'POST',
+  'body': inputs.body
+});
+
+if (inputs.debug) {
+  print('Response', res.status, res.body);
+}\
+"""
+        )
+
         assert hog_function.inputs == {
             "body": {
                 "bytecode": ANY,
@@ -139,8 +154,9 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
                         "target": "https://hooks.zapier.com/{inputs.hook}",
                     },
                 },
+                "order": 2,
             },
-            "debug": {},
+            "debug": {"order": 1},
             "hook": {
                 "bytecode": [
                     "_H",
@@ -149,6 +165,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
                     "hooks/standard/1234/abcd",
                 ],
                 "value": "hooks/standard/1234/abcd",
+                "order": 0,
             },
         }
 

@@ -4,17 +4,22 @@ import { useValues } from 'kea'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
-import { CachedExperimentTrendsQueryResponse, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
+import {
+    CachedExperimentTrendsQueryResponse,
+    InsightQueryNode,
+    InsightVizNode,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 
 export function CumulativeExposuresChart(): JSX.Element {
-    const { experiment, experimentResults, getMetricType } = useValues(experimentLogic)
+    const { experiment, metricResults, _getMetricType } = useValues(experimentLogic)
 
     const metricIdx = 0
-    const metricType = getMetricType(metricIdx)
-
+    const metricType = _getMetricType(experiment.metrics[metricIdx])
+    const result = metricResults?.[metricIdx]
     const variants = experiment.parameters?.feature_flag_variants?.map((variant) => variant.key) || []
     if (experiment.holdout) {
         variants.push(`holdout-${experiment.holdout.id}`)
@@ -25,7 +30,7 @@ export function CumulativeExposuresChart(): JSX.Element {
     if (metricType === InsightType.TRENDS) {
         query = {
             kind: NodeKind.InsightVizNode,
-            source: (experimentResults as CachedExperimentTrendsQueryResponse)?.exposure_query || {
+            source: (result as CachedExperimentTrendsQueryResponse)?.exposure_query || {
                 kind: NodeKind.TrendsQuery,
                 series: [],
                 interval: 'day',

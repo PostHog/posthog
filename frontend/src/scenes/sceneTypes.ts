@@ -16,6 +16,7 @@ export enum Scene {
     Dashboard = 'Dashboard',
     Insight = 'Insight',
     WebAnalytics = 'WebAnalytics',
+    WebAnalyticsCoreWebVitals = 'WebAnalyticsCoreWebVitals',
     Cohort = 'Cohort',
     Activity = 'Activity',
     DataManagement = 'DataManagement',
@@ -28,6 +29,7 @@ export enum Scene {
     ReplayPlaylist = 'ReplayPlaylist',
     ReplayFilePlayback = 'ReplayFilePlayback',
     CustomCss = 'CustomCss',
+    LLMObservability = 'LLMObservability',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
     PipelineNodeNew = 'PipelineNodeNew',
@@ -36,6 +38,8 @@ export enum Scene {
     Group = 'Group',
     Action = 'Action',
     Experiments = 'Experiments',
+    ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
+    ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     Experiment = 'Experiment',
     FeatureManagement = 'FeatureManagement',
     FeatureFlags = 'FeatureFlags',
@@ -47,7 +51,6 @@ export enum Scene {
     SurveyTemplates = 'SurveyTemplates',
     DataWarehouse = 'DataWarehouse',
     SQLEditor = 'SQLEditor',
-    DataModel = 'DataModel',
     DataWarehouseExternal = 'DataWarehouseExternal',
     DataWarehouseTable = 'DataWarehouseTable',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
@@ -59,6 +62,7 @@ export enum Scene {
     AsyncMigrations = 'AsyncMigrations',
     DeadLetterQueue = 'DeadLetterQueue',
     Billing = 'Billing',
+    BillingSection = 'BillingSection',
     BillingAuthorizationStatus = 'BillingAuthorizationStatus',
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
@@ -134,7 +138,7 @@ export interface SceneConfig {
      * If `plain`, there's no navigation present, and the scene has no padding.
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'app-canvas' | 'app-container' | 'app-raw-no-header' | 'plain'
+    layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Hides billing notice (BillingAlertsV2.tsx). */

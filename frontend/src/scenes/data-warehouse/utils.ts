@@ -1,4 +1,4 @@
-import { DatabaseSchemaField, DataVisualizationNode, NodeKind } from '~/queries/schema'
+import { DatabaseSchemaField, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 
 export const defaultQuery = (table: string, columns: DatabaseSchemaField[]): DataVisualizationNode => {
     return {

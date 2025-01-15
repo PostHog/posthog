@@ -1314,11 +1314,23 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         for i in range(5):
             start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            ExternalDataJob.objects.create(team_id=3, created_at=start_time, rows_synced=10, pipeline=source)
+            ExternalDataJob.objects.create(
+                team_id=3,
+                created_at=start_time,
+                rows_synced=10,
+                pipeline=source,
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
+            )
 
         for i in range(5):
             start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            ExternalDataJob.objects.create(team_id=4, created_at=start_time, rows_synced=10, pipeline=source)
+            ExternalDataJob.objects.create(
+                team_id=4,
+                created_at=start_time,
+                rows_synced=10,
+                pipeline=source,
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
+            )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
@@ -1339,6 +1351,64 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 50
         assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 50
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["rows_synced_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_external_data_rows_synced_response_with_v2_jobs(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        source = ExternalDataSource.objects.create(
+            team=self.analytics_team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSource.Type.STRIPE,
+        )
+
+        for i in range(5):
+            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            ExternalDataJob.objects.create(
+                team_id=3,
+                created_at=start_time,
+                rows_synced=10,
+                pipeline=source,
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
+            )
+
+        for i in range(5):
+            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            ExternalDataJob.objects.create(
+                team_id=4,
+                created_at=start_time,
+                rows_synced=10,
+                pipeline=source,
+                pipeline_version=ExternalDataJob.PipelineVersion.V2,
+            )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["rows_synced_in_period"] == 50
+
+        assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 50
+        assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 0  # V2 pipelines
 
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["rows_synced_in_period"] == 0
@@ -1521,7 +1591,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                 "organization usage report",
                 {**full_report_as_dict, "scope": "user"},
                 groups={
-                    "instance": "http://localhost:8000",
+                    "instance": "http://localhost:8010",
                     "organization": str(self.organization.id),
                 },
                 timestamp=None,
@@ -1633,7 +1703,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             self.user.distinct_id,
             "test event",
             {**report, "scope": "user"},
-            groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
+            groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
             timestamp=None,
         )
 
@@ -1652,7 +1722,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             self.user.distinct_id,
             "test event",
             {**report, "scope": "user"},
-            groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
+            groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
             timestamp=None,
         )
 

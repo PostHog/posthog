@@ -32,6 +32,7 @@ from posthog.models.hog_functions.hog_function import (
     TYPES_WITH_COMPILED_FILTERS,
     TYPES_WITH_TRANSPILED_FILTERS,
     TYPES_WITH_JAVASCRIPT_SOURCE,
+    HogFunctionType,
 )
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
@@ -79,7 +80,7 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
     bytecode = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, attrs):
-        attrs["bytecode"] = generate_template_bytecode(attrs["hash"])
+        attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
 
         return super().validate(attrs)
 
@@ -87,6 +88,8 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
     masking = HogFunctionMaskingSerializer(required=False, allow_null=True)
+
+    type = serializers.ChoiceField(choices=HogFunctionType.choices, required=False, allow_null=True)
 
     class Meta:
         model = HogFunction
@@ -149,11 +152,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         hog_type = attrs.get("type", instance.type if instance else "destination")
+        is_create = self.context.get("view") and self.context["view"].action == "create"
+
+        template_id = attrs.get("template_id", instance.template_id if instance else None)
+        template = HOG_FUNCTION_TEMPLATES_BY_ID.get(template_id, None)
 
         if not has_addon:
-            template_id = attrs.get("template_id", instance.template_id if instance else None)
-            template = HOG_FUNCTION_TEMPLATES_BY_ID.get(template_id, None)
-
             # In this case they are only allowed to create or update the function with free templates
             if not template:
                 raise serializers.ValidationError(
@@ -165,17 +169,22 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     {"template_id": "The Data Pipelines addon is required for this template."}
                 )
 
-            # Without the addon, they cannot deviate from the template
-            attrs["inputs_schema"] = template.inputs_schema
-            attrs["mappings"] = template.mappings
+            # Without the addon you can't deviate from the template
             attrs["hog"] = template.hog
+            attrs["inputs_schema"] = template.inputs_schema
 
-        if self.context.get("view") and self.context["view"].action == "create":
+        if is_create:
             # Ensure we have sensible defaults when created
             attrs["filters"] = attrs.get("filters") or {}
             attrs["inputs_schema"] = attrs.get("inputs_schema") or []
             attrs["inputs"] = attrs.get("inputs") or {}
             attrs["mappings"] = attrs.get("mappings") or None
+
+            # And if there is a template, use the template values if not overridden
+            if template:
+                attrs["hog"] = attrs.get("hog") or template.hog
+                attrs["inputs_schema"] = attrs.get("inputs_schema") or template.inputs_schema
+                attrs["inputs"] = attrs.get("inputs") or {}
 
         # Used for both top level input validation, and mappings input validation
         def validate_input_and_filters(attrs: dict):
@@ -231,6 +240,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         else:
             attrs["bytecode"] = None
             attrs["transpiled"] = None
+
+        if is_create:
+            if not attrs.get("hog"):
+                raise serializers.ValidationError({"hog": "Required."})
 
         return super().validate(attrs)
 
@@ -360,13 +373,13 @@ class HogFunctionViewSet(
         # Remove the team from the config
         configuration.pop("team")
 
-        globals = serializer.validated_data["globals"]
+        hog_globals = serializer.validated_data["globals"]
         mock_async_functions = serializer.validated_data["mock_async_functions"]
 
         res = create_hog_invocation_test(
             team_id=hog_function.team_id,
             hog_function_id=hog_function.id,
-            globals=globals,
+            globals=hog_globals,
             configuration=configuration,
             mock_async_functions=mock_async_functions,
         )
