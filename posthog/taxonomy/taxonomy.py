@@ -32,6 +32,8 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "igshid",
     "ttclid",
     "rdt_cid",
+    "irclid",
+    "_kx",
 ]
 
 PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
@@ -72,6 +74,8 @@ SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
     "igshid",
     "ttclid",
     "rdt_cid",
+    "irclid",
+    "_kx",
 }
 
 # synced with frontend/src/lib/taxonomy.tsx
@@ -1073,6 +1077,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "rdt_cid": {
             "label": "rdt_cid",
             "description": "Reddit Click ID",
+        },
+        "irclid": {
+            "label": "irclid",
+            "description": "Impact Click ID",
+        },
+        "_kx": {
+            "label": "_kx",
+            "description": "Klaviyo Tracking ID",
         },
         "gad_source": {
             "label": "gad_source",
