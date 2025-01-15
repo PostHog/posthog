@@ -287,6 +287,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             errors?: any
         ) => ({ filters, active, errors }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
+        setAccessDeniedToFeatureFlag: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -452,6 +453,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        accessDeniedToFeatureFlag: [false, { setAccessDeniedToFeatureFlag: () => true }],
         propertySelectErrors: [
             null as any,
             {
@@ -530,8 +532,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     try {
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
-                    } catch (e) {
-                        actions.setFeatureFlagMissing()
+                    } catch (e: any) {
+                        if (e.status === 403 && e.code === 'permission_denied') {
+                            actions.setAccessDeniedToFeatureFlag()
+                        } else {
+                            actions.setFeatureFlagMissing()
+                        }
                         throw e
                     }
                 }
