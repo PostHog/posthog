@@ -15,17 +15,15 @@ from posthog.models import GroupTypeMapping, Person
 from posthog.models.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
-from posthog.schema import RecordingsQuery
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingQueryResult,
 )
 from posthog.session_recordings.queries.session_replay_events import ttl_days
-from posthog.session_recordings.queries.test.listing_recordings.test_utils import create_event
+from posthog.session_recordings.queries.test.listing_recordings.test_utils import create_event, filter_recordings_by
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
-from posthog.session_recordings.session_recording_api import query_as_params_to_dict
 from posthog.session_recordings.sql.session_replay_event_sql import (
     TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
@@ -62,12 +60,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
         return action
 
+    # wrap the util so we don't have to pass the team every time
     def _filter_recordings_by(self, recordings_filter: dict | None = None) -> SessionRecordingQueryResult:
-        the_query = RecordingsQuery.model_validate(query_as_params_to_dict(recordings_filter or {}))
-        session_recording_list_instance = SessionRecordingListFromQuery(
-            query=the_query, team=self.team, hogql_query_modifiers=None
-        )
-        return session_recording_list_instance.run()
+        return filter_recordings_by(team=self.team, recordings_filter=recordings_filter)
 
     def _a_session_with_two_events(self, team: Team, session_id: str) -> None:
         produce_replay_summary(
