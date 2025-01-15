@@ -133,7 +133,7 @@ class TracesQueryRunner(QueryRunner):
         trace_dict = {
             **result,
             "created_at": created_at.isoformat(),
-            "person": self._map_person(result["person"]),
+            "person": self._map_person(result["first_person"]),
             "events": generations,
         }
         # Remap keys from snake case to camel case
@@ -194,7 +194,7 @@ class TracesQueryRunner(QueryRunner):
                 SELECT
                     properties.$ai_trace_id as id,
                     min(timestamp) as trace_timestamp,
-                    tuple(max(person.id), max(distinct_id), max(person.created_at), max(person.properties)) as person,
+                    tuple(max(person.id), max(distinct_id), max(person.created_at), max(person.properties)) as first_person,
                     round(toFloat(sum(properties.$ai_latency)), 2) as total_latency,
                     sum(properties.$ai_input_tokens) as input_tokens,
                     sum(properties.$ai_output_tokens) as output_tokens,
@@ -215,7 +215,7 @@ class TracesQueryRunner(QueryRunner):
     def _get_where_clause(self):
         timestamp_field = ast.Field(chain=["events", "timestamp"])
 
-        exprs: list[ast.Expr] = [
+        where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 left=ast.Field(chain=["event"]),
                 op=ast.CompareOperationOp.Eq,
@@ -233,13 +233,17 @@ class TracesQueryRunner(QueryRunner):
             ),
         ]
 
+        if self.query.properties:
+            with self.timings.measure("property_filters"):
+                where_exprs.extend(property_to_expr(property, self.team) for property in self.query.properties)
+
         if self.query.filterTestAccounts:
             with self.timings.measure("test_account_filters"):
                 for prop in self.team.test_account_filters or []:
-                    exprs.append(property_to_expr(prop, self.team))
+                    where_exprs.append(property_to_expr(prop, self.team))
 
         if self.query.traceId is not None:
-            exprs.append(
+            where_exprs.append(
                 ast.CompareOperation(
                     left=ast.Field(chain=["id"]),
                     op=ast.CompareOperationOp.Eq,
@@ -247,7 +251,7 @@ class TracesQueryRunner(QueryRunner):
                 ),
             )
 
-        return ast.And(exprs=exprs)
+        return ast.And(exprs=where_exprs)
 
     def _get_order_by_clause(self):
         return [ast.OrderExpr(expr=ast.Field(chain=["trace_timestamp"]), order="DESC")]

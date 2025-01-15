@@ -279,8 +279,13 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             ],
         ],
         tracesQuery: [
-            (s) => [s.dateFilter, s.shouldFilterTestAccounts],
-            (dateFilter, shouldFilterTestAccounts) => ({
+            (s) => [
+                s.dateFilter,
+                s.shouldFilterTestAccounts,
+                s.propertyFilters,
+                groupsModel.selectors.groupsTaxonomicTypes,
+            ],
+            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes) => ({
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.TracesQuery,
@@ -289,6 +294,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         date_to: dateFilter.dateTo || undefined,
                     },
                     filterTestAccounts: shouldFilterTestAccounts,
+                    properties: propertyFilters,
                 },
                 columns: ['id', 'person', 'totalLatency', 'usage', 'totalCost', 'timestamp'],
                 showDateRange: true,
@@ -297,6 +303,13 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 showTestAccountFilters: true,
                 showExport: true,
                 showOpenEditorButton: false,
+                showPropertyFilter: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ],
             }),
         ],
         generationsQuery: [

@@ -13209,6 +13209,13 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
                 "response": {
                     "$ref": "#/definitions/TracesQueryResponse"
                 },
