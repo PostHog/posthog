@@ -33,21 +33,21 @@ export const providersLogic = kea<providersLogicType>([
                     },
                     ...(providerId === 'new' || templateId
                         ? [
-                            {
-                                key: 'new-provider',
-                                name: 'New provider',
-                                path: urls.messagingProviderNew(),
-                            },
-                        ]
+                              {
+                                  key: 'new-provider',
+                                  name: 'New provider',
+                                  path: urls.messagingProviderNew(),
+                              },
+                          ]
                         : providerId
-                            ? [
-                                {
-                                    key: 'edit-provider',
-                                    name: 'Edit provider',
-                                    path: urls.messagingProvider(providerId),
-                                },
-                            ]
-                            : []),
+                        ? [
+                              {
+                                  key: 'edit-provider',
+                                  name: 'Edit provider',
+                                  path: urls.messagingProvider(providerId),
+                              },
+                          ]
+                        : []),
                 ]
             },
         ],
