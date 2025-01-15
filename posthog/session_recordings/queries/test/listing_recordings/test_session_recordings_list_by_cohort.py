@@ -44,37 +44,6 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
     def an_hour_ago(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
 
-    def _two_sessions_two_persons(
-        self, label: str, session_one_person_properties: dict, session_two_person_properties: dict
-    ) -> tuple[str, str]:
-        sessions = []
-
-        for i in range(2):
-            user = f"{label}-user-{i}"
-            session = f"{label}-session-{i}"
-            sessions.append(session)
-
-            Person.objects.create(
-                team=self.team,
-                distinct_ids=[user],
-                properties=session_one_person_properties if i == 0 else session_two_person_properties,
-            )
-
-            produce_replay_summary(
-                distinct_id=user,
-                session_id=session,
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
-            )
-            produce_replay_summary(
-                distinct_id=user,
-                session_id=session,
-                first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
-                team_id=self.team.id,
-            )
-
-        return sessions[0], sessions[1]
-
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
     def test_filter_with_cohort_properties(self) -> None:
@@ -462,4 +431,81 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                         ],
                     },
                     [session_id_two],
+                )
+
+    @snapshot_clickhouse_queries
+    @also_test_with_materialized_columns(person_properties=["$some_prop"])
+    def test_internal_account_filter_with_cohort_properties(self) -> None:
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            with freeze_time("2021-08-21T20:00:00.000Z"):
+                user_one = "test_filter_with_cohort_properties-user"
+                user_two = "test_filter_with_cohort_properties-user2"
+                session_id_one = "session_not_in_cohort"
+                session_id_two = "session_in_cohort"
+
+                Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[user_two],
+                    properties={"email": "bla2", "$some_prop": "some_val"},
+                )
+                cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="cohort1",
+                    groups=[
+                        {
+                            "properties": [
+                                {
+                                    "key": "$some_prop",
+                                    "value": "some_val",
+                                    "type": "person",
+                                }
+                            ]
+                        }
+                    ],
+                )
+                cohort.calculate_people_ch(pending_version=0)
+
+                self.team.test_account_filters = [
+                    {
+                        "key": "id",
+                        "value": cohort.pk,
+                        "operator": "not_in",
+                        "type": "cohort",
+                    }
+                ]
+                self.team.save()
+
+                produce_replay_summary(
+                    distinct_id=user_one,
+                    session_id=session_id_one,
+                    first_timestamp=self.an_hour_ago,
+                    team_id=self.team.id,
+                )
+                # self.create_event(user_one, self.base_time, team=self.team)
+                produce_replay_summary(
+                    distinct_id=user_one,
+                    session_id=session_id_one,
+                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
+                    team_id=self.team.id,
+                )
+                produce_replay_summary(
+                    distinct_id=user_two,
+                    session_id=session_id_two,
+                    first_timestamp=self.an_hour_ago,
+                    team_id=self.team.id,
+                )
+                # self.create_event(user_two, self.base_time, team=self.team)
+                produce_replay_summary(
+                    distinct_id=user_two,
+                    session_id=session_id_two,
+                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
+                    team_id=self.team.id,
+                )
+
+                self._assert_query_matches_session_ids(
+                    {
+                        "filter_test_accounts": True,
+                    },
+                    [session_id_one],
                 )
