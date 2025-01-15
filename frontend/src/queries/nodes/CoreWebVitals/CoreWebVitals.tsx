@@ -1,8 +1,10 @@
 import './CoreWebVitals.scss'
 
+import { IconCheckCircle, IconInfo, IconWarning } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { clsx } from 'clsx'
 import { useActions, useValues } from 'kea'
+import { IconExclamation } from 'lib/lemon-ui/icons'
 import { useMemo, useState } from 'react'
 import {
     CORE_WEB_VITALS_THRESHOLDS,
@@ -23,6 +25,66 @@ import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
+type MetricBand = 'good' | 'improvements' | 'poor'
+
+const LONG_METRIC_NAME: Record<CoreWebVitalsMetric, string> = {
+    INP: 'Interaction to Next Paint',
+    LCP: 'Largest Contentful Paint',
+    FCP: 'First Contentful Paint',
+    CLS: 'Cumulative Layout Shift',
+}
+
+const METRIC_DESCRIPTION: Record<CoreWebVitalsMetric, string> = {
+    INP: 'Measures the time it takes for the user to interact with the page and for the page to respond to the interaction. Lower is better.',
+    LCP: 'Measures how long it takes for the main content of a page to appear on screen. Lower is better.',
+    FCP: 'Measures how long it takes for the initial text, non-white background, and non-white text to appear on screen. Lower is better.',
+    CLS: 'Measures how much the layout of a page shifts around as content loads. Lower is better.',
+}
+
+const PERCENTILE_NAME: Record<CoreWebVitalsPercentile, string> = {
+    p75: '75%',
+    p90: '90%',
+    p99: '99%',
+}
+
+const ICON_PER_BAND: Record<MetricBand, React.ElementType> = {
+    good: IconCheckCircle,
+    improvements: IconWarning,
+    poor: IconExclamation,
+}
+
+const GRADE_PER_BAND: Record<MetricBand, string> = {
+    good: 'Great',
+    improvements: 'Needs Improvement',
+    poor: 'Poor',
+}
+
+const POSITIONING_PER_BAND: Record<MetricBand, string> = {
+    good: 'Below',
+    improvements: 'Between',
+    poor: 'Above',
+}
+
+const VALUES_PER_BAND: Record<MetricBand, (threshold: CoreWebVitalsThreshold) => number[]> = {
+    good: (threshold) => [threshold.good],
+    improvements: (threshold) => [threshold.good, threshold.poor],
+    poor: (threshold) => [threshold.poor],
+}
+
+const QUANTIFIER_PER_BAND: Record<MetricBand, (coreWebVitalsPercentile: CoreWebVitalsPercentile) => string> = {
+    good: (coreWebVitalsPercentile) => `More than ${PERCENTILE_NAME[coreWebVitalsPercentile]} of visits had`,
+    improvements: (coreWebVitalsPercentile) =>
+        `Some of the ${PERCENTILE_NAME[coreWebVitalsPercentile]} most performatic visits had`,
+    poor: (coreWebVitalsPercentile) =>
+        `Some of the ${PERCENTILE_NAME[coreWebVitalsPercentile]} most performatic visits had`,
+}
+
+const EXPERIENCE_PER_BAND: Record<MetricBand, string> = {
+    good: 'a great experience',
+    improvements: 'an experience that needs improvement',
+    poor: 'a poor experience',
+}
+
 const getMetric = (
     results: CoreWebVitalsItem[] | undefined,
     metric: CoreWebVitalsMetric,
@@ -32,6 +94,18 @@ const getMetric = (
         ?.filter((result) => result.action.custom_name === metric)
         .find((result) => result.action.math === percentile)
         ?.data.slice(-1)[0]
+}
+
+const getMetricBand = (value: number, threshold: CoreWebVitalsThreshold): MetricBand => {
+    if (value <= threshold.good) {
+        return 'good'
+    }
+
+    if (value <= threshold.poor) {
+        return 'improvements'
+    }
+
+    return 'poor'
 }
 
 let uniqueNode = 0
@@ -77,7 +151,7 @@ export function CoreWebVitals(props: {
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 cursor-pointer border-b divide-y sm:divide-y-2 xl:divide-y-0 divide-x-0 sm:divide-x xl:divide-x-2">
                 <CoreWebVitalsTab
                     metric="INP"
-                    label="Interaction to Next Paint"
+                    label={LONG_METRIC_NAME.INP}
                     value={INP}
                     isActive={coreWebVitalsTab === 'INP'}
                     setTab={() => setCoreWebVitalsTab('INP')}
@@ -85,7 +159,7 @@ export function CoreWebVitals(props: {
                 />
                 <CoreWebVitalsTab
                     metric="LCP"
-                    label="Largest Contentful Paint"
+                    label={LONG_METRIC_NAME.LCP}
                     value={LCP}
                     isActive={coreWebVitalsTab === 'LCP'}
                     setTab={() => setCoreWebVitalsTab('LCP')}
@@ -93,7 +167,7 @@ export function CoreWebVitals(props: {
                 />
                 <CoreWebVitalsTab
                     metric="FCP"
-                    label="First Contentful Paint"
+                    label={LONG_METRIC_NAME.FCP}
                     value={FCP}
                     isActive={coreWebVitalsTab === 'FCP'}
                     setTab={() => setCoreWebVitalsTab('FCP')}
@@ -101,22 +175,92 @@ export function CoreWebVitals(props: {
                 />
                 <CoreWebVitalsTab
                     metric="CLS"
-                    label="Cumulative Layout Shift"
+                    label={LONG_METRIC_NAME.CLS}
                     value={CLS}
                     isActive={coreWebVitalsTab === 'CLS'}
                     setTab={() => setCoreWebVitalsTab('CLS')}
                 />
             </div>
 
-            <div>
-                Actual content
-                <Query query={coreWebVitalsMetricQuery} readOnly embedded />
+            <div className="flex flex-row gap-2 p-4">
+                <CoreWebVitalsContent coreWebVitalsQueryResponse={coreWebVitalsQueryResponse} />
+                <div className="flex-1">
+                    <Query query={coreWebVitalsMetricQuery} readOnly embedded />
+                </div>
+            </div>
+        </div>
+    )
+}
+
+const CoreWebVitalsContent = ({
+    coreWebVitalsQueryResponse,
+}: {
+    coreWebVitalsQueryResponse?: CoreWebVitalsQueryResponse
+}): JSX.Element => {
+    const { coreWebVitalsTab, coreWebVitalsPercentile } = useValues(webAnalyticsLogic)
+
+    const value = useMemo(
+        () => getMetric(coreWebVitalsQueryResponse?.results, coreWebVitalsTab, coreWebVitalsPercentile),
+        [coreWebVitalsQueryResponse, coreWebVitalsPercentile, coreWebVitalsTab]
+    )
+
+    if (value === undefined) {
+        return (
+            <div className="w-full border rounded p-4 md:w-[30%]">
+                <LemonSkeleton fade className="w-full h-40" />
+            </div>
+        )
+    }
+
+    const withMilliseconds = (values: number[]): string =>
+        coreWebVitalsTab === 'CLS' ? values.join(' and ') : values.map((value) => `${value}ms`).join(' and ')
+
+    const threshold = CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab]
+    const color = getThresholdColor(value, threshold)
+    const band = getMetricBand(value, threshold)
+
+    const grade = GRADE_PER_BAND[band]
+
+    const Icon = ICON_PER_BAND[band]
+    const positioning = POSITIONING_PER_BAND[band]
+    const values = withMilliseconds(VALUES_PER_BAND[band](threshold))
+
+    const quantifier = QUANTIFIER_PER_BAND[band](coreWebVitalsPercentile)
+    const experience = EXPERIENCE_PER_BAND[band]
+
+    return (
+        <div className="w-full border rounded p-6 md:w-[30%] flex flex-col gap-2">
+            <span className="text-lg">
+                <strong>{LONG_METRIC_NAME[coreWebVitalsTab]}</strong>
+            </span>
+
+            <div className="flex flex-col">
+                <Tooltip
+                    title={
+                        <div>
+                            Great: Below {threshold.good}ms <br />
+                            Needs Improvement: Between {threshold.good}ms and {threshold.poor}ms <br />
+                            Poor: Above {threshold.poor}ms
+                        </div>
+                    }
+                >
+                    <strong>{grade}</strong>
+                    <IconInfo className="inline-block ml-1" />
+                </Tooltip>
+
+                <span>
+                    <Icon className={clsx('inline-block mr-1', `text-${color}`)} />
+                    {positioning} {values}
+                </span>
             </div>
 
-            {coreWebVitalsTab === 'INP' && <div>INP</div>}
-            {coreWebVitalsTab === 'LCP' && <div>LCP</div>}
-            {coreWebVitalsTab === 'CLS' && <div>CLS</div>}
-            {coreWebVitalsTab === 'FCP' && <div>FCP</div>}
+            <div className="text-xs text-muted-foreground">
+                {quantifier} {experience}
+            </div>
+
+            <hr className="my-2" />
+
+            <span>{METRIC_DESCRIPTION[coreWebVitalsTab]}</span>
         </div>
     )
 }
@@ -168,7 +312,7 @@ function CoreWebVitalsTab({
     label: string
     metric: CoreWebVitalsMetric
     isActive: boolean
-    setTab: () => void
+    setTab?: () => void
     inSeconds?: boolean
 }): JSX.Element {
     // TODO: Go back to using an actual value
@@ -226,21 +370,21 @@ export function ProgressBar({ value, threshold }: ProgressBarProps): JSX.Element
         <div className="w-full h-1 rounded-full relative">
             {/* Green segment up to "good" threshold */}
             <div
-                className={clsx('absolute h-full rounded-full', { 'bg-success': isGood, 'bg-muted': !isGood })}
+                className={clsx('absolute h-full rounded-full', isGood ? 'bg-success' : 'bg-muted')}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: `${goodWidth}%` }}
             />
 
             {/* Yellow segment up to "poor" threshold */}
             <div
-                className={clsx('absolute h-full rounded-full', { 'bg-warning': isAverage, 'bg-muted': !isAverage })}
+                className={clsx('absolute h-full rounded-full', isAverage ? 'bg-warning' : 'bg-muted')}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ left: `${goodWidth + 1}%`, width: `${averageWidth - 1}%` }}
             />
 
             {/* Red segment after "poor" threshold */}
             <div
-                className={clsx('absolute h-full rounded-full', { 'bg-danger': isPoor, 'bg-muted': !isPoor })}
+                className={clsx('absolute h-full rounded-full', isPoor ? 'bg-danger' : 'bg-muted')}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ left: `${goodWidth + averageWidth + 1}%`, width: `${poorWidth - 1}%` }}
             />
