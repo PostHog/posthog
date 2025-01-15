@@ -1,7 +1,5 @@
-from functools import cached_property
 from typing import Optional
 
-from sentry_sdk import capture_exception
 import structlog
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -33,8 +31,6 @@ class Insight(models.Model):
     derived_name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
-    filters = models.JSONField(default=dict)
-    filters_hash = models.CharField(max_length=400, null=True, blank=True)
     query = models.JSONField(null=True, blank=True)
     order = models.IntegerField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
@@ -91,7 +87,7 @@ class Insight(models.Model):
     )
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
-    MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
+    MATERIAL_INSIGHT_FIELDS = {"name", "description", "query"}
 
     __repr__ = sane_repr("team_id", "id", "short_id", "name")
 
@@ -118,19 +114,6 @@ class Insight(models.Model):
             if state.dashboard_tile_id is None:
                 return state
         return None
-
-    @cached_property
-    def query_from_filters(self):
-        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-
-        try:
-            return {
-                "kind": "InsightVizNode",
-                "source": filter_to_query(self.filters).model_dump(exclude_none=True),
-                "full": True,
-            }
-        except Exception as e:
-            capture_exception(e)
 
     def dashboard_filters(
         self, dashboard: Optional[Dashboard] = None, dashboard_filters_override: Optional[dict] = None

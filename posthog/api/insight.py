@@ -62,7 +62,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
-from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters, get_query_method
+from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
@@ -250,15 +250,6 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         representation = super().to_representation(instance)
 
         representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
-
-        if hogql_insights_replace_filters(instance.team) and (
-            instance.query is not None or instance.query_from_filters is not None
-        ):
-            representation["filters"] = {}
-            representation["query"] = instance.query or instance.query_from_filters
-        else:
-            filters = instance.dashboard_filters()
-            representation["filters"] = filters
 
         return representation
 
@@ -617,48 +608,26 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin, 
         dashboard_filters_override = filters_override_requested_by_client(request) if request else None
         dashboard_variables_override = variables_override_requested_by_client(request) if request else None
 
-        if hogql_insights_replace_filters(instance.team) and (
-            instance.query is not None or instance.query_from_filters is not None
-        ):
-            query = instance.query or instance.query_from_filters
-            if (
-                dashboard is not None
-                or dashboard_filters_override is not None
-                or dashboard_variables_override is not None
-            ):
-                query = apply_dashboard_filters_to_dict(
-                    query,
-                    (
-                        dashboard_filters_override
-                        if dashboard_filters_override is not None
-                        else dashboard.filters
-                        if dashboard
-                        else {}
-                    ),
-                    instance.team,
-                )
-
-                query = apply_dashboard_variables_to_dict(
-                    query,
-                    dashboard_variables_override or {},
-                    instance.team,
-                )
-            representation["filters"] = {}
-            representation["query"] = query
-        else:
-            representation["filters"] = instance.dashboard_filters(
-                dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
-            )
-            representation["query"] = instance.get_effective_query(
-                dashboard=dashboard,
-                dashboard_filters_override=dashboard_filters_override,
-                dashboard_variables_override=dashboard_variables_override,
+        query = instance.query
+        if dashboard is not None or dashboard_filters_override is not None or dashboard_variables_override is not None:
+            query = apply_dashboard_filters_to_dict(
+                query,
+                (
+                    dashboard_filters_override
+                    if dashboard_filters_override is not None
+                    else dashboard.filters
+                    if dashboard
+                    else {}
+                ),
+                instance.team,
             )
 
-            if "insight" not in representation["filters"] and not representation["query"]:
-                representation["filters"]["insight"] = "TRENDS"
-
-        representation["filters_hash"] = self.insight_result(instance).cache_key
+            query = apply_dashboard_variables_to_dict(
+                query,
+                dashboard_variables_override or {},
+                instance.team,
+            )
+        representation["query"] = query
 
         return representation
 
@@ -852,7 +821,6 @@ class InsightViewSet(
                 )
             elif key == INSIGHT:
                 insight = request.GET[INSIGHT]
-                legacy_filter = Q(query__isnull=True) & Q(filters__insight=insight)
                 legacy_to_hogql_mapping = {
                     "TRENDS": schema.NodeKind.TRENDS_QUERY,
                     "FUNNELS": schema.NodeKind.FUNNELS_QUERY,
@@ -862,20 +830,14 @@ class InsightViewSet(
                     "LIFECYCLE": schema.NodeKind.LIFECYCLE_QUERY,
                 }
                 if insight == "JSON":
-                    queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.exclude(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                 elif insight == "SQL":
-                    queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.filter(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                 elif insight in legacy_to_hogql_mapping:
                     queryset = queryset.filter(
-                        legacy_filter
-                        | Q(query__isnull=False)
-                        & Q(query__kind=schema.NodeKind.INSIGHT_VIZ_NODE)
+                        Q(query__kind=schema.NodeKind.INSIGHT_VIZ_NODE)
                         & Q(query__source__kind=legacy_to_hogql_mapping[insight])
                     )
-                else:
-                    queryset = queryset.filter(legacy_filter)
             elif key == "search":
                 queryset = queryset.filter(
                     Q(name__icontains=request.GET["search"])
