@@ -54,6 +54,7 @@ from posthog.schema import (
     StickinessQuery,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
+    TracesQuery,
     TrendsQuery,
     WebGoalsQuery,
     WebOverviewQuery,
@@ -416,6 +417,16 @@ def get_query_runner(
 
         return ActorsPropertyTaxonomyQueryRunner(
             query=cast(ActorsPropertyTaxonomyQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "TracesQuery":
+        from .ai.traces_query_runner import TracesQueryRunner
+
+        return TracesQueryRunner(
+            query=cast(TracesQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

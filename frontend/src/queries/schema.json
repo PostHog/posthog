@@ -3397,6 +3397,89 @@
             ],
             "type": "object"
         },
+        "CachedTracesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/LLMTrace"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -5595,7 +5678,14 @@
             "additionalProperties": false,
             "properties": {
                 "assignee": {
-                    "type": ["number", "null"]
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "description": {
                     "type": ["string", "null"]
@@ -5646,13 +5736,34 @@
             ],
             "type": "object"
         },
+        "ErrorTrackingIssueAssignee": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "string"
+                        }
+                    ]
+                },
+                "type": {
+                    "enum": ["user_group", "user"],
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id"],
+            "type": "object"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
                 "assignee": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
                         },
                         {
                             "type": "null"
@@ -8480,6 +8591,124 @@
             "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
         },
+        "LLMGeneration": {
+            "additionalProperties": false,
+            "properties": {
+                "baseUrl": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "httpStatus": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "input": {
+                    "items": {},
+                    "type": "array"
+                },
+                "inputCost": {
+                    "type": "number"
+                },
+                "inputTokens": {
+                    "type": "number"
+                },
+                "latency": {
+                    "type": "number"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "output": {},
+                "outputCost": {
+                    "type": "number"
+                },
+                "outputTokens": {
+                    "type": "number"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "totalCost": {
+                    "type": "number"
+                }
+            },
+            "required": ["id", "createdAt", "input", "latency"],
+            "type": "object"
+        },
+        "LLMTrace": {
+            "additionalProperties": false,
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/LLMGeneration"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "inputCost": {
+                    "type": "number"
+                },
+                "inputTokens": {
+                    "type": "number"
+                },
+                "outputCost": {
+                    "type": "number"
+                },
+                "outputTokens": {
+                    "type": "number"
+                },
+                "person": {
+                    "$ref": "#/definitions/LLMTracePerson"
+                },
+                "totalCost": {
+                    "type": "number"
+                },
+                "totalLatency": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "id",
+                "createdAt",
+                "person",
+                "totalLatency",
+                "inputTokens",
+                "outputTokens",
+                "inputCost",
+                "outputCost",
+                "totalCost",
+                "events"
+            ],
+            "type": "object"
+        },
+        "LLMTracePerson": {
+            "additionalProperties": false,
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "distinctId": {
+                    "type": "string"
+                },
+                "properties": {
+                    "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["uuid", "createdAt", "properties", "distinctId"],
+            "type": "object"
+        },
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
@@ -8765,7 +8994,8 @@
                 "SuggestedQuestionsQuery",
                 "TeamTaxonomyQuery",
                 "EventTaxonomyQuery",
-                "ActorsPropertyTaxonomyQuery"
+                "ActorsPropertyTaxonomyQuery",
+                "TracesQuery"
             ],
             "type": "string"
         },
@@ -11184,6 +11414,57 @@
                     },
                     "required": ["results"],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/LLMTrace"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
                 }
             ]
         },
@@ -11302,6 +11583,9 @@
                 },
                 {
                     "$ref": "#/definitions/ActorsPropertyTaxonomyQuery"
+                },
+                {
+                    "$ref": "#/definitions/TracesQuery"
                 }
             ],
             "required": ["kind"],
@@ -12831,6 +13115,87 @@
                 }
             },
             "required": ["events"],
+            "type": "object"
+        },
+        "TracesQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "TracesQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "response": {
+                    "$ref": "#/definitions/TracesQueryResponse"
+                },
+                "traceId": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "TracesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/LLMTrace"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "TrendsAlertConfig": {
