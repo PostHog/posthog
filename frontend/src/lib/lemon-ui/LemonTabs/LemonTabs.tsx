@@ -31,6 +31,7 @@ export interface LemonTabsProps<T extends string | number> {
     size?: 'small' | 'medium'
     'data-attr'?: string
     barClassName?: string
+    hideBottomLine?: boolean
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -45,6 +46,7 @@ export function LemonTabs<T extends string | number>({
     barClassName,
     size = 'medium',
     'data-attr': dataAttr,
+    hideBottomLine = false,
 }: LemonTabsProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLUListElement,
@@ -67,7 +69,11 @@ export function LemonTabs<T extends string | number>({
             }
             data-attr={dataAttr}
         >
-            <ul className={clsx('LemonTabs__bar', barClassName)} role="tablist" ref={containerRef}>
+            <ul
+                className={clsx('LemonTabs__bar', barClassName, hideBottomLine && 'LemonTabs__bar--hide-bottom-line')}
+                role="tablist"
+                ref={containerRef}
+            >
                 {realTabs.map((tab) => {
                     const content = (
                         <>

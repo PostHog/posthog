@@ -15,7 +15,6 @@ import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
 import { ProductLayout } from './components/ProductLayout'
 import { Sidebar } from './components/Sidebar'
-import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
@@ -48,7 +47,7 @@ export function Navigation({
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>
-            <main>
+            {/* <main>
                 {sceneConfig?.layout !== 'app-raw-no-header' && (
                     <>
                         <TopBar />
@@ -68,6 +67,14 @@ export function Navigation({
                     {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
                     {children}
                 </div>
+            </main> */}
+
+            <main>
+                <ProductLayout>
+                    {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
+                    {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
+                    {children}
+                </ProductLayout>
             </main>
             <SidePanel />
             <CommandBar />

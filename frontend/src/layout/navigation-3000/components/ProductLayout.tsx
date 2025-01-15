@@ -37,7 +37,8 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/Dropdown/Dropdown'
 import { removeFlagIdIfPresent, removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import { useMemo } from 'react'
+import { cn } from 'lib/utils/styles'
+import { PropsWithChildren, useMemo } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -157,7 +158,7 @@ function TopBarTabs(): JSX.Element {
     // const { productLayoutTabs } = useValues(productLayoutLogic)
     const { productLayoutConfig } = useValues(breadcrumbsLogic)
     if (!productLayoutConfig || !productLayoutConfig.baseTabs || productLayoutConfig.baseTabs.length === 0) {
-        return <></>
+        return <div />
     }
     const tabs = productLayoutConfig.baseTabs
     const lemonTabs = tabs.map((tab: ProductLayoutTopbarTab) => ({
@@ -173,6 +174,9 @@ function TopBarTabs(): JSX.Element {
 
     return (
         <LemonTabs
+            size="small"
+            barClassName="w-full mb-0 justify-center"
+            hideBottomLine
             activeKey={(tabs.find((t) => t.active) ?? tabs[0])?.key}
             onChange={(newKey) => {
                 router.actions.push(tabs.find((tab: ProductLayoutTopbarTab) => tab.key === newKey)?.url || '')
@@ -429,22 +433,6 @@ export function TopNav(): JSX.Element {
                     <LemonButton size="small">
                         <IconSearch />
                     </LemonButton>
-                    {/* <Popover
-                        overlay={<AccountPopoverOverlay />}
-                        visible={isAccountPopoverOpen}
-                        onClickOutside={closeAccountPopover}
-                        placement="bottom-start"
-                
-                    >
-                        <TopBarNavButton
-                            identifier="me"
-                            // title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
-                            // shortTitle={user?.first_name || user?.email}
-                            onClick={toggleAccountPopover}
-                        >
-                            {`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
-                        </TopBarNavButton>
-                    </Popover> */}
 
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -664,26 +652,134 @@ export function TopNav(): JSX.Element {
                     </DropdownMenu>
                 </div>
             </div>
-            <div className="relative z-[3] flex justify-center items-center h-[34px] border-t token-surface-3000-secondary token-border-3000-secondary">
-                <TopBarTabs />
-            </div>
         </>
     )
 }
-// interface ProductLayoutProps extends PropsWithChildren<any> {}
+interface ProductLayoutProps extends PropsWithChildren<any> {}
 
-export function ProductLayout(): JSX.Element | null {
+export function ProductLayout({ children }: ProductLayoutProps): JSX.Element | null {
+    const { activeNavbarItemId, navbarItems, activeNavbarItem } = useValues(navigation3000Logic)
+
     return (
         <>
             <TopNav />
-            {/* <div className="grid grid-cols-[250px_1fr]">
-                <ul>
-                    <li>
-                        <Link to="/">Home</Link>
-                    </li>
-                </ul>
-                <div className="p-4">{children}</div>
-            </div> */}
+            <div className="grid grid-cols-[250px_1fr] min-h-[calc(100vh-38px-42px)]">
+                <div className="token-surface-3000-tertiary token-border-3000-secondary border-t border-r p-2">
+                    <Command>
+                        <CommandInput id="product-layout-search" placeholder="Search dashboards" />
+                        <CommandList>
+                            <CommandEmpty>No results found</CommandEmpty>
+                            <CommandGroup heading="Suggestions">
+                                <CommandItem buttonProps={{ to: '/' }}>Website unique visitors</CommandItem>
+                                <CommandItem buttonProps={{ to: '/' }}>Events table polling paused</CommandItem>
+                            </CommandGroup>
+                        </CommandList>
+                    </Command>
+                </div>
+                <div>
+                    <div className="h-[38px] z-[3] grid grid-cols-[350px_1fr_350px] justify-between items-center px-2 relative border-t border-b token-surface-3000-secondary token-border-3000-secondary w-full">
+                        <div>
+                            {/* <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        hasIcon
+                                        iconRight={<IconChevronDown />}
+                                        // role="combobox"
+                                        // aria-expanded={open}
+                                        className="w-[200px] justify-between"
+                                    >
+                                        {activeNavbarItem?.label}
+                                    <IconChevronDown />
+                                </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[200px] p-0">
+                                    <Command>
+                                    <CommandInput id="product-search" placeholder="Search products" />
+                                    <CommandList>
+                                        <CommandEmpty>No products found.</CommandEmpty>
+                                        <CommandGroup>
+                                        {navbarItems[1].map((item) => (
+                                            <CommandItem
+                                                key={item.identifier}
+                                                value={item.identifier}
+                                                buttonProps={{
+                                                    to: 'to' in item ? item.to : undefined,
+                                                }}
+                                            >
+                                                {item.label}
+                                                <IconCheckCircle
+                                                    className={cn(
+                                                    "ml-auto",
+                                                    activeNavbarItemId === item.identifier ? "opacity-100" : "opacity-0"
+                                                )}
+                                            />
+                                            </CommandItem>
+                                        ))}
+                                        </CommandGroup>
+                                    </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                                </Popover> */}
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button
+                                        intent="muted-darker"
+                                        aria-label="Account"
+                                        hasIcon
+                                        iconRight={<IconChevronDown />}
+                                    >
+                                        {activeNavbarItem?.label || 'Products'}
+                                    </Button>
+                                </DropdownMenuTrigger>
+
+                                <DropdownMenuContent side="bottom" align="start" className="min-w-56" loop>
+                                    <DropdownMenuLabel>Products</DropdownMenuLabel>
+
+                                    <DropdownMenuGroup>
+                                        {navbarItems[1].map((item) => (
+                                            <DropdownMenuItem
+                                                key={item.identifier}
+                                                buttonProps={{
+                                                    to: 'to' in item ? item.to : undefined,
+                                                }}
+                                            >
+                                                {item.label}
+                                                <IconCheckCircle
+                                                    className={cn(
+                                                        'ml-auto',
+                                                        activeNavbarItemId === item.identifier
+                                                            ? 'opacity-100'
+                                                            : 'opacity-0'
+                                                    )}
+                                                />
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuGroup>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
+                        <TopBarTabs />
+                        <div className="flex gap-1 justify-end">
+                            <Button size="sm" to={urls.replay()}>
+                                Docs
+                            </Button>
+                            <Button size="sm" to={urls.replay()}>
+                                Tutorials
+                            </Button>
+                            <Button size="sm" to={urls.replay()}>
+                                Forums
+                            </Button>
+                            <Button size="sm" to={urls.replay()}>
+                                Roadmap
+                            </Button>
+                            <Button size="sm" to={urls.replay()}>
+                                Help
+                            </Button>
+                        </div>
+                    </div>
+                    <div className="p-4">{children}</div>
+                </div>
+            </div>
         </>
     )
 }

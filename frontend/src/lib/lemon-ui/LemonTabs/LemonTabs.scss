@@ -60,6 +60,12 @@
         }
     }
 
+    &--hide-bottom-line {
+        &::before {
+            display: none;
+        }
+    }
+
     .LemonTabs__tab {
         .LemonTabs--transitioning & {
             transition: color 150ms ease;

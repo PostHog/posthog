@@ -215,9 +215,9 @@
     --surface-tertiary-hover: var(--primitive-neutral-150); /* Hover state of tertiary surface */
     --surface-tertiary-active: var(--primitive-neutral-300); /* Active state of tertiary surface */
     --surface-tertiary-disabled: var(--primitive-neutral-500); /* Disabled state of tertiary surface */
-    --surface-3000-secondary: #eeefe9;
+    --surface-3000-secondary: hsl(70deg 16% 93%);
     --surface-3000-tertiary: var(--primitive-3000-15);
-    --surface-3000-tertiary-hover: var(--primitive-3000-25);
+    --surface-3000-quaternary: var(--primitive-3000-30);
 
     // Backgrounds
     // //////////////////////////////////////////////////////////
@@ -358,8 +358,8 @@
         background-color: var(--surface-3000-tertiary);
     }
 
-    &-surface-3000-tertiary-hover {
-        background-color: var(--surface-3000-tertiary-hover);
+    &-surface-3000-quaternary {
+        background-color: var(--surface-3000-quaternary);
     }
 
     &-surface-separator {
@@ -478,7 +478,7 @@
             --button-icon-height: var(--button-height-xs);
             --button-icon-size: var(--icon-size-xs);
 
-            min-height: var(--button-height);
+            min-height: var(--button-height-xs);
 
             .element-button-icon {
                 width: var(--button-icon-size);
@@ -490,7 +490,7 @@
             --button-icon-height: var(--button-height-sm);
             --button-icon-size: var(--icon-size-sm);
 
-            min-height: var(--button-height);
+            min-height: var(--button-height-sm);
 
             .element-button-icon {
                 width: var(--button-icon-size);
@@ -502,7 +502,7 @@
             --button-icon-height: var(--button-height-base);
             --button-icon-size: var(--icon-size-base);
 
-            min-height: var(--button-height);
+            min-height: var(--button-height-base);
 
             .element-button-icon {
                 width: var(--button-icon-size);
@@ -514,7 +514,7 @@
             --button-icon-height: var(--button-height-lg);
             --button-icon-size: var(--icon-size-lg);
 
-            min-height: var(--button-height);
+            min-height: var(--button-height-lg);
 
             .element-button-icon {
                 width: var(--button-icon-size);
