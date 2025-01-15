@@ -1,7 +1,6 @@
 from django.db import models, transaction
 from django.contrib.postgres.fields import ArrayField
 
-from django.db.models import Q
 from posthog.models.utils import UUIDModel
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -56,16 +55,6 @@ class ErrorTrackingIssueAssignment(UUIDModel):
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
     user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [
-            models.CheckConstraint(
-                check=Q(user__isnull=False) | Q(user_group__isnull=False), name="at_least_one_non_null"
-            ),
-            models.CheckConstraint(
-                check=~(Q(user__isnull=False) & Q(user_group__isnull=False)), name="only_one_non_null"
-            ),
-        ]
 
 
 class ErrorTrackingIssueFingerprintV2(UUIDModel):

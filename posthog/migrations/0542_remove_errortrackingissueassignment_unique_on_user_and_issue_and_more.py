@@ -40,20 +40,6 @@ class Migration(migrations.Migration):
                         null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
                     ),
                 ),
-                migrations.AddConstraint(
-                    model_name="errortrackingissueassignment",
-                    constraint=models.CheckConstraint(
-                        check=models.Q(("user__isnull", False), ("user_group__isnull", False), _connector="OR"),
-                        name="at_least_one_non_null",
-                    ),
-                ),
-                migrations.AddConstraint(
-                    model_name="errortrackingissueassignment",
-                    constraint=models.CheckConstraint(
-                        check=models.Q(("user__isnull", False), ("user_group__isnull", False), _negated=True),
-                        name="only_one_non_null",
-                    ),
-                ),
             ],
             database_operations=[
                 # Remove constraint unique_on_user_and_issue from model errortrackingissueassignment
@@ -106,25 +92,6 @@ class Migration(migrations.Migration):
                         ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_user_id_83f2e696_fk_posthog_u" FOREIGN KEY ("user_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED;
                     """,
                 ),
-                # Create constraint at_least_one_non_null on model errortrackingissueassignment
-                migrations.RunSQL(
-                    """
-                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "at_least_one_non_null" CHECK (("user_id" IS NOT NULL OR "user_group_id" IS NOT NULL)); -- existing-table-constraint-ignore
-                    """,
-                    reverse_sql="""
-                        ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "at_least_one_non_null";
-                    """,
-                ),
-                # Create constraint only_one_non_null on model errortrackingissueassignment
-                migrations.RunSQL(
-                    """
-                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "only_one_non_null" CHECK (NOT ("user_id" IS NOT NULL AND "user_group_id" IS NOT NULL)); -- existing-table-constraint-ignore
-                    CREATE INDEX "posthog_errortrackingissueassignment_user_group_id_459a0006" ON "posthog_errortrackingissueassignment" ("user_group_id");
-                    """,
-                    reverse_sql="""
-                        ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "only_one_non_null";
-                    """,
-                ),
             ],
         )
     ]
@@ -158,20 +125,6 @@ class Migration(migrations.Migration):
 #             name="user",
 #             field=models.ForeignKey(
 #                 null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
-#             ),
-#         ),
-#         migrations.AddConstraint(
-#             model_name="errortrackingissueassignment",
-#             constraint=models.CheckConstraint(
-#                 check=models.Q(("user__isnull", False), ("user_group__isnull", False), _connector="OR"),
-#                 name="at_least_one_non_null",
-#             ),
-#         ),
-#         migrations.AddConstraint(
-#             model_name="errortrackingissueassignment",
-#             constraint=models.CheckConstraint(
-#                 check=models.Q(("user__isnull", False), ("user_group__isnull", False), _negated=True),
-#                 name="only_one_non_null",
 #             ),
 #         ),
 #     ]
