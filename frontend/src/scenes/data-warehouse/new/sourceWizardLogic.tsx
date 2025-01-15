@@ -82,7 +82,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         fields: [
             {
                 name: 'connection_string',
-                label: 'Connection String',
+                label: 'Connection String (optional)',
                 type: 'text',
                 required: false,
                 placeholder: 'postgresql://user:password@localhost:5432/database',
