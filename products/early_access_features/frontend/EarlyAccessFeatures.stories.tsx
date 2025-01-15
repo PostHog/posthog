@@ -2,7 +2,7 @@ import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
-import { urls } from './urls'
+import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { EarlyAccessFeatureType } from '~/types'

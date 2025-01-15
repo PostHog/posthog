@@ -5,7 +5,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from './urls'
+import { urls } from 'scenes/urls'
 
 import { EarlyAccessFeatureType, ProductKey } from '~/types'
 

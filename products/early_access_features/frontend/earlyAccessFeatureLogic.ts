@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from './urls'
+import { urls } from 'scenes/urls'
 
 import {
     Breadcrumb,

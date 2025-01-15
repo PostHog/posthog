@@ -1,7 +1,7 @@
 import { afterMount, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { urls } from './urls'
+import { urls } from 'scenes/urls'
 
 import { Breadcrumb, EarlyAccessFeatureType } from '~/types'
 

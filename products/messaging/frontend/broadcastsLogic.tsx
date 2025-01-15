@@ -1,7 +1,7 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 import { Scene } from 'scenes/sceneTypes'
-import { urls } from './urls'
+import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -32,21 +32,21 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     },
                     ...(broadcastId === 'new'
                         ? [
-                              {
-                                  key: 'new-broadcast',
-                                  name: 'New broadcast',
-                                  path: urls.messagingBroadcastNew(),
-                              },
-                          ]
+                            {
+                                key: 'new-broadcast',
+                                name: 'New broadcast',
+                                path: urls.messagingBroadcastNew(),
+                            },
+                        ]
                         : broadcastId
-                        ? [
-                              {
-                                  key: 'edit-broadcast',
-                                  name: 'Edit broadcast',
-                                  path: urls.messagingBroadcast(broadcastId),
-                              },
-                          ]
-                        : []),
+                            ? [
+                                {
+                                    key: 'edit-broadcast',
+                                    name: 'Edit broadcast',
+                                    path: urls.messagingBroadcast(broadcastId),
+                                },
+                            ]
+                            : []),
                 ]
             },
         ],
