@@ -143,7 +143,6 @@ function ProjectButton({ team, disabled }: { team: TeamBasicType; disabled?: boo
             asChild
             buttonProps={{
                 to: relativeOtherProjectPath,
-                hasIcon: disabled ? true : false,
                 iconRight: disabled ? <IconCheckCircle /> : undefined,
                 tooltip: disabled ? `This is your current project` : 'Switch to project',
                 tooltipPlacement: 'right',
@@ -211,7 +210,6 @@ export function TopNav(): JSX.Element {
                         <Button
                             intent="muted-darker"
                             aria-label="Account"
-                            hasIcon
                             iconRight={<IconChevronDown />}
                             iconLeft={
                                 <UploadedLogo
@@ -240,7 +238,6 @@ export function TopNav(): JSX.Element {
                                                 buttonProps={{
                                                     tooltip: `This is your current organization`,
                                                     tooltipPlacement: 'right',
-                                                    hasIcon: true,
                                                     iconLeft: (
                                                         <UploadedLogo
                                                             name={currentOrganization?.name || ''}
@@ -261,7 +258,6 @@ export function TopNav(): JSX.Element {
                                                 <DropdownMenuItem
                                                     key={otherOrganization.id}
                                                     buttonProps={{
-                                                        hasIcon: true,
                                                         iconLeft: (
                                                             <UploadedLogo
                                                                 name={otherOrganization.name}
@@ -285,7 +281,6 @@ export function TopNav(): JSX.Element {
                             {preflight?.can_create_org && (
                                 <DropdownMenuItem
                                     buttonProps={{
-                                        hasIcon: true,
                                         iconLeft: <IconPlus />,
                                         onClick: () =>
                                             guardAvailableFeature(
@@ -385,7 +380,6 @@ export function TopNav(): JSX.Element {
                                 <DropdownMenuItem
                                     data-attr="new-project-button"
                                     buttonProps={{
-                                        hasIcon: true,
                                         iconLeft: <IconPlus />,
                                         tooltip: 'Create a new project',
                                         tooltipPlacement: 'right',
@@ -440,7 +434,6 @@ export function TopNav(): JSX.Element {
                             <Button
                                 intent="muted-darker"
                                 aria-label="Account"
-                                hasIcon
                                 iconRight={<IconChevronDown />}
                                 iconLeft={<ProfilePicture user={user} size="md" />}
                             >
@@ -454,7 +447,6 @@ export function TopNav(): JSX.Element {
                             <DropdownMenuGroup>
                                 <DropdownMenuItem
                                     buttonProps={{
-                                        hasIcon: true,
                                         to: urls.settings('user'),
                                         tooltip: 'Sign in as',
                                         tooltipPlacement: 'left',
@@ -470,7 +462,6 @@ export function TopNav(): JSX.Element {
                                 {currentOrganization ? (
                                     <DropdownMenuItem
                                         buttonProps={{
-                                            hasIcon: true,
                                             to: urls.settings('user'),
                                             tooltip: 'Organization settings',
                                             tooltipPlacement: 'left',
@@ -493,7 +484,6 @@ export function TopNav(): JSX.Element {
                                 {isCloudOrDev ? (
                                     <DropdownMenuItem
                                         buttonProps={{
-                                            hasIcon: true,
                                             to: urls.organizationBilling(),
                                             iconLeft: <IconReceipt />,
                                         }}
@@ -505,7 +495,7 @@ export function TopNav(): JSX.Element {
                                 <DropdownMenuSeparator />
 
                                 <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger buttonProps={{ hasIcon: true, iconLeft: <IconPalette /> }}>
+                                    <DropdownMenuSubTrigger buttonProps={{ iconLeft: <IconPalette /> }}>
                                         Color theme
                                         <span className="font-normal text-xs">{themeMode} mode</span>
                                     </DropdownMenuSubTrigger>
@@ -513,7 +503,6 @@ export function TopNav(): JSX.Element {
                                         <DropdownMenuSubContent loop>
                                             <DropdownMenuItem
                                                 buttonProps={{
-                                                    hasIcon: true,
                                                     iconLeft: <IconDay />,
                                                     onClick: () => updateUser({ theme_mode: 'light' }),
                                                 }}
@@ -522,7 +511,6 @@ export function TopNav(): JSX.Element {
                                             </DropdownMenuItem>
                                             <DropdownMenuItem
                                                 buttonProps={{
-                                                    hasIcon: true,
                                                     iconLeft: <IconNight />,
                                                     onClick: () => updateUser({ theme_mode: 'dark' }),
                                                 }}
@@ -531,7 +519,6 @@ export function TopNav(): JSX.Element {
                                             </DropdownMenuItem>
                                             <DropdownMenuItem
                                                 buttonProps={{
-                                                    hasIcon: true,
                                                     iconLeft: <IconLaptop />,
                                                     onClick: () => updateUser({ theme_mode: 'system' }),
                                                 }}
@@ -541,7 +528,6 @@ export function TopNav(): JSX.Element {
                                             {customCssEnabled && (
                                                 <DropdownMenuItem
                                                     buttonProps={{
-                                                        hasIcon: true,
                                                         iconLeft: <IconPalette />,
                                                         onClick: () => router.actions.push(urls.customCss()),
                                                     }}
@@ -555,7 +541,6 @@ export function TopNav(): JSX.Element {
 
                                 <DropdownMenuItem
                                     buttonProps={{
-                                        hasIcon: true,
                                         iconLeft: <IconLive />,
                                         // TODO: Add this back in when i do mobile layout
                                         // to: 'https://posthog.com/changelog',
@@ -571,7 +556,6 @@ export function TopNav(): JSX.Element {
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                     buttonProps={{
-                                        hasIcon: true,
                                         iconLeft: <IconFeatures />,
                                         // TODO: link to page for mobile layout like "whats new"?
                                         onClick: () => {
@@ -588,7 +572,6 @@ export function TopNav(): JSX.Element {
                                         <DropdownMenuItem
                                             data-attr="top-menu-django-admin"
                                             buttonProps={{
-                                                hasIcon: true,
                                                 iconLeft: <IconShieldLock />,
                                                 to: '/admin/',
                                                 disableClientSideRouting: true,
@@ -600,7 +583,6 @@ export function TopNav(): JSX.Element {
                                         <DropdownMenuItem
                                             data-attr="top-menu-instance-panel"
                                             buttonProps={{
-                                                hasIcon: true,
                                                 iconLeft: <IconServer />,
                                                 to: urls.instanceStatus(),
                                                 disableClientSideRouting: true,
@@ -625,7 +607,6 @@ export function TopNav(): JSX.Element {
                                     <DropdownMenuItem
                                         data-attr="top-menu-upgrade-to-cloud"
                                         buttonProps={{
-                                            hasIcon: true,
                                             iconLeft: <IconConfetti />,
                                             to: urls.moveToPostHogCloud(),
                                         }}
@@ -638,7 +619,6 @@ export function TopNav(): JSX.Element {
 
                                 <DropdownMenuItem
                                     buttonProps={{
-                                        hasIcon: true,
                                         iconLeft: <IconLeave />,
                                         onClick: () => {
                                             logout()
@@ -670,6 +650,7 @@ export function ProductLayout({ children }: ProductLayoutProps): JSX.Element | n
                         <CommandList>
                             <CommandEmpty>No results found</CommandEmpty>
                             <CommandGroup heading="Suggestions">
+                                {/* TODO: pull from state */}
                                 <CommandItem buttonProps={{ to: '/' }}>Website unique visitors</CommandItem>
                                 <CommandItem buttonProps={{ to: '/' }}>Events table polling paused</CommandItem>
                             </CommandGroup>
@@ -679,55 +660,9 @@ export function ProductLayout({ children }: ProductLayoutProps): JSX.Element | n
                 <div>
                     <div className="h-[38px] z-[3] grid grid-cols-[350px_1fr_350px] justify-between items-center px-2 relative border-t border-b token-surface-3000-secondary token-border-3000-secondary w-full">
                         <div>
-                            {/* <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        hasIcon
-                                        iconRight={<IconChevronDown />}
-                                        // role="combobox"
-                                        // aria-expanded={open}
-                                        className="w-[200px] justify-between"
-                                    >
-                                        {activeNavbarItem?.label}
-                                    <IconChevronDown />
-                                </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-[200px] p-0">
-                                    <Command>
-                                    <CommandInput id="product-search" placeholder="Search products" />
-                                    <CommandList>
-                                        <CommandEmpty>No products found.</CommandEmpty>
-                                        <CommandGroup>
-                                        {navbarItems[1].map((item) => (
-                                            <CommandItem
-                                                key={item.identifier}
-                                                value={item.identifier}
-                                                buttonProps={{
-                                                    to: 'to' in item ? item.to : undefined,
-                                                }}
-                                            >
-                                                {item.label}
-                                                <IconCheckCircle
-                                                    className={cn(
-                                                    "ml-auto",
-                                                    activeNavbarItemId === item.identifier ? "opacity-100" : "opacity-0"
-                                                )}
-                                            />
-                                            </CommandItem>
-                                        ))}
-                                        </CommandGroup>
-                                    </CommandList>
-                                    </Command>
-                                </PopoverContent>
-                                </Popover> */}
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                    <Button
-                                        intent="muted-darker"
-                                        aria-label="Account"
-                                        hasIcon
-                                        iconRight={<IconChevronDown />}
-                                    >
+                                    <Button intent="muted-darker" aria-label="Account" iconRight={<IconChevronDown />}>
                                         {activeNavbarItem?.label || 'Products'}
                                     </Button>
                                 </DropdownMenuTrigger>

@@ -62,11 +62,10 @@ const DropdownGen = ({ trigger, items: dropdownItems, id, ...props }: DropdownGe
                         {item.label && <DropdownMenuLabel>{item.label}</DropdownMenuLabel>}
                         <DropdownMenuSubTrigger
                             buttonProps={{
-                                hasIconLeft: item.buttonProps?.iconLeft ? true : false,
                                 iconLeft: item.buttonProps?.iconLeft ? item.buttonProps?.iconLeft : undefined,
                                 ...item.buttonProps,
                             }}
-                            disabled={item.buttonProps?.disabled}
+                            disabled={item.buttonProps?.disabledReason ? true : false}
                         >
                             {item.trigger || '<empty item.buttonText>'}
                         </DropdownMenuSubTrigger>
@@ -92,7 +91,9 @@ const DropdownGen = ({ trigger, items: dropdownItems, id, ...props }: DropdownGe
                                                             buttonProps={{
                                                                 ...subItem.buttonProps,
                                                             }}
-                                                            disabled={subItem.buttonProps?.disabled}
+                                                            disabled={
+                                                                subItem.buttonProps?.disabledReason ? true : false
+                                                            }
                                                         >
                                                             {subItem.trigger}
                                                         </CommandItem>
@@ -112,9 +113,8 @@ const DropdownGen = ({ trigger, items: dropdownItems, id, ...props }: DropdownGe
                     <DropdownMenuSub key={index}>
                         {item.label && <DropdownMenuLabel>{item.label}</DropdownMenuLabel>}
                         <DropdownMenuSubTrigger
-                            disabled={item.buttonProps?.disabled}
+                            disabled={item.buttonProps?.disabledReason ? true : false}
                             buttonProps={{
-                                hasIconLeft: item.buttonProps?.iconLeft ? true : false,
                                 iconLeft: item.buttonProps?.iconLeft ? item.buttonProps?.iconLeft : undefined,
                                 ...item.buttonProps,
                             }}
@@ -139,11 +139,10 @@ const DropdownGen = ({ trigger, items: dropdownItems, id, ...props }: DropdownGe
                     key={index}
                     onSelect={() => item.onClick?.(item.value)}
                     buttonProps={{
-                        hasIconLeft: item.buttonProps?.iconLeft ? true : false,
                         iconLeft: item.buttonProps?.iconLeft ? item.buttonProps?.iconLeft : undefined,
                         ...item.buttonProps,
                     }}
-                    disabled={item.buttonProps?.disabled}
+                    disabled={item.buttonProps?.disabledReason ? true : false}
                 >
                     {item.trigger}
                 </DropdownMenuItem>

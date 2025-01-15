@@ -1,6 +1,7 @@
 import { IconActivity, IconChevronDown } from '@posthog/icons'
 import { Meta, Story } from '@storybook/react'
 
+import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from '../Dropdown/Dropdown'
 import { Button } from './Button'
 
 const meta: Meta = {
@@ -10,12 +11,9 @@ export default meta
 
 export const Default: Story = () => {
     return (
-        <div className="flex flex-col gap-16 items-start surface-3000-primary">
-            <div className="flex flex-col xs:flex-row gap-4">
+        <div className="flex flex-col gap-16 items-start token-bg-primary">
+            <div className="flex flex-col xs:flex-row gap-4 token-surface-primary p-4">
                 <Button intent="primary">Primary</Button>
-                <Button intent="primary" disabled>
-                    Primary Disabled
-                </Button>
                 <Button intent="primary" disabledReason="This is a disabled reason">
                     Primary Disabled Reason
                 </Button>
@@ -24,11 +22,8 @@ export const Default: Story = () => {
                 </Button>
             </div>
 
-            <div className="flex flex-col xs:flex-row gap-4">
+            <div className="flex flex-col xs:flex-row gap-4 token-surface-primary p-4">
                 <Button intent="outline">Outline</Button>
-                <Button intent="outline" disabled>
-                    Outline Disabled
-                </Button>
                 <Button intent="outline" disabledReason="This is a disabled reason">
                     Outline Disabled Reason
                 </Button>
@@ -37,11 +32,8 @@ export const Default: Story = () => {
                 </Button>
             </div>
 
-            <div className="flex flex-col xs:flex-row gap-4">
+            <div className="flex flex-col xs:flex-row gap-4 token-surface-primary p-4">
                 <Button intent="muted">Muted</Button>
-                <Button intent="muted" disabled>
-                    Muted Disabled
-                </Button>
                 <Button intent="muted" disabledReason="This is a disabled reason">
                     Muted Disabled Reason
                 </Button>
@@ -50,11 +42,8 @@ export const Default: Story = () => {
                 </Button>
             </div>
 
-            <div className="flex flex-col xs:flex-row gap-4">
+            <div className="flex flex-col xs:flex-row gap-4 token-surface-primary p-4">
                 <Button intent="muted-darker">Muted Darker</Button>
-                <Button intent="muted-darker" disabled>
-                    Muted Darker Disabled
-                </Button>
                 <Button intent="muted-darker" disabledReason="This is a disabled reason">
                     Muted Darker Disabled Reason
                 </Button>
@@ -79,20 +68,70 @@ export const Default: Story = () => {
                 </Button>
             </div> */}
 
-            <div className="flex flex-col xs:flex-row gap-4">
-                <Button intent="primary" sideAction={{ to: '/', onClick: () => {}, children: <IconChevronDown /> }}>
+            <div className="flex flex-col xs:flex-row gap-4 token-surface-primary p-4">
+                <Button
+                    intent="primary"
+                    iconRight={<IconChevronDown />}
+                    dropdownContent={
+                        <DropdownMenuContent side="bottom" align="start" className="min-w-56" loop>
+                            <DropdownMenuLabel>Organizations</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem>New organization</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    }
+                >
+                    As a dropdown
+                </Button>
+            </div>
+            <div className="flex flex-col xs:flex-row gap-4 token-surface-primary p-4">
+                <Button
+                    intent="primary"
+                    sideAction={{
+                        to: '/',
+                        onClick: () => {},
+                        children: <IconChevronDown />,
+                    }}
+                >
                     Side Action
                 </Button>
-                <Button intent="outline" sideAction={{ to: '/', onClick: () => {}, children: <IconActivity /> }}>
+                <Button
+                    intent="outline"
+                    sideAction={{
+                        to: '/',
+                        onClick: () => {},
+                        children: <IconActivity />,
+                    }}
+                >
                     Side Action
                 </Button>
-                <Button intent="muted" sideAction={{ to: '/', onClick: () => {}, children: <IconActivity /> }}>
+                <Button
+                    intent="muted"
+                    sideAction={{
+                        to: '/',
+                        onClick: () => {},
+                        children: <IconActivity />,
+                    }}
+                >
                     Side Action
                 </Button>
-                <Button intent="muted-darker" sideAction={{ to: '/', onClick: () => {}, children: <IconActivity /> }}>
+                <Button
+                    intent="muted-darker"
+                    sideAction={{
+                        to: '/',
+                        onClick: () => {},
+                        children: <IconActivity />,
+                    }}
+                >
                     Side Action
                 </Button>
-                <Button intent="top-bar-tabs" sideAction={{ to: '/', onClick: () => {}, children: <IconActivity /> }}>
+                <Button
+                    intent="top-bar-tabs"
+                    sideAction={{
+                        to: '/',
+                        onClick: () => {},
+                        children: <IconActivity />,
+                    }}
+                >
                     Side Action
                 </Button>
             </div>

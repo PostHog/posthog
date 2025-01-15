@@ -318,6 +318,14 @@
 // EXPERIMENTAL
 // THINGS WILL CHANGE, REACH OUT TO ADAM FOR MORE INFO
 .token {
+    &-bg-primary {
+        background-color: var(--bg-primary);
+    }
+
+    &-bg-secondary {
+        background-color: var(--bg-secondary);
+    }
+
     &-content-primary {
         color: var(--content-primary);
     }

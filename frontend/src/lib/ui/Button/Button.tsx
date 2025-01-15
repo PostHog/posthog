@@ -4,6 +4,8 @@ import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/styles'
 import { forwardRef } from 'react'
 
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '../Dropdown/Dropdown'
+
 export const buttonStyles = cva(
     `
         element-button 
@@ -36,28 +38,28 @@ export const buttonStyles = cva(
                 base: ['element-button-size-base', 'text-sm', 'px-3'],
                 lg: ['element-button-size-lg', 'text-base', 'px-3'],
             },
+            // This is only for styling purposes and is omitted from the props
             hasIcon: {
                 true: ['gap-2'],
                 false: [''],
             },
+            // This is only for styling purposes and is omitted from the props
             hasIconLeft: {
                 true: [''],
                 false: [''],
             },
+            // This is only for styling purposes and is omitted from the props
             hasIconRight: {
                 true: [''],
-                false: [''],
-            },
-            hasTooltip: {
-                true: ['items-center', 'gap-2'],
                 false: [''],
             },
             iconOnly: {
                 true: [''],
                 false: [''],
             },
+            // This is only for styling purposes and is omitted from the props
             disabled: {
-                true: ['pointer-events-none'],
+                true: ['cursor-not-allowed', 'opacity-50'],
                 false: [''],
             },
             insideInput: {
@@ -128,13 +130,16 @@ export type ButtonSideAction = {
     onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void
 }
 
-export type ButtonVariantProps = VariantProps<typeof buttonStyles> & {
+export type ButtonVariantProps = Omit<
+    VariantProps<typeof buttonStyles>,
+    'disabled' | 'hasIcon' | 'hasIconLeft' | 'hasIconRight'
+> & {
     children: React.ReactNode
     className?: string
     to?: string
     targetBlank?: boolean
     type?: 'button' | 'submit' | 'reset'
-    disabled?: boolean
+    // disabled?: boolean
     disableClientSideRouting?: boolean
     tooltip?: TooltipProps['title']
     tooltipPlacement?: TooltipProps['placement']
@@ -144,10 +149,11 @@ export type ButtonVariantProps = VariantProps<typeof buttonStyles> & {
     iconLeft?: React.ReactNode
     onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void
     insideInput?: boolean
+    dropdownContent?: React.ReactElement<typeof DropdownMenuContent>
+
     //TODO: on surface prop (so we can style the button based on the surface it sits on)
 
-    //TODO: add sideAction
-    sideAction?: Omit<ButtonVariantProps, 'intent'>
+    sideAction?: Omit<ButtonVariantProps, 'intent' | 'insideInput' | 'hasSideAction'>
 }
 
 export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVariantProps>(
@@ -158,7 +164,6 @@ export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVa
             to,
             targetBlank,
             type,
-            disabled,
             disabledReason,
             disableClientSideRouting,
             tooltip,
@@ -170,11 +175,13 @@ export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVa
             onClick,
             insideInput,
             sideAction,
+            dropdownContent,
             ...rest
         },
         ref
     ) => {
-        const ButtonComponent = to ? Link : 'button'
+        const ButtonComponent = to ? Link : dropdownContent ? DropdownMenuTrigger : 'button'
+        let disabled = disabledReason ? true : false
 
         let tooltipContent: TooltipProps['title']
         if (disabledReason) {
@@ -213,6 +220,7 @@ export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVa
                 className={cn(
                     buttonStyles({
                         intent,
+                        hasIcon: Boolean(iconLeft || iconRight),
                         hasIconLeft: Boolean(iconLeft),
                         hasIconRight: Boolean(iconRight),
                         iconOnly,
@@ -225,7 +233,7 @@ export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVa
                 )}
                 disabled={disabled}
                 onClick={(e) => {
-                    onClick && onClick(e as React.MouseEvent<HTMLButtonElement>)
+                    onClick?.(e as React.MouseEvent<HTMLButtonElement>)
                 }}
                 {...linkDependentProps}
                 {...rest}
@@ -255,6 +263,15 @@ export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVa
                 <Tooltip title={tooltipContent} placement={tooltipPlacement}>
                     {workingButton}
                 </Tooltip>
+            )
+        }
+
+        if (dropdownContent) {
+            workingButton = (
+                <DropdownMenu>
+                    {workingButton}
+                    {dropdownContent}
+                </DropdownMenu>
             )
         }
 

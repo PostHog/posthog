@@ -55,9 +55,6 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     path(() => ['scenes', 'session-recordings', 'sessionReplaySceneLogic']),
     connect({
         values: [featureFlagLogic, ['featureFlags']],
-        // actions: [
-        //     productLayoutLogic, ['setProductLayoutConfig']
-        // ],
     }),
     actions({
         setTab: (tab: ReplayTabs = ReplayTabs.Home) => ({ tab }),
