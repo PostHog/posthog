@@ -252,7 +252,6 @@ export class HogExecutor {
                         name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
                         url: `${triggerGlobals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
                     },
-                    inputs,
                 }
 
                 const globalsWithInputs = buildGlobalsWithInputs(globalsWithSource, inputs)
