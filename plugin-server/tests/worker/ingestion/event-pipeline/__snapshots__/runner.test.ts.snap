@@ -1,8 +1,8 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`EventPipelineRunner runEventPipeline() runs steps starting from populateTeamDataStep 1`] = `
-Array [
-  Array [
+[
+  [
     "populateTeamDataStep",
     Array [
       "__this__",
@@ -11,7 +11,7 @@ Array [
         "event": "default event",
         "ip": "127.0.0.1",
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {},
+        "properties": {},
         "site_url": "http://localhost",
         "team_id": null,
         "timestamp": "2020-02-23T02:15:00.000Z",
@@ -20,7 +20,7 @@ Array [
       },
     ],
   ],
-  Array [
+  [
     "pluginsProcessEventStep",
     Array [
       "__this__",
@@ -29,7 +29,7 @@ Array [
         "event": "default event",
         "ip": "127.0.0.1",
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {},
+        "properties": {},
         "site_url": "http://localhost",
         "team_id": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
@@ -37,7 +37,7 @@ Array [
       },
     ],
   ],
-  Array [
+  [
     "normalizeEventStep",
     Array [
       Object {
@@ -54,7 +54,7 @@ Array [
       true,
     ],
   ],
-  Array [
+  [
     "processPersonsStep",
     Array [
       "__this__",
@@ -63,7 +63,7 @@ Array [
         "event": "default event",
         "ip": null,
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {
+        "properties": {
           "$ip": "127.0.0.1",
         },
         "site_url": "http://localhost",
@@ -75,7 +75,7 @@ Array [
       true,
     ],
   ],
-  Array [
+  [
     "prepareEventStep",
     Array [
       "__this__",
@@ -84,7 +84,7 @@ Array [
         "event": "default event",
         "ip": null,
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {
+        "properties": {
           "$ip": "127.0.0.1",
         },
         "site_url": "http://localhost",
@@ -95,35 +95,35 @@ Array [
       true,
     ],
   ],
-  Array [
+  [
     "extractHeatmapDataStep",
     Array [
       "__this__",
       Object {
         "distinctId": "my_id",
-        "elementsList": Array [],
+        "elementsList": [],
         "event": "$pageview",
         "eventUuid": "uuid1",
         "ip": "127.0.0.1",
         "projectId": 1,
-        "properties": Object {},
+        "properties": {},
         "teamId": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
       },
     ],
   ],
-  Array [
+  [
     "createEventStep",
     Array [
       "__this__",
       Object {
         "distinctId": "my_id",
-        "elementsList": Array [],
+        "elementsList": [],
         "event": "$pageview",
         "eventUuid": "uuid1",
         "ip": "127.0.0.1",
         "projectId": 1,
-        "properties": Object {},
+        "properties": {},
         "teamId": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
       },
@@ -142,7 +142,7 @@ Array [
       true,
     ],
   ],
-  Array [
+  [
     "emitEventStep",
     Array [
       "__this__",

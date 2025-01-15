@@ -10,7 +10,7 @@ import { KafkaProducerWrapper } from '../../../../kafka/producer'
 import { status } from '../../../../utils/status'
 import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'
-import { createSessionReplayEvent } from '../process-event'
+import { createSessionReplayEvent, RRWebEventType } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 
@@ -136,6 +136,16 @@ export class ReplayEventsIngester {
                 if (replayRecord !== null) {
                     const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
                     if (!asDate.isValid || Math.abs(asDate.diffNow('day').days) >= 7) {
+                        const eventTypes: { type: number; timestamp: number }[] = []
+                        const customEvents: typeof rrwebEvents = []
+
+                        for (const event of rrwebEvents) {
+                            eventTypes.push({ type: event.type, timestamp: event.timestamp })
+                            if (event.type === RRWebEventType.Custom) {
+                                customEvents.push(event)
+                            }
+                        }
+
                         await captureIngestionWarning(
                             this.producer,
                             event.team_id,
@@ -146,6 +156,8 @@ export class ReplayEventsIngester {
                                 isValid: asDate.isValid,
                                 daysFromNow: Math.round(Math.abs(asDate.diffNow('day').days)),
                                 processingTimestamp: DateTime.now().toISO(),
+                                eventTypes,
+                                customEvents,
                             },
                             { key: event.session_id }
                         )

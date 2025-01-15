@@ -5,9 +5,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
@@ -60,6 +61,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'interval',
                 'insightData',
                 'insightDataError',
+                'theme',
             ],
             groupsModel,
             ['aggregationLabel'],
@@ -84,7 +86,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
     }),
 
-    selectors(() => ({
+    selectors(({ props }) => ({
         querySource: [
             (s) => [s.vizQuerySource],
             (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
@@ -209,6 +211,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         hiddenLegendBreakdowns: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.hiddenLegendBreakdowns],
+        resultCustomizations: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.resultCustomizations],
         visibleStepsWithConversionMetrics: [
             (s) => [s.stepsWithConversionMetrics, s.funnelsFilter, s.flattenedBreakdowns],
             (steps, funnelsFilter, flattenedBreakdowns): FunnelStepWithConversionMetrics[] => {
@@ -407,6 +410,33 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (s) => [s.steps],
             (steps) =>
                 Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
+        ],
+        getFunnelsColorToken: [
+            (s) => [s.resultCustomizations, s.theme],
+            (resultCustomizations, theme) => {
+                return (dataset) => {
+                    if (theme == null) {
+                        return null
+                    }
+                    return getFunnelResultCustomizationColorToken(
+                        resultCustomizations,
+                        theme,
+                        dataset,
+                        props?.cachedInsight?.disable_baseline
+                    )
+                }
+            },
+        ],
+        getFunnelsColor: [
+            (s) => [s.theme, s.getFunnelsColorToken],
+            (theme, getFunnelsColorToken) => {
+                return (dataset) => {
+                    if (theme == null) {
+                        return '#000000' // fallback while loading
+                    }
+                    return theme[getFunnelsColorToken(dataset)!]
+                }
+            },
         ],
     })),
 

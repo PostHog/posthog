@@ -25,6 +25,7 @@ from .cohort import Cohort, CohortPeople
 from .comment import Comment
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
+from .data_color_theme import DataColorTheme
 from .dashboard_tile import DashboardTile, Text
 from .early_access_feature import EarlyAccessFeature
 from .element import Element
@@ -81,6 +82,7 @@ from .tagged_item import TaggedItem
 from .team import Team
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
+from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
 
@@ -102,6 +104,7 @@ __all__ = [
     "Dashboard",
     "DashboardTile",
     "DashboardTemplate",
+    "DataColorTheme",
     "DeletionType",
     "EarlyAccessFeature",
     "Element",
@@ -168,6 +171,8 @@ __all__ = [
     "User",
     "UserScenePersonalisation",
     "UserManager",
+    "UserGroup",
+    "UserGroupMembership",
     "DataWarehouseTable",
     "ScheduledChange",
     "WebExperiment",

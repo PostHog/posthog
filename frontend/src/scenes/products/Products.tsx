@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
-import { availableOnboardingProducts, getProductUri } from 'scenes/onboarding/onboardingLogic'
+import { availableOnboardingProducts, getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -39,6 +39,8 @@ export function SelectableProductCard({
     selected?: boolean
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { replayLandingPage } = useValues(onboardingLogic)
+
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[productKey]
     const vertical = orientation === 'vertical'
     return (
@@ -58,7 +60,7 @@ export function SelectableProductCard({
                         className="relative"
                         onClick={(e) => {
                             e.stopPropagation()
-                            router.actions.push(getProductUri(productKey as ProductKey))
+                            router.actions.push(getProductUri(productKey as ProductKey, replayLandingPage))
                         }}
                         data-attr={`return-to-${productKey}`}
                     >
@@ -81,7 +83,7 @@ export function Products(): JSX.Element {
     const { selectedProducts, firstProductOnboarding } = useValues(productsLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full px-6 items-center justify-center bg-bg-3000">
+        <div className="flex flex-col flex-1 w-full m-4 items-center justify-center bg-bg-3000">
             <>
                 <div className="flex flex-col justify-center flex-grow items-center">
                     <div className="mb-8">

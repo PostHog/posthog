@@ -464,7 +464,7 @@ async def get_client(
     Usage:
 
         async with get_client() as client:
-            await client.execute("SELECT 1")
+            await client.apost_query("SELECT 1")
 
     Note that this is not a connection pool, so you should not use this for
     queries that are run frequently.
@@ -489,11 +489,12 @@ async def get_client(
     timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=30, sock_read=None)
 
     if team_id is None:
-        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
+        default_max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
     else:
-        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES.get(
+        default_max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES.get(
             team_id, settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
         )
+    max_block_size = kwargs.pop("max_block_size", None) or default_max_block_size
 
     if clickhouse_url is None:
         url = settings.CLICKHOUSE_OFFLINE_HTTP_URL

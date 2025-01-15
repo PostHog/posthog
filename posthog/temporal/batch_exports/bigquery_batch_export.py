@@ -40,7 +40,7 @@ from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
-    run_consumer_loop,
+    run_consumer,
     wait_for_schema_or_producer,
 )
 from posthog.temporal.batch_exports.temporary_file import (
@@ -325,8 +325,31 @@ class BigQueryClient(bigquery.Client):
             fields_to_cast = set(stage_fields_cast_to_json)
         else:
             fields_to_cast = set()
+
+        # The following `REGEXP_REPLACE` functions are used to clean-up un-paired
+        # surrogates, as they are rejected by `PARSE_JSON`. Since BigQuery's regex
+        # engine has no lookahead / lookback, we instead use an OR to match both
+        # valid pairs and invalid single high or low surrogates, and replacing only
+        # with the valid pair in both cases.
         stage_table_fields = ",".join(
-            f"PARSE_JSON(`{field.name}`, wide_number_mode=>'round')"
+            f"""
+            PARSE_JSON(
+              REGEXP_REPLACE(
+                REGEXP_REPLACE(
+                  REGEXP_REPLACE(
+                    `{field.name}`,
+                    r'(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}})',
+                    '\\\\1'
+                  ),
+                  r'(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})',
+                  '\\\\1'
+                ),
+                r'[\\n\\r]',
+                r'\\\\n'
+              ),
+              wide_number_mode=>'round'
+            )
+            """
             if field.name in fields_to_cast
             else f"`{field.name}`"
             for field in into_table.schema
@@ -377,11 +400,34 @@ class BigQueryClient(bigquery.Client):
                 values += ", "
                 field_names += ", "
 
+            # The following `REGEXP_REPLACE` functions are used to clean-up un-paired
+            # surrogates, as they are rejected by `PARSE_JSON`. Since BigQuery's regex
+            # engine has no lookahead / lookback, we instead use an OR to match both
+            # valid pairs and invalid single high or low surrogates, and replacing only
+            # with the valid pair in both cases.
             stage_field = (
-                f"PARSE_JSON(stage.`{field.name}`, wide_number_mode=>'round')"
+                f"""
+                PARSE_JSON(
+                  REGEXP_REPLACE(
+                    REGEXP_REPLACE(
+                      REGEXP_REPLACE(
+                        stage.`{field.name}`,
+                        r'(\\\\u[dD][89A-Ba-b][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}})',
+                        '\\\\1'
+                      ),
+                      r'(\\\\u[dD][89A-Ba-b][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})',
+                      '\\\\1'
+                    ),
+                    r'[\\n\\r]',
+                    r'\\\\n'
+                  ),
+                  wide_number_mode=>'round'
+                )
+                """
                 if field.name in fields_to_cast
                 else f"stage.`{field.name}`"
             )
+
             update_clause += f"final.`{field.name}` = {stage_field}"
             field_names += f"`{field.name}`"
             values += stage_field
@@ -519,12 +565,19 @@ class BigQueryConsumer(Consumer):
         heartbeater: Heartbeater,
         heartbeat_details: BigQueryHeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        data_interval_end: dt.datetime | str,
         writer_format: WriterFormat,
         bigquery_client: BigQueryClient,
         bigquery_table: bigquery.Table,
-        table_schema: list[BatchExportField],
+        table_schema: list[bigquery.SchemaField],
     ):
-        super().__init__(heartbeater, heartbeat_details, data_interval_start, writer_format)
+        super().__init__(
+            heartbeater=heartbeater,
+            heartbeat_details=heartbeat_details,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            writer_format=writer_format,
+        )
         self.bigquery_client = bigquery_client
         self.bigquery_table = bigquery_table
         self.table_schema = table_schema
@@ -556,6 +609,7 @@ class BigQueryConsumer(Consumer):
         self.rows_exported_counter.add(records_since_last_flush)
         self.bytes_exported_counter.add(bytes_since_last_flush)
 
+        self.heartbeat_details.records_completed += records_since_last_flush
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
@@ -629,11 +683,10 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
         )
-        records_completed = 0
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            return records_completed
+            return details.records_completed
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -700,21 +753,23 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     create=can_perform_merge,
                     delete=can_perform_merge,
                 ) as bigquery_stage_table:
-                    records_completed = await run_consumer_loop(
-                        queue=queue,
-                        consumer_cls=BigQueryConsumer,
-                        producer_task=producer_task,
+                    consumer = BigQueryConsumer(
                         heartbeater=heartbeater,
                         heartbeat_details=details,
                         data_interval_end=data_interval_end,
                         data_interval_start=data_interval_start,
-                        schema=record_batch_schema,
                         writer_format=WriterFormat.PARQUET if can_perform_merge else WriterFormat.JSONL,
-                        max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                        json_columns=() if can_perform_merge else json_columns,
                         bigquery_client=bq_client,
                         bigquery_table=bigquery_stage_table if can_perform_merge else bigquery_table,
                         table_schema=stage_schema if can_perform_merge else schema,
+                    )
+                    await run_consumer(
+                        consumer=consumer,
+                        queue=queue,
+                        producer_task=producer_task,
+                        schema=record_batch_schema,
+                        max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                        json_columns=() if can_perform_merge else json_columns,
                         writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
                         multiple_files=True,
                     )
@@ -732,7 +787,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                             stage_fields_cast_to_json=json_columns,
                         )
 
-        return records_completed
+        return details.records_completed
 
 
 @workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])

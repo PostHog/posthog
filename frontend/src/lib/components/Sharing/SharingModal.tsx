@@ -65,7 +65,7 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, togglePreview } = useActions(sharingLogic(logicProps))
+    const { setIsEnabled, togglePreview, setEmbedConfigValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
@@ -159,7 +159,7 @@ export function SharingModalContent({
                                             </LemonField>
                                         )}
                                         <LemonField name="whitelabel">
-                                            {({ value, onChange }) => (
+                                            {({ value }) => (
                                                 <LemonSwitch
                                                     fullWidth
                                                     bordered
@@ -174,9 +174,10 @@ export function SharingModalContent({
                                                         </div>
                                                     }
                                                     onChange={() =>
-                                                        guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
-                                                            onChange(!value)
-                                                        )
+                                                        guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () => {
+                                                            // setEmbedConfigValue is used to update the form state and report the event
+                                                            setEmbedConfigValue('whitelabel', !value)
+                                                        })
                                                     }
                                                     checked={!value}
                                                 />

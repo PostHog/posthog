@@ -13,8 +13,8 @@ import { urls } from 'scenes/urls'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
-import { HogQLMetadataResponse, HogQLQuery, NodeKind } from '~/queries/schema'
 import { DataVisualizationNode } from '~/queries/schema'
+import { HogQLMetadataResponse, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, ExportContext } from '~/types'
 
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../external/dataWarehouseExternalSceneLogic'
@@ -78,7 +78,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         setError: (error: string | null) => ({ error }),
         setIsValidView: (isValidView: boolean) => ({ isValidView }),
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({ sourceQuery }),
-        setMetadata: (metadata: HogQLMetadataResponse) => ({ metadata }),
+        setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
+        setMetadataLoading: (loading: boolean) => ({ loading }),
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
@@ -153,6 +154,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             false,
             {
                 setIsValidView: (_, { isValidView }) => isValidView,
+            },
+        ],
+        metadataLoading: [
+            true,
+            {
+                setMetadataLoading: (_, { loading }) => loading,
             },
         ],
         metadata: [
@@ -464,7 +471,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         allTabs: () => {
             // keep selected tab up to date
             const activeTab = values.allTabs.find((tab) => tab.uri.path === values.activeModelUri?.uri.path)
-            activeTab && actions.selectTab(activeTab)
+            if (activeTab && activeTab.uri.path != values.activeModelUri?.uri.path) {
+                actions.selectTab(activeTab)
+            }
         },
     })),
     selectors({

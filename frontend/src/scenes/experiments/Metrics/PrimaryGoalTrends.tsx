@@ -13,7 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
-import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
+import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'

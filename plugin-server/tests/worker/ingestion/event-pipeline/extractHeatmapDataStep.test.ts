@@ -157,7 +157,7 @@ describe('extractHeatmapDataStep()', () => {
         const parsed = JSON.parse(messages[0].value.toString())
 
         expect(parsed).toMatchInlineSnapshot(`
-            Object {
+            {
               "current_url": "http://localhost:3000/",
               "distinct_id": "018eebf3-79b1-7082-a7c6-eeb56a36002f",
               "pointer_target_fixed": false,
@@ -198,7 +198,7 @@ describe('extractHeatmapDataStep()', () => {
         )
 
         expect(allParsedMessages.find((x) => x.type === 'scrolldepth')).toMatchInlineSnapshot(`
-            Object {
+            {
               "current_url": "http://localhost:3000/test",
               "distinct_id": "018eebf3-79b1-7082-a7c6-eeb56a36002f",
               "pointer_target_fixed": false,

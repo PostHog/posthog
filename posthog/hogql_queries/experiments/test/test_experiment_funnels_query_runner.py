@@ -141,6 +141,8 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_query_runner_v2(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
@@ -152,7 +154,6 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             experiment_id=experiment.id,
             kind="ExperimentFunnelsQuery",
             funnels_query=funnels_query,
-            stats_version=2,
         )
 
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
