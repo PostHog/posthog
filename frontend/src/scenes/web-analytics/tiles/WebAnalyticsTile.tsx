@@ -20,6 +20,7 @@ import { GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyti
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
 import {
+    CoreWebVitalsQuery,
     DataTableNode,
     InsightVizNode,
     NodeKind,
@@ -617,6 +618,10 @@ export const WebExternalClicksTile = ({
     )
 }
 
+export const CoreWebVitalsQueryTile = ({ query }: { query: CoreWebVitalsQuery }): JSX.Element => {
+    return <Query query={query} readOnly context={{}} />
+}
+
 export const WebQuery = ({
     query,
     showIntervalSelect,
@@ -649,6 +654,10 @@ export const WebQuery = ({
 
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebGoalsQuery) {
         return <WebGoalsTile query={query} insightProps={insightProps} />
+    }
+
+    if (query.kind === NodeKind.CoreWebVitalsQuery) {
+        return <CoreWebVitalsQueryTile query={query} />
     }
 
     return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
