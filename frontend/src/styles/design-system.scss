@@ -306,6 +306,13 @@
     // Opacity
     // //////////////////////////////////////////////////////////
     --opacity-disabled: 0.65;
+
+    // Elevation
+    // //////////////////////////////////////////////////////////
+    --elevation-xs: 2px;
+    --elevation-sm: 4px;
+    --elevation-base: 6px;
+    --elevation-lg: 8px;
 }
 
 // EXPERIMENTAL
@@ -368,6 +375,33 @@
 // EXPERIMENTAL
 // THINGS WILL CHANGE, REACH OUT TO ADAM FOR MORE INFO
 .element {
+    &-has-elevation {
+        &::after {
+            position: absolute;
+            inset: -1px -1px calc(var(--elevation-sm) - 1px) -1px;
+            z-index: 0;
+            content: '';
+            border: 1px solid var(--primitive-neutral-200);
+            border-radius: 4px;
+            box-shadow: 0 var(--elevation-sm) 0 -1px var(--primitive-neutral-200);
+            transition: opacity 0.2s ease;
+        }
+
+        &-primary {
+            &::after {
+                border: 1px solid #b17816;
+                box-shadow: 0 var(--elevation-sm) 0 -1px #eb9d2a;
+            }
+        }
+
+        &.element-button + .element-button-is-side-action {
+            top: 1px;
+            right: 1px;
+            bottom: unset;
+            min-height: calc(var(--button-height) - (var(--elevation-sm) * 1.2));
+        }
+    }
+
     &-dropdown-menu {
         &-label {
             font-weight: 600;
@@ -433,6 +467,7 @@
         --button-height: var(--button-height-base);
         --button-icon-size: var(--icon-size-base);
 
+        position: relative;
         display: grid;
         grid-template-columns: repeat(1, minmax(0, 1fr));
         border-radius: var(--border-radius-base);
@@ -540,12 +575,13 @@
             position: relative;
 
             &:focus-within {
-                + .element-button-is-side-action {
+                + .has-side-action {
                     position: absolute;
                 }
             }
         }
 
+        // Button (original)
         &-has-side-action {
             padding-top: 0 !important;
             padding-right: calc(var(--button-height) + theme('spacing.2')) !important;
@@ -556,37 +592,60 @@
             }
         }
 
+        // Button (side action
         &-is-side-action {
             position: absolute;
             top: 0;
             right: 0;
             bottom: 0;
+            z-index: 2;
             border-radius: 0 var(--border-radius-sm) var(--border-radius-sm) 0;
-
-            &::before {
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                width: 1px;
-                height: 50%;
-                content: '';
-                background-color: var(--primitive-neutral-500);
-                transform: translateY(-50%);
-            }
         }
 
         // Variants/Intent
         &-primary {
+            --chrome-height: 6px;
+
             color: var(--content-primary);
             background: var(--primitive-white);
             border: 1px solid var(--primitive-neutral-200);
 
             &:not(:disabled):hover,
-            &:not(:disabled):focus {
+            &:not(:disabled):focus,
+            &.element-button-active {
+                top: -1px;
+                color: var(--content-primary);
+                background: var(--primitive-neutral-50);
+                border: 1px solid var(--primitive-neutral-400);
+
+                // &:after {
+                //     top: calc(100% + (var(--chrome-height) / 2 * -1) + 1px);
+                // }
+                + .element-button-is-side-action {
+                    top: 0;
+                }
+            }
+
+            &:has(+ .element-button-is-side-action:is(:hover, :focus)),
+            &:not(:disabled):hover,
+            &:not(:disabled):focus,
+            &.element-button-active {
                 color: var(--content-primary);
                 background: var(--primitive-neutral-50);
                 border: 1px solid var(--primitive-neutral-400);
             }
+
+            // &:after {
+            //     background-color: var(--primitive-neutral-400);
+            //     border-radius: 0 0 var(--border-radius-base) var(--border-radius-base);
+            //     top: calc(100% + (var(--chrome-height) / 2 * -1));
+            //     content: "";
+            //     height: var(--chrome-height);
+            //     left: 0px;
+            //     position: absolute;
+            //     width: calc(100% + 0px);
+            //     z-index: -1;
+            // }
 
             // &.element-button-active {
             //     color: var(--content-primary-inverted);
@@ -601,7 +660,8 @@
             border: 1px solid var(--primitive-neutral-200);
 
             &:not(:disabled):hover,
-            &:not(:disabled):focus {
+            &:not(:disabled):focus,
+            &.element-button-active {
                 color: var(--content-primary);
                 background: var(--primitive-neutral-200);
                 border: 1px solid var(--primitive-neutral-300);
@@ -654,13 +714,30 @@
             }
         }
 
+        // Side action for muted and muted-darker
+        // have a small divider border on the left
+        &-muted-darker,
+        &-muted {
+            &.element-button-is-side-action {
+                &::before {
+                    position: absolute;
+                    bottom: 0;
+                    left: 0;
+                    width: 1px;
+                    height: 50%;
+                    content: '';
+                    background-color: var(--primitive-neutral-500);
+                    transform: translateY(-50%);
+                }
+            }
+        }
+
         &-top-bar-tabs {
             --local-background-color: var(--surface-3000-tertiary);
             --local-border-color: var(--border-3000-secondary);
             --local-foreground-color: var(--surface-3000-secondary);
             --local-pseudo-width: 3px;
 
-            position: relative;
             color: var(--content-on-fill-button-muted);
             background: var(--fill-button-muted);
             border-color: transparent;

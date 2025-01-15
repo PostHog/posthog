@@ -1,4 +1,4 @@
-import { IconActivity } from '@posthog/icons'
+import { IconActivity, IconChevronDown } from '@posthog/icons'
 import { Meta, Story } from '@storybook/react'
 
 import { Button } from './Button'
@@ -11,7 +11,7 @@ export default meta
 export const Default: Story = () => {
     return (
         <div className="flex flex-col gap-16 items-start surface-3000-primary">
-            <div className="flex gap-4">
+            <div className="flex flex-col xs:flex-row gap-4">
                 <Button intent="primary">Primary</Button>
                 <Button intent="primary" disabled>
                     Primary Disabled
@@ -24,7 +24,7 @@ export const Default: Story = () => {
                 </Button>
             </div>
 
-            <div className="flex gap-4">
+            <div className="flex flex-col xs:flex-row gap-4">
                 <Button intent="outline">Outline</Button>
                 <Button intent="outline" disabled>
                     Outline Disabled
@@ -37,7 +37,7 @@ export const Default: Story = () => {
                 </Button>
             </div>
 
-            <div className="flex gap-4">
+            <div className="flex flex-col xs:flex-row gap-4">
                 <Button intent="muted">Muted</Button>
                 <Button intent="muted" disabled>
                     Muted Disabled
@@ -50,7 +50,7 @@ export const Default: Story = () => {
                 </Button>
             </div>
 
-            <div className="flex gap-4">
+            <div className="flex flex-col xs:flex-row gap-4">
                 <Button intent="muted-darker">Muted Darker</Button>
                 <Button intent="muted-darker" disabled>
                     Muted Darker Disabled
@@ -63,8 +63,11 @@ export const Default: Story = () => {
                 </Button>
             </div>
 
-            <div className="h-[42px] flex justify-between items-center gap-2 px-2 token-surface-3000-tertiary py-4">
+            {/* <div className="h-[42px] flex flex-col xs:flex-row justify-between items-center gap-2 px-2 token-surface-3000-tertiary py-4">
                 <Button intent="top-bar-tabs">Top Bar Tabs</Button>
+                <Button intent="top-bar-tabs" sideAction={{ to: '/', onClick: () => {}, children: <IconActivity /> }}>
+                Top Bar Tabs Side Action 
+                </Button>
                 <Button intent="top-bar-tabs" active>
                     Top Bar Tabs Active
                 </Button>
@@ -74,10 +77,10 @@ export const Default: Story = () => {
                 <Button intent="top-bar-tabs" disabledReason="This is a disabled reason">
                     Top Bar Tabs Disabled Reason
                 </Button>
-            </div>
+            </div> */}
 
-            <div className="flex gap-4">
-                <Button intent="primary" sideAction={{ to: '/', onClick: () => {}, children: <IconActivity /> }}>
+            <div className="flex flex-col xs:flex-row gap-4">
+                <Button intent="primary" sideAction={{ to: '/', onClick: () => {}, children: <IconChevronDown /> }}>
                     Side Action
                 </Button>
                 <Button intent="outline" sideAction={{ to: '/', onClick: () => {}, children: <IconActivity /> }}>

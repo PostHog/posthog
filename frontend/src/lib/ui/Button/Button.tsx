@@ -15,8 +15,13 @@ export const buttonStyles = cva(
     {
         variants: {
             intent: {
-                primary: ['element-button-primary'],
-                outline: ['element-button-outline'],
+                primary: [
+                    'element-button-primary',
+                    'element-has-elevation',
+                    'element-has-elevation-primary',
+                    'pb-[8.5px]',
+                ],
+                outline: ['element-button-outline', 'element-has-elevation'],
                 muted: ['element-button-muted'],
                 'muted-darker': ['element-button-muted-darker'],
                 'top-bar-tabs': ['element-button-top-bar-tabs'],
@@ -142,7 +147,7 @@ export type ButtonVariantProps = VariantProps<typeof buttonStyles> & {
     //TODO: on surface prop (so we can style the button based on the surface it sits on)
 
     //TODO: add sideAction
-    sideAction?: ButtonVariantProps
+    sideAction?: Omit<ButtonVariantProps, 'intent'>
 }
 
 export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVariantProps>(
@@ -258,8 +263,15 @@ export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonVa
                 <div className="element-button-side-action-container">
                     {workingButton}
                     <Button
-                        className="element-button-is-side-action"
-                        intent="muted"
+                        className={cn(
+                            buttonStyles({
+                                intent: 'muted',
+                                iconOnly,
+                                size: 'xs',
+                            }),
+                            'element-button-is-side-action'
+                        )}
+                        // intent="muted"
                         iconOnly
                         size="xs"
                         {...sideAction}
