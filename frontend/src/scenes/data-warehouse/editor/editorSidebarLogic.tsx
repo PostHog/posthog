@@ -246,7 +246,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                 onRename: async (newName: string) => actions.renameFolder(folder.id, newName),
                                 menuItems: [
                                     {
-                                        label: 'Add subfolder',
+                                        label: 'Add folder',
                                         onClick: () => {
                                             actions.addFolder('New Folder', folder.id)
                                         },

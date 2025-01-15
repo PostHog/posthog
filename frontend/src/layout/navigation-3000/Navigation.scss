@@ -635,7 +635,6 @@
     align-items: center;
     padding: 0 var(--sidebar-horizontal-padding) 0
         calc(0.25rem + var(--sidebar-horizontal-padding) + 1rem * var(--depth, 0));
-    font-size: 1.125rem; // Make icons bigger
     color: inherit !important; // Disable link color
     cursor: pointer;
     background: var(--bg-light);
@@ -646,6 +645,7 @@
 
     .SidebarListItem__icon {
         flex-shrink: 0;
+        font-size: 1.125rem; // Make icons bigger
     }
 
     .SidebarListItem__name {

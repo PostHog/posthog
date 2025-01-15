@@ -6,3 +6,4 @@ from .external_data_source import *
 from .join import *
 from .modeling import *
 from .table import *
+from .datawarehouse_folder import *

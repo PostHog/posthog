@@ -237,7 +237,7 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
             </div>
             <DragOverlay>
                 {activeId ? (
-                    <div className="SidebarListItem SidebarListItem--overlay">
+                    <div className="SidebarListItem SidebarListItem__button SidebarListItem--overlay">
                         {listItems.find((item) => item.key.toString() === activeId)?.name}
                     </div>
                 ) : null}
