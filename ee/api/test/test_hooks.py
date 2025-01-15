@@ -1,5 +1,4 @@
 from typing import cast
-from unittest.mock import ANY
 
 from inline_snapshot import snapshot
 
