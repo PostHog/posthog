@@ -32,21 +32,21 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     },
                     ...(broadcastId === 'new'
                         ? [
-                            {
-                                key: 'new-broadcast',
-                                name: 'New broadcast',
-                                path: urls.messagingBroadcastNew(),
-                            },
-                        ]
+                              {
+                                  key: 'new-broadcast',
+                                  name: 'New broadcast',
+                                  path: urls.messagingBroadcastNew(),
+                              },
+                          ]
                         : broadcastId
-                            ? [
-                                {
-                                    key: 'edit-broadcast',
-                                    name: 'Edit broadcast',
-                                    path: urls.messagingBroadcast(broadcastId),
-                                },
-                            ]
-                            : []),
+                        ? [
+                              {
+                                  key: 'edit-broadcast',
+                                  name: 'Edit broadcast',
+                                  path: urls.messagingBroadcast(broadcastId),
+                              },
+                          ]
+                        : []),
                 ]
             },
         ],
