@@ -1,4 +1,4 @@
-import { TZLabel } from '@posthog/apps-common'
+import { Link, TZLabel, urls } from '@posthog/apps-common'
 import { useActions, useValues } from 'kea'
 import { llmObservabilityLogic } from 'scenes/llm-observability/llmObservabilityLogic'
 
@@ -27,6 +27,7 @@ export function LLMObservabilityTraces(): JSX.Element {
                 columns: {
                     id: {
                         title: 'ID',
+                        render: IDColumn,
                     },
                     timestamp: {
                         title: 'Time',
@@ -51,6 +52,15 @@ export function LLMObservabilityTraces(): JSX.Element {
             }}
             uniqueKey="llm-observability-traces"
         />
+    )
+}
+
+const IDColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    return (
+        <Link className="ph-no-capture" to={urls.llmObservabilityTrace(row.id)}>
+            {row.id}
+        </Link>
     )
 }
 
