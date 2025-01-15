@@ -12,6 +12,7 @@ export const productRoutes: Record<string, string> = {
     '/early_access_features': 'EarlyAccessFeatures',
     '/early_access_features/:id': 'EarlyAccessFeature',
     '/llmObservability': 'LLMObservability',
+    '/llmObservability/:tab': 'LLMObservability',
     '/messaging/providers': 'MessagingProviders',
     '/messaging/providers/:id': 'MessagingProviders',
     '/messaging/providers/new': 'MessagingProviders',
@@ -41,6 +42,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         activityScope: 'LLMObservability',
         layout: 'app-container',
+        defaultDocsPath: '/docs/ai-engineering/observability',
     },
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
     MessagingProviders: { name: 'Messaging', projectBased: true },
@@ -49,7 +51,8 @@ export const productConfiguration: Record<string, any> = {
 export const productUrls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
-    llmObservability: (): string => '/llmObservability',
+    llmObservability: (tab?: 'dashboard' | 'generations'): string =>
+        `/llm-observability${tab !== 'dashboard' ? '/' + tab : ''}`,
     messagingBroadcasts: (): string => '/messaging/broadcasts',
     messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
     messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
