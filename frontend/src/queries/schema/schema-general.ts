@@ -106,6 +106,7 @@ export enum NodeKind {
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
+    TracesQuery = 'TracesQuery',
 }
 
 export type AnyDataNode =
@@ -181,6 +182,7 @@ export type QuerySchema =
     | TeamTaxonomyQuery
     | EventTaxonomyQuery
     | ActorsPropertyTaxonomyQuery
+    | TracesQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -557,6 +559,7 @@ export interface EventsQueryPersonColumn {
     }
     distinct_id: string
 }
+
 export interface EventsQuery extends DataNode<EventsQueryResponse> {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */
@@ -1558,16 +1561,21 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    issueId?: string
+    issueId?: ErrorTrackingIssue['id']
     select?: HogQLExpression[]
     orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
-    assignee?: integer | null
+    assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
     limit?: integer
     offset?: integer
+}
+
+export interface ErrorTrackingIssueAssignee {
+    type: 'user_group' | 'user'
+    id: integer | string
 }
 
 export interface ErrorTrackingIssue {
@@ -1584,7 +1592,7 @@ export interface ErrorTrackingIssue {
     earliest?: string
     // Sparkline data handled by the DataTable
     volume?: any
-    assignee: number | null
+    assignee: ErrorTrackingIssueAssignee | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
 }
 
@@ -2148,3 +2156,57 @@ export enum DefaultChannelTypes {
     Affiliate = 'Affiliate',
     Unknown = 'Unknown',
 }
+
+export interface LLMGeneration {
+    id: string
+    createdAt: string
+    input: any[]
+    latency: number
+    output?: any
+    provider?: string
+    model?: string
+    inputTokens?: number
+    outputTokens?: number
+    inputCost?: number
+    outputCost?: number
+    totalCost?: number
+    httpStatus?: number
+    baseUrl?: string
+}
+
+export interface LLMTracePerson {
+    uuid: string
+    createdAt: string
+    properties: Record<string, any>
+    distinctId: string
+}
+
+export interface LLMTrace {
+    id: string
+    createdAt: string
+    person: LLMTracePerson
+    totalLatency: number
+    inputTokens: number
+    outputTokens: number
+    inputCost: number
+    outputCost: number
+    totalCost: number
+    events: LLMGeneration[]
+}
+
+export interface TracesQueryResponse extends AnalyticsQueryResponseBase<LLMTrace[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+
+export interface TracesQuery extends DataNode<TracesQueryResponse> {
+    kind: NodeKind.TracesQuery
+    traceId?: string
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
