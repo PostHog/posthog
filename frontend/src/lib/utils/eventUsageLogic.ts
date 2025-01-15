@@ -156,7 +156,7 @@ function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilt
     const cohortIds = flattenedProperties
         .filter((p) => p.type === 'cohort')
         .map((p) => p.value)
-        .filter((a) => !!a)
+        .filter((a): a is number => !!a)
 
     return cohortIds || []
 }

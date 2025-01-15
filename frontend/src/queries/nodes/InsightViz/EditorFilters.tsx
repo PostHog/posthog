@@ -360,5 +360,5 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 }
 
 function filterFalsy(a: (InsightEditorFilter | false | null | undefined)[]): InsightEditorFilter[] {
-    return a.filter((e) => !!e)
+    return a.filter((e): e is InsightEditorFilter => !!e)
 }
