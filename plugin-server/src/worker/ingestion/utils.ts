@@ -78,6 +78,7 @@ export async function captureIngestionWarning(
 ) {
     const limiter_key = `${teamId}:${type}:${debounce?.key || ''}`
     if (!!debounce?.alwaysSend || IngestionWarningLimiter.consume(limiter_key, 1)) {
+        // TODO: Either here or in follow up change this to an await as we do care.
         void kafkaProducer
             .queueMessages({
                 topic: KAFKA_INGESTION_WARNINGS,

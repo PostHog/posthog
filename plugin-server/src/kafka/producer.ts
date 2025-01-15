@@ -15,6 +15,7 @@ import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/err
 import { status } from '../utils/status'
 import { createRdConnectionConfigFromEnvVars } from './config'
 
+// TODO: Rewrite this description
 /** This class is a wrapper around the rdkafka producer, and does very little.
  * It used to be a wrapper around KafkaJS, but we switched to rdkafka because of
  * increased performance.
@@ -144,6 +145,10 @@ export class KafkaProducerWrapper {
         }
     }
 
+    /**
+     * Currently this produces messages in parallel.
+     * If ordering is required then you should use the `produce` method instead in an awaited loop.
+     */
     async queueMessages(topicMessages: TopicMessage | TopicMessage[]): Promise<void> {
         topicMessages = Array.isArray(topicMessages) ? topicMessages : [topicMessages]
 

@@ -101,6 +101,13 @@ export class EventPipelineRunner {
             } else {
                 result = { lastStep: 'populateTeamDataStep', args: [event] }
             }
+
+            // TODO: Add a test that 100% validates this works (ideally showing it worked before)
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
+            result.ackPromises = this.kafkaAcks
+            // This might not be necessary but just in case it clears the dangling promises
+            this.kafkaAcks = []
+
             pipelineLastStepCounter.labels(result.lastStep).inc()
             eventProcessedAndIngestedCounter.inc()
             return result
@@ -272,10 +279,6 @@ export class EventPipelineRunner {
             return { lastStep: 'emitEventStep', args: [rawEvent] }
         }
     }
-
-    // registerLastStep(stepName: string, args: any[]): EventPipelineResult {
-    //     return { lastStep: stepName, args }
-    // }
 
     protected runStep<Step extends (...args: any[]) => Promise<StepResult<any>>>(
         step: Step,
