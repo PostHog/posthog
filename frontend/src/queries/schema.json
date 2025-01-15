@@ -5655,7 +5655,6 @@
                 "description",
                 "first_seen",
                 "last_seen",
-                "earliest",
                 "occurrences",
                 "sessions",
                 "users",
