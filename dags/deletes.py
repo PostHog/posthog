@@ -6,31 +6,50 @@ import pandas as pd
 from dagster import (
     asset,
     AssetExecutionContext,
+    Config,
     MetadataValue,
 )
 
 from posthog.clickhouse.client import sync_execute  # noqa
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from posthog.settings import (
+    CLICKHOUSE_CLUSTER,
+    CLICKHOUSE_HOST,
+    CLICKHOUSE_PASSWORD,
+    CLICKHOUSE_USER,
+    CLICKHOUSE_SECURE,
+)
 
 # setup PostHog Django Project
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
 
+class DeleteConfig(Config):
+    team_id: int
+    file_path: str = "/tmp/pending_person_deletions.parquet"
+
+
 @asset
-def pending_person_deletions(context: AssetExecutionContext) -> dict[str, str]:
+def pending_person_deletions(context: AssetExecutionContext, config: DeleteConfig) -> dict[str, str]:
     """Query postgres using django ORM to get pending person deletions and write to parquet."""
 
-    # Use Django's queryset iterator for memory efficiency
-    pending_deletions = (
-        AsyncDeletion.objects.filter(deletion_type=DeletionType.Person, delete_verified_at__isnull=True)
-        .values("team_id", "key")
-        .iterator()
-    )
+    if not config.team_id:
+        # Use Django's queryset iterator for memory efficiency
+        pending_deletions = (
+            AsyncDeletion.objects.filter(deletion_type=DeletionType.Person, delete_verified_at__isnull=True)
+            .values("team_id", "key", "created_at")
+            .iterator()
+        )
+    else:
+        pending_deletions = AsyncDeletion.objects.filter(
+            deletion_type=DeletionType.Person,
+            team_id=config.team_id,
+            delete_verified_at__isnull=True,
+        ).values("team_id", "key", "created_at")
 
     # Create a temporary directory for our parquet file
-    output_path = "/tmp/pending_person_deletions.parquet"
+    output_path = config.file_path
 
     # Write to parquet in chunks
     chunk_size = 10000
@@ -65,7 +84,7 @@ def pending_person_deletions(context: AssetExecutionContext) -> dict[str, str]:
         }
     )
 
-    return {"file_path": output_path, "total_rows": total_rows}
+    return {"file_path": output_path, "total_rows": str(total_rows)}
 
 
 @asset
@@ -94,7 +113,6 @@ def insert_pending_deletes(context: AssetExecutionContext, pending_person_deleti
 
     import pyarrow.parquet as pq
     from clickhouse_driver.client import Client
-    from posthog.settings import CLICKHOUSE_HOST, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER, CLICKHOUSE_VERIFY
 
     # Read the parquet file into an Arrow table
     table = pq.read_table(pending_person_deletions["file_path"])
@@ -107,7 +125,7 @@ def insert_pending_deletes(context: AssetExecutionContext, pending_person_deleti
         host=CLICKHOUSE_HOST,
         user=CLICKHOUSE_USER,
         password=CLICKHOUSE_PASSWORD,
-        secure=CLICKHOUSE_VERIFY,
+        secure=CLICKHOUSE_SECURE,
         settings={"use_numpy": True},  # Required for Arrow support
     )
 
@@ -142,10 +160,10 @@ def create_pending_deletes_dictionary():
         )
         PRIMARY KEY team_id, person_id
         SOURCE(CLICKHOUSE(
-            HOST 'localhost'
-            PORT 9000
+            HOST '{CLICKHOUSE_HOST}'
             TABLE pending_person_deletes
-            USER 'default'
+            USER '{CLICKHOUSE_USER}'
+            PASSWORD '{CLICKHOUSE_PASSWORD}'
         ))
         LIFETIME(MIN 0 MAX 3600)
         LAYOUT(COMPLEX_KEY_HASHED())
