@@ -83,67 +83,70 @@ export function Products(): JSX.Element {
     const { selectedProducts, firstProductOnboarding } = useValues(productsLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full m-4 items-center justify-center bg-bg-3000">
+        <div className="flex flex-col flex-1 w-full p-4 items-center justify-center bg-bg-3000">
             <>
                 <div className="flex flex-col justify-center flex-grow items-center">
-                    <div className="mb-8">
+                    <div className="mb-2">
                         <h2 className="text-center text-4xl">Which products would you like to use?</h2>
                         <p className="text-center">
                             Don't worry &ndash; you can pick more than one! Please select all that apply.
                         </p>
                     </div>
-                    <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(3,_minmax(min-content,_160px))] ">
-                        {Object.keys(availableOnboardingProducts).map((productKey) => (
-                            <SelectableProductCard
-                                product={availableOnboardingProducts[productKey]}
-                                key={productKey}
-                                productKey={productKey}
-                                onClick={() => {
-                                    toggleSelectedProduct(productKey as ProductKey)
-                                }}
-                                selected={selectedProducts.includes(productKey as ProductKey)}
-                                className={productKey === ProductKey.SURVEYS ? 'md:col-start-2' : ''}
-                            />
-                        ))}
-                    </div>
-                    <div className="mt-12 flex gap-2 justify-center items-center">
-                        {selectedProducts.length > 1 ? (
-                            <>
-                                <LemonLabel>Start first with</LemonLabel>
-                                <LemonSelect
-                                    value={firstProductOnboarding}
-                                    options={selectedProducts.map((productKey) => ({
-                                        label: availableOnboardingProducts[productKey].name,
-                                        value: productKey,
-                                    }))}
-                                    onChange={(value) => value && setFirstProductOnboarding(value)}
-                                    placeholder="Select a product"
-                                    className="bg-bg-light"
+                    <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full max-w-[720px]">
+                        <div className="flex flex-wrap gap-4 items-center justify-center">
+                            {Object.keys(availableOnboardingProducts).map((productKey) => (
+                                <SelectableProductCard
+                                    product={availableOnboardingProducts[productKey]}
+                                    key={productKey}
+                                    productKey={productKey}
+                                    onClick={() => {
+                                        toggleSelectedProduct(productKey as ProductKey)
+                                    }}
+                                    className="w-[160px]"
+                                    selected={selectedProducts.includes(productKey as ProductKey)}
                                 />
+                            ))}
+                        </div>
+
+                        <div className="flex gap-2 justify-center items-center">
+                            {selectedProducts.length > 1 ? (
+                                <>
+                                    <LemonLabel>Start first with</LemonLabel>
+                                    <LemonSelect
+                                        value={firstProductOnboarding}
+                                        options={selectedProducts.map((productKey) => ({
+                                            label: availableOnboardingProducts[productKey].name,
+                                            value: productKey,
+                                        }))}
+                                        onChange={(value) => value && setFirstProductOnboarding(value)}
+                                        placeholder="Select a product"
+                                        className="bg-bg-light"
+                                    />
+                                    <LemonButton
+                                        sideIcon={<IconArrowRight />}
+                                        onClick={handleStartOnboarding}
+                                        type="primary"
+                                        status="alt"
+                                        data-attr="onboarding-continue"
+                                    >
+                                        Go
+                                    </LemonButton>
+                                </>
+                            ) : (
                                 <LemonButton
-                                    sideIcon={<IconArrowRight />}
-                                    onClick={handleStartOnboarding}
                                     type="primary"
                                     status="alt"
+                                    onClick={handleStartOnboarding}
                                     data-attr="onboarding-continue"
+                                    sideIcon={<IconArrowRight />}
+                                    disabledReason={
+                                        selectedProducts.length === 0 ? 'Select a product to start with' : undefined
+                                    }
                                 >
-                                    Go
+                                    Get started
                                 </LemonButton>
-                            </>
-                        ) : (
-                            <LemonButton
-                                type="primary"
-                                status="alt"
-                                onClick={handleStartOnboarding}
-                                data-attr="onboarding-continue"
-                                sideIcon={<IconArrowRight />}
-                                disabledReason={
-                                    selectedProducts.length === 0 ? 'Select a product to start with' : undefined
-                                }
-                            >
-                                Get started
-                            </LemonButton>
-                        )}
+                            )}
+                        </div>
                     </div>
                 </div>
                 <p className="text-center mt-8">
