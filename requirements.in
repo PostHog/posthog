@@ -17,6 +17,11 @@ clickhouse-driver==0.2.7
 clickhouse-pool==0.5.3
 conditional-cache==1.2
 cryptography==39.0.2
+dagster==1.9.8
+dagster-webserver==1.9.8
+dagster-postgres==0.25.8
+dagster-celery==0.25.8
+# dagster-cloud==1.9.8
 deltalake==0.23.2
 dj-database-url==0.5.0
 Django~=4.2.15
@@ -115,3 +120,4 @@ lxml==4.9.4 # Do not change this version - it will break SAML
 grpcio~=1.63.2 # Version constrained so that `deepeval` can be installed in in dev
 tenacity~=8.4.2  # Version constrained so that `deepeval` can be installed in in dev
 markdown-it-py~=3.0.0
+tzlocal~=5.1
