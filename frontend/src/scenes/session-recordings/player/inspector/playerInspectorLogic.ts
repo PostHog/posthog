@@ -4,7 +4,6 @@ import { actions, connect, events, kea, key, listeners, path, props, propsChange
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
@@ -280,7 +279,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    loaders(({ props, values }) => ({
+    loaders(({ props }) => ({
         matchingEventUUIDs: [
             [] as MatchedRecordingEvent[] | null,
             {
@@ -308,9 +307,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         ...convertUniversalFiltersToRecordingsQuery(filters),
                         session_ids: [props.sessionRecordingId],
                     }
-                    if (values.listAPIAsQuery) {
-                        params.as_query = true
-                    }
+
                     const response = await api.recordings.getMatchingEvents(toParams(params))
                     return response.results.map((x) => ({ uuid: x } as MatchedRecordingEvent))
                 },
@@ -318,13 +315,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
     })),
     selectors(({ props }) => ({
-        listAPIAsQuery: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                return !!featureFlags[FEATURE_FLAGS.REPLAY_LIST_RECORDINGS_AS_QUERY]
-            },
-        ],
-
         allowMatchingEventsFilter: [
             (s) => [s.miniFilters],
             (miniFilters): boolean => {

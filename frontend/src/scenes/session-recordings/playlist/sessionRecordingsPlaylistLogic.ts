@@ -351,10 +351,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         params.offset = 0
                     }
 
-                    if (values.listAPIAsQuery) {
-                        params.as_query = true
-                    }
-
                     await breakpoint(400) // Debounce for lots of quick filter changes
 
                     const startTime = performance.now()
@@ -540,13 +536,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
-
-        listAPIAsQuery: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                return !!featureFlags[FEATURE_FLAGS.REPLAY_LIST_RECORDINGS_AS_QUERY]
-            },
-        ],
 
         matchingEventsMatchType: [
             (s) => [s.filters],
