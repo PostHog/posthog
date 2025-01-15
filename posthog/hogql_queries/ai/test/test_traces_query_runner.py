@@ -241,6 +241,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             },
         )
 
+    @freeze_time("2025-01-16T00:00:00Z")
     @snapshot_clickhouse_queries
     def test_trace_id_filter(self):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -252,6 +253,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
 
+    @freeze_time("2025-01-16T00:00:00Z")
     @snapshot_clickhouse_queries
     def test_pagination(self):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -261,8 +263,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 distinct_id="person1" if i % 2 == 0 else "person2",
                 team=self.team,
                 trace_id=f"trace_{i}",
+                timestamp=datetime(2025, 1, 15, i),
             )
-
         response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=0)).calculate()
         self.assertEqual(response.hasMore, True)
         self.assertEqual(len(response.results), 5)
@@ -286,6 +288,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace_0")
 
+    @freeze_time("2025-01-16T00:00:00Z")
     def test_maps_all_fields(self):
         _create_person(distinct_ids=["person1"], team=self.team)
         _create_ai_generation_event(
