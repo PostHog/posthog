@@ -3958,22 +3958,6 @@
             ],
             "type": "object"
         },
-        "ChartAnnotation": {
-            "additionalProperties": false,
-            "properties": {
-                "borderColor": {
-                    "type": "string"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "value": {
-                    "type": "number"
-                }
-            },
-            "required": ["label", "value"],
-            "type": "object"
-        },
         "ChartAxis": {
             "additionalProperties": false,
             "properties": {
@@ -4020,7 +4004,7 @@
             "properties": {
                 "goalLines": {
                     "items": {
-                        "$ref": "#/definitions/ChartAnnotation"
+                        "$ref": "#/definitions/GoalLine"
                     },
                     "type": "array"
                 },
@@ -7569,6 +7553,25 @@
                 }
             },
             "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
+            "type": "object"
+        },
+        "GoalLine": {
+            "additionalProperties": false,
+            "properties": {
+                "borderColor": {
+                    "type": "string"
+                },
+                "displayLabel": {
+                    "type": "boolean"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["label", "value"],
             "type": "object"
         },
         "GroupMathType": {
@@ -13445,13 +13448,6 @@
                 "aggregationAxisPrefix": {
                     "type": "string"
                 },
-                "annotations": {
-                    "description": "Annotations",
-                    "items": {
-                        "$ref": "#/definitions/ChartAnnotation"
-                    },
-                    "type": "array"
-                },
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
@@ -13464,6 +13460,13 @@
                 },
                 "formula": {
                     "type": "string"
+                },
+                "goalLines": {
+                    "description": "Goal Lines",
+                    "items": {
+                        "$ref": "#/definitions/GoalLine"
+                    },
+                    "type": "array"
                 },
                 "hiddenLegendIndexes": {
                     "items": {

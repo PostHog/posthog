@@ -664,9 +664,10 @@ export interface DataTableNode
     hiddenColumns?: HogQLExpression[]
 }
 
-export interface ChartAnnotation {
+export interface GoalLine {
     label: string
     value: number
+    displayLabel?: boolean
     borderColor?: string
 }
 
@@ -702,7 +703,7 @@ export interface YAxisSettings {
 export interface ChartSettings {
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
-    goalLines?: ChartAnnotation[]
+    goalLines?: GoalLine[]
     /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
     yAxisAtZero?: boolean
     leftYAxisSettings?: YAxisSettings
@@ -894,8 +895,8 @@ export type TrendsFilter = {
     resultCustomizations?:
         | Record<string, ResultCustomizationByValue>
         | Record<numerical_key, ResultCustomizationByPosition>
-    /** Annotations */
-    annotations?: ChartAnnotation[]
+    /** Goal Lines */
+    goalLines?: GoalLine[]
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([

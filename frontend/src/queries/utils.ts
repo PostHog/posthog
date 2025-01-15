@@ -7,7 +7,6 @@ import {
     ActionsNode,
     ActorsQuery,
     BreakdownFilter,
-    ChartAnnotation,
     CompareFilter,
     CoreWebVitalsQuery,
     DatabaseSchemaQuery,
@@ -19,6 +18,7 @@ import {
     EventsNode,
     EventsQuery,
     FunnelsQuery,
+    GoalLine,
     HogQLMetadata,
     HogQLQuery,
     HogQuery,
@@ -347,9 +347,9 @@ export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomi
     return undefined
 }
 
-export const getAnnotations = (query: InsightQueryNode): ChartAnnotation[] | undefined => {
+export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.annotations
+        return query.trendsFilter?.goalLines
     }
     return undefined
 }

@@ -42,7 +42,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
-import { ChartAnnotation, TrendsFilter } from '~/queries/schema'
+import { GoalLine, TrendsFilter } from '~/queries/schema'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
 let tooltipRoot: Root
@@ -240,7 +240,7 @@ export interface LineGraphProps {
     hideYAxis?: boolean
     legend?: DeepPartial<LegendOptions<ChartType>>
     yAxisScaleType?: string | null
-    annotations?: ChartAnnotation[]
+    goalLines?: GoalLine[]
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -280,7 +280,7 @@ export function LineGraph_({
     hideYAxis,
     yAxisScaleType,
     legend = { display: false },
-    annotations = [],
+    goalLines = [],
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -405,8 +405,8 @@ export function LineGraph_({
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const precision = seriesNonZeroMax < 5 ? 1 : seriesNonZeroMax < 2 ? 2 : 0
-        const annotationsY = annotations.map((a) => a.value)
-        const annotationsWithColor = annotations.filter((annotation) => Boolean(annotation.borderColor))
+        const goalLinesY = goalLines.map((a) => a.value)
+        const goalLinesWithColor = goalLines.filter((goalLine) => Boolean(goalLine.borderColor))
 
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
@@ -418,14 +418,14 @@ export function LineGraph_({
         }
         const gridOptions: Partial<GridLineOptions> = {
             color: (context) => {
-                if (annotationsY.includes(context.tick?.value)) {
+                if (goalLinesY.includes(context.tick?.value)) {
                     return 'transparent'
                 }
 
                 return colors.axisLine as Color
             },
             tickColor: (context) => {
-                if (annotationsY.includes(context.tick?.value)) {
+                if (goalLinesY.includes(context.tick?.value)) {
                     return 'transparent'
                 }
 
@@ -492,12 +492,17 @@ export function LineGraph_({
                 },
                 legend: legend,
                 annotation: {
-                    annotations: annotations.reduce((acc, annotation, idx) => {
+                    annotations: goalLines.reduce((acc, annotation, idx) => {
                         acc[`line-${idx}`] = {
                             type: 'line',
                             yMin: annotation.value,
                             yMax: annotation.value,
                             borderColor: annotation.borderColor || 'rgb(255, 99, 132)',
+                            label: {
+                                content: annotation.label,
+                                display: annotation.displayLabel ?? true,
+                                position: 'end',
+                            },
                             borderWidth: 1,
                             borderDash: [5, 8],
                         }
@@ -727,7 +732,7 @@ export function LineGraph_({
                         callback: (value) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView),
                         color: (context) => {
                             if (context.tick) {
-                                for (const annotation of annotationsWithColor) {
+                                for (const annotation of goalLinesWithColor) {
                                     if (context.tick.value === annotation.value) {
                                         return annotation.borderColor
                                     }
@@ -742,8 +747,8 @@ export function LineGraph_({
                             return
                         }
 
-                        const nonAnnotationTicks = axis.ticks.filter(({ value }) => !annotationsY.includes(value))
-                        const annotationTicks = annotationsY.map((value) => ({
+                        const nonAnnotationTicks = axis.ticks.filter(({ value }) => !goalLinesY.includes(value))
+                        const annotationTicks = goalLinesY.map((value) => ({
                             value,
                             label: `⬤ ${formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)}`,
                         }))
@@ -849,7 +854,7 @@ export function LineGraph_({
         formula,
         showValuesOnSeries,
         showPercentStackView,
-        annotations,
+        goalLines,
         theme,
     ])
 

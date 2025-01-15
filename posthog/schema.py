@@ -336,15 +336,6 @@ class StatusItem(BaseModel):
     value: str
 
 
-class ChartAnnotation(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    borderColor: Optional[str] = None
-    label: str
-    value: float
-
-
 class ChartDisplayCategory(StrEnum):
     TIME_SERIES = "TimeSeries"
     CUMULATIVE_TIME_SERIES = "CumulativeTimeSeries"
@@ -827,6 +818,16 @@ class FunnelVizType(StrEnum):
     STEPS = "steps"
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
+
+
+class GoalLine(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    borderColor: Optional[str] = None
+    displayLabel: Optional[bool] = None
+    label: str
+    value: float
 
 
 class HogCompileResponse(BaseModel):
@@ -1922,7 +1923,7 @@ class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    goalLines: Optional[list[ChartAnnotation]] = None
+    goalLines: Optional[list[GoalLine]] = None
     leftYAxisSettings: Optional[YAxisSettings] = None
     rightYAxisSettings: Optional[YAxisSettings] = None
     seriesBreakdownColumn: Optional[str] = None
@@ -2753,11 +2754,11 @@ class TrendsFilter(BaseModel):
     aggregationAxisFormat: Optional[AggregationAxisFormat] = AggregationAxisFormat.NUMERIC
     aggregationAxisPostfix: Optional[str] = None
     aggregationAxisPrefix: Optional[str] = None
-    annotations: Optional[list[ChartAnnotation]] = Field(default=None, description="Annotations")
     breakdown_histogram_bin_count: Optional[float] = None
     decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
+    goalLines: Optional[list[GoalLine]] = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: Optional[list[int]] = None
     resultCustomizationBy: Optional[ResultCustomizationBy] = Field(
         default=ResultCustomizationBy.VALUE,

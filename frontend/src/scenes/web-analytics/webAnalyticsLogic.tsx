@@ -1728,15 +1728,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     trendsFilter: {
                         display: ChartDisplayType.ActionsLineGraph,
                         aggregationAxisFormat: coreWebVitalsTab === 'CLS' ? 'numeric' : 'duration_ms',
-                        annotations: [
+                        goalLines: [
                             {
                                 label: 'Good',
                                 value: CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab].good,
+                                displayLabel: false,
                                 borderColor: 'rgb(45, 200, 100)',
                             },
                             {
                                 label: 'Poor',
                                 value: CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab].poor,
+                                displayLabel: false,
                                 borderColor: 'rgb(255, 160, 0)',
                             },
                         ],
