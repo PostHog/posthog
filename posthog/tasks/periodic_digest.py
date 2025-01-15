@@ -8,6 +8,7 @@ from celery import shared_task
 from dateutil import parser
 from django.db.models import QuerySet
 from django.utils import timezone
+from posthoganalytics.client import Client
 from sentry_sdk import capture_exception
 
 from posthog.models.dashboard import Dashboard
@@ -16,15 +17,18 @@ from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
 from posthog.models.messaging import MessagingRecord
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
 )
-from posthog.tasks.usage_report import (
-    USAGE_REPORT_TASK_KWARGS,
-    capture_report,
-    get_instance_metadata,
+from posthog.tasks.email import (
+    NotificationSetting,
+    NotificationSettingType,
+    should_send_notification,
 )
+from posthog.tasks.report_utils import capture_event
+from posthog.tasks.usage_report import USAGE_REPORT_TASK_KWARGS, get_instance_metadata
 from posthog.tasks.utils import CeleryQueue
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
@@ -77,7 +81,7 @@ def get_teams_with_new_playlists(end: datetime, begin: datetime) -> QuerySet:
         )
         .exclude(
             name="",
-            derived_name="",
+            derived_name=None,
         )
         .values("team_id", "name", "short_id", "derived_name")
     )
@@ -242,11 +246,12 @@ def send_periodic_digest_report(
         **instance_metadata,
     }
 
-    capture_report.delay(
-        capture_event_name="transactional email",
+    send_digest_notifications(
         team_id=team_id,
-        full_report_dict=full_report_dict,
-        send_for_all_members=True,
+        organization_id=None,  # Will be derived from team
+        event_name="transactional email",
+        properties=full_report_dict,
+        notification_type=NotificationSetting.WEEKLY_PROJECT_DIGEST.value,
     )
 
     # Mark as sent
@@ -293,3 +298,47 @@ def send_all_periodic_digest_reports(
     except Exception as err:
         capture_exception(err)
         raise
+
+
+def send_digest_notifications(
+    *,
+    team_id: int,
+    organization_id: Optional[str],
+    event_name: str,
+    properties: dict[str, Any],
+    notification_type: NotificationSettingType,
+    timestamp: Optional[datetime] = None,
+) -> None:
+    """
+    Determines eligible recipients and sends individual notifications for digest reports.
+    """
+    pha_client = Client("sTMFPsFhdP1Ssg")
+
+    team = Team.objects.get(id=team_id) if not organization_id else None
+    organization_id = organization_id or str(team.organization_id)
+
+    users = (
+        [
+            membership.user
+            for membership in OrganizationMembership.objects.filter(organization_id=organization_id).select_related(
+                "user"
+            )
+        ]
+        if organization_id
+        else team.all_users_with_access()
+    )
+
+    eligible_users = [user for user in users if should_send_notification(user, notification_type, team_id)]
+    # Send individual events for each eligible user
+    for user in eligible_users:
+        capture_event(
+            pha_client=pha_client,
+            name=event_name,
+            organization_id=organization_id,
+            team_id=team_id,
+            properties=properties,
+            timestamp=timestamp,
+            distinct_id=user.distinct_id,
+        )
+
+    pha_client.group_identify("organization", organization_id, properties)
