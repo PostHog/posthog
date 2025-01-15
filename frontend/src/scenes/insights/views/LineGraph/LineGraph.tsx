@@ -418,14 +418,14 @@ export function LineGraph_({
         }
         const gridOptions: Partial<GridLineOptions> = {
             color: (context) => {
-                if (annotationsY.includes(context.tick.value)) {
+                if (annotationsY.includes(context.tick?.value)) {
                     return 'transparent'
                 }
 
                 return colors.axisLine as Color
             },
             tickColor: (context) => {
-                if (annotationsY.includes(context.tick.value)) {
+                if (annotationsY.includes(context.tick?.value)) {
                     return 'transparent'
                 }
 
@@ -726,9 +726,11 @@ export function LineGraph_({
                         ...(yAxisScaleType !== 'log10' && { precision }), // Precision is not supported for the log scale
                         callback: (value) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView),
                         color: (context) => {
-                            for (const annotation of annotationsWithColor) {
-                                if (context.tick.value === annotation.value) {
-                                    return annotation.borderColor
+                            if (context.tick) {
+                                for (const annotation of annotationsWithColor) {
+                                    if (context.tick.value === annotation.value) {
+                                        return annotation.borderColor
+                                    }
                                 }
                             }
 
