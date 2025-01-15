@@ -5,7 +5,6 @@ from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.views.test.funnel.util import (
     EventPattern,
     FunnelRequest,
-    get_funnel_actors_ok,
     get_funnel_ok,
 )
 from posthog.constants import INSIGHT_FUNNELS
@@ -103,10 +102,6 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         assert result["paid"]["count"] == 1
         assert result["paid"]["average_conversion_time"] == 86400
 
-        actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
-        actor_ids = [str(val["id"]) for val in actors]
-        assert actor_ids == ["org:5", "org:6"]
-
     @snapshot_clickhouse_queries
     def test_funnel_group_aggregation_with_groups_entity_filtering(self):
         self._create_groups()
@@ -160,10 +155,6 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         assert result["paid"]["count"] == 1
         assert result["paid"]["average_conversion_time"] == 86400
 
-        actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
-        actor_ids = [str(val["id"]) for val in actors]
-        assert actor_ids == ["org:5"]
-
     @snapshot_clickhouse_queries
     def test_funnel_with_groups_entity_filtering(self):
         self._create_groups()
@@ -194,7 +185,7 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
                 },
             ]
         }
-        created_people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
 
         params = FunnelRequest(
             events=json.dumps(
@@ -218,11 +209,6 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         assert result["user signed up"]["count"] == 1
         assert result["paid"]["count"] == 1
         assert result["paid"]["average_conversion_time"] == 86400
-
-        actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
-        actor_ids = [str(val["id"]) for val in actors]
-
-        assert actor_ids == sorted([str(created_people["user_1"].uuid)])
 
     @snapshot_clickhouse_queries
     def test_funnel_with_groups_global_filtering(self):
@@ -256,7 +242,7 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
                 },
             ],
         }
-        created_people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
 
         params = FunnelRequest(
             events=json.dumps(
@@ -284,10 +270,3 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
 
         assert result["user signed up"]["count"] == 1
         assert result["paid"]["count"] == 0
-
-        actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
-        actor_ids = [str(val["id"]) for val in actors]
-
-        assert actor_ids == sorted([str(created_people["user_1"].uuid)])
-
-    # TODO: move all tests
