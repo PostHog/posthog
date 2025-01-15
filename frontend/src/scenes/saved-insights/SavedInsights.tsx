@@ -1,6 +1,7 @@
 import './SavedInsights.scss'
 
 import {
+    IconAI,
     IconBrackets,
     IconCorrelationAnalysis,
     IconCursor,
@@ -53,7 +54,7 @@ import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import { ActivityScope, InsightType, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
@@ -311,6 +312,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Actor Property Taxonomy',
         description: 'View the taxonomy of the actor’s property.',
         icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.TracesQuery]: {
+        name: 'LLM Observability Traces',
+        icon: IconAI,
         inMenu: false,
     },
 }
@@ -612,7 +618,7 @@ export function SavedInsights(): JSX.Element {
                 <Alerts alertId={alertModalId} />
             ) : (
                 <>
-                    <SavedInsightsFilters />
+                    <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
                     <LemonDivider className="my-4" />
                     <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                         <span className="text-muted-alt">

@@ -20,6 +20,7 @@ import {
     PluginType,
 } from '~/types'
 
+import { CDP_TEST_HIDDEN_FLAG } from '../hogfunctions/list/hogFunctionListLogic'
 import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import {
@@ -254,9 +255,16 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     httpEnabled ? true : config.destination.type !== ('HTTP' as const)
                 )
 
+                const filteredHogFunctions = hogFunctions.filter((hogFunction) => {
+                    if (hogFunction.name.includes(CDP_TEST_HIDDEN_FLAG) && !user?.is_impersonated && !user?.is_staff) {
+                        return false
+                    }
+                    return true
+                })
+
                 const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[] =
                     ([] as (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[])
-                        .concat(hogFunctions)
+                        .concat(filteredHogFunctions)
                         .concat(
                             Object.values(pluginConfigs).map((pluginConfig) => ({
                                 ...pluginConfig,

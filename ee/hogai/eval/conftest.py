@@ -8,6 +8,7 @@ from django.test import override_settings
 from langchain_core.runnables import RunnableConfig
 
 from ee.models import Conversation
+from ee.models.assistant import CoreMemory
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Organization, Project, Team, User
 from posthog.tasks.demo_create_data import HedgeboxMatrix
@@ -76,6 +77,32 @@ def user(team, django_db_blocker) -> Generator[User, None, None]:
         user = User.objects.create_and_join(team.organization, "eval@posthog.com", "password1234")
         yield user
         user.delete()
+
+
+@pytest.fixture(scope="package")
+def core_memory(team) -> Generator[CoreMemory, None, None]:
+    initial_memory = """Hedgebox is a cloud storage service enabling users to store, share, and access files across devices.
+
+    The company operates in the cloud storage and collaboration market for individuals and businesses.
+
+    Their audience includes professionals and organizations seeking file management and collaboration solutions.
+
+    Hedgebox’s freemium model provides free accounts with limited storage and paid subscription plans for additional features.
+
+    Core features include file storage, synchronization, sharing, and collaboration tools for seamless file access and sharing.
+
+    It integrates with third-party applications to enhance functionality and streamline workflows.
+
+    Hedgebox sponsors the YouTube channel Marius Tech Tips."""
+
+    core_memory = CoreMemory.objects.create(
+        team=team,
+        text=initial_memory,
+        initial_text=initial_memory,
+        scraping_status=CoreMemory.ScrapingStatus.COMPLETED,
+    )
+    yield core_memory
+    core_memory.delete()
 
 
 @pytest.mark.django_db(transaction=True)

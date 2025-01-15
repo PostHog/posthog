@@ -20,7 +20,7 @@ from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager impor
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, Insight, DashboardTile
 from posthog.tasks.utils import CeleryQueue
-from posthog.event_usage import report_team_action
+from posthog.ph_client import ph_us_client
 import posthoganalytics
 
 
@@ -38,6 +38,7 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
 )
 
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
+SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
 
 
 def teams_enabled_for_cache_warming() -> list[int]:
@@ -80,8 +81,11 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
     to not let the cache go stale. There isn't any middle ground, like trying to refresh it once a day, since
     that would be like clock that's only right twice a day.
     """
+    # for shared insights, use a lower cut off
+    threshold = datetime.now(UTC) - (
+        LAST_VIEWED_THRESHOLD if not shared_only else SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD
+    )
 
-    threshold = datetime.now(UTC) - LAST_VIEWED_THRESHOLD
     QueryCacheManager.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
     # get all insights currently in the cache for the team
@@ -158,19 +162,28 @@ def schedule_warming_for_teams_task():
     # Use a fixed expiration time since tasks in the chain are executed sequentially
     expire_after = datetime.now(UTC) + timedelta(minutes=50)
 
-    for team, shared_only in all_teams:
-        insight_tuples = list(insights_to_keep_fresh(team, shared_only=shared_only))
+    with ph_us_client() as capture_ph_event:
+        for team, shared_only in all_teams:
+            insight_tuples = list(insights_to_keep_fresh(team, shared_only=shared_only))
 
-        report_team_action(
-            team,
-            "cache warming - insights to cache",
-            {"count": len(insight_tuples)},
-        )
+            capture_ph_event(
+                str(team.uuid),
+                "cache warming - insights to cache",
+                properties={
+                    "count": len(insight_tuples),
+                    "team_id": team.id,
+                    "organization_id": team.organization_id,
+                    "shared_only": shared_only,
+                },
+            )
 
-        # We chain the task execution to prevent queries *for a single team* running at the same time
-        chain(
-            *(warm_insight_cache_task.si(*insight_tuple).set(expires=expire_after) for insight_tuple in insight_tuples)
-        )()
+            # We chain the task execution to prevent queries *for a single team* running at the same time
+            chain(
+                *(
+                    warm_insight_cache_task.si(*insight_tuple).set(expires=expire_after)
+                    for insight_tuple in insight_tuples
+                )
+            )()
 
 
 @shared_task(
@@ -221,15 +234,19 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                 is_cached=is_cached,
             ).inc()
 
-            report_team_action(
-                insight.team,
-                "cache warming - warming insight",
-                {
-                    "insight_id": insight.pk,
-                    "dashboard_id": dashboard_id,
-                    "is_cached": is_cached,
-                },
-            )
+            with ph_us_client() as capture_ph_event:
+                capture_ph_event(
+                    str(insight.team.uuid),
+                    "cache warming - warming insight",
+                    properties={
+                        "insight_id": insight.pk,
+                        "dashboard_id": dashboard_id,
+                        "is_cached": is_cached,
+                        "team_id": insight.team_id,
+                        "organization_id": insight.team.organization_id,
+                    },
+                )
+
         except CHQueryErrorTooManySimultaneousQueries:
             raise
         except Exception as e:

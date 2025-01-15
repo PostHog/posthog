@@ -1,4 +1,5 @@
 import {
+    IconAI,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
@@ -35,11 +36,12 @@ import React from 'react'
 import { editorSidebarLogic } from 'scenes/data-warehouse/editor/editorSidebarLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { replayLandingPageLogic } from 'scenes/session-recordings/replayLandingPageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { ProductKey } from '~/types'
+import { ProductKey, ReplayTabs } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
@@ -72,6 +74,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['mobileLayout'],
             teamLogic,
             ['currentTeam', 'hasOnboardedAnyProduct'],
+            replayLandingPageLogic,
+            ['replayLandingPage'],
         ],
         actions: [navigationLogic, ['closeAccountPopover']],
     })),
@@ -280,15 +284,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             }
             actions.setSidebarWidth(newWidth)
             actions.setSidebarOverslide(newWidthRaw - newWidth)
-            if (newWidthRaw < MINIMUM_SIDEBAR_WIDTH_PX / 2) {
-                if (values.isSidebarShown) {
-                    actions.hideSidebar()
-                }
-            } else {
-                if (!values.isSidebarShown) {
-                    actions.showSidebar()
-                }
-            }
         },
         syncSidebarWidthWithViewport: () => {
             if (values.sidebarWidth > window.innerWidth * (MAXIMUM_SIDEBAR_WIDTH_PERCENTAGE / 100)) {
@@ -349,16 +344,19 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 dashboardsModel.selectors.pinnedDashboards,
                 s.currentTeam,
                 s.hasOnboardedAnyProduct,
+                s.replayLandingPage,
             ],
             (
                 featureFlags,
                 dashboardsLoading,
                 pinnedDashboards,
                 currentTeam,
-                hasOnboardedAnyProduct
+                hasOnboardedAnyProduct,
+                replayLandingPage
             ): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
                 const hasOnboardedFeatureFlags = currentTeam?.has_completed_onboarding_for?.[ProductKey.FEATURE_FLAGS]
+
                 const sectionOne: NavbarItem[] = hasOnboardedAnyProduct
                     ? [
                           {
@@ -373,30 +371,33 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               icon: <IconDashboard />,
                               logic: isUsingSidebar ? dashboardsSidebarLogic : undefined,
                               to: isUsingSidebar ? undefined : urls.dashboards(),
-                              sideAction: {
-                                  identifier: 'pinned-dashboards-dropdown',
-                                  dropdown: {
-                                      overlay: (
-                                          <LemonMenuOverlay
-                                              items={[
-                                                  {
-                                                      title: 'Pinned dashboards',
-                                                      items: pinnedDashboards.map((dashboard) => ({
-                                                          label: dashboard.name,
-                                                          to: urls.dashboard(dashboard.id),
-                                                      })),
-                                                      footer: dashboardsLoading && (
-                                                          <div className="px-2 py-1 text-text-secondary-3000">
-                                                              <Spinner /> Loading…
-                                                          </div>
-                                                      ),
-                                                  },
-                                              ]}
-                                          />
-                                      ),
-                                      placement: 'bottom-end',
-                                  },
-                              },
+                              sideAction:
+                                  pinnedDashboards.length > 0
+                                      ? {
+                                            identifier: 'pinned-dashboards-dropdown',
+                                            dropdown: {
+                                                overlay: (
+                                                    <LemonMenuOverlay
+                                                        items={[
+                                                            {
+                                                                title: 'Pinned dashboards',
+                                                                items: pinnedDashboards.map((dashboard) => ({
+                                                                    label: dashboard.name,
+                                                                    to: urls.dashboard(dashboard.id),
+                                                                })),
+                                                                footer: dashboardsLoading && (
+                                                                    <div className="px-2 py-1 text-text-secondary-3000">
+                                                                        <Spinner /> Loading…
+                                                                    </div>
+                                                                ),
+                                                            },
+                                                        ]}
+                                                    />
+                                                ),
+                                                placement: 'bottom-end',
+                                            },
+                                        }
+                                      : undefined,
                           },
                           {
                               identifier: Scene.Notebooks,
@@ -475,12 +476,63 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Web analytics',
                             icon: <IconPieChart />,
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
+                            sideAction: featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS]
+                                ? {
+                                      identifier: 'web-analytics-dropdown',
+                                      dropdown: {
+                                          overlay: (
+                                              <LemonMenuOverlay
+                                                  items={[
+                                                      {
+                                                          items: [
+                                                              {
+                                                                  label: 'Core Web Vitals',
+                                                                  to: urls.webAnalyticsCoreWebVitals(),
+                                                              },
+                                                          ],
+                                                      },
+                                                  ]}
+                                              />
+                                          ),
+                                          placement: 'bottom-end',
+                                      },
+                                  }
+                                : undefined,
                         },
+                        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
+                            ? {
+                                  identifier: Scene.LLMObservability,
+                                  label: 'LLM observability',
+                                  icon: <IconAI />,
+                                  to: urls.llmObservability('dashboard'),
+                                  tag: 'beta' as const,
+                              }
+                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
                             icon: <IconRewindPlay />,
-                            to: urls.replay(),
+                            to: urls.replay(replayLandingPage),
+                            sideAction: {
+                                identifier: 'replay-dropdown',
+                                dropdown: {
+                                    overlay: (
+                                        <LemonMenuOverlay
+                                            items={[
+                                                {
+                                                    items: [
+                                                        {
+                                                            label: 'Playlists',
+                                                            to: urls.replay(ReplayTabs.Playlists),
+                                                        },
+                                                    ],
+                                                },
+                                            ]}
+                                        />
+                                    ),
+                                    placement: 'bottom-end',
+                                },
+                            },
                         },
                         featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
                             ? {
@@ -559,7 +611,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tag: 'alpha' as const,
                               }
                             : null,
-                    ].filter(isNotNil),
+                    ].filter(isNotNil) as NavbarItem[],
                 ]
             },
         ],
