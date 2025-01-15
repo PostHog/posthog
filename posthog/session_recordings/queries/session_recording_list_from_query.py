@@ -15,7 +15,6 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team, Entity, Action
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     QueryTiming,
     HogQLQueryModifiers,
@@ -125,11 +124,11 @@ class SessionRecordingsListingBaseQuery:
             self._query.properties = self._query.properties or []
             self._query.properties += self._test_account_filters
 
-    @cached_property
+    @property
     def ttl_days(self):
         return ttl_days(self._team)
 
-    @cached_property
+    @property
     def _test_account_filters(self) -> list[AnyPropertyFilter]:
         prop_filters: list[AnyPropertyFilter] = []
         for prop in self._team.test_account_filters:
@@ -150,15 +149,15 @@ class SessionRecordingsListingBaseQuery:
 
         return prop_filters
 
-    @cached_property
+    @property
     def property_operand(self):
         return PropertyOperatorType.AND if self._query.operand == "AND" else PropertyOperatorType.OR
 
-    @cached_property
+    @property
     def ast_operand(self) -> type[Union[ast.And, ast.Or]]:
         return ast.And if self.property_operand == "AND" else ast.Or
 
-    @cached_property
+    @property
     def query_date_range(self):
         return QueryDateRange(
             date_range=DateRange(date_from=self._query.date_from, date_to=self._query.date_to, explicitDate=True),
@@ -440,7 +439,7 @@ class PersonsPropertiesSubQuery(SessionRecordingsListingBaseQuery):
         else:
             return None
 
-    @cached_property
+    @property
     def person_properties(self) -> PropertyGroupFilterValue | None:
         person_property_groups = [g for g in (self._query.properties or []) if is_person_property(g)]
         return (
@@ -452,7 +451,7 @@ class PersonsPropertiesSubQuery(SessionRecordingsListingBaseQuery):
             else None
         )
 
-    @cached_property
+    @property
     def _where_predicates(self) -> ast.Expr:
         return (
             property_to_expr(self.person_properties, team=self._team)
@@ -483,7 +482,7 @@ HAVING argMax(is_deleted, version) = 0 AND {cohort_predicate}
 
         return None
 
-    @cached_property
+    @property
     def cohort_properties(self) -> PropertyGroupFilterValue | None:
         cohort_property_groups = [g for g in (self._query.properties or []) if is_cohort_property(g)]
         return (
@@ -591,7 +590,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         super().__init__(team, query)
         self._hogql_query_modifiers = hogql_query_modifiers
 
-    @cached_property
+    @property
     def _event_predicates(self):
         event_exprs: list[ast.Expr] = []
         event_names: set[int | str] = set()
@@ -773,30 +772,30 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         else:
             return ast.Constant(value=True)
 
-    @cached_property
+    @property
     def action_entities(self):
         # TODO what do we send to the API instead to avoid needing to do this
         return [legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable) for e in self._query.actions or []]
 
-    @cached_property
+    @property
     def event_entities(self):
         # TODO what do we send to the API instead to avoid needing to do this
         # TODO is this overkill since it feels like we only need a few things off the entity
         return [legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable) for e in self._query.events or []]
 
-    @cached_property
+    @property
     def entities(self):
         return self.action_entities + self.event_entities
 
-    @cached_property
+    @property
     def event_properties(self):
         return [g for g in (self._query.properties or []) if is_event_property(g)]
 
-    @cached_property
+    @property
     def group_properties(self):
         return [g for g in (self._query.properties or []) if is_group_property(g)]
 
-    @cached_property
+    @property
     def person_properties(self) -> PropertyGroupFilterValue | None:
         person_property_groups = [g for g in (self._query.properties or []) if is_person_property(g)]
         return (
