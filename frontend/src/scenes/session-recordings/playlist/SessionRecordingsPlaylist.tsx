@@ -42,13 +42,13 @@ export function SessionRecordingsPlaylist({
         otherRecordings,
         activeSessionRecordingId,
         hasNext,
+        allowFlagsFilters,
+        allowHogQLFilters,
     } = useValues(logic)
     const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters } = useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
-    const allowReplayHogQLFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS]
-    const allowReplayFlagsFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_FLAGS_FILTERS]
 
     const pinnedDescription = isTestingSaved ? 'Saved' : 'Pinned'
 
@@ -117,8 +117,8 @@ export function SessionRecordingsPlaylist({
                                 filters={filters}
                                 setFilters={setFilters}
                                 className="border-b"
-                                allowReplayHogQLFilters={allowReplayHogQLFilters}
-                                allowReplayFlagsFilters={allowReplayFlagsFilters}
+                                allowReplayHogQLFilters={allowHogQLFilters}
+                                allowReplayFlagsFilters={allowFlagsFilters}
                             />
                         )
                     }
