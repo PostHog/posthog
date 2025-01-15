@@ -695,7 +695,7 @@ export function deepFreeze<T extends object>(t: T): T {
         }
         Object.freeze(obj)
         Object.keys(obj).forEach((key) => {
-            if (key in obj && obj[key] !== null && typeof obj[key] === 'object' && !Object.isFrozen(obj[key])) {
+            if (key in obj) {
                 deepFreezeInner(obj[key])
             }
         })
