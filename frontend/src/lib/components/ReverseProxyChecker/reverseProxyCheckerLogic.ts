@@ -2,7 +2,7 @@ import { afterMount, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import type { reverseProxyCheckerLogicType } from './reverseProxyCheckerLogicType'

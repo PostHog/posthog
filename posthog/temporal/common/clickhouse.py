@@ -464,7 +464,7 @@ async def get_client(
     Usage:
 
         async with get_client() as client:
-            await client.execute("SELECT 1")
+            await client.apost_query("SELECT 1")
 
     Note that this is not a connection pool, so you should not use this for
     queries that are run frequently.

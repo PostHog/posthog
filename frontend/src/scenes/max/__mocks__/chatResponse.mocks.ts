@@ -5,7 +5,7 @@ import {
     AssistantMessageType,
     HumanMessage,
     ReasoningMessage,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-assistant-messages'
 
 import failureMessage from './failureMessage.json'
 import summaryMessage from './summaryMessage.json'
