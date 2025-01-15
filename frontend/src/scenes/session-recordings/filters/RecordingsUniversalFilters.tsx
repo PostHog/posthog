@@ -52,33 +52,38 @@ export const RecordingsUniversalFilters = ({
     }
 
     return (
-        <div className={clsx('divide-y bg-bg-light rounded', className)}>
+        <div className={clsx('divide-y bg-bg-light rounded-t', className)}>
+            <div className="flex items-center justify-between px-2 py-1.5">
+                <h3 className="truncate mb-0" title="Filters">
+                    Filters
+                </h3>
+                <div className="flex items-center">
+                    <AndOrFilterSelect
+                        value={filters.filter_group.type}
+                        onChange={(type) => {
+                            let values = filters.filter_group.values
+
+                            // set the type on the nested child when only using a single filter group
+                            const hasSingleGroup = values.length === 1
+                            if (hasSingleGroup) {
+                                const group = values[0] as UniversalFiltersGroup
+                                values = [{ ...group, type }]
+                            }
+
+                            setFilters({
+                                filter_group: {
+                                    type: type,
+                                    values: values,
+                                },
+                            })
+                        }}
+                        topLevelFilter={true}
+                        suffix={['filter', 'filters']}
+                    />
+                </div>
+            </div>
             <div className="flex justify-between px-2 py-1.5 flex-wrap gap-1">
                 <div className="flex flex-wrap gap-2 items-center">
-                    <div className="flex items-center">
-                        <AndOrFilterSelect
-                            value={filters.filter_group.type}
-                            onChange={(type) => {
-                                let values = filters.filter_group.values
-
-                                // set the type on the nested child when only using a single filter group
-                                const hasSingleGroup = values.length === 1
-                                if (hasSingleGroup) {
-                                    const group = values[0] as UniversalFiltersGroup
-                                    values = [{ ...group, type }]
-                                }
-
-                                setFilters({
-                                    filter_group: {
-                                        type: type,
-                                        values: values,
-                                    },
-                                })
-                            }}
-                            topLevelFilter={true}
-                            suffix={['filter', 'filters']}
-                        />
-                    </div>
                     <DateFilter
                         dateFrom={filters.date_from ?? '-3d'}
                         dateTo={filters.date_to}
