@@ -25,6 +25,9 @@ import { BillingSectionId } from './billing/types'
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 import { SurveysTabs } from './surveys/surveysLogic'
+
+export type LLMObservabilityTab = 'dashboard' | 'generations'
+
 /**
  * To add a new URL to the front end:
  * - add a URL function here
