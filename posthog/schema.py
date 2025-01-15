@@ -966,6 +966,36 @@ class IntervalType(StrEnum):
     MONTH = "month"
 
 
+class LLMGeneration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseUrl: Optional[str] = None
+    createdAt: str
+    httpStatus: Optional[float] = None
+    id: str
+    input: list
+    inputCost: Optional[float] = None
+    inputTokens: Optional[float] = None
+    latency: float
+    model: Optional[str] = None
+    output: Optional[Any] = None
+    outputCost: Optional[float] = None
+    outputTokens: Optional[float] = None
+    provider: Optional[str] = None
+    totalCost: Optional[float] = None
+
+
+class LLMTracePerson(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    createdAt: str
+    distinctId: str
+    properties: dict[str, Any]
+    uuid: str
+
+
 class LifecycleToggle(StrEnum):
     NEW = "new"
     RESURRECTING = "resurrecting"
@@ -1029,6 +1059,7 @@ class NodeKind(StrEnum):
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
+    TRACES_QUERY = "TracesQuery"
 
 
 class PathCleaningFilter(BaseModel):
@@ -2184,6 +2215,22 @@ class InsightThreshold(BaseModel):
     type: InsightThresholdType
 
 
+class LLMTrace(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    createdAt: str
+    events: list[LLMGeneration]
+    id: str
+    inputCost: float
+    inputTokens: float
+    outputCost: float
+    outputTokens: float
+    person: LLMTracePerson
+    totalCost: float
+    totalLatency: float
+
+
 class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2642,6 +2689,31 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
     results: list
     timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class TracesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[LLMTrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -3630,6 +3702,40 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[TeamTaxonomyItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedTracesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[LLMTrace]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5264,6 +5370,31 @@ class QueryResponseAlternative39(BaseModel):
     )
 
 
+class QueryResponseAlternative40(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[LLMTrace]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class RecordingsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5333,6 +5464,21 @@ class TeamTaxonomyQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class TracesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: Literal["TracesQuery"] = "TracesQuery"
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    response: Optional[TracesQueryResponse] = None
+    traceId: Optional[str] = None
 
 
 class VisualizationMessage(BaseModel):
@@ -6782,6 +6928,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative37,
             QueryResponseAlternative38,
             QueryResponseAlternative39,
+            QueryResponseAlternative40,
         ]
     ]
 ):
@@ -6821,6 +6968,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative37,
         QueryResponseAlternative38,
         QueryResponseAlternative39,
+        QueryResponseAlternative40,
     ]
 
 
@@ -7220,6 +7368,7 @@ class QueryRequest(BaseModel):
         TeamTaxonomyQuery,
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
+        TracesQuery,
     ] = Field(
         ...,
         description=(
@@ -7287,6 +7436,7 @@ class QuerySchemaRoot(
             TeamTaxonomyQuery,
             EventTaxonomyQuery,
             ActorsPropertyTaxonomyQuery,
+            TracesQuery,
         ]
     ]
 ):
@@ -7328,6 +7478,7 @@ class QuerySchemaRoot(
         TeamTaxonomyQuery,
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
+        TracesQuery,
     ] = Field(..., discriminator="kind")
 
 
