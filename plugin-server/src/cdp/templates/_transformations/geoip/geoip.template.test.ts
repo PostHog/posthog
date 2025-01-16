@@ -30,6 +30,6 @@ describe('geoip template', () => {
         // TODO: Add support for the hog function exector to do the geoip lookup stuff
         expect(response.error).toBeUndefined()
         // TODO: Add the response to the hog executor
-        expect(response.result).toMatchInlineSnapshot()
+        expect(response.execResult).toMatchInlineSnapshot()
     })
 })
