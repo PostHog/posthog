@@ -88,8 +88,6 @@ export interface ActionFilterProps {
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element
     /** Only show these property math definitions */
     onlyPropertyMathDefinitions?: Array<string>
-    /** Only show these count per actor math definitions */
-    onlyCountPerActorMathDefinitions?: Array<string>
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -121,7 +119,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         readOnly = false,
         bordered = false,
         onlyPropertyMathDefinitions,
-        onlyCountPerActorMathDefinitions,
     },
     ref
 ): JSX.Element {
@@ -181,7 +178,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         sortable,
         showNumericalPropsOnly,
         onlyPropertyMathDefinitions,
-        onlyCountPerActorMathDefinitions,
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
