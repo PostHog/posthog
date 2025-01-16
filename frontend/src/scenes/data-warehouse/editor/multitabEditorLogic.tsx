@@ -40,6 +40,7 @@ export const activeModelVariablesStateKey = (key: string | number): string => `$
 export interface QueryTab {
     uri: Uri
     view?: DataWarehouseSavedQuery
+    name: string
 }
 
 export const multitabEditorLogic = kea<multitabEditorLogicType>([
@@ -62,6 +63,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         updateState: true,
         runQuery: (queryOverride?: string, switchTab?: boolean) => ({ queryOverride, switchTab }),
         setActiveQuery: (query: string) => ({ query }),
+        renameTab: (tab: QueryTab, newName: string) => ({ tab, newName }),
         setTabs: (tabs: QueryTab[]) => ({ tabs }),
         addTab: (tab: QueryTab) => ({ tab }),
         createTab: (query?: string, view?: DataWarehouseSavedQuery) => ({ query, view }),
@@ -134,12 +136,22 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             [] as QueryTab[],
             {
                 addTab: (state, { tab }) => {
-                    const newTabs = [...state, tab]
-                    return newTabs
+                    return [...state, tab]
+                },
+                renameTab: (state, { tab, newName }) => {
+                    // localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(updatedTabs))
+                    return state.map((t) => {
+                        if (t.uri.toString() === tab.uri.toString()) {
+                            return {
+                                ...t,
+                                name: newName,
+                            }
+                        }
+                        return t
+                    })
                 },
                 removeTab: (state, { tab: tabToRemove }) => {
-                    const newModels = state.filter((tab) => tab.uri.toString() !== tabToRemove.uri.toString())
-                    return newModels
+                    return state.filter((tab) => tab.uri.toString() !== tabToRemove.uri.toString())
                 },
                 setTabs: (_, { tabs }) => tabs,
             },
@@ -199,10 +211,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.addTab({
                     uri,
                     view,
+                    name: 'New tab',
                 })
                 actions.selectTab({
                     uri,
                     view,
+                    name: 'New tab',
                 })
 
                 const queries = values.allTabs.map((tab) => {
@@ -210,10 +224,24 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         query: props.monaco?.editor.getModel(tab.uri)?.getValue() || '',
                         path: tab.uri.path.split('/').pop(),
                         view: uri.path === tab.uri.path ? view : tab.view,
+                        name: tab.name,
                     }
                 })
                 actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
             }
+        },
+        renameTab: ({ tab, newName }) => {
+            const updatedTabs = values.allTabs.map((t) => {
+                if (t.uri.toString() === tab.uri.toString()) {
+                    return {
+                        ...t,
+                        name: newName,
+                    }
+                }
+                return t
+            })
+            actions.setTabs(updatedTabs)
+            actions.updateState()
         },
         selectTab: ({ tab }) => {
             if (props.monaco) {
@@ -254,6 +282,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const allModelQueries = localStorage.getItem(editorModelsStateKey(props.key))
             const activeModelUri = localStorage.getItem(activeModelStateKey(props.key))
             const activeModelVariablesString = localStorage.getItem(activeModelVariablesStateKey(props.key))
+
             const activeModelVariables =
                 activeModelVariablesString && activeModelVariablesString != 'undefined'
                     ? JSON.parse(activeModelVariablesString)
@@ -284,6 +313,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         newModels.push({
                             uri,
                             view: model.view,
+                            name: model.name || 'New tab',
                         })
                         mountedCodeEditorLogic && initModel(newModel, mountedCodeEditorLogic)
                     }
@@ -315,10 +345,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         actions.selectTab({
                             uri,
                             view: activeView,
+                            name: 'New tab',
                         })
                 } else if (newModels.length) {
                     actions.selectTab({
                         uri: newModels[0].uri,
+                        name: 'New tab',
                     })
                 }
             } else {
@@ -339,7 +371,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return {
                     query: props.monaco?.editor.getModel(model.uri)?.getValue() || '',
                     path: model.uri.path.split('/').pop(),
-                    view: model.view,
+                    name: model.name || 'New tab',
                 }
             })
             localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
