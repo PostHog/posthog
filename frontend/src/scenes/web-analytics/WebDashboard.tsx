@@ -367,7 +367,9 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
                     <div className="flex flex-col sm:flex-row gap-2 justify-between items-center sm:items-start w-full border-b pb-2 mb-2 sm:mb-0">
-                        <WebAnalyticsLiveUserCount />
+                        <div>
+                            <WebAnalyticsLiveUserCount />
+                        </div>
 
                         {featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && (
                             <LemonSegmentedSelect
