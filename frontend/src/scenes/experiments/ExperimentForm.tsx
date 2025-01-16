@@ -20,6 +20,7 @@ const ExperimentFormFields = (): JSX.Element => {
         useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const { takenKeys } = useValues(experimentsLogic)
 
     return (
         <div>
@@ -45,7 +46,9 @@ const ExperimentFormFields = (): JSX.Element => {
                                             : 'Fill out the experiment name first.'
                                     }
                                     onClick={() => {
-                                        setExperiment({ feature_flag_key: dynamicFeatureFlagKey })
+                                        setExperiment({
+                                            feature_flag_key: generateFeatureFlagKey(experiment.name, takenKeys),
+                                        })
                                     }}
                                 >
                                     <IconMagicWand className="mr-1" /> Generate
@@ -289,4 +292,20 @@ export function ExperimentForm(): JSX.Element {
             </Form>
         </div>
     )
+}
+
+const generateFeatureFlagKey = (name: string, takenKeys: string[]): string => {
+    const baseKey = name
+        .toLowerCase()
+        .replace(/[^A-Za-z0-9-_]+/g, '-')
+        .replace(/-+$/, '')
+        .replace(/^-+/, '')
+
+    let key = baseKey
+    let counter = 1
+    while (takenKeys.includes(key)) {
+        key = `${baseKey}-${counter}`
+        counter++
+    }
+    return key
 }
