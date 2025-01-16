@@ -234,7 +234,7 @@ const List = ({
                     <LemonTableLoader loading={loading} />
                 </div>
             </DraggableToNotebook>
-            <div className="overflow-y-auto flex-1 flex-grow" onScroll={handleScroll} ref={contentRef}>
+            <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
                 <LemonCollapse
                     defaultActiveKeys={initiallyOpenSections}
                     panels={sections.map((s) => {
