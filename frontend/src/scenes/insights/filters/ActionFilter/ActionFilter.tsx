@@ -86,8 +86,6 @@ export interface ActionFilterProps {
         deleteButton,
         orLabel,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element
-    /** Only show these property math definitions */
-    onlyPropertyMathDefinitions?: Array<string>
     /** Only show these math types in the selector */
     onlyMathTypes?: string[]
 }
@@ -120,7 +118,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         buttonType = 'tertiary',
         readOnly = false,
         bordered = false,
-        onlyPropertyMathDefinitions,
         onlyMathTypes,
     },
     ref
@@ -180,7 +177,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         onRenameClick: showModal,
         sortable,
         showNumericalPropsOnly,
-        onlyPropertyMathDefinitions,
         onlyMathTypes,
     }
 
