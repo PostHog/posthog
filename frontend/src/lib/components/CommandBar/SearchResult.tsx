@@ -37,7 +37,9 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
             if ((ref.current as any)?.scrollIntoViewIfNeeded) {
                 ;(ref.current as any).scrollIntoViewIfNeeded(false)
             } else {
-                ref.current?.scrollIntoView()
+                ref.current?.scrollIntoView({
+                    block: 'nearest',
+                })
             }
         }
     }, [focused])
