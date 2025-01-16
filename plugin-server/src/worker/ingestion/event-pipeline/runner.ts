@@ -109,7 +109,7 @@ export class EventPipelineRunner {
         status.info('🧩', `Processing event`, {
             event: event.event,
             distinct_id: event.distinct_id,
-            team_id: event.team_id,
+            token: event.token,
         })
 
         try {
