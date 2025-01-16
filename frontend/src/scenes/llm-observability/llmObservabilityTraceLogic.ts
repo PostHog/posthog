@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { DataTableNode, TracesQueryResponse } from '~/queries/schema'
+import { AnyResponseType, DataTableNode, TracesQueryResponse } from '~/queries/schema'
 import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import { llmObservabilityLogic } from './llmObservabilityLogic'
@@ -14,11 +14,13 @@ import type { llmObservabilityTraceLogicType } from './llmObservabilityTraceLogi
 export interface LLMObservabilityTraceDataNodeLogicParams {
     traceId: string
     query: DataTableNode
+    cachedResults?: AnyResponseType | null
 }
 
 export function getDataNodeLogicProps({
     traceId,
     query,
+    cachedResults,
 }: LLMObservabilityTraceDataNodeLogicParams): DataNodeLogicProps {
     const insightProps: InsightLogicProps<DataTableNode> = {
         dashboardItemId: `new-Trace.${traceId}`,
@@ -30,6 +32,7 @@ export function getDataNodeLogicProps({
         key: vizKey,
         dataNodeCollectionId: traceId,
         alwaysRefresh: false,
+        cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps
 }
@@ -67,11 +70,18 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
                 },
             }),
         ],
-        cachedTrace: [
+        cachedTraceResponse: [
             (s) => [s.cachedTracesResults, s.traceId],
             (cachedTracesResults, traceId) => {
+                if (!cachedTracesResults) {
+                    return null
+                }
                 const response = cachedTracesResults as TracesQueryResponse
-                return response.results.find((trace) => trace.id === traceId)
+
+                return {
+                    ...response,
+                    results: response.results.filter((trace) => trace.id === traceId),
+                }
             },
         ],
         breadcrumbs: [
