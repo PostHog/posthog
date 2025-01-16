@@ -109,7 +109,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                                         showEventFilter: false,
                                         showPropertyFilter: false,
                                         embedded: true,
-                                        showOpenEditorButton: true,
+                                        showOpenEditorButton: false,
                                         showHogQLEditor: false,
                                         showTimings: false,
                                     }}
