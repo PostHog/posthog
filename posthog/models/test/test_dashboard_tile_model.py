@@ -64,7 +64,6 @@ class TestDashboardTileModel(APIBaseTest):
 
     def test_cannot_set_caching_data_for_text_tiles(self) -> None:
         tile_fields: list[dict] = [
-            {"filters_hash": "123"},
             {"refreshing": True},
             {"refresh_attempt": 2},
             {"last_refresh": datetime.datetime.now()},

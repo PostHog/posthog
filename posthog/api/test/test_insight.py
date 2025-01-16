@@ -333,28 +333,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual((response.json()["results"][0]["favorited"]), True)
 
-    def test_get_insight_in_dashboard_context(self) -> None:
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-        }
-
-        dashboard_id, _ = self.dashboard_api.create_dashboard(
-            {"name": "the dashboard", "filters": {"date_from": "-180d"}}
-        )
-
-        insight_id, _ = self.dashboard_api.create_insight(
-            {"filters": filter_dict, "name": "insight", "dashboards": [dashboard_id]}
-        )
-
-        insight_in_isolation = self.dashboard_api.get_insight(insight_id)
-        self.assertIsNotNone(insight_in_isolation.get("filters_hash", None))
-
-        insight_on_dashboard = self.dashboard_api.get_insight(insight_id, query_params={"from_dashboard": dashboard_id})
-        self.assertIsNotNone(insight_on_dashboard.get("filters_hash", None))
-
-        self.assertNotEqual(insight_in_isolation["filters_hash"], insight_on_dashboard["filters_hash"])
-
     def test_get_insight_in_shared_context(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],
@@ -1081,18 +1059,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     },
                 ],
             )
-
-    def test_cannot_set_filters_hash_via_api(self) -> None:
-        insight_id, insight = self.dashboard_api.create_insight({"name": "should not update the filters_hash"})
-        original_filters_hash = insight["filters_hash"]
-        self.assertIsNotNone(original_filters_hash)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"filters_hash": "should not update the value"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["filters_hash"], original_filters_hash)
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self) -> None:
