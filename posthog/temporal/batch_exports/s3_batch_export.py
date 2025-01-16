@@ -560,7 +560,7 @@ class S3Consumer(Consumer):
         self.s3_upload: S3MultiPartUpload | None = None
         self.s3_inputs = s3_inputs
         self.file_number = 0
-        self.files_uploaded = []
+        self.files_uploaded: list[str] = []
 
     async def flush(
         self,
@@ -687,13 +687,13 @@ def initialize_upload(inputs: S3InsertInputs, file_number: int) -> S3MultiPartUp
 
 async def upload_manifest_file(inputs: S3InsertInputs, files_uploaded: list[str], manifest_key: str):
     session = aioboto3.Session()
-    async with session.client(
+    async with session.client(  # type: ignore
         "s3",
         region_name=inputs.region,
         aws_access_key_id=inputs.aws_access_key_id,
         aws_secret_access_key=inputs.aws_secret_access_key,
         endpoint_url=inputs.endpoint_url,
-    ) as client:  # type: ignore
+    ) as client:
         await client.put_object(
             Bucket=inputs.bucket_name,
             Key=manifest_key,
