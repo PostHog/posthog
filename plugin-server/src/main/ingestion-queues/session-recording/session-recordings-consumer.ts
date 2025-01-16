@@ -725,7 +725,7 @@ export class SessionRecordingIngester {
         const sessions = Object.entries(this.sessions)
 
         // NOTE: We want to avoid flushing too many sessions at once as it can cause a lot of disk backpressure stalling the consumer
-        await allSettledWithConcurrency(
+        const results = await allSettledWithConcurrency(
             this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
             sessions,
             async ([key, sessionManager], ctx) => {
@@ -748,6 +748,11 @@ export class SessionRecordingIngester {
                         partition: sessionManager.partition,
                     })
                     return
+                }
+
+                if (sessionManager.s3WriteFailed) {
+                    // the session manager failed at a s3 write, the partition will be stuck
+                    throw new Error(`Session manager for ${sessionManager.sessionId} failed at an s3 write`)
                 }
 
                 await sessionManager
@@ -774,6 +779,16 @@ export class SessionRecordingIngester {
                     })
             }
         )
+        const errors = results.filter((r) => !!r.error).map((r) => r.error)
+        if (errors.length) {
+            status.error('🌶️', 'blob_ingester_consumer - failed to flush sessions', { errors })
+            captureException(new Error('Failed to flush sessions'), { extra: { errors } })
+            if (errors[0] instanceof Error) {
+                throw errors[0]
+            } else {
+                throw new Error('Failed to flush sessions. With ' + errors.length + ' errors')
+            }
+        }
 
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
         gaugeRealtimeSessions.set(

@@ -108,6 +108,7 @@ export class SessionManager {
     unsubscribe: () => void
     flushJitterMultiplier: number
     realtimeTail: Tail | null = null
+    s3WriteFailed: boolean = false
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -306,7 +307,7 @@ export class SessionManager {
     private async _flush(
         reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime' | 'partition_shutdown'
     ): Promise<void> {
-        // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
+        // NOTE: The below checks don't need to throw really, but we do so to help debug what might be blocking things
         if (this.flushBuffer) {
             this.debugLog('🚽', '[session-manager] flush called but we already have a flush buffer', {
                 ...this.logContext(),
@@ -337,7 +338,7 @@ export class SessionManager {
             this.flushBuffer = this.buffer
             this.buffer = this.createBuffer()
             this.stopRealtime()
-            // We don't want to keep writing unecessarily...
+            // We don't want to keep writing unnecessarily...
             const { fileStream, file, count, eventsRange, sizeEstimate } = this.flushBuffer
 
             if (count === 0) {
@@ -417,6 +418,7 @@ export class SessionManager {
             })
             this.captureException(error)
             counterS3WriteErrored.inc()
+            this.s3WriteFailed = true
 
             throw error
         } finally {

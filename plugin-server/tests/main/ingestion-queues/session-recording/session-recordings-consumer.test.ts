@@ -98,7 +98,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
         await deleteKeys(hub)
 
-        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, consumeOverflow, redisConn)
+        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage!, consumeOverflow, redisConn)
         await ingester.start()
 
         mockConsumer.assignments.mockImplementation(() => [createTP(0, consumedTopic), createTP(1, consumedTopic)])
@@ -139,6 +139,22 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         )
     }
 
+    it('when there is an S3 error', async () => {
+        await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'sid1' }))
+        ingester.partitionMetrics[1] = { lastMessageTimestamp: 1, offsetLag: 0 }
+
+        expect(Object.keys(ingester.sessions).length).toBe(1)
+        expect(ingester.sessions['2-sid1']).toBeDefined()
+
+        // simulate an S3 write error
+        const watam = ingester.sessions['2-sid1']
+        watam.s3WriteFailed = true
+
+        await expect(() => ingester.flushAllReadySessions(noop)).rejects.toThrow(
+            'Session manager for sid1 failed at an s3 write'
+        )
+    })
+
     // disconnecting a producer is not safe to call multiple times
     // in order to let us test stopping the ingester elsewhere
     // in most tests we automatically stop the ingester during teardown
@@ -163,7 +179,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             const ingester = new SessionRecordingIngester(
                 config,
                 hub.postgres,
-                hub.objectStorage,
+                hub.objectStorage!,
                 consumeOverflow,
                 undefined
             )
@@ -178,7 +194,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             const ingester = new SessionRecordingIngester(
                 config,
                 hub.postgres,
-                hub.objectStorage,
+                hub.objectStorage!,
                 consumeOverflow,
                 undefined
             )
@@ -468,7 +484,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 otherIngester = new SessionRecordingIngester(
                     config,
                     hub.postgres,
-                    hub.objectStorage,
+                    hub.objectStorage!,
                     consumeOverflow,
                     undefined
                 )
