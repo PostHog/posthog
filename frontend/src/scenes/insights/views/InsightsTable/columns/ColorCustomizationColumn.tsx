@@ -40,7 +40,7 @@ export function ColorCustomizationColumnItem({ item }: { item: IndexedTrendResul
             }}
             size="small"
         >
-            <CustomizationIcon isVisible={true} color={color} />
+            <CustomizationIcon color={color} />
         </LemonButton>
     )
 }
