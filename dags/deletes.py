@@ -168,7 +168,6 @@ def create_pending_deletes_dictionary(context: AssetExecutionContext, config: De
         )
         PRIMARY KEY team_id, person_id
         SOURCE(CLICKHOUSE(
-            HOST '{CLICKHOUSE_HOST}'
             TABLE {names["table"]}
             USER '{CLICKHOUSE_USER}'
             PASSWORD '{CLICKHOUSE_PASSWORD}'
