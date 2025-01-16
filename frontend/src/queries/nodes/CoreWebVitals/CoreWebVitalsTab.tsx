@@ -26,14 +26,10 @@ export function CoreWebVitalsTab({
     setTab,
     inSeconds = false,
 }: CoreWebVitalsTabProps): JSX.Element {
-    // TODO: Go back to using an actual value
-    // Will keep this as is while we test what the UI looks like
-    // const {value: parsedValue, unit } = getValueWithUnit(value, inSeconds)
-    const newValue = true ? (inSeconds ? Math.random() * 10000 : Math.random()) : value
-    const { value: parsedValue, unit } = getValueWithUnit(newValue, inSeconds)
+    const { value: parsedValue, unit } = getValueWithUnit(value, inSeconds)
 
     const threshold = CORE_WEB_VITALS_THRESHOLDS[metric]
-    const thresholdColor = getThresholdColor(newValue, threshold)
+    const thresholdColor = getThresholdColor(value, threshold)
 
     return (
         <div
@@ -54,7 +50,7 @@ export function CoreWebVitalsTab({
             </div>
 
             <div className="w-full mt-2 hidden sm:block">
-                {newValue && <CoreWebVitalsProgressBar value={newValue} threshold={threshold} />}
+                {value != null && <CoreWebVitalsProgressBar value={value} threshold={threshold} />}
             </div>
         </div>
     )
