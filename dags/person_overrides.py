@@ -86,7 +86,23 @@ class Mutation:
     mutation_id: str
 
     def is_done(self, client: Client) -> bool:
-        raise NotImplementedError
+        [[is_done]] = client.execute(
+            f"""
+            SELECT is_done
+            FROM system.mutations
+            WHERE
+                database = %(database)s
+                AND table = %(table)s
+                AND mutation_id = %(mutation_id)s
+            ORDER BY create_time DESC
+            """,
+            {
+                "database": settings.CLICKHOUSE_DATABASE,
+                "table": self.table,
+                "mutation_id": self.mutation_id,
+            },
+        )
+        return is_done
 
 
 @dataclass
@@ -185,24 +201,64 @@ class PersonOverridesSnapshotDictionary:
         return checksum
 
     def enqueue_person_id_update_mutation(self, client: Client) -> Mutation:
+        table = EVENTS_DATA_TABLE()
         client.execute(
             f"""
-            ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{EVENTS_DATA_TABLE()}
+            ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{table}
             UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id))
             WHERE dictHas(%(name)s, (team_id, distinct_id))
             """,
             {"name": self.qualified_name},
         )
-        raise NotImplementedError
+
+        [[table, mutation_id]] = client.execute(
+            f"""
+            SELECT table, mutation_id
+            FROM system.mutations
+            WHERE
+                database = %(database)s
+                AND table = %(table)s
+                AND startsWith(command, 'UPDATE')
+                AND command like concat('%', %(name)s, '%')
+            ORDER BY create_time DESC
+            """,
+            {
+                "database": settings.CLICKHOUSE_DATABASE,
+                "table": table,
+                "name": self.qualified_name,
+            },
+        )
+
+        return Mutation(table, mutation_id)
 
     def enqueue_overrides_delete_mutation(self, client: Client) -> Mutation:
+        table = PERSON_DISTINCT_ID_OVERRIDES_TABLE
         client.execute(
             f"""
-            ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_ID_OVERRIDES_TABLE}
+            ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{table}
             DELETE WHERE
                 isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version)
                 AND snapshot_version >= version
             """,
             {"name": self.qualified_name},
         )
-        raise NotImplementedError
+
+        [[table, mutation_id]] = client.execute(
+            f"""
+            SELECT table, mutation_id
+            FROM system.mutations
+            WHERE
+                database = %(database)s
+                AND table = %(table)s
+                AND startsWith(command, 'UPDATE')
+                AND command like concat('%', %(name)s, '%')
+            ORDER BY create_time DESC
+            """,
+            {
+                "database": settings.CLICKHOUSE_DATABASE,
+                "table": table,
+                "name": self.qualified_name,
+            },
+        )
+
+        return Mutation(table, mutation_id)
