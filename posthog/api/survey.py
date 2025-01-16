@@ -60,6 +60,7 @@ class SurveySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions", read_only=True)
     feature_flag_keys = serializers.SerializerMethodField()
+    # NB this is enforced in the UI too
     iteration_count = serializers.IntegerField(required=False, allow_null=True, max_value=500, min_value=0)
 
     def get_feature_flag_keys(self, survey: Survey) -> list:
