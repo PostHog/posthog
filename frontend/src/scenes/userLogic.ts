@@ -28,6 +28,7 @@ export const userLogic = kea<userLogicType>([
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
         updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
         switchTeam: (teamId: string | number) => ({ teamId }),
+        deleteUser: true,
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -77,10 +78,15 @@ export const userLogic = kea<userLogicType>([
                     }
                 },
                 deleteUser: async () => {
-                    return await api.delete('api/users/@me/').catch((error) => {
-                        console.error(error)
-                        actions.updateUserFailure(error.message)
-                    })
+                    return await api
+                        .delete('api/users/@me/')
+                        .then(() => {
+                            actions.logout()
+                        })
+                        .catch((error) => {
+                            console.error(error)
+                            actions.deleteUserFailure(error.message)
+                        })
                 },
                 setUserScenePersonalisation: async ({ scene, dashboard }) => {
                     if (!values.user) {

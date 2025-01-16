@@ -4,30 +4,32 @@ import { useActions, useValues } from 'kea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { isNotNil } from 'lib/utils'
 import { Dispatch, SetStateAction, useState } from 'react'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-export function RemoveFromOrganizationsModal({
+const DELETE_CONFIRMATION_TEXT = 'permanently delete account'
+
+export function DeleteUserModal({
     isOpen,
     setIsOpen,
 }: {
     isOpen: boolean
     setIsOpen: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
-    const { currentOrganization } = useValues(organizationLogic)
-    const { otherOrganizations, user } = useValues(userLogic)
-    const { removeMember } = useActions(membersLogic)
-    const { deleteOrganization } = useActions(organizationLogic)
+    const { user } = useValues(userLogic)
+    const { deleteUser } = useActions(userLogic)
 
     const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
     const isDeletionInProgress = false
 
-    const organizations = [currentOrganization, ...otherOrganizations].filter(isNotNil)
+    const organizations = (user?.organizations ?? []).filter(isNotNil)
+
+    const ownedOrganizations = organizations.filter(
+        (organization) => organization.membership_level === OrganizationMembershipLevel.Owner
+    )
 
     return (
         <LemonModal
-            title="Remove yourself from organizations"
+            title="Delete your account"
             onClose={!isDeletionInProgress ? () => setIsOpen(false) : undefined}
             footer={
                 <>
@@ -40,13 +42,11 @@ export function RemoveFromOrganizationsModal({
                     </LemonButton>
                     <LemonButton
                         type="secondary"
-                        disabled={!isDeletionConfirmed || organizations.length > 0}
+                        disabled={!isDeletionConfirmed}
                         loading={isDeletionInProgress}
                         data-attr="delete-user-ok"
                         status="danger"
-                        onClick={() => {
-                            // Add logic to delete user account
-                        }}
+                        onClick={() => deleteUser()}
                     >
                         Delete account
                     </LemonButton>
@@ -54,11 +54,14 @@ export function RemoveFromOrganizationsModal({
             }
             isOpen={isOpen}
         >
-            {organizations.length > 0 ? (
+            <p>
+                Account deletion <b>cannot be undone</b>. You will lose all your data permanently.
+            </p>
+            <p>The following organizations will be deleted:</p>
+            {ownedOrganizations.length > 0 && (
                 <>
-                    <p>You must leave or delete all organizations before you can delete your account.</p>
                     <LemonTable
-                        dataSource={organizations.filter(isNotNil)}
+                        dataSource={ownedOrganizations}
                         size="small"
                         columns={[
                             {
@@ -71,19 +74,10 @@ export function RemoveFromOrganizationsModal({
                                 title: '',
                                 render: function RenderActionButton(_, organization) {
                                     return (
-                                        <div className="flex justify-end py-1">
-                                            <LemonButton
-                                                type="secondary"
-                                                onClick={() =>
-                                                    organization.membership_level === OrganizationMembershipLevel.Owner
-                                                        ? deleteOrganization(organization)
-                                                        : removeMember({ user })
-                                                }
-                                            >
-                                                {organization.membership_level === OrganizationMembershipLevel.Owner
-                                                    ? 'Delete'
-                                                    : 'Leave'}
-                                            </LemonButton>
+                                        <div className="flex justify-end py-1 text-danger font-semibold">
+                                            {organization.membership_level === OrganizationMembershipLevel.Owner
+                                                ? 'Will be deleted'
+                                                : 'Leave'}
                                         </div>
                                     )
                                 },
@@ -91,22 +85,17 @@ export function RemoveFromOrganizationsModal({
                         ]}
                     />
                 </>
-            ) : (
-                <>
-                    <p>
-                        Account deletion <b>cannot be undone</b>. You will lose all your data.
-                    </p>
-                    <p>
-                        Please type <strong>delete me</strong> to confirm account deletion.
-                    </p>
-                    <LemonInput
-                        type="text"
-                        onChange={(value) => {
-                            setIsDeletionConfirmed(value.toLowerCase() === 'delete me'.toLowerCase())
-                        }}
-                    />
-                </>
             )}
+
+            <p className="pt-4">
+                Please type <strong>{DELETE_CONFIRMATION_TEXT}</strong> to confirm account deletion.
+            </p>
+            <LemonInput
+                type="text"
+                onChange={(value) => {
+                    setIsDeletionConfirmed(value.toLowerCase() === DELETE_CONFIRMATION_TEXT.toLowerCase())
+                }}
+            />
         </LemonModal>
     )
 }
@@ -132,7 +121,7 @@ export function UserDangerZone(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            <RemoveFromOrganizationsModal isOpen={isModalVisible} setIsOpen={setIsModalVisible} />
+            <DeleteUserModal isOpen={isModalVisible} setIsOpen={setIsModalVisible} />
         </>
     )
 }
