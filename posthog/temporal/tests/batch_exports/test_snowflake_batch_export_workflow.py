@@ -973,13 +973,13 @@ def snowflake_cursor(snowflake_config):
         warehouse=snowflake_config["warehouse"],
     ) as connection:
         cursor = connection.cursor()
-        cursor.execute(f'CREATE DATABASE "{snowflake_config["database"]}"')
-        cursor.execute(f'CREATE SCHEMA "{snowflake_config["database"]}"."{snowflake_config["schema"]}"')
-        cursor.execute(f'USE SCHEMA "{snowflake_config["database"]}"."{snowflake_config["schema"]}"')
+        cursor.execute(f"CREATE DATABASE \"{snowflake_config['database']}\"")
+        cursor.execute(f"CREATE SCHEMA \"{snowflake_config['database']}\".\"{snowflake_config['schema']}\"")
+        cursor.execute(f"USE SCHEMA \"{snowflake_config['database']}\".\"{snowflake_config['schema']}\"")
 
         yield cursor
 
-        cursor.execute(f'DROP DATABASE IF EXISTS "{snowflake_config["database"]}" CASCADE')
+        cursor.execute(f"DROP DATABASE IF EXISTS \"{snowflake_config['database']}\" CASCADE")
 
 
 TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
