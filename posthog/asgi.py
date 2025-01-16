@@ -33,7 +33,7 @@ websocket_urlpatterns = [
 
 application = ProtocolTypeRouter(
     {
-        "http": django_asgi_app,
-        "websocket": lifetime_wrapper(AuthMiddlewareStack(URLRouter(websocket_urlpatterns))),
+        "http": lifetime_wrapper(django_asgi_app),
+        "websocket": AuthMiddlewareStack(URLRouter(websocket_urlpatterns)),
     }
 )
