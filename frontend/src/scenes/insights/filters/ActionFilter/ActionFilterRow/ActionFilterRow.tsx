@@ -126,8 +126,8 @@ export interface ActionFilterRowProps {
     trendsDisplayCategory: ChartDisplayCategory | null
     /** Whether properties shown should be limited to just numerical types */
     showNumericalPropsOnly?: boolean
-    /** Only show these math types in the selector */
-    onlyMathTypes?: string[]
+    /** Only allow these math types in the selector */
+    allowedMathTypes?: string[]
 }
 
 export function ActionFilterRow({
@@ -157,7 +157,7 @@ export function ActionFilterRow({
     renderRow,
     trendsDisplayCategory,
     showNumericalPropsOnly,
-    onlyMathTypes,
+    allowedMathTypes,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -428,7 +428,7 @@ export function ActionFilterRow({
                                             style={{ maxWidth: '100%', width: 'initial' }}
                                             mathAvailability={mathAvailability}
                                             trendsDisplayCategory={trendsDisplayCategory}
-                                            onlyMathTypes={onlyMathTypes}
+                                            allowedMathTypes={allowedMathTypes}
                                         />
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.PropertyValue && (
@@ -553,7 +553,7 @@ export function ActionFilterRow({
                                                                     style={{ maxWidth: '100%', width: 'initial' }}
                                                                     mathAvailability={mathAvailability}
                                                                     trendsDisplayCategory={trendsDisplayCategory}
-                                                                    onlyMathTypes={onlyMathTypes}
+                                                                    allowedMathTypes={allowedMathTypes}
                                                                 />
                                                                 <LemonDivider />
                                                             </>
@@ -647,8 +647,8 @@ interface MathSelectorProps {
     onMathSelect: (index: number, value: any) => any
     trendsDisplayCategory: ChartDisplayCategory | null
     style?: React.CSSProperties
-    /** Only show these math types in the selector */
-    onlyMathTypes?: string[]
+    /** Only allow these math types in the selector */
+    allowedMathTypes?: string[]
 }
 
 function isPropertyValueMath(math: string | undefined): math is PropertyMathType {
@@ -667,7 +667,7 @@ function useMathSelectorOptions({
     mathAvailability,
     onMathSelect,
     trendsDisplayCategory,
-    onlyMathTypes,
+    allowedMathTypes,
 }: MathSelectorProps): LemonSelectOptions<string> {
     const mountedInsightDataLogic = insightDataLogic.findMounted()
     const query = mountedInsightDataLogic?.values?.query
@@ -709,8 +709,8 @@ function useMathSelectorOptions({
                 // Remove WAU and MAU from stickiness insights
                 return !TRAILING_MATH_TYPES.has(key)
             }
-            if (onlyMathTypes) {
-                return onlyMathTypes.includes(key)
+            if (allowedMathTypes) {
+                return allowedMathTypes.includes(key)
             }
             return true
         })
@@ -739,7 +739,7 @@ function useMathSelectorOptions({
     if (mathAvailability !== MathAvailability.ActorsOnly && mathAvailability !== MathAvailability.FunnelsOnly) {
         // Add count per user option if any CountPerActorMathType is included in onlyMathTypes
         const shouldShowCountPerUser =
-            !onlyMathTypes || Object.values(CountPerActorMathType).some((type) => onlyMathTypes.includes(type))
+            !allowedMathTypes || Object.values(CountPerActorMathType).some((type) => allowedMathTypes.includes(type))
 
         if (shouldShowCountPerUser) {
             options.splice(1, 0, {
@@ -755,7 +755,7 @@ function useMathSelectorOptions({
                                 onMathSelect(index, value)
                             }}
                             options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS)
-                                .filter(([key]) => !onlyMathTypes || onlyMathTypes.includes(key))
+                                .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
                                 .map(([key, definition]) => ({
                                     value: key,
                                     label: definition.shortName,
@@ -775,7 +775,7 @@ function useMathSelectorOptions({
 
         // Add property value option if any PropertyMathType is included in onlyMathTypes
         const shouldShowPropertyValue =
-            !onlyMathTypes || Object.values(PropertyMathType).some((type) => onlyMathTypes.includes(type))
+            !allowedMathTypes || Object.values(PropertyMathType).some((type) => allowedMathTypes.includes(type))
 
         if (shouldShowPropertyValue) {
             options.push({
@@ -791,7 +791,7 @@ function useMathSelectorOptions({
                                 onMathSelect(index, value)
                             }}
                             options={Object.entries(PROPERTY_MATH_DEFINITIONS)
-                                .filter(([key]) => !onlyMathTypes || onlyMathTypes.includes(key))
+                                .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
                                 .map(([key, definition]) => ({
                                     value: key,
                                     label: definition.shortName,
@@ -814,7 +814,7 @@ function useMathSelectorOptions({
     // Add HogQL option if HogQLMathType.HogQL is included in onlyMathTypes
     if (
         mathAvailability !== MathAvailability.FunnelsOnly &&
-        (!onlyMathTypes || onlyMathTypes.includes(HogQLMathType.HogQL))
+        (!allowedMathTypes || allowedMathTypes.includes(HogQLMathType.HogQL))
     ) {
         options.push({
             value: HogQLMathType.HogQL,
@@ -835,7 +835,7 @@ function useMathSelectorOptions({
     ]
 }
 
-function MathSelector(props: MathSelectorProps & { onlyMathTypes?: string[] }): JSX.Element {
+function MathSelector(props: MathSelectorProps & { allowedMathTypes?: string[] }): JSX.Element {
     const options = useMathSelectorOptions(props)
     const { math, mathGroupTypeIndex, index, onMathSelect, disabled, disabledReason } = props
 
