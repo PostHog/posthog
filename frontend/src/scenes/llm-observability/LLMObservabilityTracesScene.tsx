@@ -58,6 +58,7 @@ const TimestampColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     return <TZLabel time={row.createdAt} />
 }
+TimestampColumn.displayName = 'TimestampColumn'
 
 const LatencyColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
@@ -66,6 +67,7 @@ const LatencyColumn: QueryContextColumnComponent = ({ record }) => {
     }
     return <>–</>
 }
+LatencyColumn.displayName = 'LatencyColumn'
 
 const UsageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
@@ -79,6 +81,7 @@ const UsageColumn: QueryContextColumnComponent = ({ record }) => {
 
     return <>–</>
 }
+UsageColumn.displayName = 'UsageColumn'
 
 const CostColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
@@ -87,3 +90,4 @@ const CostColumn: QueryContextColumnComponent = ({ record }) => {
     }
     return <>–</>
 }
+CostColumn.displayName = 'CostColumn'

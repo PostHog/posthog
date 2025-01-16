@@ -238,7 +238,7 @@ export function renderColumn(
 
         if (isTracesQuery(query.source)) {
             displayProps.person = value.distinct_id ? (value as LLMTracePerson) : value
-            displayProps.noPopover = false // If we are in an events list, the popover experience is better
+            displayProps.noPopover = false // If we are in a traces list, the popover experience is better
         }
 
         return <PersonDisplay {...displayProps} />
