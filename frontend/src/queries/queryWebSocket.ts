@@ -10,7 +10,7 @@ export class QueryWebSocketManager {
         { payload: any; resolve: (value: any) => void; reject: (reason?: any) => void }
     >()
     private idleTimeout: NodeJS.Timeout | null = null
-    private idleTimeoutDuration = 30000 // 30 seconds of idle time before disconnecting
+    private idleTimeoutDuration = 20000 // 20 seconds of idle time before disconnecting
 
     constructor(url: string) {
         this.url = url
