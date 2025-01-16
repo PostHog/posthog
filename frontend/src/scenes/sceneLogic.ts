@@ -14,9 +14,8 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
-import { billingLogic } from './billing/billingLogic'
 import { SOURCE_DETAILS, sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
-import { onboardingLogic, OnboardingStepKey } from './onboarding/onboardingLogic'
+import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
@@ -52,14 +51,7 @@ export const sceneLogic = kea<sceneLogicType>([
             sourceWizardLogic,
             ['selectConnector', 'handleRedirect', 'setStep'],
         ],
-        values: [
-            featureFlagLogic,
-            ['featureFlags'],
-            billingLogic,
-            ['billing'],
-            organizationLogic,
-            ['organizationBeingDeleted'],
-        ],
+        values: [featureFlagLogic, ['featureFlags'], organizationLogic, ['organizationBeingDeleted']],
     })),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -271,9 +263,6 @@ export const sceneLogic = kea<sceneLogicType>([
                                 console.warn(
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
-                                onboardingLogic.mount()
-                                onboardingLogic.actions.setIncludeIntro(!!values.billing)
-                                onboardingLogic.unmount()
 
                                 if (
                                     scene === Scene.DataWarehouseTable &&
