@@ -5,13 +5,10 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
-from rest_framework.exceptions import ValidationError
 
-from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
-from posthog.models.filters.utils import get_filter
 from posthog.models.utils import sane_repr
-from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
+from posthog.utils import absolute_uri, generate_short_id
 
 logger = structlog.get_logger(__name__)
 
@@ -115,69 +112,6 @@ class Insight(models.Model):
                 return state
         return None
 
-    def dashboard_filters(
-        self, dashboard: Optional[Dashboard] = None, dashboard_filters_override: Optional[dict] = None
-    ):
-        # query date range is set in a different function, see dashboard_query
-        if (dashboard is not None or dashboard_filters_override is not None) and not self.query:
-            dashboard_filters = {
-                **(
-                    dashboard_filters_override
-                    if dashboard_filters_override is not None
-                    else dashboard.filters
-                    if dashboard
-                    else {}
-                )
-            }
-            dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
-            insight_date_from = self.filters.get("date_from", None)
-            insight_date_to = self.filters.get("date_to", None)
-            dashboard_date_from = dashboard_filters.get("date_from", None)
-            dashboard_date_to = dashboard_filters.get("date_to", None)
-
-            filters = {
-                **self.filters,
-                **dashboard_filters,
-            }
-
-            if dashboard_date_from is None:
-                filters["date_from"] = insight_date_from
-                filters["date_to"] = insight_date_to
-            else:
-                filters["date_from"] = dashboard_date_from
-                filters["date_to"] = dashboard_date_to
-
-            if dashboard_date_from == "all" and filters.get("compare", None) is True:
-                filters["compare"] = None
-
-            if dashboard_properties:
-                if isinstance(self.filters.get("properties"), list):
-                    filters["properties"] = {
-                        "type": "AND",
-                        "values": [
-                            {"type": "AND", "values": self.filters["properties"]},
-                            {"type": "AND", "values": dashboard_properties},
-                        ],
-                    }
-                elif not self.filters.get("properties"):
-                    filters["properties"] = dashboard_properties
-                elif self.filters.get("properties").get("type"):
-                    filters["properties"] = {
-                        "type": "AND",
-                        "values": [
-                            self.filters["properties"],
-                            {"type": "AND", "values": dashboard_properties},
-                        ],
-                    }
-                else:
-                    raise ValidationError("Unrecognized property format: ", self.filters["properties"])
-            elif self.filters.get("properties"):
-                filters["properties"] = self.filters.get("properties")
-
-            return filters
-        else:
-            return self.filters
-
     def get_effective_query(
         self,
         *,
@@ -222,20 +156,3 @@ class InsightViewed(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "user", "insight"], name="posthog_unique_insightviewed")]
         indexes = [models.Index(fields=["team_id", "user_id", "-last_viewed_at"])]
-
-
-@timed("generate_insight_cache_key")
-def generate_insight_filters_hash(insight: Insight, dashboard: Optional[Dashboard]) -> str:
-    try:
-        dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
-        candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
-        return candidate_filters_hash
-    except Exception as e:
-        logger.error(
-            "insight.generate_insight_cache_key.failed",
-            insight_id=insight.id,
-            dashboard_id="none" if not dashboard else dashboard.id,
-            exception=e,
-            exc_info=True,
-        )
-        raise
