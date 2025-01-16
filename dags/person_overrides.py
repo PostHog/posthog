@@ -83,6 +83,19 @@ class PersonOverridesSnapshotTable:
     def sync(self, client: Client) -> None:
         client.execute(f"SYSTEM SYNC REPLICA {self.qualified_name} STRICT")
 
+    def get_queue_size(self, client: Client) -> int:
+        [[queue_size]] = client.execute(
+            """
+            SELECT queue_size
+            FROM system.replicas
+            WHERE
+                database = %(database)s
+                AND table = %(table)s"
+            """,
+            {"database": settings.CLICKHOUSE_DATABASE, "table": self.name},
+        )
+        return queue_size
+
 
 @dataclass
 class Mutation:
@@ -167,10 +180,10 @@ class PersonOverridesSnapshotDictionary:
     def drop(self, client: Client) -> None:
         client.execute(f"DROP DICTIONARY {self.qualified_name} SYNC")
 
-    def is_loaded(self, client: Client) -> bool:
+    def __is_loaded(self, client: Client) -> bool:
         results = client.execute(
             f"""
-            SELECT status
+            SELECT status, last_exception
             FROM system.dictionaries
             WHERE
                 database = %(database)s
@@ -184,11 +197,20 @@ class PersonOverridesSnapshotDictionary:
         if not results:
             raise Exception("dictionary does not exist")
         else:
-            [[status]] = results
-            return status == "LOADED"
+            [[status, last_exception]] = results
+            if status == "LOADED":
+                return True
+            elif status in {"LOADING", "FAILED_AND_RELOADING", "LOADED_AND_RELOADING"}:
+                return False
+            elif status == "FAILED":
+                raise Exception(f"failed to load: {last_exception}")
+            else:
+                raise Exception(f"unexpected status: {status}")
 
-    def reload(self, client: Client) -> None:
+    def load(self, client: Client) -> None:
         client.execute(f"SYSTEM RELOAD DICTIONARY {self.qualified_name}")
+        while not self.__is_loaded(client):
+            time.sleep(5.0)
 
     def get_checksum(self, client: Client):  # TODO: check return type
         results = client.execute(
@@ -268,6 +290,9 @@ class PersonOverridesSnapshotDictionary:
         return Mutation(table, mutation_id)
 
 
+# Snapshot Table Management
+
+
 class SnapshotConfig(dagster.Config):
     timestamp: int
 
@@ -287,36 +312,39 @@ def create_snapshot_table(context: dagster.OpExecutionContext, config: SnapshotC
 
 
 @dagster.op
-def populate_snasphot_table(table: PersonOverridesSnapshotTable) -> PersonOverridesSnapshotTable:
+def populate_snapshot_table(table: PersonOverridesSnapshotTable) -> PersonOverridesSnapshotTable:
     get_cluster().any_host(table.populate).result()
     return table
 
 
 @dagster.op
-def create_snapshot_dictionary(table: PersonOverridesSnapshotTable) -> PersonOverridesSnapshotDictionary:
+def wait_for_snapshot_table_replication(table: PersonOverridesSnapshotTable) -> PersonOverridesSnapshotTable:
     cluster = get_cluster()
+    cluster.map_all_hosts(table.sync).result()
 
+    hosts_with_nonempty_queues = {
+        host for host, queue_size in cluster.map_all_hosts(table.get_queue_size).result().items() if queue_size > 0
+    }
+    assert not hosts_with_nonempty_queues
+
+    return table
+
+
+# Snapshot Dictionary Management
+
+
+@dagster.op
+def create_snapshot_dictionary(table: PersonOverridesSnapshotTable) -> PersonOverridesSnapshotDictionary:
     dictionary = PersonOverridesSnapshotDictionary(table)
+    get_cluster().map_all_hosts(dictionary.create).result()
+    return dictionary
 
-    cluster.map_all_hosts(dictionary.create).result()
 
-    # TODO: wait for table to be available on all hosts
-
-    cluster.map_all_hosts(dictionary.reload).result()
-
-    # TODO: abstract this
-    while True:  # todo: give up after a while
-        waiting_on_hosts = {
-            host for host, ready in cluster.map_all_hosts(dictionary.is_loaded).result().items() if not ready
-        }
-        if not waiting_on_hosts:
-            break
-
-        # TODO: logging, etc
-        time.sleep(5)
-
+@dagster.op
+def load_snapshot_dictionary(dictionary: PersonOverridesSnapshotDictionary) -> PersonOverridesSnapshotDictionary:
+    cluster = get_cluster()
+    cluster.map_all_hosts(dictionary.load).result()
     assert len(set(cluster.map_all_hosts(dictionary.get_checksum).result().values())) == 1
-
     return dictionary
 
 
@@ -342,30 +370,20 @@ def run_overrides_delete_mutation(dictionary: PersonOverridesSnapshotDictionary)
 
 @dagster.op
 def drop_snapshot_dictionary(dictionary: PersonOverridesSnapshotDictionary) -> PersonOverridesSnapshotTable:
-    cluster = get_cluster()
-
-    cluster.map_all_hosts(dictionary.drop).result()
-    # TODO: wait until it's done everywhere
-
+    get_cluster().map_all_hosts(dictionary.drop).result()
     return dictionary.source
 
 
 @dagster.op
 def drop_snapshot_table(table: PersonOverridesSnapshotTable) -> None:
-    cluster = get_cluster()
-
-    cluster.map_all_hosts(table.drop).result()
-    # TODO: wait until it's done everywhere
+    get_cluster().map_all_hosts(table.drop).result()
 
 
 @dagster.job
 def squash_person_overrides():
+    prepared_snapshot_table = wait_for_snapshot_table_replication(populate_snapshot_table(create_snapshot_table()))
+    prepared_dictionary = load_snapshot_dictionary(create_snapshot_dictionary(prepared_snapshot_table))
+
     drop_snapshot_table(
-        drop_snapshot_dictionary(
-            run_overrides_delete_mutation(
-                run_person_id_update_mutation(
-                    create_snapshot_dictionary(populate_snasphot_table(create_snapshot_table()))
-                )
-            )
-        )
+        drop_snapshot_dictionary(run_overrides_delete_mutation(run_person_id_update_mutation(prepared_dictionary)))
     )
