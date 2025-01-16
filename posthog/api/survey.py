@@ -43,7 +43,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.feedback.survey import Survey
+from posthog.models.feedback.survey import Survey, MAX_ITERATION_COUNT
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
@@ -61,7 +61,9 @@ class SurveySerializer(serializers.ModelSerializer):
     conditions = serializers.SerializerMethodField(method_name="get_conditions", read_only=True)
     feature_flag_keys = serializers.SerializerMethodField()
     # NB this is enforced in the UI too
-    iteration_count = serializers.IntegerField(required=False, allow_null=True, max_value=500, min_value=0)
+    iteration_count = serializers.IntegerField(
+        required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
+    )
 
     def get_feature_flag_keys(self, survey: Survey) -> list:
         return [
@@ -131,7 +133,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     # NB this is enforced in the UI too
-    iteration_count = serializers.IntegerField(required=False, allow_null=True, max_value=500, min_value=0)
+    iteration_count = serializers.IntegerField(
+        required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
+    )
 
     class Meta:
         model = Survey
