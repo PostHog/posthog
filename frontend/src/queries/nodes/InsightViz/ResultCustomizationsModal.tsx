@@ -107,7 +107,7 @@ function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.El
                         {formatBreakdownLabel(
                             dataset.breakdown_value,
                             breakdownFilter,
-                            cohorts,
+                            cohorts.results,
                             formatPropertyValueForDisplay
                         )}
                     </b>

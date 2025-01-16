@@ -35,6 +35,7 @@ from .error_tracking import (
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
+    ErrorTrackingIssueAssignment,
 )
 from .event.event import Event
 from .event_buffer import EventBuffer
@@ -114,6 +115,7 @@ __all__ = [
     "ErrorTrackingIssueFingerprintV2",
     "ErrorTrackingStackFrame",
     "ErrorTrackingSymbolSet",
+    "ErrorTrackingIssueAssignment",
     "Event",
     "EventBuffer",
     "EventDefinition",

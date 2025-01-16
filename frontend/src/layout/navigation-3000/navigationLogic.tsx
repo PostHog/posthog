@@ -488,6 +488,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                               {
                                                                   label: 'Core Web Vitals',
                                                                   to: urls.webAnalyticsCoreWebVitals(),
+                                                                  tag: 'beta' as const,
                                                               },
                                                           ],
                                                       },

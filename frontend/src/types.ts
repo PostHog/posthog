@@ -569,6 +569,7 @@ export interface TeamType extends TeamBasicType {
     default_modifiers?: HogQLQueryModifiers
     product_intents?: ProductIntentType[]
     default_data_theme?: number
+    flags_persistence_default: boolean
 }
 
 export interface ProductIntentType {

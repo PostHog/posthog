@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0541_usergroup_usergroupmembership_usergroup_members_and_more"),
+        ("posthog", "0544_team_flags_persistence_default"),
     ]
 
     # No operations here, since we don't want to delete the table

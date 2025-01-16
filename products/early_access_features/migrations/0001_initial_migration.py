@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("posthog", "0542_migrate_early_access_features"),
+        ("posthog", "0545_migrate_early_access_features"),
     ]
 
     database_operations = []
