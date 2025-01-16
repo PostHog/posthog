@@ -1,7 +1,6 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useLayoutEffect, useRef } from 'react'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -9,6 +8,7 @@ import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { getQueryFromInsightLike } from '~/queries/nodes/InsightViz/utils'
 
 import { tabToName } from './constants'
@@ -24,10 +24,10 @@ type SearchResultProps = {
 export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps): JSX.Element => {
     const { aggregationLabel } = useValues(searchBarLogic)
     const { setActiveResultIndex, openResult } = useActions(searchBarLogic)
+    const { mobileLayout } = useValues(navigation3000Logic)
+    const { hideNavOnMobile } = useActions(navigation3000Logic)
 
     const ref = useRef<HTMLDivElement | null>(null)
-
-    const { isWindowLessThan } = useWindowSize()
 
     useLayoutEffect(() => {
         if (focused) {
@@ -50,11 +50,13 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
                     focused ? 'bg-bg-3000 border-l-primary-3000' : 'bg-bg-light'
                 )}
                 onClick={() => {
-                    if (isWindowLessThan('md')) {
-                        openResult(resultIndex)
-                    } else {
-                        setActiveResultIndex(resultIndex)
+                    if (mobileLayout) {
+                        hideNavOnMobile()
                     }
+                    openResult(resultIndex)
+                }}
+                onMouseOver={() => {
+                    setActiveResultIndex(resultIndex)
                 }}
                 ref={ref}
             >
