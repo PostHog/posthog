@@ -1,4 +1,3 @@
-import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal, TypedDict
@@ -71,8 +70,8 @@ def _create_ai_generation_event(
     props = {
         "$ai_trace_id": trace_id or str(uuid.uuid4()),
         "$ai_latency": 1,
-        "$ai_input": json.dumps(input_messages),
-        "$ai_output": json.dumps({"choices": output_messages}),
+        "$ai_input": input_messages,
+        "$ai_output": {"choices": output_messages},
         "$ai_input_tokens": input_tokens,
         "$ai_output_tokens": output_tokens,
         "$ai_input_cost_usd": input_tokens,
@@ -495,3 +494,23 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
+
+    def test_model_parameters(self):
+        _create_person(distinct_ids=["person1"], team=self.team, properties={"foo": "bar"})
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_model_parameters": {"temperature": 0.5}},
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace1")
+        self.assertEqual(response.results[0].events[0].modelParameters, {"temperature": 0.5})

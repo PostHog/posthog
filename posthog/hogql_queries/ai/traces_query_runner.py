@@ -158,6 +158,7 @@ class TracesQueryRunner(QueryRunner):
             "$ai_total_cost_usd": "totalCost",
             "$ai_http_status": "httpStatus",
             "$ai_base_url": "baseUrl",
+            "$ai_model_parameters": "modelParameters",
         }
 
         generation: dict[str, Any] = {
