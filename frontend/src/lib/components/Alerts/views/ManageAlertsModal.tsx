@@ -8,7 +8,7 @@ import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AlertState, InsightThresholdType } from '~/queries/schema'
+import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
 import { insightAlertsLogic, InsightAlertsLogicProps } from '../insightAlertsLogic'

@@ -5,7 +5,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature, CorrelationConfigType, InsightLogicProps, InsightShortId } from '~/types'
 

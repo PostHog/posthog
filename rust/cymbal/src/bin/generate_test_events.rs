@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
-use common_types::ClickHouseEvent;
-use cymbal::{
-    get_props,
-    hack::kafka::{create_kafka_producer, send_iter_to_kafka, KafkaConfig},
+use common_kafka::{
+    config::KafkaConfig,
+    kafka_producer::{create_kafka_producer, send_iter_to_kafka},
 };
+use common_types::ClickHouseEvent;
+use cymbal::get_props;
 use envconfig::Envconfig;
 use health::HealthRegistry;
 

@@ -47,7 +47,7 @@ import {
     NodeKind,
     PersonsNode,
     QueryTiming,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
     isErrorTrackingQuery,

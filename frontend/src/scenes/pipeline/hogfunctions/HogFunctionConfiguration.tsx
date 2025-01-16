@@ -18,6 +18,7 @@ import { Form } from 'kea-forms'
 import { combineUrl } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { Sparkline } from 'lib/components/Sparkline'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -34,7 +35,7 @@ import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
-import { HogFunctionMapping } from './mapping/HogFunctionMapping'
+import { HogFunctionMappings } from './mapping/HogFunctionMappings'
 
 const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 
@@ -81,6 +82,8 @@ export function HogFunctionConfiguration({
         template,
         templateHasChanged,
         type,
+        usesGroups,
+        hasGroupsAddon,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -382,6 +385,20 @@ export function HogFunctionConfiguration({
                         <div className="space-y-4 flex-2 min-w-100">
                             <div className="p-3 space-y-2 border rounded bg-bg-light">
                                 <div className="space-y-2">
+                                    {usesGroups && !hasGroupsAddon ? (
+                                        <LemonBanner type="warning">
+                                            <span className="flex items-center gap-2">
+                                                This function appears to use Groups but you do not have the Groups
+                                                Analytics addon. Without it, you may see empty values where you use
+                                                templates like {'"{groups.kind.properties}"'}
+                                                <PayGateButton
+                                                    feature={AvailableFeature.GROUP_ANALYTICS}
+                                                    type="secondary"
+                                                />
+                                            </span>
+                                        </LemonBanner>
+                                    ) : null}
+
                                     <HogFunctionInputs
                                         configuration={configuration}
                                         setConfigurationValue={setConfigurationValue}
@@ -410,7 +427,7 @@ export function HogFunctionConfiguration({
                                 </div>
                             </div>
 
-                            <HogFunctionMapping />
+                            <HogFunctionMappings />
 
                             {canEditSource && (
                                 <div

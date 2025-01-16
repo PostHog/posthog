@@ -305,6 +305,68 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    extra_settings: (change: ActivityChange | undefined): ChangeMapping | null => {
+        const after = change?.after
+        if (typeof after !== 'object') {
+            return null
+        }
+        const descriptions = []
+        for (const key in after) {
+            if (key === 'poe_v2_enabled') {
+                descriptions.push(
+                    <>{after[key as keyof typeof after] ? 'enabled' : 'disabled'} Person on Events (v2)</>
+                )
+            }
+        }
+        return { description: descriptions }
+    },
+    modifiers: (change: ActivityChange | undefined): ChangeMapping | null => {
+        const after = change?.after
+        if (typeof after !== 'object') {
+            return null
+        }
+        const descriptions = []
+        for (const key in after) {
+            descriptions.push(
+                <>
+                    set <em>{key}</em> to "{String(after[key as keyof typeof after])}"
+                </>
+            )
+        }
+        return { description: descriptions }
+    },
+    default_data_theme: (change): ChangeMapping | null => {
+        return {
+            description: [
+                <>
+                    changed the default color theme{' '}
+                    {change?.before && (
+                        <>
+                            from <ThemeName id={change.before as number} />{' '}
+                        </>
+                    )}
+                    to{' '}
+                    <em>
+                        <ThemeName id={change?.after as number} />
+                    </em>
+                </>,
+            ],
+        }
+    },
+    human_friendly_comparison_periods: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    <strong>{change?.after ? 'enabled' : 'disabled'}</strong> human friendly comparison periods
+                </>,
+            ],
+        }
+    },
+
     // TODO if I had to test and describe every single one of this I'd never release this
     // we can add descriptions here as the need arises
     access_control: () => null,
@@ -327,37 +389,11 @@ const teamActionsMapping: Record<
     slack_incoming_webhook: () => null,
     timezone: () => null,
     surveys_opt_in: () => null,
+    flags_persistence_default: () => null,
     week_start_day: () => null,
-    extra_settings: (change: ActivityChange | undefined): ChangeMapping | null => {
-        const after = change?.after
-        if (typeof after !== 'object') {
-            return null
-        }
-        const descriptions = []
-        for (const key in after) {
-            if (key === 'poe_v2_enabled') {
-                descriptions.push(<>{after[key] ? 'enabled' : 'disabled'} Person on Events (v2)</>)
-            }
-        }
-        return { description: descriptions }
-    },
-    modifiers: (change: ActivityChange | undefined): ChangeMapping | null => {
-        const after = change?.after
-        if (typeof after !== 'object') {
-            return null
-        }
-        const descriptions = []
-        for (const key in after) {
-            descriptions.push(
-                <>
-                    set <em>{key}</em> to "{String(after[key])}"
-                </>
-            )
-        }
-        return { description: descriptions }
-    },
     default_modifiers: () => null,
     has_completed_onboarding_for: () => null,
+
     // should never come from the backend
     created_at: () => null,
     api_token: () => null,
@@ -367,24 +403,6 @@ const teamActionsMapping: Record<
     user_access_level: () => null,
     live_events_token: () => null,
     product_intents: () => null,
-    default_data_theme: (change) => {
-        return {
-            description: [
-                <>
-                    changed the default color theme{' '}
-                    {change?.before && (
-                        <>
-                            from <ThemeName id={change.before as number} />{' '}
-                        </>
-                    )}
-                    to{' '}
-                    <em>
-                        <ThemeName id={change?.after as number} />
-                    </em>
-                </>,
-            ],
-        }
-    },
     cookieless_server_hash_mode: () => null,
 }
 
@@ -409,11 +427,11 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
         let changeSuffix: Description = <>on {nameAndLink(logItem)}</>
 
         for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !teamActionsMapping[change.field]) {
+            if (!change?.field || !(change.field in teamActionsMapping)) {
                 continue //  not all notebook fields are describable
             }
 
-            const actionHandler = teamActionsMapping[change.field]
+            const actionHandler = teamActionsMapping[change.field as keyof TeamType]
             const processedChange = actionHandler(change, logItem)
             if (processedChange === null) {
                 continue // // unexpected log from backend is indescribable

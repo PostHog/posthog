@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
-import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema'
+import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { BreakdownAttributionType, FilterType } from '~/types'
 
 import {
@@ -86,7 +86,10 @@ export function SharedFunnelsMetricForm(): JSX.Element {
                                 ...sharedMetricQuery,
                                 funnels_query: {
                                     ...sharedMetricQuery.funnels_query,
-                                    aggregation_group_type_index: value,
+                                    funnelsFilter: {
+                                        ...sharedMetricQuery.funnels_query.funnelsFilter,
+                                        funnelAggregateByHogQL: value,
+                                    },
                                 },
                             },
                         })

@@ -8,7 +8,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
