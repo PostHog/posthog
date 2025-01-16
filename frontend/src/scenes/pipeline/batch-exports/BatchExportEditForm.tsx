@@ -7,12 +7,14 @@ import {
     LemonInput,
     LemonInputSelect,
     LemonSelect,
+    LemonButton,
     Tooltip,
 } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
+import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
 import { BatchExportConfigurationForm } from './types'
 
@@ -25,41 +27,10 @@ export function BatchExportGeneralEditFields({
     isPipeline?: boolean
     batchExportConfigForm: BatchExportConfigurationForm
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
-
     return (
         <>
-            <div className="space-y-4 max-w-200">
-                {!isPipeline && (
-                    <LemonField name="name" label="Name">
-                        <LemonInput placeholder="Name your workflow for future reference" />
-                    </LemonField>
-                )}
+            <div className="space-y-2">
                 <div className="flex gap-2 items-start flex-wrap">
-                    <LemonField
-                        name="interval"
-                        label="Batch interval"
-                        className="flex-1"
-                        info={
-                            <>
-                                The intervals of data exports. For example, if you select hourly, every hour a run will
-                                be created to export that hours data.
-                            </>
-                        }
-                    >
-                        <LemonSelect
-                            options={[
-                                { value: 'hour', label: 'Hourly' },
-                                { value: 'day', label: 'Daily' },
-                                {
-                                    value: 'every 5 minutes',
-                                    label: 'Every 5 minutes',
-                                    hidden: !highFrequencyBatchExports,
-                                },
-                            ]}
-                        />
-                    </LemonField>
                     {(!isPipeline || batchExportConfigForm.end_at) && ( // Not present in the new UI unless grandfathered in
                         <LemonField
                             name="end_at"
@@ -83,18 +54,6 @@ export function BatchExportGeneralEditFields({
                         </LemonField>
                     )}
                 </div>
-
-                {isPipeline ? (
-                    <LemonBanner type="info">
-                        The export will be created in a paused state, once configured your exporter, you can trigger a
-                        manual export for historic data or start the continous export.
-                    </LemonBanner>
-                ) : (
-                    <LemonBanner type="info">
-                        This batch exporter will schedule regular batch exports at your indicated interval until the end
-                        date. Once you have configured your exporter, you can trigger a manual export for historic data.
-                    </LemonBanner>
-                )}
 
                 {isNew && !isPipeline ? (
                     <LemonField name="paused">
@@ -120,6 +79,81 @@ export function BatchExportGeneralEditFields({
     )
 }
 
+export function BatchExportsEditModel({
+    isNew,
+    batchExportConfigForm,
+    setShowEditor,
+    showEditor,
+    selectedModel,
+    setSelectedModel,
+    tables,
+}: {
+    isNew: boolean
+    batchExportConfigForm: BatchExportConfigurationForm
+}): JSX.Element {
+    return (
+        <>
+            {!showEditor ? (
+                <>
+                <div className="space-y-2">
+
+                <div className="flex items-center justify-end gap-2">
+                    <div className="flex-1 space-y-2">
+                        <h2 className="mb-0">Model</h2>
+                        <p>
+                            A model defines the data that will be exported by quering a PostHog table. Select the
+                            PostHog table to query from the dropdown below and optionally edit the query used to select
+                            data from it.
+                        </p>
+                    </div>
+
+                    <LemonButton type="secondary" onClick={() => setShowEditor(true)}>
+                        Edit query
+                    </LemonButton>
+
+                </div>
+                    <LemonField name="model">
+                        <LemonSelect
+                            options={tables.map((table) => ({
+                                value: table.name,
+                                label: table.id,
+                            }))}
+                            value={selectedModel}
+                            onSelect={(newValue) => {
+                                setSelectedModel(newValue)
+                            }}
+                        />
+                    </LemonField>
+
+                    <DatabaseTable
+                        table={selectedModel ? selectedModel : 'events'}
+                        tables={tables}
+                        inEditSchemaMode={false}
+                    />
+                </div>
+                    </>
+            ) : (
+                <div className="items-center justify-end gap-2">
+                    <div className="space-y-2">
+                        <h2 className="mb-0">Model</h2>
+                        <p>A model defines the data that will be exported</p>
+                    </div>
+
+                    <LemonButton size="xsmall" type="secondary" onClick={() => setShowEditor(false)}>
+                        Hide query editor
+                    </LemonButton>
+                </div>
+            )}
+
+            {showEditor ? (
+                <LemonField name="model_query">
+                    <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
+                </LemonField>
+            ) : null}
+        </>
+    )
+}
+
 export function BatchExportsEditFields({
     isNew,
     batchExportConfigForm,
@@ -129,7 +163,7 @@ export function BatchExportsEditFields({
 }): JSX.Element {
     return (
         <>
-            <div className="space-y-4 max-w-200">
+            <div className="space-y-2">
                 {batchExportConfigForm.destination === 'S3' ? (
                     <>
                         <div className="flex gap-4">

@@ -13,7 +13,11 @@ import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService } from '~/types'
 
-import { BatchExportGeneralEditFields, BatchExportsEditFields } from './batch-exports/BatchExportEditForm'
+import {
+    BatchExportGeneralEditFields,
+    BatchExportsEditFields,
+    BatchExportsEditModel,
+} from './batch-exports/BatchExportEditForm'
 import { BatchExportConfigurationForm } from './batch-exports/types'
 import { humanizeBatchExportName } from './batch-exports/utils'
 import { getDefaultConfiguration, pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
@@ -33,9 +37,11 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
         configurationChanged,
         batchExportConfig,
         selectedModel,
+        showEditor,
     } = useValues(logic)
-    const { resetConfiguration, submitConfiguration, setSelectedModel } = useActions(logic)
+    const { resetConfiguration, submitConfiguration, setSelectedModel, setShowEditor } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
 
     if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service as any)) {
         return <NotFound object={`batch export service ${service}`} />
@@ -80,7 +86,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
     )
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-3 gap-4">
             <>
                 <PageHeader buttons={buttons} />
                 <Form
@@ -89,77 +95,86 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                     formKey="configuration"
                     className="space-y-3"
                 >
-                    <div className="flex items-start gap-2 flex-wrap">
-                        <div className="border bg-bg-light p-3 rounded space-y-2 flex-1 min-w-100">
-                            <div className="flex flex-row gap-2 min-h-16 items-center">
-                                {configuration.destination ? (
-                                    <>
-                                        <RenderBatchExportIcon size="medium" type={configuration.destination} />
-                                        <div className="flex-1 font-semibold text-sm">
-                                            {humanizeBatchExportName(configuration.destination)}
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div className="flex-1" />
-                                )}
+                    <div className="flex items-start gap-4 flex-wrap">
+                        <div className="flex-col flex min-w-100 space-y-3">
+                            <div className="border bg-bg-light p-3 rounded space-y-2">
+                                <div className="flex flex-row gap-2 min-h-16 items-center">
+                                    {configuration.destination ? (
+                                        <>
+                                            <RenderBatchExportIcon size="medium" type={configuration.destination} />
+                                            <div className="flex-1 font-semibold text-sm">
+                                                {humanizeBatchExportName(configuration.destination)}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="flex-1" />
+                                    )}
+
+                                    <LemonField
+                                        name="paused"
+                                        info="Start in a paused state or continuously exporting from now"
+                                    >
+                                        {({ value, onChange }) => (
+                                            <LemonSwitch
+                                                label="Paused"
+                                                onChange={() => onChange(!value)}
+                                                checked={value}
+                                                bordered
+                                            />
+                                        )}
+                                    </LemonField>
+                                </div>
 
                                 <LemonField
-                                    name="paused"
-                                    info="Start in a paused state or continuously exporting from now"
+                                    name="name"
+                                    label="Name"
+                                    info="Customising the name can be useful if multiple instances of the same type are used."
                                 >
-                                    {({ value, onChange }) => (
-                                        <LemonSwitch
-                                            label="Paused"
-                                            onChange={() => onChange(!value)}
-                                            checked={value}
-                                            bordered
-                                        />
-                                    )}
+                                    <LemonInput type="text" />
                                 </LemonField>
+
                             </div>
 
-                            <LemonField
-                                name="name"
-                                label="Name"
-                                info="Customising the name can be useful if multiple instances of the same type are used."
-                            >
-                                <LemonInput type="text" />
-                            </LemonField>
+                            <div className="border bg-bg-light p-3 rounded space-y-2">
+                                <div className="flex flex-row gap-2 min-h-16 items-center">
 
-                            {featureFlags[FEATURE_FLAGS.PERSON_BATCH_EXPORTS] && (
-                                <>
                                     <LemonField
-                                        name="model"
-                                        label="Model"
-                                        info="A model defines the data that will be exported."
+                                        name="interval"
+                                        label="Interval"
+                                        className="flex-1"
+                                        info={
+                                            <>
+                                                Dictates the frequency of batch export runs. For example, if you select hourly, the batch export will run every hour.
+                                            </>
+                                        }
                                     >
                                         <LemonSelect
-                                            options={tables.map((table) => ({
-                                                value: table.name,
-                                                label: table.id,
-                                            }))}
-                                            value={selectedModel}
-                                            onSelect={(newValue) => {
-                                                setSelectedModel(newValue)
-                                            }}
+                                            options={[
+                                                { value: 'hour', label: 'Hourly' },
+                                                { value: 'day', label: 'Daily' },
+                                                {
+                                                    value: 'every 5 minutes',
+                                                    label: 'Every 5 minutes',
+                                                    hidden: !highFrequencyBatchExports,
+                                                },
+                                            ]}
                                         />
                                     </LemonField>
+                                </div>
+                            </div>
+                        </div>
 
-                                    <DatabaseTable
-                                        table={selectedModel ? selectedModel : 'events'}
-                                        tables={tables}
-                                        inEditSchemaMode={false}
-                                    />
-                                </>
-                            )}
-                        </div>
-                        <div className="border bg-bg-light p-3 rounded flex-2 min-w-100">
-                            <BatchExportConfigurationFields
-                                isNew={isNew}
-                                formValues={configuration as BatchExportConfigurationForm}
-                            />
-                        </div>
+                        <BatchExportConfigurationFields
+                            isNew={isNew}
+                            formValues={configuration as BatchExportConfigurationForm}
+                            selectedModel={selectedModel}
+                            setSelectedModel={setSelectedModel}
+                            showEditor={showEditor}
+                            setShowEditor={setShowEditor}
+                            tables={tables}
+                        />
                     </div>
+
                     <div className="flex gap-2 justify-end">{buttons}</div>
                 </Form>
             </>
@@ -170,14 +185,29 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
 function BatchExportConfigurationFields({
     isNew,
     formValues,
+    selectedModel,
+    setSelectedModel,
+    showEditor,
+    setShowEditor,
+    tables,
 }: {
     isNew: boolean
     formValues: BatchExportConfigurationForm
 }): JSX.Element {
     return (
         <>
+            <div className="flex-2 gap-4 space-y-3">
+            <div className="border bg-bg-light p-3 rounded flex-2 min-w-100">
+
             <BatchExportGeneralEditFields isNew={isNew} isPipeline batchExportConfigForm={formValues} />
-            <BatchExportsEditFields isNew={isNew} batchExportConfigForm={formValues} />
+                <BatchExportsEditFields isNew={isNew} batchExportConfigForm={formValues} />
+            </div>
+
+            <div className="border bg-bg-light p-3 rounded flex-2 min-w-100">
+
+                <BatchExportsEditModel isNew={isNew} batchExportConfigForm={formValues} selectedModel={selectedModel} tables={tables} setSelectedModel={setSelectedModel} showEditor={showEditor} setShowEditor={setShowEditor}/>
+            </div>
+            </div>
         </>
     )
 }
