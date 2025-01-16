@@ -93,6 +93,7 @@ export enum NodeKind {
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
+    CoreWebVitalsQuery = 'CoreWebVitalsQuery',
 
     // Experiment queries
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
@@ -126,11 +127,13 @@ export type AnyDataNode =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
+    | CoreWebVitalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | RecordingsQuery
+    | TracesQuery
 
 /**
  * @discriminator kind
@@ -154,6 +157,7 @@ export type QuerySchema =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
+    | CoreWebVitalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
@@ -629,10 +633,12 @@ export interface DataTableNode
                     | WebStatsTableQuery
                     | WebExternalClicksTableQuery
                     | WebGoalsQuery
+                    | CoreWebVitalsQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
+                    | TracesQuery
                 )['response']
             >
         >,
@@ -649,10 +655,12 @@ export interface DataTableNode
         | WebStatsTableQuery
         | WebExternalClicksTableQuery
         | WebGoalsQuery
+        | CoreWebVitalsQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
+        | TracesQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -662,6 +670,8 @@ export interface DataTableNode
 export interface GoalLine {
     label: string
     value: number
+    displayLabel?: boolean
+    borderColor?: string
 }
 
 export interface ChartAxis {
@@ -692,6 +702,7 @@ export interface YAxisSettings {
     /** Whether the Y axis should start at zero */
     startAtZero?: boolean
 }
+
 export interface ChartSettings {
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
@@ -887,6 +898,8 @@ export type TrendsFilter = {
     resultCustomizations?:
         | Record<string, ResultCustomizationByValue>
         | Record<numerical_key, ResultCustomizationByPosition>
+    /** Goal Lines */
+    goalLines?: GoalLine[]
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
@@ -1529,6 +1542,26 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase<unknow
     offset?: integer
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
+
+export type CoreWebVitalsMetric = 'INP' | 'LCP' | 'CLS' | 'FCP'
+
+export interface CoreWebVitalsQuery<T = InsightQueryNode> extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
+    kind: NodeKind.CoreWebVitalsQuery
+    source: T
+}
+
+export interface CoreWebVitalsItemAction {
+    custom_name: CoreWebVitalsMetric
+    math: PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
+}
+export interface CoreWebVitalsItem {
+    data: number[]
+    days: string[]
+    action: CoreWebVitalsItemAction
+}
+
+export type CoreWebVitalsQueryResponse = AnalyticsQueryResponseBase<CoreWebVitalsItem[]>
+export type CachedCoreWebVitalsQueryResponse = CachedQueryResponse<CoreWebVitalsQueryResponse>
 
 export enum SessionAttributionGroupBy {
     ChannelType = 'ChannelType',
@@ -2174,23 +2207,24 @@ export interface LLMGeneration {
     baseUrl?: string
 }
 
+// Snake-case here for the DataTable component.
 export interface LLMTracePerson {
     uuid: string
-    createdAt: string
+    created_at: string
     properties: Record<string, any>
-    distinctId: string
+    distinct_id: string
 }
 
 export interface LLMTrace {
     id: string
     createdAt: string
     person: LLMTracePerson
-    totalLatency: number
-    inputTokens: number
-    outputTokens: number
-    inputCost: number
-    outputCost: number
-    totalCost: number
+    totalLatency?: number
+    inputTokens?: number
+    outputTokens?: number
+    inputCost?: number
+    outputCost?: number
+    totalCost?: number
     events: LLMGeneration[]
 }
 
@@ -2207,6 +2241,9 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     dateRange?: DateRange
     limit?: integer
     offset?: integer
+    filterTestAccounts?: boolean
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
 }
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>

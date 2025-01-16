@@ -12,13 +12,6 @@
     border-radius: var(--radius);
 
     .Playlist__list {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        flex-shrink: 0;
-        height: 100%;
-        overflow: hidden;
-
         &:not(.Playlist__list--collapsed) {
             width: 25%;
             min-width: 285px;
@@ -46,10 +39,6 @@
             height: 100%;
         }
     }
-}
-
-.NotebookNode__box .Playlist__filters {
-    display: none;
 }
 
 .NotebookNode__box .Playlist__list {
