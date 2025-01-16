@@ -65,6 +65,7 @@ export interface InsightCardProps extends Resizeable {
     variablesOverride?: Record<string, HogQLVariable>
     className?: string
     style?: React.CSSProperties
+    children?: React.ReactNode
 }
 
 function InsightCardInternal(
@@ -170,7 +171,7 @@ function InsightCardInternal(
                         {canResizeWidth ? <ResizeHandle2D /> : null}
                     </>
                 )}
-                {children /* Extras, such as resize handles */}
+                {children /* Extras, specifically resize handles injected by ReactGridLayout */}
             </ErrorBoundary>
         </div>
     )
