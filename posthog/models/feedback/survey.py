@@ -279,6 +279,7 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
             DAILY,
             # we have seen users accidentally set a huge range here
             # and cause performance issues, so we are extra careful with this value
+            # NB this is enforced in the UI too
             count=max(iteration_count, 500),
             interval=iteration_frequency_dates,
             dtstart=instance.start_date,
