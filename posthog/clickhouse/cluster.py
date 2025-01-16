@@ -105,6 +105,11 @@ class ClickhouseCluster:
 
         return task
 
+    def any_host(self, fn: Callable[[Client], T]) -> Future[T]:
+        with ThreadPoolExecutor() as executor:
+            host = self.__hosts[0]
+            return executor.submit(self.__get_task_function(host, fn))
+
     def map_all_hosts(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster.

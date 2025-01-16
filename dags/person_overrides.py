@@ -1,8 +1,11 @@
+import time
 from dataclasses import dataclass
 from datetime import datetime
 
+import dagster
 from clickhouse_driver import Client
 
+from ee.clickhouse.materialized_columns.columns import get_cluster  # XXX
 from posthog import settings
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
@@ -170,7 +173,7 @@ class PersonOverridesSnapshotDictionary:
             FROM system.dictionaries
             WHERE
                 database = %(database)s
-                AND name = %(name)
+                AND name = %(name)s
             """,
             {
                 "database": settings.CLICKHOUSE_DATABASE,
@@ -219,7 +222,7 @@ class PersonOverridesSnapshotDictionary:
                 database = %(database)s
                 AND table = %(table)s
                 AND startsWith(command, 'UPDATE')
-                AND command like concat('%', %(name)s, '%')
+                AND command like concat('%%', %(name)s, '%%')
             ORDER BY create_time DESC
             """,
             {
@@ -250,8 +253,8 @@ class PersonOverridesSnapshotDictionary:
             WHERE
                 database = %(database)s
                 AND table = %(table)s
-                AND startsWith(command, 'UPDATE')
-                AND command like concat('%', %(name)s, '%')
+                AND startsWith(command, 'DELETE')
+                AND command like concat('%%', %(name)s, '%%')
             ORDER BY create_time DESC
             """,
             {
@@ -262,3 +265,98 @@ class PersonOverridesSnapshotDictionary:
         )
 
         return Mutation(table, mutation_id)
+
+
+@dagster.op
+def create_snapshot_table() -> PersonOverridesSnapshotTable:
+    import datetime
+    import uuid
+
+    cluster = get_cluster()
+
+    table = PersonOverridesSnapshotTable(id=uuid.uuid4().hex, timestamp=datetime.datetime.now())
+
+    cluster.map_all_hosts(table.create).result()
+
+    # TODO: wait for all hosts
+
+    cluster.any_host(table.populate).result()
+
+    return table
+
+
+@dagster.op
+def create_snapshot_dictionary(table: PersonOverridesSnapshotTable) -> PersonOverridesSnapshotDictionary:
+    cluster = get_cluster()
+
+    dictionary = PersonOverridesSnapshotDictionary(table)
+
+    cluster.map_all_hosts(dictionary.create).result()
+
+    # TODO: wait for table to be available on all hosts
+
+    cluster.map_all_hosts(dictionary.reload).result()
+
+    # TODO: abstract this
+    while True:  # todo: give up after a while
+        waiting_on_hosts = {
+            host for host, ready in cluster.map_all_hosts(dictionary.is_loaded).result().items() if not ready
+        }
+        if not waiting_on_hosts:
+            break
+
+        # TODO: logging, etc
+        time.sleep(5)
+
+    assert len(set(cluster.map_all_hosts(dictionary.get_checksum).result().values())) == 1
+
+    return dictionary
+
+
+@dagster.op
+def run_person_id_update_mutation(dictionary: PersonOverridesSnapshotDictionary) -> PersonOverridesSnapshotDictionary:
+    cluster = get_cluster()
+
+    cluster.map_one_host_per_shard(dictionary.enqueue_person_id_update_mutation).result()
+    # TODO: need a way to target queries at all nodes on a shard to implement waiting correctly
+
+    return dictionary
+
+
+@dagster.op
+def run_overrides_delete_mutation(dictionary: PersonOverridesSnapshotDictionary) -> PersonOverridesSnapshotDictionary:
+    cluster = get_cluster()
+
+    cluster.any_host(dictionary.enqueue_overrides_delete_mutation).result()
+    # TODO: actually wait for the mutation to complete on all hosts
+
+    return dictionary
+
+
+@dagster.op
+def drop_snapshot_dictionary(dictionary: PersonOverridesSnapshotDictionary) -> PersonOverridesSnapshotTable:
+    cluster = get_cluster()
+
+    cluster.map_all_hosts(dictionary.drop).result()
+    # TODO: wait until it's done everywhere
+
+    return dictionary.source
+
+
+@dagster.op
+def drop_snapshot_table(table: PersonOverridesSnapshotTable) -> None:
+    cluster = get_cluster()
+
+    cluster.map_all_hosts(table.drop).result()
+    # TODO: wait until it's done everywhere
+
+
+@dagster.job
+def squash_person_overrides():
+    drop_snapshot_table(
+        drop_snapshot_dictionary(
+            run_overrides_delete_mutation(
+                run_person_id_update_mutation(create_snapshot_dictionary(create_snapshot_table()))
+            )
+        )
+    )
