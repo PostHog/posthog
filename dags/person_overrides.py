@@ -348,6 +348,9 @@ def load_snapshot_dictionary(dictionary: PersonOverridesSnapshotDictionary) -> P
     return dictionary
 
 
+# Mutation Management
+
+
 @dagster.op
 def run_person_id_update_mutation(
     context: dagster.OpExecutionContext, dictionary: PersonOverridesSnapshotDictionary
@@ -356,14 +359,15 @@ def run_person_id_update_mutation(
 
     shard_mutations = {
         host.shard_num: mutation
-        for host, mutation in cluster.map_one_host_per_shard(dictionary.enqueue_person_id_update_mutation)
-        .result()
-        .items()
+        for host, mutation in (
+            cluster.map_one_host_per_shard(dictionary.enqueue_person_id_update_mutation).result().items()
+        )
     }
 
     while True:
         waiting_on_hosts = set()
 
+        # TODO: mutation may not have been replicated yet
         shard_mutation_statuses = {
             shard: cluster.map_all_hosts_in_shard(shard, mutation.is_done)
             for shard, mutation in shard_mutations.items()
@@ -381,11 +385,21 @@ def run_person_id_update_mutation(
 
 
 @dagster.op
-def run_overrides_delete_mutation(dictionary: PersonOverridesSnapshotDictionary) -> PersonOverridesSnapshotDictionary:
+def run_overrides_delete_mutation(
+    context: dagster.OpExecutionContext, dictionary: PersonOverridesSnapshotDictionary
+) -> PersonOverridesSnapshotDictionary:
     cluster = get_cluster()
 
-    cluster.any_host(dictionary.enqueue_overrides_delete_mutation).result()
-    # TODO: actually wait for the mutation to complete on all hosts
+    mutation = cluster.any_host(dictionary.enqueue_overrides_delete_mutation).result()
+
+    while True:
+        # TODO: mutation may not have been replicated yet
+        waiting_on_hosts = {host for host, is_done in cluster.map_all_hosts(mutation.is_done) if not is_done}
+        if waiting_on_hosts:
+            context.log.info("Still waiting on %r to finish mutation...", waiting_on_hosts)
+            time.sleep(15.0)
+        else:
+            break
 
     return dictionary
 
