@@ -96,3 +96,14 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(response.json()["results"]) > 5
         assert response.json()["results"][0] == EXPECTED_FIRST_RESULT
+
+    def test_alpha_templates_are_hidden(self):
+        self.client.logout()
+        response = self.client.get("/api/public_hog_function_templates/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        for template_item in response.json()["results"]:
+            assert template_item["status"] != "alpha", f"Alpha template {template_item['id']} should not be returned"
+            assert (
+                "[CDP-TEST-HIDDEN]" not in template_item["name"]
+            ), f"Test template {template_item['id']} should not be returned"
