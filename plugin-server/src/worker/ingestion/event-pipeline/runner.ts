@@ -105,6 +105,13 @@ export class EventPipelineRunner {
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.originalEvent = event
 
+        // NOTE: Important log to help with debugging
+        status.info('🧩', `Processing event`, {
+            event: event.event,
+            distinct_id: event.distinct_id,
+            team_id: event.team_id,
+        })
+
         try {
             if (this.isEventDisallowed(event)) {
                 eventDroppedCounter
