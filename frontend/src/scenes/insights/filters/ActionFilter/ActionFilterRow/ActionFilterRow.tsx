@@ -553,7 +553,6 @@ export function ActionFilterRow({
                                                                     style={{ maxWidth: '100%', width: 'initial' }}
                                                                     mathAvailability={mathAvailability}
                                                                     trendsDisplayCategory={trendsDisplayCategory}
-                                                                    allowedMathTypes={allowedMathTypes}
                                                                 />
                                                                 <LemonDivider />
                                                             </>
@@ -773,7 +772,6 @@ function useMathSelectorOptions({
             })
         }
 
-        // Add property value option if any PropertyMathType is included in onlyMathTypes
         const shouldShowPropertyValue =
             !allowedMathTypes || Object.values(PropertyMathType).some((type) => allowedMathTypes.includes(type))
 
@@ -835,7 +833,7 @@ function useMathSelectorOptions({
     ]
 }
 
-function MathSelector(props: MathSelectorProps & { allowedMathTypes?: string[] }): JSX.Element {
+function MathSelector(props: MathSelectorProps): JSX.Element {
     const options = useMathSelectorOptions(props)
     const { math, mathGroupTypeIndex, index, onMathSelect, disabled, disabledReason } = props
 
