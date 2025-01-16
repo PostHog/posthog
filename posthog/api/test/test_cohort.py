@@ -95,9 +95,6 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                     ],
                 },
                 "name_length": 8,
-                "groups_count": 1,
-                "action_groups_count": 0,
-                "properties_groups_count": 1,
                 "deleted": False,
             },
         )
