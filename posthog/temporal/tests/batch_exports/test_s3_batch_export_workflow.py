@@ -2136,6 +2136,10 @@ async def test_s3_export_workflow_with_request_timeouts(
 # TODO - this can be removed once we've fully migrated to using distributed events_recent
 # for all teams
 @pytest.mark.parametrize("use_distributed_events_recent_table", [True, False])
+# need to use a recent data_interval_end as events older than 7 days are deleted
+@pytest.mark.parametrize(
+    "data_interval_end", [dt.datetime.now(tz=dt.UTC).replace(minute=0, second=0, microsecond=0, tzinfo=dt.UTC)]
+)
 async def test_insert_into_s3_activity_when_using_distributed_events_recent_table(
     clickhouse_client,
     bucket_name,
