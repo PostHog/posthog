@@ -15,7 +15,7 @@ import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { experimentLogic } from './experimentLogic'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, groupTypes, aggregationLabel, dynamicFeatureFlagKey } = useValues(experimentLogic)
+    const { experiment, groupTypes, aggregationLabel } = useValues(experimentLogic)
     const { addExperimentGroup, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
         useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
@@ -41,8 +41,8 @@ const ExperimentFormFields = (): JSX.Element => {
                                     type="secondary"
                                     size="xsmall"
                                     tooltip={
-                                        dynamicFeatureFlagKey
-                                            ? "Use '" + dynamicFeatureFlagKey + "' as the feature flag key."
+                                        experiment.name
+                                            ? 'Generate a key from the experiment name'
                                             : 'Fill out the experiment name first.'
                                     }
                                     onClick={() => {
