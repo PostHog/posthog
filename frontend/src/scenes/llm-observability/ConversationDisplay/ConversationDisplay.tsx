@@ -88,7 +88,7 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                     </MetadataTag>
                 )}
                 {typeof totalCostUsd === 'number' && (
-                    <MetadataTag label="Total generation cost" copyable>
+                    <MetadataTag label="Total generation cost">
                         {`$${Math.round(totalCostUsd * 10e6) / 10e6}`}
                     </MetadataTag>
                 )}
