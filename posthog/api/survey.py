@@ -60,6 +60,7 @@ class SurveySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions", read_only=True)
     feature_flag_keys = serializers.SerializerMethodField()
+    iteration_count = serializers.IntegerField(required=False, allow_null=True, max_value=500, min_value=0)
 
     def get_feature_flag_keys(self, survey: Survey) -> list:
         return [
@@ -128,6 +129,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
+    iteration_count = serializers.IntegerField(required=False, allow_null=True, max_value=500, min_value=0)
 
     class Meta:
         model = Survey

@@ -277,7 +277,9 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
     instance.iteration_start_dates = list(
         rrule(
             DAILY,
-            count=iteration_count,
+            # we have seen users accidentally set a huge range here
+            # and cause performance issues, so we are extra careful with this value
+            count=max(iteration_count, 500),
             interval=iteration_frequency_dates,
             dtstart=instance.start_date,
         )
