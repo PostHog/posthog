@@ -1,17 +1,34 @@
-from posthog.cdp.templates.hog_function_template import SUB_TEMPLATE_COMMON, HogFunctionSubTemplate, HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import (
+    SUB_TEMPLATE_COMMON,
+    HogFunctionMappingTemplate,
+    HogFunctionSubTemplate,
+    HogFunctionTemplate,
+)
 
+# NOTE: This is a pre-release template using mappings. We
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="alpha",
     type="destination",
-    id="template-webhook",
-    name="HTTP Webhook",
+    id="template-webhook-mappings",
+    name="HTTP Webhook (mappings based)",
     description="Sends a webhook templated by the incoming event data",
     icon_url="/static/posthog-icon.svg",
     category=["Custom"],
     hog="""
+let headers := {}
+
+for (let key, value in inputs.headers) {
+    headers[key] := value
+}
+if (inputs.additional_headers) {
+  for (let key, value in inputs.additional_headers) {
+    headers[key] := value
+  }
+}
+
 let payload := {
-  'headers': inputs.headers,
+  'headers': headers,
   'body': inputs.body,
   'method': inputs.method
 }
@@ -65,14 +82,6 @@ if (inputs.debug) {
             "required": False,
         },
         {
-            "key": "body",
-            "type": "json",
-            "label": "JSON Body",
-            "default": {"event": "{event}", "person": "{person}"},
-            "secret": False,
-            "required": False,
-        },
-        {
             "key": "headers",
             "type": "dictionary",
             "label": "Headers",
@@ -106,6 +115,31 @@ if (inputs.debug) {
             name="HTTP Webhook on team activity",
             filters=SUB_TEMPLATE_COMMON["activity-log"].filters,
             type="internal_destination",
+        ),
+    ],
+    mapping_templates=[
+        HogFunctionMappingTemplate(
+            name="Webhook",
+            include_by_default=True,
+            filters={"events": [{"id": "$pageview", "name": "Pageview", "type": "events"}]},
+            inputs_schema=[
+                {
+                    "key": "body",
+                    "type": "json",
+                    "label": "JSON Body",
+                    "default": {"event": "{event}", "person": "{person}"},
+                    "secret": False,
+                    "required": False,
+                },
+                {
+                    "key": "additional_headers",
+                    "type": "dictionary",
+                    "label": "Additional headers",
+                    "secret": False,
+                    "required": False,
+                    "default": {},
+                },
+            ],
         ),
     ],
 )
