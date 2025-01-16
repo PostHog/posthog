@@ -43,10 +43,13 @@ export function LLMObservabilityTraceScene(): JSX.Element {
     } = useValues(dataNodeLogic(getDataNodeLogicProps({ traceId, query })))
 
     const traceResponse = response as TracesQueryResponse | null
-    const event = useMemo(
-        () => traceResponse?.results?.[0]?.events.find((event) => event.id === eventId),
-        [traceResponse, eventId]
-    )
+    const event = useMemo(() => {
+        const trace = traceResponse?.results?.[0]
+        if (!trace) {
+            return undefined
+        }
+        return eventId ? trace.events.find((event) => event.id === eventId) : trace.events[0]
+    }, [traceResponse, eventId])
 
     return (
         <>
