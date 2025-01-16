@@ -427,7 +427,7 @@ class TestSurvey(APIBaseTest):
         assert survey_with_targeting.json() == {
             "type": "validation_error",
             "code": "max_value",
-            "detail": "Ensure this value is less than or equal to 500.",
+            "detail": f"Ensure this value is less than or equal to {MAX_ITERATION_COUNT}.",
             "attr": "iteration_count",
         }
 
