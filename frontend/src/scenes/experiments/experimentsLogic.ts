@@ -161,6 +161,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             () => [featureFlagLogic.selectors.featureFlags],
             (featureFlags: FeatureFlagsSet) => featureFlags[FEATURE_FLAGS.WEB_EXPERIMENTS],
         ],
+        // This only checks the first page, which is very large so it's not a big deal
         takenKeys: [
             (s) => [s.experiments],
             (experiments: Experiment[]) => experiments.map((experiment) => experiment.feature_flag_key),
