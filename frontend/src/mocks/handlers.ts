@@ -155,6 +155,8 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
         '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/data_color_themes': MOCK_DATA_COLOR_THEMES,
+        '/api/projects/:team_id/session_recording_playlists?limit=30&offset=0&order=-last_modified_at':
+            EMPTY_PAGINATED_RESPONSE,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
