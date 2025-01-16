@@ -713,7 +713,7 @@ describe('Hog Executor', () => {
             const invocation = createInvocation(fn)
             const result1 = executor.execute(invocation)
             expect((result1.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
-                Object {
+                {
                   "developer-token": "ADWORDS_TOKEN",
                   "version": "v=1.2.3",
                 }
@@ -723,7 +723,7 @@ describe('Hog Executor', () => {
             const invocation2 = createInvocation(fn)
             const result2 = executor.execute(invocation2)
             expect((result2.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
-                Object {
+                {
                   "version": "v=1.2.3",
                 }
             `)
