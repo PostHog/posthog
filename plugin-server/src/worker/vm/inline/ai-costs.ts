@@ -35,6 +35,7 @@ export class AiCostPlugin implements PluginInstance {
     debugMode: boolean
 
     constructor(hub: Hub, pluginConfig: PluginConfig) {
+        status.info('🔌', 'AI Cost Plugin: Initializing...')
         this.hub = hub
         this.config = pluginConfig
         this.usedImports = new Set()
