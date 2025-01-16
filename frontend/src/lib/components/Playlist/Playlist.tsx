@@ -108,7 +108,7 @@ export function Playlist({
             >
                 <div
                     ref={playlistListRef}
-                    className="Playlist__list flex flex-col relative overflow-hidden h-full w-full Playlist__list--collapsed"
+                    className="Playlist__list flex flex-col relative overflow-hidden h-full w-full"
                 >
                     <DraggableToNotebook href={notebooksHref}>{filterActions}</DraggableToNotebook>
 
