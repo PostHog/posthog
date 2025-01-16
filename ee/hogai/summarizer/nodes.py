@@ -4,8 +4,8 @@ from time import sleep
 from uuid import uuid4
 
 from django.conf import settings
-from django.utils import timezone
 from django.core.serializers.json import DjangoJSONEncoder
+from django.utils import timezone
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
@@ -84,7 +84,7 @@ class SummarizerNode(AssistantNode):
         message = chain.invoke(
             {
                 "query_kind": viz_message.answer.kind,
-                "product_description": self._team.project.product_description,
+                "core_memory": self.core_memory_text,
                 "results": json.dumps(results_response["results"], cls=DjangoJSONEncoder),
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -97,7 +97,9 @@ class SummarizerNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.5, streaming=True)  # Slightly higher temp than earlier steps
+        return ChatOpenAI(
+            model="gpt-4o", temperature=0.5, streaming=True, stream_usage=True
+        )  # Slightly higher temp than earlier steps
 
     def _construct_messages(self, state: AssistantState) -> list[tuple[str, str]]:
         conversation: list[tuple[str, str]] = [("system", SUMMARIZER_SYSTEM_PROMPT)]

@@ -62,14 +62,6 @@
         flex-direction: column;
         height: 100vh;
     }
-
-    &.Navigation3000__scene--canvas {
-        --scene-padding: 0px;
-
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
 }
 
 // Navbar
@@ -238,8 +230,6 @@
 }
 
 .Sidebar3000__content {
-    position: fixed;
-    top: 0;
     box-sizing: content-box;
     display: flex;
     flex-direction: column;
@@ -385,10 +375,6 @@
         &:hover {
             background: var(--accordion-header-background);
         }
-    }
-
-    &:not([aria-busy='true']) .Accordion__header .LemonIcon {
-        visibility: hidden;
     }
 }
 

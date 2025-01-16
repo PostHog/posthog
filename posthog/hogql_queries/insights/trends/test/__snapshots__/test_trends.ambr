@@ -243,7 +243,6 @@
          persons.created_at AS created_at,
          source.event_count AS event_count,
          source.matching_events AS matching_events,
-         source.event_distinct_ids,
          source.event_distinct_ids AS event_distinct_ids
   FROM
     (SELECT actor_id AS actor_id,
@@ -1555,7 +1554,6 @@
          persons.created_at AS created_at,
          source.event_count AS event_count,
          source.matching_events AS matching_events,
-         source.event_distinct_ids,
          source.event_distinct_ids AS event_distinct_ids
   FROM
     (SELECT actor_id AS actor_id,

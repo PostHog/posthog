@@ -187,18 +187,9 @@ class Cohort(models.Model):
         return False
 
     def get_analytics_metadata(self):
-        action_groups_count: int = 0
-        properties_groups_count: int = 0
-        for group in self.groups:
-            action_groups_count += 1 if group.get("action_id") else 0
-            properties_groups_count += 1 if group.get("properties") else 0
-
         return {
             "filters": self.properties.to_dict(),
             "name_length": len(self.name) if self.name else 0,
-            "groups_count": len(self.groups),
-            "action_groups_count": action_groups_count,
-            "properties_groups_count": properties_groups_count,
             "deleted": self.deleted,
         }
 

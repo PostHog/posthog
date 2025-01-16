@@ -35,6 +35,8 @@ import { SurveysTabs } from './surveys/surveysLogic'
  * Sync the paths with AutoProjectMiddleware!
  */
 
+export type LLMObservabilityTab = 'dashboard' | 'traces' | 'generations'
+
 export const urls = {
     absolute: (path = ''): string => window.location.origin + path,
     default: (): string => '/',
@@ -159,8 +161,8 @@ export const urls = {
     cohorts: (): string => '/cohorts',
     experiment: (id: string | number): string => `/experiments/${id}`,
     experiments: (): string => '/experiments',
-    experimentsSavedMetrics: (): string => '/experiments/shared-metrics',
-    experimentsSavedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,
+    experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
+    experimentsSharedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
@@ -259,4 +261,6 @@ export const urls = {
     insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
+    llmObservability: (tab?: LLMObservabilityTab): string =>
+        `/llm-observability${tab !== 'dashboard' ? '/' + tab : ''}`,
 }

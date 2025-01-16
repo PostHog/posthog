@@ -302,6 +302,7 @@ from posthog.hogql.visitor import clone_expr
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.hogql.database.database import create_hogql_database
 from posthog.client import sync_execute
 from posthog.schema import (
     HogQLQueryResponse,
@@ -335,7 +336,9 @@ def execute_hogql_query(
         timings = HogQLTimings()
 
     if context is None:
-        context = HogQLContext(team_id=team.pk)
+        context = HogQLContext(team_id=team.pk, timings=timings)
+        with timings.measure("create_hogql_database"):
+            context.database = create_hogql_database(team.pk, modifiers, team_arg=team, timings=timings)
 
     query_modifiers = create_default_modifiers_for_team(team, modifiers)
     debug = modifiers is not None and modifiers.debug

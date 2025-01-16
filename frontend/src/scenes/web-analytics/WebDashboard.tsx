@@ -34,6 +34,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { QuerySchema } from '~/queries/schema'
+import { PropertyMathType } from '~/types'
 
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 
@@ -42,8 +43,11 @@ const Filters = (): JSX.Element => {
         webAnalyticsFilters,
         dateFilter: { dateTo, dateFrom },
         compareFilter,
+        productTab,
+        coreWebVitalsPercentile,
     } = useValues(webAnalyticsLogic)
-    const { setWebAnalyticsFilters, setDates, setCompareFilter } = useActions(webAnalyticsLogic)
+    const { setWebAnalyticsFilters, setDates, setCompareFilter, setCoreWebVitalsPercentile } =
+        useActions(webAnalyticsLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -57,19 +61,32 @@ const Filters = (): JSX.Element => {
             <div className="border-b py-2 flex flex-row flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
 
-                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PERIOD_COMPARISON] ? (
-                    <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
-                ) : null}
+                {productTab === ProductTab.ANALYTICS ? (
+                    <>
+                        {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PERIOD_COMPARISON] ? (
+                            <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+                        ) : null}
+                        <WebConversionGoal />
+                    </>
+                ) : (
+                    <LemonSegmentedSelect
+                        size="small"
+                        value={coreWebVitalsPercentile}
+                        onChange={setCoreWebVitalsPercentile}
+                        options={[
+                            { value: PropertyMathType.P75, label: 'P75' },
+                            { value: PropertyMathType.P90, label: 'P90' },
+                            { value: PropertyMathType.P99, label: 'P99' },
+                        ]}
+                    />
+                )}
 
-                <WebConversionGoal />
-                <ReloadAll />
-            </div>
-
-            <div className="border-b py-2 flex flex-row flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
                 <WebPropertyFilters
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
                 />
+
+                <ReloadAll />
             </div>
         </div>
     )
@@ -150,6 +167,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 control={control}
                 showIntervalSelect={showIntervalSelect}
             />
+
             {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
         </div>
     )

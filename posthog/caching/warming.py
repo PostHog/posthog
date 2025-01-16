@@ -38,6 +38,7 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
 )
 
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
+SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
 
 
 def teams_enabled_for_cache_warming() -> list[int]:
@@ -80,8 +81,11 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
     to not let the cache go stale. There isn't any middle ground, like trying to refresh it once a day, since
     that would be like clock that's only right twice a day.
     """
+    # for shared insights, use a lower cut off
+    threshold = datetime.now(UTC) - (
+        LAST_VIEWED_THRESHOLD if not shared_only else SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD
+    )
 
-    threshold = datetime.now(UTC) - LAST_VIEWED_THRESHOLD
     QueryCacheManager.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
     # get all insights currently in the cache for the team
@@ -165,7 +169,12 @@ def schedule_warming_for_teams_task():
             capture_ph_event(
                 str(team.uuid),
                 "cache warming - insights to cache",
-                properties={"count": len(insight_tuples)},
+                properties={
+                    "count": len(insight_tuples),
+                    "team_id": team.id,
+                    "organization_id": team.organization_id,
+                    "shared_only": shared_only,
+                },
             )
 
             # We chain the task execution to prevent queries *for a single team* running at the same time
@@ -233,6 +242,8 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                         "insight_id": insight.pk,
                         "dashboard_id": dashboard_id,
                         "is_cached": is_cached,
+                        "team_id": insight.team_id,
+                        "organization_id": insight.team.organization_id,
                     },
                 )
 
