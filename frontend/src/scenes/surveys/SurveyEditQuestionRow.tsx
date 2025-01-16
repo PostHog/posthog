@@ -49,13 +49,11 @@ export function SurveyEditQuestionHeader({
             }}
         >
             <div className="flex flex-row gap-2 items-center">
-                <div className="flex">
-                    <SurveyDragHandle
-                        listeners={listeners}
-                        isDraftSurvey={getSurveyStatus(survey) === ProgressStatus.Draft}
-                        hasMultipleQuestions={survey.questions.length > 1}
-                    />
-                </div>
+                <SurveyDragHandle
+                    listeners={listeners}
+                    isDraftSurvey={getSurveyStatus(survey) === ProgressStatus.Draft}
+                    hasMultipleQuestions={survey.questions.length > 1}
+                />
 
                 <b>
                     Question {index + 1}. {survey.questions[index].question}
