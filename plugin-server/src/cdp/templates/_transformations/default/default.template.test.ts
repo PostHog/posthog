@@ -2,13 +2,13 @@ import { HogFunctionInvocationGlobals } from '../../../types'
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './default.template'
 
-describe('default template', () => {
+describe('default.template.ts', () => {
     const tester = new TemplateTester(template)
     let mockGlobals: HogFunctionInvocationGlobals
 
     beforeEach(async () => {
         await tester.beforeEach()
-        const date = new Date('2025-01-01')
+        const date = new Date('2024-01-01')
         jest.useFakeTimers().setSystemTime(date)
 
         mockGlobals = tester.createGlobals({
@@ -20,60 +20,25 @@ describe('default template', () => {
         })
     })
 
-    describe('transformation execution', () => {
+    describe('transformation', () => {
         it('should execute successfully', async () => {
             const response = await tester.invoke({}, mockGlobals)
-
             expect(response.finished).toBe(true)
             expect(response.error).toBeUndefined()
         })
 
-        it('should return correct logs', async () => {
+        it('should return the transformed event', async () => {
             const response = await tester.invoke({}, mockGlobals)
-
-            expect(response.logs).toMatchObject([
-                {
-                    level: 'debug',
-                    message: expect.stringContaining('Executing function'),
-                    timestamp: expect.any(Object),
+            expect(response.execResult).toEqual({
+                distinct_id: 'distinct-id',
+                elements_chain: '',
+                event: 'event-name',
+                properties: {
+                    test_property: 'test_value',
                 },
-                {
-                    level: 'debug',
-                    message: expect.stringContaining(`Function completed. Event: ${mockGlobals.event.url}`),
-                    timestamp: expect.any(Object),
-                },
-            ])
-        })
-
-        it('should have correct hogFunction configuration', async () => {
-            const response = await tester.invoke({}, mockGlobals)
-
-            expect(response.invocation.hogFunction).toMatchObject({
-                status: 'alpha',
-                type: 'transformation',
-                id: 'template-blank-transformation',
-                name: 'Custom transformation',
-                description: 'This is a starter template for custom transformations',
-                icon_url: '/static/hedgehog/builder-hog-01.png',
-                category: ['Custom'],
-                hog: `
-// This is a blank template for custom transformations
-// The function receives 'event' as a global object and expects it to be returned
-// If you return null then the event will be discarded
-return event
-    `,
-                inputs_schema: [],
-                bytecode: ['_H', 1, 32, 'event', 1, 1, 38],
-                inputs: {},
-                team_id: 1,
-                enabled: true,
-            })
-        })
-
-        it('should preserve custom event properties', async () => {
-            const response = await tester.invoke({}, mockGlobals)
-            expect(response.invocation.globals.event.properties).toMatchObject({
-                test_property: 'test_value',
+                timestamp: '2024-01-01T00:00:00Z',
+                url: 'https://us.posthog.com/projects/1/events/1234',
+                uuid: 'event-id',
             })
         })
     })

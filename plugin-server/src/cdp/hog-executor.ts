@@ -425,6 +425,11 @@ export class HogExecutor {
                 if (execRes.error) {
                     throw execRes.error
                 }
+
+                // Store the result if execution finished
+                if (execRes.finished && execRes.result !== undefined) {
+                    result.execResult = convertHogToJS(execRes.result)
+                }
             } catch (e) {
                 result.logs.push({
                     level: 'error',
