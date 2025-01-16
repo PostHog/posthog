@@ -382,504 +382,502 @@
 
 // EXPERIMENTAL
 // THINGS WILL CHANGE, REACH OUT TO ADAM FOR MORE INFO
-.element {
-    &-has-elevation {
-        &::after {
-            position: absolute;
-            inset: -1px -1px calc(var(--elevation-sm) - 1px) -1px;
-            z-index: 0;
-            content: '';
-            border: 1px solid var(--primitive-neutral-200);
-            border-radius: 4px;
-            box-shadow: 0 var(--elevation-sm) 0 -1px var(--primitive-neutral-200);
-            transition: opacity 0.2s ease;
-        }
-
-        &-primary {
-            &::after {
-                border: 1px solid #b17816;
-                box-shadow: 0 var(--elevation-sm) 0 -1px #eb9d2a;
-            }
-        }
-
-        &.element-button + .element-button-is-side-action {
-            top: 1px;
-            right: 1px;
-            bottom: unset;
-            min-height: calc(var(--button-height) - (var(--elevation-sm) * 1.2));
-        }
-    }
-
-    &-radio-button {
-        position: relative;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 1rem;
-        height: 1rem;
-        border: 1px solid var(--primitive-neutral-300);
-        border-radius: 50%;
-
-        &::after {
-            width: 75%;
-            height: 75%;
-            content: '';
-            background: var(--primitive-transparent);
-            border-radius: 50%;
-        }
-
-        &[data-state='checked'] {
-            border-color: var(--primitive-accent-secondary);
-
-            &::after {
-                background: var(--primitive-accent-secondary);
-            }
-        }
-    }
-
-    &-dropdown-menu {
-        &-label {
-            font-weight: 600;
-            line-height: 1.5rem;
-            color: var(--content-tertiary);
-            letter-spacing: 0.075em;
-
-            @apply px-2 py-1.5 text-xxs font-semibold text-uppercase grid-cols-1;
-        }
-
-        &-separator {
-            background-color: var(--primitive-3000-25);
-
-            @apply -mx-1 my-1 h-px;
-        }
-    }
-
-    &-input {
-        background: var(--primitive-white);
+.element-has-elevation {
+    &::after {
+        position: absolute;
+        inset: -1px -1px calc(var(--elevation-sm) - 1px) -1px;
+        z-index: 0;
+        content: '';
         border: 1px solid var(--primitive-neutral-200);
+        border-radius: 4px;
+        box-shadow: 0 var(--elevation-sm) 0 -1px var(--primitive-neutral-200);
+        transition: opacity 0.2s ease;
     }
 
-    &-link {
-        padding: 0;
-        line-height: inherit;
-        text-align: left;
-        cursor: pointer;
-        background: none;
-        border: none;
-        transition: none;
-
-        &:not(:disabled) {
-            &:hover {
-                color: var(--content-link-primary);
-            }
-
-            &:active {
-                color: var(--content-link-primary);
-            }
+    &-primary {
+        &::after {
+            border: 1px solid #b17816;
+            box-shadow: 0 var(--elevation-sm) 0 -1px #eb9d2a;
         }
+    }
 
-        &:disabled {
-            cursor: not-allowed;
-            opacity: var(--opacity-disabled);
+    &.element-button + .element-button-is-side-action {
+        top: 1px;
+        right: 1px;
+        bottom: unset;
+        min-height: calc(var(--button-height) - (var(--elevation-sm) * 1.2));
+    }
+}
+
+.element-radio-button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    border: 1px solid var(--primitive-neutral-300);
+    border-radius: 50%;
+
+    &::after {
+        width: 75%;
+        height: 75%;
+        content: '';
+        background: var(--primitive-transparent);
+        border-radius: 50%;
+    }
+
+    &[data-state='checked'] {
+        border-color: var(--primitive-accent-secondary);
+
+        &::after {
+            background: var(--primitive-accent-secondary);
         }
+    }
+}
 
-        > .LemonIcon:last-child {
-            margin-left: 0.15em;
-        }
+.element-dropdown-menu {
+    &-label {
+        font-weight: 600;
+        line-height: 1.5rem;
+        color: var(--content-tertiary);
+        letter-spacing: 0.075em;
 
-        &-primary {
+        @apply px-2 py-1.5 text-xxs font-semibold text-uppercase grid-cols-1;
+    }
+
+    &-separator {
+        background-color: var(--primitive-3000-25);
+
+        @apply -mx-1 my-1 h-px;
+    }
+}
+
+.element-input {
+    background: var(--primitive-white);
+    border: 1px solid var(--primitive-neutral-200);
+}
+
+.element-link {
+    padding: 0;
+    line-height: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+    transition: none;
+
+    &:not(:disabled) {
+        &:hover {
             color: var(--content-link-primary);
         }
 
-        &-secondary {
-            color: inherit;
+        &:active {
+            color: var(--content-link-primary);
         }
     }
 
-    &-button {
-        --button-padding-y: 2px;
-        --button-padding-x: 2px;
-        --button-height: var(--button-height-base);
+    &:disabled {
+        cursor: not-allowed;
+        opacity: var(--opacity-disabled);
+    }
+
+    > .LemonIcon:last-child {
+        margin-left: 0.15em;
+    }
+
+    &-primary {
+        color: var(--content-link-primary);
+    }
+
+    &-secondary {
+        color: inherit;
+    }
+}
+
+.element-button {
+    --button-padding-y: 2px;
+    --button-padding-x: 2px;
+    --button-height: var(--button-height-base);
+    --button-icon-size: var(--icon-size-base);
+
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    border-radius: var(--border-radius-base);
+    outline: none !important;
+
+    // Variants/Size
+    &-size-xs {
+        --button-icon-height: var(--button-height-xs);
+        --button-icon-size: var(--icon-size-xs);
+
+        min-height: var(--button-height-xs);
+
+        .element-button-icon {
+            width: var(--button-icon-size);
+            height: var(--button-icon-size);
+        }
+    }
+
+    &-size-sm {
+        --button-icon-height: var(--button-height-sm);
+        --button-icon-size: var(--icon-size-sm);
+
+        min-height: var(--button-height-sm);
+
+        .element-button-icon {
+            width: var(--button-icon-size);
+            height: var(--button-icon-size);
+        }
+    }
+
+    &-size-base {
+        --button-icon-height: var(--button-height-base);
         --button-icon-size: var(--icon-size-base);
 
-        position: relative;
-        display: grid;
-        grid-template-columns: repeat(1, minmax(0, 1fr));
-        border-radius: var(--border-radius-base);
-        outline: none !important;
+        min-height: var(--button-height-base);
 
-        // Variants/Size
-        &-size-xs {
-            --button-icon-height: var(--button-height-xs);
-            --button-icon-size: var(--icon-size-xs);
-
-            min-height: var(--button-height-xs);
-
-            .element-button-icon {
-                width: var(--button-icon-size);
-                height: var(--button-icon-size);
-            }
+        .element-button-icon {
+            width: var(--button-icon-size);
+            height: var(--button-icon-size);
         }
+    }
 
-        &-size-sm {
-            --button-icon-height: var(--button-height-sm);
-            --button-icon-size: var(--icon-size-sm);
+    &-size-lg {
+        --button-icon-height: var(--button-height-lg);
+        --button-icon-size: var(--icon-size-lg);
 
-            min-height: var(--button-height-sm);
+        min-height: var(--button-height-lg);
 
-            .element-button-icon {
-                width: var(--button-icon-size);
-                height: var(--button-icon-size);
-            }
+        .element-button-icon {
+            width: var(--button-icon-size);
+            height: var(--button-icon-size);
         }
+    }
 
-        &-size-base {
-            --button-icon-height: var(--button-height-base);
-            --button-icon-size: var(--icon-size-base);
+    // Variants/Icon
+    &-icon {
+        display: flex;
+        flex-shrink: 0;
+        place-items: center center;
+        width: var(--button-icon-height);
+        height: var(--button-icon-height);
+        transition: color 200ms ease;
 
-            min-height: var(--button-height-base);
-
-            .element-button-icon {
-                width: var(--button-icon-size);
-                height: var(--button-icon-size);
-            }
-        }
-
-        &-size-lg {
-            --button-icon-height: var(--button-height-lg);
-            --button-icon-size: var(--icon-size-lg);
-
-            min-height: var(--button-height-lg);
-
-            .element-button-icon {
-                width: var(--button-icon-size);
-                height: var(--button-icon-size);
-            }
-        }
-
-        // Variants/Icon
-        &-icon {
+        svg {
             display: flex;
             flex-shrink: 0;
             place-items: center center;
-            width: var(--button-icon-height);
-            height: var(--button-icon-height);
+            width: var(--button-icon-size);
+            height: var(--button-icon-size);
             transition: color 200ms ease;
+        }
 
+        &-inside-input {
             svg {
-                display: flex;
-                flex-shrink: 0;
-                place-items: center center;
-                width: var(--button-icon-size);
-                height: var(--button-icon-size);
-                transition: color 200ms ease;
-            }
-
-            &-inside-input {
-                svg {
-                    position: relative;
-                    top: -1px;
-                }
-            }
-        }
-
-        &-has-icon-left {
-            grid-template-columns: var(--button-icon-size) 1fr;
-        }
-
-        &-has-icon-right {
-            grid-template-columns: 1fr var(--button-icon-size);
-        }
-
-        &-has-icon-left-and-right {
-            grid-template-columns: var(--button-icon-size) 1fr var(--button-icon-size);
-        }
-
-        &-has-icon-only {
-            place-items: center center;
-            width: var(--button-height);
-
-            svg {
-                width: var(--button-icon-size);
-                height: var(--button-icon-size);
-            }
-        }
-
-        // Wraps the button and the side action
-        &-side-action-container {
-            position: relative;
-
-            &:focus-within {
-                + .has-side-action {
-                    position: absolute;
-                }
-            }
-        }
-
-        // Button (original)
-        &-has-side-action {
-            padding-top: 0 !important;
-            padding-right: calc(var(--button-height) + theme('spacing.2')) !important;
-            padding-bottom: 0 !important;
-
-            .element-button {
-                padding-right: 2px;
-            }
-        }
-
-        // Button (side action
-        &-is-side-action {
-            position: absolute;
-            top: 0;
-            right: 0;
-            bottom: 0;
-            z-index: 2;
-            border-radius: 0 var(--border-radius-sm) var(--border-radius-sm) 0;
-        }
-
-        &-has-radio-button {
-            &[data-state='checked'] {
-                .element-radio-button {
-                    border-color: var(--primitive-accent-secondary);
-
-                    &::after {
-                        background: var(--primitive-accent-secondary);
-                    }
-                }
-            }
-
-            &:not(:disabled, [data-state='checked']):hover,
-            &:not(:disabled, [data-state='checked']):focus {
-                .element-radio-button {
-                    border-color: var(--primitive-accent-secondary);
-                }
-            }
-        }
-
-        // Variants/Intent
-        &-primary {
-            --chrome-height: 6px;
-
-            color: var(--content-primary);
-            background: var(--primitive-white);
-            border: 1px solid var(--primitive-neutral-200);
-
-            &:not(:disabled):hover,
-            &:not(:disabled):focus,
-            &.element-button-active {
+                position: relative;
                 top: -1px;
-                color: var(--content-primary);
-                background: var(--primitive-neutral-50);
-                border: 1px solid var(--primitive-neutral-400);
+            }
+        }
+    }
 
-                // &:after {
-                //     top: calc(100% + (var(--chrome-height) / 2 * -1) + 1px);
-                // }
-                + .element-button-is-side-action {
-                    top: 0;
+    &-has-icon-left {
+        grid-template-columns: var(--button-icon-size) 1fr;
+    }
+
+    &-has-icon-right {
+        grid-template-columns: 1fr var(--button-icon-size);
+    }
+
+    &-has-icon-left-and-right {
+        grid-template-columns: var(--button-icon-size) 1fr var(--button-icon-size);
+    }
+
+    &-has-icon-only {
+        place-items: center center;
+        width: var(--button-height);
+
+        svg {
+            width: var(--button-icon-size);
+            height: var(--button-icon-size);
+        }
+    }
+
+    // Wraps the button and the side action
+    &-side-action-container {
+        position: relative;
+
+        &:focus-within {
+            + .has-side-action {
+                position: absolute;
+            }
+        }
+    }
+
+    // Button (original)
+    &-has-side-action {
+        padding-top: 0 !important;
+        padding-right: calc(var(--button-height) + theme('spacing.2')) !important;
+        padding-bottom: 0 !important;
+
+        .element-button {
+            padding-right: 2px;
+        }
+    }
+
+    // Button (side action
+    &-is-side-action {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 2;
+        border-radius: 0 var(--border-radius-sm) var(--border-radius-sm) 0;
+    }
+
+    &-has-radio-button {
+        &[data-state='checked'] {
+            .element-radio-button {
+                border-color: var(--primitive-accent-secondary);
+
+                &::after {
+                    background: var(--primitive-accent-secondary);
                 }
             }
+        }
 
-            &:has(+ .element-button-is-side-action:is(:hover, :focus)),
-            &:not(:disabled):hover,
-            &:not(:disabled):focus,
-            &.element-button-active {
-                color: var(--content-primary);
-                background: var(--primitive-neutral-50);
-                border: 1px solid var(--primitive-neutral-400);
+        &:not(:disabled, [data-state='checked']):hover,
+        &:not(:disabled, [data-state='checked']):focus {
+            .element-radio-button {
+                border-color: var(--primitive-accent-secondary);
             }
+        }
+    }
+
+    // Variants/Intent
+    &-primary {
+        --chrome-height: 6px;
+
+        color: var(--content-primary);
+        background: var(--primitive-white);
+        border: 1px solid var(--primitive-neutral-200);
+
+        &:not(:disabled):hover,
+        &:not(:disabled):focus,
+        &.element-button-active {
+            top: -1px;
+            color: var(--content-primary);
+            background: var(--primitive-neutral-50);
+            border: 1px solid var(--primitive-neutral-400);
 
             // &:after {
-            //     background-color: var(--primitive-neutral-400);
-            //     border-radius: 0 0 var(--border-radius-base) var(--border-radius-base);
-            //     top: calc(100% + (var(--chrome-height) / 2 * -1));
-            //     content: "";
-            //     height: var(--chrome-height);
-            //     left: 0px;
-            //     position: absolute;
-            //     width: calc(100% + 0px);
-            //     z-index: -1;
+            //     top: calc(100% + (var(--chrome-height) / 2 * -1) + 1px);
             // }
-
-            // &.element-button-active {
-            //     color: var(--content-primary-inverted);
-            //     background: var(--primitive-neutral-950);
-            //     border: 1px solid var(--primitive-neutral-400);
-            // }
+            + .element-button-is-side-action {
+                top: 0;
+            }
         }
 
-        &-outline {
+        &:has(+ .element-button-is-side-action:is(:hover, :focus)),
+        &:not(:disabled):hover,
+        &:not(:disabled):focus,
+        &.element-button-active {
             color: var(--content-primary);
-            background: var(--primitive-transparent);
-            border: 1px solid var(--primitive-neutral-200);
-
-            &:not(:disabled):hover,
-            &:not(:disabled):focus,
-            &.element-button-active {
-                color: var(--content-primary);
-                background: var(--primitive-neutral-200);
-                border: 1px solid var(--primitive-neutral-300);
-            }
-
-            // &.element-button-active {
-            //     color: var(--content-primary-inverted);
-            //     background: var(--primitive-neutral-950);
-            //     border: 1px solid var(--primitive-neutral-400);
-            // }
+            background: var(--primitive-neutral-50);
+            border: 1px solid var(--primitive-neutral-400);
         }
 
-        &-muted {
+        // &:after {
+        //     background-color: var(--primitive-neutral-400);
+        //     border-radius: 0 0 var(--border-radius-base) var(--border-radius-base);
+        //     top: calc(100% + (var(--chrome-height) / 2 * -1));
+        //     content: "";
+        //     height: var(--chrome-height);
+        //     left: 0px;
+        //     position: absolute;
+        //     width: calc(100% + 0px);
+        //     z-index: -1;
+        // }
+
+        // &.element-button-active {
+        //     color: var(--content-primary-inverted);
+        //     background: var(--primitive-neutral-950);
+        //     border: 1px solid var(--primitive-neutral-400);
+        // }
+    }
+
+    &-outline {
+        color: var(--content-primary);
+        background: var(--primitive-transparent);
+        border: 1px solid var(--primitive-neutral-200);
+
+        &:not(:disabled):hover,
+        &:not(:disabled):focus,
+        &.element-button-active {
+            color: var(--content-primary);
+            background: var(--primitive-neutral-200);
+            border: 1px solid var(--primitive-neutral-300);
+        }
+
+        // &.element-button-active {
+        //     color: var(--content-primary-inverted);
+        //     background: var(--primitive-neutral-950);
+        //     border: 1px solid var(--primitive-neutral-400);
+        // }
+    }
+
+    &-muted {
+        color: var(--content-on-fill-button-muted);
+        background: var(--fill-button-muted);
+
+        &:not(:disabled):hover,
+        &:not(:disabled):focus {
             color: var(--content-on-fill-button-muted);
-            background: var(--fill-button-muted);
-
-            &:not(:disabled):hover,
-            &:not(:disabled):focus {
-                color: var(--content-on-fill-button-muted);
-                background: var(--fill-button-muted-hover);
-            }
-
-            &[data-state='open'],
-            &[data-selected='true'],
-            &.element-button-active {
-                color: var(--content-on-fill-button-muted);
-                background: var(--fill-button-muted-hover);
-
-                // border: 1px solid var(--primitive-neutral-400);
-            }
+            background: var(--fill-button-muted-hover);
         }
 
-        &-muted-darker {
+        &[data-state='open'],
+        &[data-selected='true'],
+        &.element-button-active {
             color: var(--content-on-fill-button-muted);
-            background: var(--fill-button-muted);
+            background: var(--fill-button-muted-hover);
 
-            &:not(:disabled):hover,
-            &:not(:disabled):focus {
-                color: var(--content-on-fill-button-muted);
-                background: var(--fill-button-muted-darker-hover);
-            }
-
-            &[data-state='open'],
-            &[data-selected='true'],
-            &.element-button-active {
-                color: var(--content-on-fill-button-muted);
-                background: var(--fill-button-muted-darker-hover);
-
-                // border: 1px solid var(--primitive-neutral-400);
-            }
+            // border: 1px solid var(--primitive-neutral-400);
         }
+    }
 
-        // Side action for muted and muted-darker
-        // have a small divider border on the left
-        &-muted-darker,
-        &-muted {
-            &.element-button-is-side-action {
-                &::before {
-                    position: absolute;
-                    bottom: 0;
-                    left: 0;
-                    width: 1px;
-                    height: 50%;
-                    content: '';
-                    background-color: var(--primitive-neutral-500);
-                    transform: translateY(-50%);
-                }
-            }
-        }
+    &-muted-darker {
+        color: var(--content-on-fill-button-muted);
+        background: var(--fill-button-muted);
 
-        &-top-bar-tabs {
-            --local-background-color: var(--surface-3000-tertiary);
-            --local-border-color: var(--border-3000-secondary);
-            --local-foreground-color: var(--surface-3000-secondary);
-            --local-pseudo-width: 3px;
-
+        &:not(:disabled):hover,
+        &:not(:disabled):focus {
             color: var(--content-on-fill-button-muted);
-            background: var(--fill-button-muted);
-            border-color: transparent;
-            border-style: solid;
-            border-width: 1px 1px 0;
-            border-radius: var(--border-radius-base);
+            background: var(--fill-button-muted-darker-hover);
+        }
+
+        &[data-state='open'],
+        &[data-selected='true'],
+        &.element-button-active {
+            color: var(--content-on-fill-button-muted);
+            background: var(--fill-button-muted-darker-hover);
+
+            // border: 1px solid var(--primitive-neutral-400);
+        }
+    }
+
+    // Side action for muted and muted-darker
+    // have a small divider border on the left
+    &-muted-darker,
+    &-muted {
+        &.element-button-is-side-action {
+            &::before {
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 1px;
+                height: 50%;
+                content: '';
+                background-color: var(--primitive-neutral-500);
+                transform: translateY(-50%);
+            }
+        }
+    }
+
+    &-top-bar-tabs {
+        --local-background-color: var(--surface-3000-tertiary);
+        --local-border-color: var(--border-3000-secondary);
+        --local-foreground-color: var(--surface-3000-secondary);
+        --local-pseudo-width: 3px;
+
+        color: var(--content-on-fill-button-muted);
+        background: var(--fill-button-muted);
+        border-color: transparent;
+        border-style: solid;
+        border-width: 1px 1px 0;
+        border-radius: var(--border-radius-base);
+
+        // This is the reverse border radius items __| button |__
+        &::after,
+        &::before {
+            position: absolute;
+            z-index: -1;
+            width: var(--local-pseudo-width);
+            height: calc(100% - var(--local-pseudo-width));
+            content: '';
+            background: var(--local-background-color);
+            border-color: var(--local-background-color);
+        }
+
+        &::before {
+            bottom: 0;
+            left: calc(-1 * var(--local-pseudo-width));
+            border-right-width: 1px;
+            border-bottom-width: 1px;
+            border-radius: 0 0 4px;
+            box-shadow: 1px 1px 0 1px transparent;
+        }
+
+        &::after {
+            right: calc(-1 * var(--local-pseudo-width));
+            bottom: 0;
+            border-bottom-width: 1px;
+            border-left-width: 1px;
+            border-radius: 0 0 0 4px;
+            box-shadow: -1px 1px 0 1px transparent;
+        }
+
+        &:not(:disabled):hover,
+        &:not(:disabled):focus {
+            z-index: 2;
+            color: var(--content-primary-inverted);
+            background: var(--local-foreground-color);
+            border-color: var(--local-border-color);
+            border-radius: var(--border-radius-base) var(--border-radius-base) 0 0;
 
             // This is the reverse border radius items __| button |__
             &::after,
             &::before {
-                position: absolute;
-                z-index: -1;
-                width: var(--local-pseudo-width);
-                height: calc(100% - var(--local-pseudo-width));
-                content: '';
                 background: var(--local-background-color);
-                border-color: var(--local-background-color);
+                border-color: var(--local-border-color);
+
+                // z-index: 1;
             }
 
             &::before {
-                bottom: 0;
-                left: calc(-1 * var(--local-pseudo-width));
-                border-right-width: 1px;
-                border-bottom-width: 1px;
-                border-radius: 0 0 4px;
-                box-shadow: 1px 1px 0 1px transparent;
+                box-shadow: 1px 1px 0 1px var(--local-foreground-color);
             }
 
             &::after {
-                right: calc(-1 * var(--local-pseudo-width));
-                bottom: 0;
-                border-bottom-width: 1px;
-                border-left-width: 1px;
-                border-radius: 0 0 0 4px;
-                box-shadow: -1px 1px 0 1px transparent;
-            }
-
-            &:not(:disabled):hover,
-            &:not(:disabled):focus {
-                z-index: 2;
-                color: var(--content-primary-inverted);
-                background: var(--local-foreground-color);
-                border-color: var(--local-border-color);
-                border-radius: var(--border-radius-base) var(--border-radius-base) 0 0;
-
-                // This is the reverse border radius items __| button |__
-                &::after,
-                &::before {
-                    background: var(--local-background-color);
-                    border-color: var(--local-border-color);
-
-                    // z-index: 1;
-                }
-
-                &::before {
-                    box-shadow: 1px 1px 0 1px var(--local-foreground-color);
-                }
-
-                &::after {
-                    box-shadow: -1px 1px 0 1px var(--local-foreground-color);
-                }
-            }
-
-            &.element-button-active {
-                z-index: 4 !important;
-                color: var(--content-primary-inverted);
-                background: var(--local-foreground-color);
-                border-color: var(--local-border-color);
-                border-radius: var(--border-radius-base) var(--border-radius-base) 0 0;
-
-                // This is the reverse border radius items __| button |__
-                &::after,
-                &::before {
-                    z-index: 1;
-                    background: var(--local-background-color);
-                    border-color: var(--local-border-color);
-                }
-
-                &::before {
-                    box-shadow: 1px 1px 0 1px var(--local-foreground-color);
-                }
-
-                &::after {
-                    box-shadow: -1px 1px 0 1px var(--local-foreground-color);
-                }
+                box-shadow: -1px 1px 0 1px var(--local-foreground-color);
             }
         }
 
-        @apply font-semibold;
+        &.element-button-active {
+            z-index: 4 !important;
+            color: var(--content-primary-inverted);
+            background: var(--local-foreground-color);
+            border-color: var(--local-border-color);
+            border-radius: var(--border-radius-base) var(--border-radius-base) 0 0;
+
+            // This is the reverse border radius items __| button |__
+            &::after,
+            &::before {
+                z-index: 1;
+                background: var(--local-background-color);
+                border-color: var(--local-border-color);
+            }
+
+            &::before {
+                box-shadow: 1px 1px 0 1px var(--local-foreground-color);
+            }
+
+            &::after {
+                box-shadow: -1px 1px 0 1px var(--local-foreground-color);
+            }
+        }
     }
+
+    @apply font-semibold;
 }
