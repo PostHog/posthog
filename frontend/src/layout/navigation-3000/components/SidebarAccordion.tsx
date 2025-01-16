@@ -23,7 +23,7 @@ export function SidebarAccordion({ category }: SidebarAccordionProps): JSX.Eleme
     const isExpanded = !accordionCollapseMapping[key] && !isEmpty
 
     return (
-        <section className="Accordion" aria-busy={loading} aria-expanded={isExpanded}>
+        <section className="Accordion" aria-busy={loading} aria-disabled={isEmpty} aria-expanded={isExpanded}>
             <div
                 className="Accordion__header"
                 onClick={isExpanded || items.length > 0 ? () => toggleAccordion(key) : undefined}
