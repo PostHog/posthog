@@ -7,7 +7,7 @@ from freezegun import freeze_time
 from posthog.client import sync_execute
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
-from posthog.models.cohort import Cohort
+from posthog.models.cohort import Cohort, get_and_update_pending_version
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from posthog.models.cohort.util import format_filter_query
 from posthog.models.filters import Filter
@@ -1462,3 +1462,15 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         self.assertCountEqual([r[0] for r in results_team1], [person2_team1.uuid])
         self.assertCountEqual([r[0] for r in results_team2], [person1_team2.uuid])
+
+    def test_increment_cohort(self):
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
+            pending_version=3,
+        )
+        new_version = get_and_update_pending_version(cohort1)
+        assert new_version == 6
+        new_version = get_and_update_pending_version(cohort1)
+        assert new_version == 8

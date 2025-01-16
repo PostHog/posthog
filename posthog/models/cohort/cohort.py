@@ -7,6 +7,9 @@ from django.conf import settings
 from django.db import connection, models
 from django.db.models import Case, Q, When
 from django.db.models.expressions import F
+from django.db.models.functions.math import Mod
+from django.db.models.lookups import Exact
+
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
@@ -405,7 +408,12 @@ class Cohort(models.Model):
 
 
 def get_and_update_pending_version(cohort: Cohort):
-    cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 2)
+    incremented_value = Case(
+        When(pending_version__isnull=True, then=1),
+        When(Exact(Mod(F("pending_version"), 2), 0), then=F("pending_version") + 2),  # Even: Add 2
+        default=F("pending_version") + 3,  # Odd: Add 3
+    )
+    cohort.pending_version = incremented_value
     cohort.save(update_fields=["pending_version"])
     cohort.refresh_from_db()
     return cohort.pending_version

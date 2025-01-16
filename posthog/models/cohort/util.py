@@ -406,7 +406,7 @@ def _recalculate_cohortpeople_for_team_hogql(
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID_HOGQL_TEST.format(cohort_filter=cohort_query)
 
-    tag_queries(kind="cohort_calculation", team_id=team.id, query_type="CohortsQuery")
+    tag_queries(kind="cohort_calculation", team_id=team.id, query_type="CohortsQueryHogQL")
     if initiating_user_id:
         tag_queries(user_id=initiating_user_id)
 
