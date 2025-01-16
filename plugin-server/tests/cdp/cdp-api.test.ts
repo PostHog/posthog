@@ -273,8 +273,6 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
             expect(res.body).toMatchObject({
-                status: 'success',
-                error: null,
                 logs: [
                     {
                         level: 'debug',
@@ -282,7 +280,8 @@ describe('CDP API', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 2108 bytes",
+                        message:
+                            "Suspending function due to async function call 'fetch'. Payload: 2108 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
                     },
                     {
                         level: 'debug',
@@ -313,8 +312,6 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
             expect(res.body).toMatchObject({
-                status: 'success',
-                error: null,
                 logs: [
                     {
                         level: 'debug',
@@ -322,7 +319,8 @@ describe('CDP API', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 2108 bytes",
+                        message:
+                            "Suspending function due to async function call 'fetch'. Payload: 2108 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
                     },
                     {
                         level: 'info',
@@ -426,8 +424,6 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
             expect(res.body).toMatchObject({
-                status: 'success',
-                error: null,
                 logs: [
                     {
                         level: 'debug',
@@ -435,7 +431,8 @@ describe('CDP API', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 2108 bytes",
+                        message:
+                            "Suspending function due to async function call 'fetch'. Payload: 2108 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
                     },
                     {
                         level: 'info',
