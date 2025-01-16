@@ -38,6 +38,7 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
+    DataWarehouseFolder,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -902,6 +903,14 @@ class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.batchExportRuns(id, teamId).addPathComponent(runId)
+    }
+
+    public dataWarehouseFolders(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('warehouse_folders')
+    }
+
+    public dataWarehouseFolder(id: DataWarehouseFolder['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseFolders(teamId).addPathComponent(id)
     }
 
     // External Data Source
@@ -2344,6 +2353,23 @@ const api = {
                 .dataWarehouseSavedQuery(viewId)
                 .withAction('descendants')
                 .create({ data: { level } })
+        },
+    },
+    dataWarehouseFolders: {
+        async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<DataWarehouseFolder>> {
+            return await new ApiRequest().dataWarehouseFolders().get(options)
+        },
+        async create(data: Partial<DataWarehouseFolder>): Promise<DataWarehouseFolder> {
+            return await new ApiRequest().dataWarehouseFolders().create({ data })
+        },
+        async delete(folderId: DataWarehouseFolder['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseFolder(folderId).delete()
+        },
+        async update(
+            folderId: DataWarehouseFolder['id'],
+            data: Partial<DataWarehouseFolder>
+        ): Promise<DataWarehouseFolder> {
+            return await new ApiRequest().dataWarehouseFolder(folderId).update({ data })
         },
     },
     externalDataSources: {

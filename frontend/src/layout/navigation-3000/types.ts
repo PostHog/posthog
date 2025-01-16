@@ -178,10 +178,3 @@ export interface ButtonListItem extends BasicListItem {
     onClick: () => void
     icon?: JSX.Element
 }
-
-export interface ViewFolder {
-    id: string
-    name: string
-    items: string[]
-    parentId?: string | null
-}

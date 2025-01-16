@@ -4104,6 +4104,15 @@ export interface DataWarehouseCredential {
     access_key: string
     access_secret: string
 }
+
+export interface DataWarehouseFolder {
+    id: string
+    name: string
+    parent: string | null
+    items: string[]
+    children: DataWarehouseFolder[]
+}
+
 export interface DataWarehouseTable {
     /** UUID */
     id: string

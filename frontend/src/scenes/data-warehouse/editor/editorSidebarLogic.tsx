@@ -1,8 +1,10 @@
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
 import { IconCalculate, IconClipboardEdit } from 'lib/lemon-ui/icons'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -11,15 +13,9 @@ import { urls } from 'scenes/urls'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
-import {
-    BasicListItem,
-    ExtendedListItem,
-    ListItemAccordion,
-    SidebarCategory,
-    ViewFolder,
-} from '~/layout/navigation-3000/types'
+import { BasicListItem, ExtendedListItem, ListItemAccordion, SidebarCategory } from '~/layout/navigation-3000/types'
 import { DatabaseSchemaTableCommon } from '~/queries/schema'
-import { DataWarehouseSavedQuery, PipelineTab } from '~/types'
+import { DataWarehouseFolder, DataWarehouseSavedQuery, PipelineTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { viewLinkLogic } from '../viewLinkLogic'
@@ -62,92 +58,70 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
         ],
     }),
     actions({
-        addFolder: (name: string, parentId?: string) => ({ name, parentId }),
-        deleteFolder: (id: string) => ({ id }),
         moveViewToFolder: (viewId: string, folderId: string) => ({ viewId, folderId }),
         removeViewFromFolder: (viewId: string, folderId: string) => ({ viewId, folderId }),
-        renameFolder: (id: string, name: string) => ({ id, name }),
     }),
-    reducers({
+    loaders(({ values }) => ({
         folders: [
-            [] as ViewFolder[],
+            [] as DataWarehouseFolder[],
             {
-                addFolder: (state, { name, parentId }: { name: string; parentId?: string }) => {
-                    const newState = [
-                        ...state,
-                        {
-                            id: 'folder-' + Math.random().toString(36).substr(2, 9),
-                            name,
-                            items: [],
-                            parentId: parentId || null,
-                        },
-                    ]
-                    return newState
+                loadFolders: async () => {
+                    const response = await api.dataWarehouseFolders.list()
+                    return response.results
                 },
-                deleteFolder: (state, { id }) => {
-                    // Get all descendant folder IDs
-                    const getDescendantFolderIds = (folderId: string): string[] => {
-                        const descendants: string[] = []
-                        state.forEach((folder) => {
-                            if (folder.parentId === folderId) {
-                                descendants.push(folder.id)
-                                descendants.push(...getDescendantFolderIds(folder.id))
-                            }
-                        })
-                        return descendants
-                    }
-                    const folderIdsToDelete = [id, ...getDescendantFolderIds(id)]
-                    return state.filter((folder) => !folderIdsToDelete.includes(folder.id))
+                addFolder: async ({ name, parentId }) => {
+                    const folder = await api.dataWarehouseFolders.create({ name, parent: parentId })
+                    return values.folders.concat(folder)
                 },
-                moveViewToFolder: (state, { viewId, folderId }) => {
-                    // First, remove the item from any existing folder
-                    const newState = state.map((folder: ViewFolder) => ({
-                        ...folder,
-                        items: folder.items.filter((id: string) => id !== viewId),
-                    }))
-
-                    // If folderId is empty, just return the state with the item removed from all folders
-                    if (!folderId) {
-                        return newState
-                    }
-
-                    // Otherwise, add it to the new folder
-                    return newState.map((folder: ViewFolder) => {
-                        if (folder.id === folderId) {
-                            return {
-                                ...folder,
-                                items: [...folder.items, viewId],
-                            }
-                        }
-                        return folder
-                    })
+                deleteFolder: async ({ id }) => {
+                    await api.dataWarehouseFolders.delete(id)
+                    return values.folders.filter((folder) => folder.id !== id)
                 },
-                removeViewFromFolder: (state, { viewId, folderId }) => {
-                    const newState = state.map((folder: ViewFolder) => {
-                        if (folder.id === folderId) {
-                            return {
-                                ...folder,
-                                items: folder.items.filter((id: string) => id !== viewId),
-                            }
-                        }
-                        return folder
-                    })
-                    return newState
-                },
-                renameFolder: (state, { id, name }) => {
-                    const newState = state.map((folder: ViewFolder) => {
-                        if (folder.id === id) {
-                            return {
-                                ...folder,
-                                name,
-                            }
-                        }
-                        return folder
-                    })
-                    return newState
+                renameFolder: async ({ id, name }) => {
+                    const _folder = await api.dataWarehouseFolders.update(id, { name })
+                    return values.folders.map((folder) => (folder.id === id ? _folder : folder))
                 },
             },
         ],
+    })),
+    reducers({
+        folders: {
+            moveViewToFolder: (state, { viewId, folderId }) => {
+                // First, remove the item from any existing folder
+                const newState = state.map((folder: DataWarehouseFolder) => ({
+                    ...folder,
+                    items: folder.items.filter((id: string) => id !== viewId),
+                }))
+
+                // If folderId is empty, just return the state with the item removed from all folders
+                if (!folderId) {
+                    return newState
+                }
+
+                // Otherwise, add it to the new folder
+                return newState.map((folder: DataWarehouseFolder) => {
+                    if (folder.id === folderId) {
+                        return {
+                            ...folder,
+                            items: [...folder.items, viewId],
+                        }
+                    }
+                    return folder
+                })
+            },
+            removeViewFromFolder: (state, { viewId, folderId }) => {
+                const newState = state.map((folder: DataWarehouseFolder) => {
+                    if (folder.id === folderId) {
+                        return {
+                            ...folder,
+                            items: folder.items.filter((id: string) => id !== viewId),
+                        }
+                    }
+                    return folder
+                })
+                return newState
+            },
+        },
     }),
     selectors(({ actions }) => ({
         contents: [
@@ -170,10 +144,10 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                 // Helper to build nested folder structure
                 const buildFolderTree = (parentId: string | null = null): ListItemAccordion[] => {
                     return folders
-                        .filter((folder) => folder.parentId === parentId)
+                        .filter((folder) => folder.parent === parentId)
                         .map((folder) => {
                             const folderItems = folder.items
-                                .map((itemId) => {
+                                .map((itemId: string) => {
                                     const [savedQuery, matches] = relevantSavedQueries.find(
                                         ([q]) => q.id === itemId
                                     ) || [null, null]
@@ -243,12 +217,13 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                 key: folder.id,
                                 name: folder.name,
                                 noun: ['folder', 'folders'],
-                                onRename: async (newName: string) => actions.renameFolder(folder.id, newName),
+                                onRename: async (newName: string) =>
+                                    actions.renameFolder({ id: folder.id, name: newName }),
                                 menuItems: [
                                     {
                                         label: 'Add folder',
                                         onClick: () => {
-                                            actions.addFolder('New Folder', folder.id)
+                                            actions.addFolder({ name: 'New Folder', parentId: folder.id })
                                         },
                                     },
                                     {
@@ -273,7 +248,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                             {
                                 label: 'Add folder',
                                 onClick: () => {
-                                    actions.addFolder('New Folder')
+                                    actions.addFolder({ name: 'New Folder', parentId: null })
                                 },
                             },
                         ],
@@ -455,6 +430,11 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
         },
         dataWarehouseSavedQueries: (dataWarehouseSavedQueries) => {
             savedQueriesfuse.setCollection(dataWarehouseSavedQueries)
+        },
+    })),
+    events(({ actions }) => ({
+        afterMount() {
+            actions.loadFolders()
         },
     })),
 ])
