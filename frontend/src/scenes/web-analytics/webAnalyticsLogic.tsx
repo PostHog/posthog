@@ -4,14 +4,14 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
-import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
+import { isDefinitionStale } from 'lib/utils/definitions'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -41,7 +41,6 @@ import {
     BaseMathType,
     Breadcrumb,
     ChartDisplayType,
-    EventDefinition,
     EventDefinitionType,
     FilterLogicalOperator,
     InsightLogicProps,
@@ -49,7 +48,6 @@ import {
     IntervalType,
     PluginConfigTypeNew,
     PluginType,
-    PropertyDefinition,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -2106,11 +2104,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         })
     }),
 ])
-
-const isDefinitionStale = (definition: EventDefinition | PropertyDefinition): boolean => {
-    const parsedLastSeen = definition.last_seen_at ? dayjs(definition.last_seen_at) : null
-    return !!parsedLastSeen && dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
-}
 
 const checkCustomEventConversionGoalHasSessionIdsHelper = async (
     conversionGoal: WebAnalyticsConversionGoal | null,
