@@ -26,7 +26,7 @@ django.setup()
 
 
 class DeleteConfig(Config):
-    team_id: int
+    team_id: int | None = None
     file_path: str = "/tmp/pending_person_deletions.parquet"
     run_id: str = datetime.now().strftime("%Y%m%d_%H%M%S")
 

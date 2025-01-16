@@ -26,11 +26,16 @@ def test_config():
 
 
 @pytest.fixture
+def test_config_no_team():
+    return DeleteConfig(file_path="/tmp/test_pending_deletions.parquet", run_id="test_run")
+
+
+@pytest.fixture
 def expected_names():
     return get_versioned_names("test_run")
 
 
-def test_pending_person_deletions_with_team_id(mock_async_deletion):
+def test_pending_person_deletions_with_team_id():
     # Setup test data
     mock_deletions = [
         {"team_id": 1, "key": str(uuid.uuid4()), "created_at": "2025-01-15T00:00:00Z"},
@@ -56,7 +61,7 @@ def test_pending_person_deletions_with_team_id(mock_async_deletion):
         assert list(df.columns) == ["team_id", "key", "created_at"]
 
 
-def test_pending_person_deletions_without_team_id(mock_async_deletion):
+def test_pending_person_deletions_without_team_id(test_config_no_team):
     # Setup test data
     mock_deletions = [
         {"team_id": 1, "key": str(uuid.uuid4()), "created_at": "2025-01-15T00:00:00Z"},
@@ -69,9 +74,8 @@ def test_pending_person_deletions_without_team_id(mock_async_deletion):
         mock_objects.filter.return_value = mock_filter
 
         context = build_asset_context()
-        config = DeleteConfig(team_id=0, file_path="/tmp/test_pending_deletions.parquet", run_id="test_run")
 
-        result = pending_person_deletions(context, config)
+        result = pending_person_deletions(context, test_config_no_team)
 
         assert result["total_rows"] == "2"
         assert result["file_path"] == "/tmp/test_pending_deletions.parquet"
