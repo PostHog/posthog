@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0544_team_flags_persistence_default"),
+        ("posthog", "0545_insight_filters_to_query"),
     ]
 
     operations = [
