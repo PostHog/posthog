@@ -69,5 +69,12 @@ return event
                 enabled: true,
             })
         })
+
+        it('should preserve custom event properties', async () => {
+            const response = await tester.invoke({}, mockGlobals)
+            expect(response.invocation.globals.event.properties).toMatchObject({
+                test_property: 'test_value',
+            })
+        })
     })
 })

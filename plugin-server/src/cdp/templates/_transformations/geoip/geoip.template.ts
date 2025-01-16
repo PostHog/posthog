@@ -27,7 +27,7 @@ let geoipProperties := {
     'accuracy_radius': null,
     'time_zone': null
 }
-// Check if the event has an IP address
+// Check if the event has an IP address l
 if (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {
     print('geoip disabled or no ip', event.properties, event.properties?.$ip)
     return event
@@ -74,7 +74,10 @@ returnEvent.properties := returnEvent.properties ?? {}
 returnEvent.properties.$set := returnEvent.properties.$set ?? {}
 returnEvent.properties.$set_once := returnEvent.properties.$set_once ?? {}
 for (let key, value in geoipProperties) {
-    // TODO: Modify to only set if the value is not null
+    if (value != null) {
+        returnEvent.properties.$set[f'$geoip_{key}'] := value
+        returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value
+    }
     returnEvent.properties.$set[f'$geoip_{key}'] := value
     returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value
 }
