@@ -22,6 +22,7 @@ from posthog.temporal.batch_exports.sql import (
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
+    SELECT_FROM_EVENTS_VIEW_RECENT_DISTRIBUTED,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     SELECT_FROM_PERSONS_VIEW,
     SELECT_FROM_PERSONS_VIEW_BACKFILL,
@@ -507,13 +508,11 @@ def is_5_min_batch_export(full_range: tuple[dt.datetime | None, dt.datetime]) ->
     return False
 
 
-def use_events_recent(full_range: tuple[dt.datetime | None, dt.datetime], is_backfill: bool, team_id: int) -> bool:
+def use_distributed_events_recent_table(is_backfill: bool, team_id: int) -> bool:
     if is_backfill:
         return False
-    if is_5_min_batch_export(full_range):
-        return True
 
-    events_recent_rollout: float = settings.BATCH_EXPORT_EVENTS_RECENT_ROLLOUT
+    events_recent_rollout: float = settings.BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT
     # sanity check
     if events_recent_rollout < 0:
         events_recent_rollout = 0
@@ -585,8 +584,14 @@ class Producer:
             else:
                 parameters["include_events"] = []
 
-            if use_events_recent(full_range=full_range, is_backfill=is_backfill, team_id=team_id):
+            # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
+            # may not be able to handle the load from all batch exports
+            if is_5_min_batch_export(full_range=full_range) and not is_backfill:
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+            # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+            # which is a distributed table that sits in front of the `events_recent` table
+            elif use_distributed_events_recent_table(is_backfill=is_backfill, team_id=team_id):
+                query_template = SELECT_FROM_EVENTS_VIEW_RECENT_DISTRIBUTED
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
                 query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
             elif is_backfill:
@@ -660,14 +665,19 @@ class Producer:
                 this number of records.
         """
         clickhouse_url = None
-        if use_events_recent(full_range=full_range, is_backfill=is_backfill, team_id=team_id):
+        # 5 min batch exports should query a single node, which is known to have zero replication lag
+        if is_5_min_batch_export(full_range=full_range):
             clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
 
-        # data can sometimes take a while to settle, so for 5 min batch exports
-        # we wait several seconds just to be safe
+        # Data can sometimes take a while to settle, so for 5 min batch exports we wait several seconds just to be safe.
+        # For all other batch exports we wait for 1 minute since we're querying the events_recent table using a
+        # distributed table and setting `max_replica_delay_for_distributed_queries` to 1 minute
         if is_5_min_batch_export(full_range):
-            end_at = full_range[1]
-            await wait_for_delta_past_data_interval_end(end_at)
+            delta = dt.timedelta(seconds=30)
+        else:
+            delta = dt.timedelta(minutes=1)
+        end_at = full_range[1]
+        await wait_for_delta_past_data_interval_end(end_at, delta)
 
         async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
             if not await client.is_alive():
