@@ -657,6 +657,9 @@ devDependencies:
   eslint-plugin-react:
     specifier: ^7.33.2
     version: 7.33.2(eslint@8.57.0)
+  eslint-plugin-react-google-translate:
+    specifier: ^0.0.114
+    version: 0.0.114(eslint@8.57.0)
   eslint-plugin-react-hooks:
     specifier: ^4.6.2
     version: 4.6.2(eslint@8.57.0)
@@ -12374,6 +12377,16 @@ packages:
     transitivePeerDependencies:
       - supports-color
       - typescript
+    dev: true
+
+  /eslint-plugin-react-google-translate@0.0.114(eslint@8.57.0):
+    resolution: {integrity: sha512-ixV5l+ejPj3OdvlqSii4hnj42jAXy7EiMS65DvNQ40T5TkqD8RuSsYiIODTYDyoD3L3knLzF2LdTOQiqawMTGQ==}
+    engines: {node: ^14.17.0 || ^16.0.0 || >= 18.0.0}
+    peerDependencies:
+      eslint: '>=7'
+    dependencies:
+      eslint: 8.57.0
+      requireindex: 1.2.0
     dev: true
 
   /eslint-plugin-react-hooks@4.6.2(eslint@8.57.0):
