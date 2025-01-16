@@ -95,6 +95,7 @@ function InsightCardInternal(
         loadPriority,
         doNotLoad,
         variablesOverride,
+        children,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -169,6 +170,7 @@ function InsightCardInternal(
                         {canResizeWidth ? <ResizeHandle2D /> : null}
                     </>
                 )}
+                {children /* Extras, such as resize handles */}
             </ErrorBoundary>
         </div>
     )
