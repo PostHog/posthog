@@ -331,9 +331,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             } as RecordingsQueryResponse & { order: RecordingsQuery['order'] },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
-                    // as_query is a temporary parameter as a flag
-                    // to let the backend know not to convert the query to a legacy filter when processing
-                    const params: RecordingsQuery & { as_query?: boolean } = {
+                    const params: RecordingsQuery = {
                         ...convertUniversalFiltersToRecordingsQuery(values.filters),
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
@@ -349,10 +347,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                     if (direction === 'newer') {
                         params.offset = 0
-                    }
-
-                    if (values.listAPIAsQuery) {
-                        params.as_query = true
                     }
 
                     await breakpoint(400) // Debounce for lots of quick filter changes
@@ -540,13 +534,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
-
-        listAPIAsQuery: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                return !!featureFlags[FEATURE_FLAGS.REPLAY_LIST_RECORDINGS_AS_QUERY]
-            },
-        ],
 
         matchingEventsMatchType: [
             (s) => [s.filters],

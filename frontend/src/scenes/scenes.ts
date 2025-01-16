@@ -661,4 +661,5 @@ export const routes: Record<string, Scene> = {
     [urls.messagingBroadcastNew()]: Scene.MessagingBroadcasts,
     [urls.llmObservability('dashboard')]: Scene.LLMObservability,
     [urls.llmObservability('generations')]: Scene.LLMObservability,
+    [urls.llmObservability('traces')]: Scene.LLMObservability,
 }
