@@ -238,10 +238,10 @@ const List = ({
                         const content =
                             'content' in s ? (
                                 s.content
-                            ) : loading && s.key === 'other' ? (
-                                <LoadingState />
                             ) : 'items' in s && !!s.items.length ? (
                                 <ListSection {...s} onClick={setActiveItemId} activeItemId={activeItemId} />
+                            ) : loading ? (
+                                <LoadingState />
                             ) : (
                                 emptyState
                             )
