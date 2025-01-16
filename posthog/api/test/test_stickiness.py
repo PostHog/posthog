@@ -53,7 +53,6 @@ def get_time_series_ok(data):
             collect_dates[date] = NormalizedTrendResult(
                 value=item["data"][idx],
                 label=item["labels"][idx],
-                person_url=item["persons_urls"][idx]["url"],
                 breakdown_value=item.get("breakdown_value", None),
             )
         res[item["label"]] = collect_dates
@@ -64,7 +63,6 @@ def get_time_series_ok(data):
 class NormalizedTrendResult:
     value: float
     label: str
-    person_url: str
     breakdown_value: Optional[Union[str, int]]
 
 

@@ -8,6 +8,7 @@ import {
     ActorsQuery,
     BreakdownFilter,
     CompareFilter,
+    CoreWebVitalsQuery,
     DatabaseSchemaQuery,
     DataTableNode,
     DataVisualizationNode,
@@ -17,6 +18,7 @@ import {
     EventsNode,
     EventsQuery,
     FunnelsQuery,
+    GoalLine,
     HogQLMetadata,
     HogQLQuery,
     HogQuery,
@@ -42,7 +44,7 @@ import {
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { ChartDisplayType, IntervalType } from '~/types'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
@@ -136,6 +138,10 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
 
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
+}
+
+export function isCoreWebVitalsQuery(node?: Record<string, any> | null): node is CoreWebVitalsQuery {
+    return node?.kind === NodeKind.CoreWebVitalsQuery
 }
 
 export function isSessionAttributionExplorerQuery(
@@ -337,6 +343,13 @@ export const getYAxisScaleType = (query: InsightQueryNode): string | undefined =
 export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.resultCustomizationBy
+    }
+    return undefined
+}
+
+export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.goalLines
     }
     return undefined
 }

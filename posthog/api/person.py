@@ -32,7 +32,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.constants import (
     INSIGHT_FUNNELS,
-    INSIGHT_PATHS,
     LIMIT,
     OFFSET,
     FunnelVizType,
@@ -66,11 +65,9 @@ from posthog.queries.funnels.funnel_unordered_persons import (
     ClickhouseFunnelUnorderedActors,
 )
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.queries.property_values import get_person_property_values_for_key
-from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
@@ -244,7 +241,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     pagination_class = PersonLimitOffsetPagination
     throttle_classes = [ClickHouseBurstRateThrottle, PersonsThrottle]
     lifecycle_class = Lifecycle
-    retention_class = Retention
     stickiness_class = Stickiness
 
     def safely_get_queryset(self, queryset):
@@ -765,41 +761,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         }
 
-    @action(methods=["GET", "POST"], detail=False)
-    def path(self, request: request.Request, **kwargs) -> response.Response:
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        return self._respond_with_cached_results(self.calculate_path_persons(request))
-
-    @cached_by_filters
-    def calculate_path_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
-        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
-        filter = prepare_actor_query_filter(filter)
-
-        funnel_filter = None
-        funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
-        if funnel_filter_data:
-            if isinstance(funnel_filter_data, str):
-                funnel_filter_data = json.loads(funnel_filter_data)
-            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
-
-        actors, serialized_actors, raw_count = PathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-        initial_url = format_query_params_absolute_url(request, 0)
-
-        # cached_function expects a dict with the key result
-        return {
-            "result": (
-                serialized_actors,
-                next_url,
-                initial_url,
-                raw_count - len(serialized_actors),
-            )
-        }
-
     @action(methods=["GET"], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         if request.user.is_anonymous or not self.team:
@@ -881,34 +842,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         next_url = paginated_result(request, len(people), filter.offset, filter.limit)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
-
-    @action(methods=["GET"], detail=False)
-    def retention(self, request: request.Request) -> response.Response:
-        team = cast(User, request.user).team
-        if not team:
-            return response.Response(
-                {
-                    "message": "Could not retrieve team",
-                    "detail": "Could not validate team associated with user",
-                },
-                status=400,
-            )
-        filter = RetentionFilter(request=request, team=team)
-        filter = prepare_actor_query_filter(filter)
-        base_uri = request.build_absolute_uri("/")
-
-        people, raw_count = self.retention_class(base_uri=base_uri).actors_in_period(filter, team)
-
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-
-        return response.Response(
-            {
-                "result": people,
-                "next": next_url,
-                "missing_persons": raw_count - len(people),
-                "filters": filter.to_dict(),
-            }
-        )
 
     @action(methods=["GET"], detail=False)
     def stickiness(self, request: request.Request) -> response.Response:

@@ -17,6 +17,7 @@ libtool = { pkg-path = "libtool", pkg-group = "python" }
 nodejs = { pkg-path = "nodejs_18", pkg-group = "nodejs" }
 corepack = { pkg-path = "corepack", pkg-group = "nodejs" }
 brotli = { pkg-path = "brotli", pkg-group = "nodejs" }
+nodemon = { pkg-path = "nodemon", pkg-group = "nodejs", version = "3.1" }
 # Rust toolchain (based on https://flox.dev/docs/cookbook/languages/rust/)
 cargo.pkg-path = "cargo"
 cargo.pkg-group = "rust-toolchain"

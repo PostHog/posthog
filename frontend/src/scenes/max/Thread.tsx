@@ -26,10 +26,9 @@ import {
     AssistantMessage,
     FailureMessage,
     HumanMessage,
-    InsightVizNode,
-    NodeKind,
     VisualizationMessage,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-assistant-messages'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
 import {
