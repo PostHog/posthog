@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataTableNode, TracesQueryResponse } from '~/queries/schema'
+import { AnyResponseType, DataTableNode, TracesQuery, TracesQueryResponse } from '~/queries/schema'
 import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import { llmObservabilityLogic } from './llmObservabilityLogic'
@@ -62,10 +62,10 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     selectors({
         query: [
             (s) => [s.tracesQuery, s.traceId],
-            (tracesQuery, traceId) => ({
+            (tracesQuery, traceId): DataTableNode => ({
                 ...tracesQuery,
                 source: {
-                    ...tracesQuery.source,
+                    ...(tracesQuery.source as TracesQuery),
                     traceId,
                 },
             }),
