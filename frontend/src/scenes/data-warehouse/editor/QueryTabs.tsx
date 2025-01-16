@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useState } from 'react'
 
 import AutoTab from './AutoTab'
-import { QueryTab } from './multitabEditorLogic'
+import { NEW_QUERY, QueryTab } from './multitabEditorLogic'
 
 interface QueryTabsProps {
     models: QueryTab[]
@@ -42,7 +42,7 @@ interface QueryTabProps {
 }
 
 function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryTabProps): JSX.Element {
-    const [tabName, setTabName] = useState(() => model.name || 'New tab')
+    const [tabName, setTabName] = useState(() => model.name || NEW_QUERY)
     const [isEditing, setIsEditing] = useState(false)
 
     const handleRename = (): void => {

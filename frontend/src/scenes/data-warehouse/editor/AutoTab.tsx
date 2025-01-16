@@ -9,6 +9,10 @@ interface AutoTabProps {
     autoFocus?: boolean
 }
 
+/**
+ * Tab component that automatically resizes an input field to match the width of its content based upon
+ * the width of a hidden span element.
+ */
 const AutoTab = ({ value, onChange, onKeyDown, onBlur, autoFocus, handleRename }: AutoTabProps): JSX.Element => {
     const inputRef = useRef<HTMLInputElement>(null)
     const spanRef = useRef<HTMLSpanElement>(null)
