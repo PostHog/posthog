@@ -106,7 +106,10 @@ export function Playlist({
                     'Playlist--embedded': embedded,
                 })}
             >
-                <div ref={playlistListRef} className={clsx('Playlist__list w-full', 'Playlist__list--collapsed')}>
+                <div
+                    ref={playlistListRef}
+                    className="Playlist__list flex flex-col relative overflow-hidden h-full w-full Playlist__list--collapsed"
+                >
                     <DraggableToNotebook href={notebooksHref}>{filterActions}</DraggableToNotebook>
 
                     <List
@@ -221,7 +224,7 @@ const List = ({
     const initiallyOpenSections = sections.filter((s) => s.initiallyOpen).map((s) => s.key)
 
     return (
-        <div className="flex flex-col w-full bg-bg-light overflow-hidden h-full Playlist__list">
+        <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
             <DraggableToNotebook href={notebooksHref}>
                 <div className="flex flex-col gap-1">
                     <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
@@ -231,7 +234,7 @@ const List = ({
                     <LemonTableLoader loading={loading} />
                 </div>
             </DraggableToNotebook>
-            <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
+            <div className="overflow-y-auto flex-1 flex-grow" onScroll={handleScroll} ref={contentRef}>
                 <LemonCollapse
                     defaultActiveKeys={initiallyOpenSections}
                     panels={sections.map((s) => {
