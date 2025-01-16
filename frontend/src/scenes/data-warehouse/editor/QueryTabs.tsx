@@ -3,6 +3,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useState } from 'react'
 
+import AutoTab from './AutoTab'
 import { QueryTab } from './multitabEditorLogic'
 
 interface QueryTabsProps {
@@ -59,10 +60,12 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
             )}
         >
             {isEditing ? (
-                <input
-                    className="bg-transparent border-none focus:outline-none"
+                <AutoTab
                     value={tabName}
                     onChange={(e) => setTabName(e.target.value)}
+                    onBlur={handleRename}
+                    autoFocus
+                    handleRename={() => onRename(model, tabName)}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                             handleRename()
@@ -70,7 +73,6 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
                             setIsEditing(false)
                         }
                     }}
-                    autoFocus
                 />
             ) : (
                 <div onClick={() => setIsEditing(!isEditing)} className="flex-grow text-left">
