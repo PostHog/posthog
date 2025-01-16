@@ -9,11 +9,9 @@ from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
-from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
-from posthog.models.filters.utils import get_filter
 from posthog.models.utils import sane_repr
-from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
+from posthog.utils import absolute_uri, generate_short_id
 
 logger = structlog.get_logger(__name__)
 
@@ -34,7 +32,6 @@ class Insight(models.Model):
     description = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     filters = models.JSONField(default=dict)
-    filters_hash = models.CharField(max_length=400, null=True, blank=True)
     query = models.JSONField(null=True, blank=True)
     order = models.IntegerField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
@@ -239,20 +236,3 @@ class InsightViewed(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "user", "insight"], name="posthog_unique_insightviewed")]
         indexes = [models.Index(fields=["team_id", "user_id", "-last_viewed_at"])]
-
-
-@timed("generate_insight_cache_key")
-def generate_insight_filters_hash(insight: Insight, dashboard: Optional[Dashboard]) -> str:
-    try:
-        dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
-        candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
-        return candidate_filters_hash
-    except Exception as e:
-        logger.error(
-            "insight.generate_insight_cache_key.failed",
-            insight_id=insight.id,
-            dashboard_id="none" if not dashboard else dashboard.id,
-            exception=e,
-            exc_info=True,
-        )
-        raise
