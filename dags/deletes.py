@@ -109,6 +109,7 @@ def create_pending_deletes_table(context: AssetExecutionContext, config: DeleteC
         ORDER BY (team_id, person_id)
         """
     )
+    context.add_output_metadata({"table_name": MetadataValue.text(names["table"])})
     return {"table_name": names["table"]}
 
 
