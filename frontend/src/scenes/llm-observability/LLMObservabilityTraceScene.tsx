@@ -56,9 +56,9 @@ export function LLMObservabilityTraceScene(): JSX.Element {
                     detail="Check if the trace ID is correct."
                 />
             ) : (
-                <div className="relative pb-4 space-y-4 h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] flex flex-col">
+                <div className="relative pb-4 space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
                     <TraceMetadata trace={traceResponse.results[0]} />
-                    <div className="flex flex-1 min-h-0 gap-4">
+                    <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
                         <TraceSidebar trace={traceResponse.results[0]} eventId={eventId} />
                         <EventContent event={event} />
                     </div>
@@ -104,7 +104,7 @@ function TraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
 
 function TraceSidebar({ trace, eventId }: { trace: LLMTrace; eventId?: string | null }): JSX.Element {
     return (
-        <aside className="border-border w-72 bg-bg-light border rounded h-full overflow-hidden">
+        <aside className="border-border h-80 bg-bg-light border rounded overflow-hidden md:h-full md:w-72">
             <header className="px-2 pt-2">
                 <h2 className="font-medium text-base p-0 m-0">Timeline</h2>
             </header>
@@ -147,12 +147,13 @@ function EventContent({ event }: { event?: LLMGeneration | null }): JSX.Element 
             ) : (
                 <>
                     <header>
-                        <div className="flex-row flex items-center">
-                            <h3 className="text-lg font-medium">
+                        <div className="flex-row flex items-center gap-2 mb-4">
+                            <LemonTag type="muted">Generation</LemonTag>
+                            <h3 className="text-lg font-medium p-0 m-0">
                                 {event.model} ({event.provider})
                             </h3>
                         </div>
-                        <div className="flex flex-row flex-wrap gap-8">
+                        <div className="flex flex-row flex-wrap gap-2 gap-x-8 gap-y-2 mb-2">
                             <Chip title="Timestamp">
                                 <TZLabel time={event.createdAt} />
                             </Chip>
@@ -161,6 +162,17 @@ function EventContent({ event }: { event?: LLMGeneration | null }): JSX.Element 
                                 <CostChip cost={event.totalCost} title="Total Cost" />
                             )}
                             <Chip title="Latency">{formatLLMLatency(event.latency)}</Chip>
+                        </div>
+                        <div className="flex flex-row flex-wrap gap-2">
+                            {event.modelParameters &&
+                                Object.entries(event.modelParameters).map(
+                                    ([key, value]) =>
+                                        value !== null && (
+                                            <LemonTag key={key} type="muted">
+                                                {key}: {`${value}`}
+                                            </LemonTag>
+                                        )
+                                )}
                         </div>
                     </header>
                     <LemonDivider className="my-8" />
