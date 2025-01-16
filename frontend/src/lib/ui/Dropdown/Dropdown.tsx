@@ -1,5 +1,6 @@
 'use client'
 
+import { IconCheckCircle } from '@posthog/icons'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 // import { Check, ChevronRight, Circle } from "lucide-react"
 import { IconChevronRight } from 'lib/lemon-ui/icons'
@@ -121,51 +122,77 @@ const DropdownMenuItem = React.forwardRef<
 )
 DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName
 
-// const DropdownMenuCheckboxItem = React.forwardRef<
-//   React.ElementRef<typeof DropdownMenuPrimitive.CheckboxItem>,
-//   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.CheckboxItem>
-// >(({ className, children, checked, ...props }, ref): JSX.Element => (
-//   <DropdownMenuPrimitive.CheckboxItem
-//     ref={ref}
-//     className={cn(
-//       "relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-//       className
-//     )}
-//     checked={checked}
-//     {...props}
-//   >
-//     {/* <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
-//       <DropdownMenuPrimitive.ItemIndicator>
-//         <IconCheck className="h-4 w-4" />
-//       </DropdownMenuPrimitive.ItemIndicator>
-//     </span> */}
-//     {children}
-//   </DropdownMenuPrimitive.CheckboxItem>
-// ))
-// DropdownMenuCheckboxItem.displayName =
-//   DropdownMenuPrimitive.CheckboxItem.displayName
+const DropdownMenuCheckboxItem = React.forwardRef<
+    React.ElementRef<typeof DropdownMenuPrimitive.CheckboxItem>,
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.CheckboxItem> & {
+        buttonProps?: Omit<React.ComponentPropsWithoutRef<typeof Button>, 'children'>
+    }
+>(
+    ({ className, children, checked, buttonProps, ...props }, ref): JSX.Element => (
+        <DropdownMenuPrimitive.CheckboxItem
+            ref={ref}
+            className={cn(
+                'relative flex cursor-default select-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+                className
+            )}
+            checked={checked}
+            asChild
+            {...props}
+        >
+            <Button
+                intent="muted"
+                className="w-full"
+                {...{
+                    ...buttonProps,
+                    tooltipPlacement: 'right',
+                    size: 'sm',
+                    iconRight: (
+                        <DropdownMenuPrimitive.ItemIndicator>
+                            <IconCheckCircle className="h-4 w-4" />
+                        </DropdownMenuPrimitive.ItemIndicator>
+                    ),
+                }}
+            >
+                {children}
+            </Button>
+        </DropdownMenuPrimitive.CheckboxItem>
+    )
+)
+DropdownMenuCheckboxItem.displayName = DropdownMenuPrimitive.CheckboxItem.displayName
 
-// const DropdownMenuRadioItem = React.forwardRef<
-//   React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>,
-//   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>
-// >(({ className, children, ...props }, ref): JSX.Element => (
-//   <DropdownMenuPrimitive.RadioItem
-//     ref={ref}
-//     className={cn(
-//       "relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-//       className
-//     )}
-//     {...props}
-//   >
-//     {/* <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
-//       <DropdownMenuPrimitive.ItemIndicator>
-//         <Circle className="h-2 w-2 fill-current" />
-//       </DropdownMenuPrimitive.ItemIndicator>
-//     </span> */}
-//     {children}
-//   </DropdownMenuPrimitive.RadioItem>
-// ))
-// DropdownMenuRadioItem.displayName = DropdownMenuPrimitive.RadioItem.displayName
+const DropdownMenuRadioItem = React.forwardRef<
+    React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>,
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem> & {
+        buttonProps?: Omit<React.ComponentPropsWithoutRef<typeof Button>, 'children'>
+    }
+>(
+    ({ className, children, buttonProps, ...props }, ref): JSX.Element => (
+        <DropdownMenuPrimitive.RadioItem
+            ref={ref}
+            className={cn(
+                'relative flex cursor-default select-none items-center rounded-sm text-sm outline-none transition-colors data-[disabled]:opacity-50',
+                className
+            )}
+            asChild
+            {...props}
+        >
+            <Button
+                intent="muted"
+                className="w-full"
+                {...{
+                    ...buttonProps,
+                    tooltipPlacement: 'right',
+                    size: 'sm',
+                    hasRadioButton: true,
+                    iconLeft: <div className="element-radio-button" />,
+                }}
+            >
+                {children}
+            </Button>
+        </DropdownMenuPrimitive.RadioItem>
+    )
+)
+DropdownMenuRadioItem.displayName = DropdownMenuPrimitive.RadioItem.displayName
 
 const DropdownMenuLabel = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.Label>,
@@ -211,15 +238,15 @@ DropdownMenuFooter.displayName = 'DropdownMenuFooter'
 
 export {
     DropdownMenu,
+    DropdownMenuCheckboxItem,
     DropdownMenuContent,
     DropdownMenuFooter,
     DropdownMenuGroup,
     DropdownMenuItem,
-    // DropdownMenuCheckboxItem,
-    // DropdownMenuRadioItem,
     DropdownMenuLabel,
     DropdownMenuPortal,
     DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuShortcut,
     DropdownMenuSub,

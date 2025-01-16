@@ -410,6 +410,33 @@
         }
     }
 
+    &-radio-button {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1rem;
+        height: 1rem;
+        border: 1px solid var(--primitive-neutral-300);
+        border-radius: 50%;
+
+        &::after {
+            width: 75%;
+            height: 75%;
+            content: '';
+            background: var(--primitive-transparent);
+            border-radius: 50%;
+        }
+
+        &[data-state='checked'] {
+            border-color: var(--primitive-accent-secondary);
+
+            &::after {
+                background: var(--primitive-accent-secondary);
+            }
+        }
+    }
+
     &-dropdown-menu {
         &-label {
             font-weight: 600;
@@ -608,6 +635,25 @@
             bottom: 0;
             z-index: 2;
             border-radius: 0 var(--border-radius-sm) var(--border-radius-sm) 0;
+        }
+
+        &-has-radio-button {
+            &[data-state='checked'] {
+                .element-radio-button {
+                    border-color: var(--primitive-accent-secondary);
+
+                    &::after {
+                        background: var(--primitive-accent-secondary);
+                    }
+                }
+            }
+
+            &:not(:disabled, [data-state='checked']):hover,
+            &:not(:disabled, [data-state='checked']):focus {
+                .element-radio-button {
+                    border-color: var(--primitive-accent-secondary);
+                }
+            }
         }
 
         // Variants/Intent

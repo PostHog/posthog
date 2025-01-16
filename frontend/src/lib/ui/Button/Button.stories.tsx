@@ -1,7 +1,16 @@
 import { IconActivity, IconChevronDown } from '@posthog/icons'
 import { Meta, Story } from '@storybook/react'
+import { useState } from 'react'
 
-import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from '../Dropdown/Dropdown'
+import {
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+    DropdownMenuSeparator,
+} from '../Dropdown/Dropdown'
 import { Button } from './Button'
 
 const meta: Meta = {
@@ -10,6 +19,11 @@ const meta: Meta = {
 export default meta
 
 export const Default: Story = () => {
+    const [showCheckbox1, setShowCheckbox1] = useState(false)
+    const [showCheckbox2, setShowCheckbox2] = useState(false)
+    const [showCheckbox3, setShowCheckbox3] = useState(false)
+    const [radioValue, setRadioValue] = useState('cabbages')
+
     return (
         <div className="flex flex-col gap-16 items-start token-bg-primary">
             <div className="flex flex-col xs:flex-row gap-4 token-surface-primary p-4">
@@ -74,13 +88,86 @@ export const Default: Story = () => {
                     iconRight={<IconChevronDown />}
                     dropdownContent={
                         <DropdownMenuContent side="bottom" align="start" className="min-w-56" loop>
-                            <DropdownMenuLabel>Organizations</DropdownMenuLabel>
+                            <DropdownMenuLabel>Example dropdown</DropdownMenuLabel>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem>New organization</DropdownMenuItem>
+                            <DropdownMenuItem buttonProps={{ to: '/' }}>Link</DropdownMenuItem>
+                            <DropdownMenuItem
+                                buttonProps={{ disabledReason: 'This is a disabled reason', tooltipPlacement: 'top' }}
+                            >
+                                Disabled
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                buttonProps={{
+                                    onClick: () => {
+                                        alert('clicked')
+                                    },
+                                }}
+                            >
+                                On click
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                buttonProps={{
+                                    onClick: (e) => {
+                                        e.preventDefault()
+                                        alert('clicked')
+                                    },
+                                }}
+                            >
+                                On click with prevent default
+                            </DropdownMenuItem>
                         </DropdownMenuContent>
                     }
                 >
                     As a dropdown
+                </Button>
+
+                <Button
+                    intent="primary"
+                    iconRight={<IconChevronDown />}
+                    dropdownContent={
+                        <DropdownMenuContent side="bottom" align="start" className="min-w-56" loop>
+                            <DropdownMenuLabel>Checkboxes</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuCheckboxItem checked={showCheckbox1} onCheckedChange={setShowCheckbox1}>
+                                Checkbox 1
+                            </DropdownMenuCheckboxItem>
+                            <DropdownMenuCheckboxItem
+                                checked={showCheckbox2}
+                                onCheckedChange={setShowCheckbox2}
+                                buttonProps={{ disabledReason: 'This is a disabled reason' }}
+                            >
+                                Checkbox 2
+                            </DropdownMenuCheckboxItem>
+                            <DropdownMenuCheckboxItem checked={showCheckbox3} onCheckedChange={setShowCheckbox3}>
+                                Checkbox 3
+                            </DropdownMenuCheckboxItem>
+                        </DropdownMenuContent>
+                    }
+                >
+                    As a dropdown with checkboxes
+                </Button>
+
+                <Button
+                    intent="primary"
+                    iconRight={<IconChevronDown />}
+                    dropdownContent={
+                        <DropdownMenuContent side="bottom" align="start" className="min-w-56" loop>
+                            <DropdownMenuLabel>Radio buttons</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuRadioGroup value={radioValue} onValueChange={setRadioValue}>
+                                <DropdownMenuRadioItem value="of">Of</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="cabbages">Cabbages</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem
+                                    value="kings"
+                                    buttonProps={{ disabledReason: 'This is a disabled reason' }}
+                                >
+                                    & Kings
+                                </DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
+                        </DropdownMenuContent>
+                    }
+                >
+                    As a dropdown with radio buttons
                 </Button>
             </div>
             <div className="flex flex-col xs:flex-row gap-4 token-surface-primary p-4">

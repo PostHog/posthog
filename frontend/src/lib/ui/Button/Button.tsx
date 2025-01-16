@@ -38,6 +38,18 @@ export const buttonStyles = cva(
                 base: ['element-button-size-base', 'text-sm', 'px-3'],
                 lg: ['element-button-size-lg', 'text-base', 'px-3'],
             },
+            insideInput: {
+                true: ['element-button-inside-input'],
+                false: [''],
+            },
+            hasRadioButton: {
+                true: ['element-button-has-radio-button'],
+                false: [''],
+            },
+            hasSideAction: {
+                true: ['element-button-has-side-action'],
+                false: [''],
+            },
             // This is only for styling purposes and is omitted from the props
             hasIcon: {
                 true: ['gap-2'],
@@ -60,14 +72,6 @@ export const buttonStyles = cva(
             // This is only for styling purposes and is omitted from the props
             disabled: {
                 true: ['cursor-not-allowed', 'opacity-50'],
-                false: [''],
-            },
-            insideInput: {
-                true: ['element-button-inside-input'],
-                false: [''],
-            },
-            hasSideAction: {
-                true: ['element-button-has-side-action'],
                 false: [''],
             },
         },
