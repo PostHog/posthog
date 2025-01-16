@@ -5,12 +5,13 @@ from posthog.cdp.templates.hog_function_template import (
     HogFunctionTemplate,
 )
 
+# NOTE: This is a pre-release template using mappings. We
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="alpha",
     type="destination",
-    id="template-webhook",
-    name="HTTP Webhook",
+    id="template-webhook-mappings",
+    name="HTTP Webhook (mappings based)",
     description="Sends a webhook templated by the incoming event data",
     icon_url="/static/posthog-icon.svg",
     category=["Custom"],

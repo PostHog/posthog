@@ -1,6 +1,6 @@
 from inline_snapshot import snapshot
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
+from posthog.cdp.templates.webhook.template_webhook_mappings import template as template_webhook
 
 
 class TestTemplateWebhook(BaseHogFunctionTemplateTest):
