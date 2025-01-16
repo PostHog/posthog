@@ -41,6 +41,22 @@ const mockConsumer = {
     getMetadata: jest.fn(),
 }
 
+// Mock the Upload class
+jest.mock('@aws-sdk/lib-storage', () => {
+    return {
+        Upload: jest.fn().mockImplementation(({ params }) => {
+            const { Key } = params
+            if (Key.includes('throw')) {
+                throw new Error('Mocked error for key: ' + Key)
+            }
+            return {
+                done: jest.fn().mockResolvedValue(undefined),
+                abort: jest.fn().mockResolvedValue(undefined),
+            }
+        }),
+    }
+})
+
 jest.mock('../../../../src/kafka/batch-consumer', () => {
     return {
         startBatchConsumer: jest.fn(() =>
@@ -140,18 +156,16 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
     }
 
     it('when there is an S3 error', async () => {
-        await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'sid1' }))
-        ingester.partitionMetrics[1] = { lastMessageTimestamp: 1, offsetLag: 0 }
+        await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'sid1-throw' }))
+        await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'sid2' }))
+        ingester.partitionMetrics[1] = { lastMessageTimestamp: 1000000, offsetLag: 0 }
 
-        expect(Object.keys(ingester.sessions).length).toBe(1)
-        expect(ingester.sessions['2-sid1']).toBeDefined()
-
-        // simulate an S3 write error
-        const watam = ingester.sessions['2-sid1']
-        watam.s3WriteFailed = true
+        expect(Object.keys(ingester.sessions).length).toBe(2)
+        expect(ingester.sessions['2-sid1-throw']).toBeDefined()
+        expect(ingester.sessions['2-sid2']).toBeDefined()
 
         await expect(() => ingester.flushAllReadySessions(noop)).rejects.toThrow(
-            'Session manager for sid1 failed at an s3 write'
+            'Failed to flush sessions. With 1 errors out of 2 sessions.'
         )
     })
 

@@ -108,7 +108,6 @@ export class SessionManager {
     unsubscribe: () => void
     flushJitterMultiplier: number
     realtimeTail: Tail | null = null
-    s3WriteFailed: boolean = false
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -418,7 +417,6 @@ export class SessionManager {
             })
             this.captureException(error)
             counterS3WriteErrored.inc()
-            this.s3WriteFailed = true
 
             throw error
         } finally {

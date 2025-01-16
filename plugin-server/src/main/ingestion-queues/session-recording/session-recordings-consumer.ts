@@ -750,11 +750,6 @@ export class SessionRecordingIngester {
                     return
                 }
 
-                if (sessionManager.s3WriteFailed) {
-                    // the session manager failed at a s3 write, the partition will be stuck
-                    throw new Error(`Session manager for ${sessionManager.sessionId} failed at an s3 write`)
-                }
-
                 await sessionManager
                     .flushIfSessionBufferIsOld(lastMessageTimestamp, offsetLag)
                     .catch((err) => {
@@ -768,8 +763,9 @@ export class SessionRecordingIngester {
                             }
                         )
                         captureException(err, {
-                            tags: { session_id: sessionManager.sessionId },
+                            tags: { session_id: sessionManager.sessionId, error_context: 'failed-on-flush' },
                         })
+                        throw err
                     })
                     .then(async () => {
                         // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
@@ -782,12 +778,9 @@ export class SessionRecordingIngester {
         const errors = results.filter((r) => !!r.error).map((r) => r.error)
         if (errors.length) {
             status.error('🌶️', 'blob_ingester_consumer - failed to flush sessions', { errors })
-            captureException(new Error('Failed to flush sessions'), { extra: { errors } })
-            if (errors[0] instanceof Error) {
-                throw errors[0]
-            } else {
-                throw new Error('Failed to flush sessions. With ' + errors.length + ' errors')
-            }
+            throw new Error(
+                'Failed to flush sessions. With ' + errors.length + ' errors out of ' + results.length + ' sessions.'
+            )
         }
 
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
