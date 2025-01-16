@@ -9,6 +9,7 @@ from sentry_sdk import capture_exception
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -250,7 +251,10 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
 
 
 def create_hogql_database(
-    team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
+    team_id: int,
+    modifiers: Optional[HogQLQueryModifiers] = None,
+    team_arg: Optional["Team"] = None,
+    timings: Optional[HogQLTimings] = None,
 ) -> Database:
     from posthog.hogql.database.s3_table import S3Table
     from posthog.hogql.query import create_default_modifiers_for_team
@@ -261,107 +265,118 @@ def create_hogql_database(
         DataWarehouseTable,
     )
 
+    if timings is None:
+        timings = HogQLTimings()
+
     team = team_arg or Team.objects.get(pk=team_id)
-    modifiers = create_default_modifiers_for_team(team, modifiers)
-    database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
-    if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
-        # no change
-        database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
-        database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
+    with timings.measure("modifiers"):
+        modifiers = create_default_modifiers_for_team(team, modifiers)
+        database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
-        database.events.fields["person_id"] = StringDatabaseField(name="person_id")
-        _use_person_properties_from_events(database)
+        if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
+            # no change
+            database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
+            database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
-        _use_person_id_from_person_overrides(database)
-        _use_person_properties_from_events(database)
-        cast(VirtualTable, database.events.fields["poe"]).fields["id"] = database.events.fields["person_id"]
+        elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+            database.events.fields["person_id"] = StringDatabaseField(name="person_id")
+            _use_person_properties_from_events(database)
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
-        _use_person_id_from_person_overrides(database)
-        database.events.fields["person"] = LazyJoin(
-            from_field=["person_id"],
-            join_table=PersonsTable(),
-            join_function=join_with_persons_table,
-        )
+        elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+            _use_person_id_from_person_overrides(database)
+            _use_person_properties_from_events(database)
+            cast(VirtualTable, database.events.fields["poe"]).fields["id"] = database.events.fields["person_id"]
 
-    if (
-        modifiers.sessionTableVersion == SessionTableVersion.V2
-        or modifiers.sessionTableVersion == SessionTableVersion.AUTO
-    ):
-        raw_sessions = RawSessionsTableV2()
-        database.raw_sessions = raw_sessions
-        sessions = SessionsTableV2()
-        database.sessions = sessions
-        events = database.events
-        events.fields["session"] = LazyJoin(
-            from_field=["$session_id"],
-            join_table=sessions,
-            join_function=join_events_table_to_sessions_table_v2,
-        )
-        replay_events = database.session_replay_events
-        replay_events.fields["session"] = LazyJoin(
-            from_field=["session_id"],
-            join_table=sessions,
-            join_function=join_replay_table_to_sessions_table_v2,
-        )
-        cast(LazyJoin, replay_events.fields["events"]).join_table = events
-        raw_replay_events = database.raw_session_replay_events
-        raw_replay_events.fields["session"] = LazyJoin(
-            from_field=["session_id"],
-            join_table=sessions,
-            join_function=join_replay_table_to_sessions_table_v2,
-        )
-        cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
+        elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+            _use_person_id_from_person_overrides(database)
+            database.events.fields["person"] = LazyJoin(
+                from_field=["person_id"],
+                join_table=PersonsTable(),
+                join_function=join_with_persons_table,
+            )
 
-    _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
+        _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
 
-    database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-        "$virt_initial_referring_domain_type"
-    )
-    database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-        "$virt_initial_channel_type", modifiers.customChannelTypeRules
-    )
+    with timings.measure("session_table"):
+        if (
+            modifiers.sessionTableVersion == SessionTableVersion.V2
+            or modifiers.sessionTableVersion == SessionTableVersion.AUTO
+        ):
+            raw_sessions = RawSessionsTableV2()
+            database.raw_sessions = raw_sessions
+            sessions = SessionsTableV2()
+            database.sessions = sessions
+            events = database.events
+            events.fields["session"] = LazyJoin(
+                from_field=["$session_id"],
+                join_table=sessions,
+                join_function=join_events_table_to_sessions_table_v2,
+            )
+            replay_events = database.session_replay_events
+            replay_events.fields["session"] = LazyJoin(
+                from_field=["session_id"],
+                join_table=sessions,
+                join_function=join_replay_table_to_sessions_table_v2,
+            )
+            cast(LazyJoin, replay_events.fields["events"]).join_table = events
+            raw_replay_events = database.raw_session_replay_events
+            raw_replay_events.fields["session"] = LazyJoin(
+                from_field=["session_id"],
+                join_table=sessions,
+                join_function=join_replay_table_to_sessions_table_v2,
+            )
+            cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
 
-    for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
-        if database.events.fields.get(mapping.group_type) is None:
-            database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
+        with timings.measure("initial_domain_type"):
+            database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
+                "$virt_initial_referring_domain_type"
+            )
+        with timings.measure("initial_channel_type"):
+            database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
+                "$virt_initial_channel_type", modifiers.customChannelTypeRules
+            )
+
+    with timings.measure("group_type_mapping"):
+        for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
+            if database.events.fields.get(mapping.group_type) is None:
+                database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
     warehouse_tables: dict[str, Table] = {}
     views: dict[str, Table] = {}
 
-    for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
-        views[saved_query.name] = saved_query.hogql_definition(modifiers)
+    with timings.measure("data_warehouse_saved_query"):
+        for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
+            views[saved_query.name] = saved_query.hogql_definition(modifiers)
 
-    for table in (
-        DataWarehouseTable.objects.filter(team_id=team.pk)
-        .exclude(deleted=True)
-        .select_related("credential", "external_data_source")
-    ):
-        # Skip adding data warehouse tables that are materialized from views (in this case they have the same names)
-        if views.get(table.name, None) is not None:
-            continue
+    with timings.measure("data_warehouse_tables"):
+        for table in (
+            DataWarehouseTable.objects.filter(team_id=team.pk)
+            .exclude(deleted=True)
+            .select_related("credential", "external_data_source")
+        ):
+            # Skip adding data warehouse tables that are materialized from views (in this case they have the same names)
+            if views.get(table.name, None) is not None:
+                continue
 
-        s3_table = table.hogql_definition(modifiers)
+            s3_table = table.hogql_definition(modifiers)
 
-        # If the warehouse table has no _properties_ field, then set it as a virtual table
-        if s3_table.fields.get("properties") is None:
+            # If the warehouse table has no _properties_ field, then set it as a virtual table
+            if s3_table.fields.get("properties") is None:
 
-            class WarehouseProperties(VirtualTable):
-                fields: dict[str, FieldOrTable] = s3_table.fields
-                parent_table: S3Table = s3_table
+                class WarehouseProperties(VirtualTable):
+                    fields: dict[str, FieldOrTable] = s3_table.fields
+                    parent_table: S3Table = s3_table
 
-                def to_printed_hogql(self):
-                    return self.parent_table.to_printed_hogql()
+                    def to_printed_hogql(self):
+                        return self.parent_table.to_printed_hogql()
 
-                def to_printed_clickhouse(self, context):
-                    return self.parent_table.to_printed_clickhouse(context)
+                    def to_printed_clickhouse(self, context):
+                        return self.parent_table.to_printed_clickhouse(context)
 
-            s3_table.fields["properties"] = WarehouseProperties()
+                s3_table.fields["properties"] = WarehouseProperties()
 
-        warehouse_tables[table.name] = s3_table
+            warehouse_tables[table.name] = s3_table
 
     def define_mappings(warehouse: dict[str, Table], get_table: Callable):
         if "id" not in warehouse[warehouse_modifier.table_name].fields.keys():
@@ -426,85 +441,92 @@ def create_hogql_database(
     database.add_warehouse_tables(**warehouse_tables)
     database.add_views(**views)
 
-    for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
-        # Skip if either table is not present. This can happen if the table was deleted after the join was created.
-        # User will be prompted on UI to resolve missing tables underlying the JOIN
-        if not database.has_table(join.source_table_name) or not database.has_table(join.joining_table_name):
-            continue
+    with timings.measure("data_warehouse_joins"):
+        for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
+            # Skip if either table is not present. This can happen if the table was deleted after the join was created.
+            # User will be prompted on UI to resolve missing tables underlying the JOIN
+            if not database.has_table(join.source_table_name) or not database.has_table(join.joining_table_name):
+                continue
 
-        try:
-            source_table = database.get_table(join.source_table_name)
-            joining_table = database.get_table(join.joining_table_name)
+            try:
+                source_table = database.get_table(join.source_table_name)
+                joining_table = database.get_table(join.joining_table_name)
 
-            field = parse_expr(join.source_table_key)
-            if not isinstance(field, ast.Field):
-                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
-            from_field = field.chain
+                field = parse_expr(join.source_table_key)
+                if isinstance(field, ast.Field):
+                    from_field = field.chain
+                elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
+                    from_field = field.args[0].chain
+                else:
+                    raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
-            field = parse_expr(join.joining_table_key)
-            if not isinstance(field, ast.Field):
-                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
-            to_field = field.chain
+                field = parse_expr(join.joining_table_key)
+                if isinstance(field, ast.Field):
+                    to_field = field.chain
+                elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
+                    to_field = field.args[0].chain
+                else:
+                    raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
-            source_table.fields[join.field_name] = LazyJoin(
-                from_field=from_field,
-                to_field=to_field,
-                join_table=joining_table,
-                join_function=(
-                    join.join_function_for_experiments()
-                    if "events" == join.joining_table_name and join.configuration.get("experiments_optimized")
-                    else join.join_function()
-                ),
-            )
+                source_table.fields[join.field_name] = LazyJoin(
+                    from_field=from_field,
+                    to_field=to_field,
+                    join_table=joining_table,
+                    join_function=(
+                        join.join_function_for_experiments()
+                        if "events" == join.joining_table_name and join.configuration.get("experiments_optimized")
+                        else join.join_function()
+                    ),
+                )
 
-            if join.source_table_name == "persons":
-                person_field = database.events.fields["person"]
-                if isinstance(person_field, ast.FieldTraverser):
-                    table_or_field: ast.FieldOrTable = database.events
-                    for chain in person_field.chain:
-                        if isinstance(table_or_field, ast.LazyJoin):
-                            table_or_field = table_or_field.resolve_table(
-                                HogQLContext(team_id=team_id, database=database)
-                            )
-                            if table_or_field.has_field(chain):
+                if join.source_table_name == "persons":
+                    person_field = database.events.fields["person"]
+                    if isinstance(person_field, ast.FieldTraverser):
+                        table_or_field: ast.FieldOrTable = database.events
+                        for chain in person_field.chain:
+                            if isinstance(table_or_field, ast.LazyJoin):
+                                table_or_field = table_or_field.resolve_table(
+                                    HogQLContext(team_id=team_id, database=database)
+                                )
+                                if table_or_field.has_field(chain):
+                                    table_or_field = table_or_field.get_field(chain)
+                                    if isinstance(table_or_field, ast.LazyJoin):
+                                        table_or_field = table_or_field.resolve_table(
+                                            HogQLContext(team_id=team_id, database=database)
+                                        )
+                            elif isinstance(table_or_field, ast.Table):
                                 table_or_field = table_or_field.get_field(chain)
-                                if isinstance(table_or_field, ast.LazyJoin):
-                                    table_or_field = table_or_field.resolve_table(
-                                        HogQLContext(team_id=team_id, database=database)
-                                    )
-                        elif isinstance(table_or_field, ast.Table):
-                            table_or_field = table_or_field.get_field(chain)
 
-                    assert isinstance(table_or_field, ast.Table)
+                        assert isinstance(table_or_field, ast.Table)
 
-                    if isinstance(table_or_field, ast.VirtualTable):
-                        table_or_field.fields[join.field_name] = ast.FieldTraverser(chain=["..", join.field_name])
-                        database.events.fields[join.field_name] = LazyJoin(
-                            from_field=from_field,
-                            to_field=to_field,
-                            join_table=joining_table,
-                            # reusing join_function but with different source_table_key since we're joining 'directly' on events
-                            join_function=join.join_function(
-                                override_source_table_key=f"person.{join.source_table_key}"
-                            ),
-                        )
-                    else:
-                        table_or_field.fields[join.field_name] = LazyJoin(
+                        if isinstance(table_or_field, ast.VirtualTable):
+                            table_or_field.fields[join.field_name] = ast.FieldTraverser(chain=["..", join.field_name])
+                            database.events.fields[join.field_name] = LazyJoin(
+                                from_field=from_field,
+                                to_field=to_field,
+                                join_table=joining_table,
+                                # reusing join_function but with different source_table_key since we're joining 'directly' on events
+                                join_function=join.join_function(
+                                    override_source_table_key=f"person.{join.source_table_key}"
+                                ),
+                            )
+                        else:
+                            table_or_field.fields[join.field_name] = LazyJoin(
+                                from_field=from_field,
+                                to_field=to_field,
+                                join_table=joining_table,
+                                join_function=join.join_function(),
+                            )
+                    elif isinstance(person_field, ast.LazyJoin):
+                        person_field.join_table.fields[join.field_name] = LazyJoin(  # type: ignore
                             from_field=from_field,
                             to_field=to_field,
                             join_table=joining_table,
                             join_function=join.join_function(),
                         )
-                elif isinstance(person_field, ast.LazyJoin):
-                    person_field.join_table.fields[join.field_name] = LazyJoin(  # type: ignore
-                        from_field=from_field,
-                        to_field=to_field,
-                        join_table=joining_table,
-                        join_function=join.join_function(),
-                    )
 
-        except Exception as e:
-            capture_exception(e)
+            except Exception as e:
+                capture_exception(e)
 
     return database
 

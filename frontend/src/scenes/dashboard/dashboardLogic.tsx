@@ -37,7 +37,13 @@ import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
-import { DashboardFilter, DataVisualizationNode, HogQLVariable, NodeKind, RefreshType } from '~/queries/schema'
+import {
+    DashboardFilter,
+    DataVisualizationNode,
+    HogQLVariable,
+    NodeKind,
+    RefreshType,
+} from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -250,6 +256,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             allVariables: values.variables,
         }),
         resetVariables: () => ({ variables: values.insightVariables }),
+        setAccessDeniedToDashboard: true,
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -295,6 +302,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } catch (error: any) {
                         if (error.status === 404) {
                             return null
+                        }
+                        if (error.status === 403 && error.code === 'permission_denied') {
+                            actions.setAccessDeniedToDashboard()
                         }
                         throw error
                     }
@@ -423,6 +433,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             true,
             {
                 setPageVisibility: (_, { visible }) => visible,
+            },
+        ],
+        accessDeniedToDashboard: [
+            false,
+            {
+                setAccessDeniedToDashboard: () => true,
             },
         ],
         dashboardFailedToLoad: [

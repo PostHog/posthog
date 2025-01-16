@@ -6,7 +6,7 @@ describe('mergeIssues', () => {
     it('arbitrary values', async () => {
         const primaryIssue: ErrorTrackingIssue = {
             id: 'primaryId',
-            assignee: 400,
+            assignee: { type: 'user', id: 400 },
             description: 'This is the original description',
             name: 'TypeError',
             first_seen: '2024-07-22T13:15:07.074000Z',
@@ -15,6 +15,7 @@ describe('mergeIssues', () => {
             sessions: 100,
             status: 'active',
             users: 50,
+            earliest: '',
             volume: [
                 '__hx_tag',
                 'Sparkline',
@@ -34,7 +35,7 @@ describe('mergeIssues', () => {
         const mergingIssues: ErrorTrackingIssue[] = [
             {
                 id: 'secondId',
-                assignee: 100,
+                assignee: { type: 'user', id: 100 },
                 description: 'This is another description',
                 name: 'SyntaxError',
                 first_seen: '2024-07-21T13:15:07.074000Z',
@@ -43,6 +44,7 @@ describe('mergeIssues', () => {
                 sessions: 5,
                 status: 'active',
                 users: 1,
+                earliest: '',
                 volume: [
                     '__hx_tag',
                     'Sparkline',
@@ -60,7 +62,7 @@ describe('mergeIssues', () => {
             },
             {
                 id: 'thirdId',
-                assignee: 400,
+                assignee: { type: 'user', id: 400 },
                 description: 'This is another description',
                 name: 'SyntaxError',
                 first_seen: '2024-07-21T13:15:07.074000Z',
@@ -69,6 +71,7 @@ describe('mergeIssues', () => {
                 sessions: 1,
                 status: 'active',
                 users: 1,
+                earliest: '',
                 volume: [
                     '__hx_tag',
                     'Sparkline',
@@ -95,6 +98,7 @@ describe('mergeIssues', () => {
                 sessions: 500,
                 status: 'active',
                 users: 50,
+                earliest: '',
                 volume: [
                     '__hx_tag',
                     'Sparkline',
@@ -117,8 +121,9 @@ describe('mergeIssues', () => {
         expect(mergedIssue).toEqual({
             // retains values from primary group
             id: 'primaryId',
-            assignee: 400,
+            assignee: { type: 'user', id: 400 },
             description: 'This is the original description',
+            earliest: '',
             name: 'TypeError',
             status: 'active',
             // earliest first_seen

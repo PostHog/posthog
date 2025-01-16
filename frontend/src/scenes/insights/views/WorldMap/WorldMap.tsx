@@ -1,7 +1,7 @@
 import './WorldMap.scss'
 
 import { useActions, useValues } from 'kea'
-import { BRAND_BLUE_HSL, gradateColor } from 'lib/colors'
+import { BRAND_BLUE_HSL, gradateColor } from 'lib/utils'
 import React, { HTMLProps, useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -9,7 +9,7 @@ import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
-import { InsightQueryNode, NodeKind } from '~/queries/schema'
+import { InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ChartParams, TrendResult } from '~/types'
 
 import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'

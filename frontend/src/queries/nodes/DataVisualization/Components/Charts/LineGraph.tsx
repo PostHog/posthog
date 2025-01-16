@@ -121,12 +121,16 @@ export const LineGraph = (): JSX.Element => {
             ySeriesData = seriesBreakdownData.seriesData
             xSeriesData = seriesBreakdownData.xData
             hasRightYAxis = !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'right')
-            hasLeftYAxis = !hasRightYAxis || !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'left')
+            hasLeftYAxis =
+                !chartSettings.stackBars100 &&
+                (!hasRightYAxis || !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'left'))
         } else if (xData && yData) {
             ySeriesData = yData
             xSeriesData = xData
             hasRightYAxis = !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'right')
-            hasLeftYAxis = !hasRightYAxis || !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'left')
+            hasLeftYAxis =
+                !chartSettings.stackBars100 &&
+                (!hasRightYAxis || !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'left'))
         } else {
             return
         }
@@ -138,6 +142,14 @@ export const LineGraph = (): JSX.Element => {
                 const backgroundColor = isAreaChart ? hexToRGBA(color, 0.5) : color
 
                 const graphType = getGraphType(visualizationType, settings)
+
+                let yAxisID = 'yLeft'
+                // use default that's set by stackBars100
+                if (chartSettings.stackBars100) {
+                    yAxisID = 'y'
+                } else if (settings?.display?.yAxisPosition === 'right') {
+                    yAxisID = 'yRight'
+                }
 
                 return {
                     data,
@@ -151,7 +163,7 @@ export const LineGraph = (): JSX.Element => {
                     hoverBorderRadius: graphType === GraphType.Bar ? 0 : 2,
                     type: graphType,
                     fill: isAreaChart ? 'origin' : false,
-                    yAxisID: settings?.display?.yAxisPosition === 'right' ? 'yRight' : 'yLeft',
+                    yAxisID,
                     ...(settings?.display?.trendLine
                         ? {
                               trendlineLinear: {

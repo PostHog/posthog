@@ -20,6 +20,7 @@ class Migration(migrations.Migration):
                     ("google-pubsub", "Google Pubsub"),
                     ("google-cloud-storage", "Google Cloud Storage"),
                     ("google-ads", "Google Ads"),
+                    ("snapchat", "Snapchat"),
                 ],
                 max_length=20,
             ),

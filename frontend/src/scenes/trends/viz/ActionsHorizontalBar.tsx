@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -34,11 +33,13 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         querySource,
         breakdownFilter,
         hiddenLegendIndexes,
+        getTrendsColor,
+        theme,
     } = useValues(trendsDataLogic(insightProps))
 
     function updateData(): void {
         const _data = [...indexedResults]
-        const colorList = indexedResults.map((_, idx) => getSeriesColor(idx))
+        const colorList = indexedResults.map(getTrendsColor)
 
         setData([
             {
@@ -51,7 +52,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                     return formatBreakdownLabel(
                         item.breakdown_value,
                         breakdownFilter,
-                        cohorts,
+                        cohorts?.results,
                         formatPropertyValueForDisplay
                     )
                 }),
@@ -71,7 +72,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         if (indexedResults) {
             updateData()
         }
-    }, [indexedResults])
+    }, [indexedResults, theme])
 
     return data && total > 0 ? (
         <LineGraph

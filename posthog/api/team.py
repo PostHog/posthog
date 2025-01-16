@@ -141,6 +141,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "surveys_opt_in",
             "heatmaps_opt_in",
             "capture_dead_clicks",
+            "flags_persistence_default",
         ]
         read_only_fields = fields
 
@@ -201,6 +202,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "primary_dashboard",
             "live_events_columns",
             "recording_domains",
+            "cookieless_server_hash_mode",
+            "human_friendly_comparison_periods",
             "person_on_events_querying_enabled",
             "inject_web_apps",
             "extra_settings",
@@ -209,10 +212,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
+            "flags_persistence_default",
             "live_events_token",
             "product_intents",
             "capture_dead_clicks",
             "user_access_level",
+            "default_data_theme",
         )
         read_only_fields = (
             "id",

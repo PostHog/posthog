@@ -79,6 +79,7 @@ class S3BatchExportInputs:
         region: The AWS region where the bucket is located.
         prefix: A prefix for the file name to be created in S3.
             For example, for one hour batches, this should be 3600.
+        max_file_size_mb: The maximum file size in MB for each file to be uploaded.
         data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
             scheduled runs and for backfills.
     """
@@ -99,6 +100,7 @@ class S3BatchExportInputs:
     kms_key_id: str | None = None
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
+    max_file_size_mb: int | None = None
     is_backfill: bool = False
     is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
@@ -492,10 +494,7 @@ async def start_backfill_batch_export_workflow(
         "backfill-batch-export",
         inputs,
         id=workflow_id,
-        # TODO: Backfills could also run in async queue.
-        # But tests expect them not to, so we keep them in sync
-        # queue after everything is migrated.
-        task_queue=SYNC_BATCH_EXPORTS_TASK_QUEUE,
+        task_queue=BATCH_EXPORTS_TASK_QUEUE,
     )
 
     return workflow_id
@@ -646,11 +645,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 
     destination_config_fields = {field.name for field in fields(workflow_inputs)}
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
-    task_queue = (
-        BATCH_EXPORTS_TASK_QUEUE
-        if batch_export.destination.type in ("BigQuery", "Redshift")
-        else SYNC_BATCH_EXPORTS_TASK_QUEUE
-    )
+    task_queue = SYNC_BATCH_EXPORTS_TASK_QUEUE if batch_export.destination.type == "HTTP" else BATCH_EXPORTS_TASK_QUEUE
 
     temporal = sync_connect()
     schedule = Schedule(
@@ -687,7 +682,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
-            jitter=min(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
+            jitter=max(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
             time_zone_name=batch_export.team.timezone,
         ),
         state=state,

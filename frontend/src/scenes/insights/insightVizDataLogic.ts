@@ -11,6 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -34,7 +35,7 @@ import {
     NodeKind,
     TrendsFilter,
     TrendsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     filterKeyForQuery,
@@ -42,7 +43,9 @@ import {
     getCompareFilter,
     getDisplay,
     getFormula,
+    getGoalLines,
     getInterval,
+    getResultCustomizationBy,
     getSeries,
     getShowAlertThresholdLines,
     getShowLabelsOnSeries,
@@ -86,6 +89,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['filterTestAccountsDefault'],
             databaseTableListLogic,
             ['dataWarehouseTablesMap'],
+            dataThemeLogic,
+            ['getTheme'],
         ],
         actions: [insightDataLogic, ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure']],
     })),
@@ -162,6 +167,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return false
             },
         ],
+        supportsResultCustomizationBy: [
+            (s) => [s.isTrends, s.display],
+            (isTrends, display) =>
+                isTrends && [ChartDisplayType.ActionsLineGraph].includes(display || ChartDisplayType.ActionsLineGraph),
+        ],
 
         dateRange: [(s) => [s.querySource], (q) => (q ? q.dateRange : null)],
         breakdownFilter: [(s) => [s.querySource], (q) => (q ? getBreakdown(q) : null)],
@@ -178,7 +188,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
         yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
-        vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
+        resultCustomizationBy: [(s) => [s.querySource], (q) => (q ? getResultCustomizationBy(q) : null)],
+        goalLines: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? getGoalLines(q) : null)],
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
         funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
@@ -187,6 +198,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
         lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
         funnelPathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.funnelPathsFilter : null)],
+        vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
 
         isUsingSessionAnalysis: [
             (s) => [s.series, s.breakdownFilter, s.properties],
@@ -387,6 +399,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.querySource, actionsModel.selectors.actions],
             (querySource, actions) => (querySource ? getAllEventNames(querySource, actions) : []),
         ],
+
+        theme: [(s) => [s.getTheme, s.querySource], (getTheme, querySource) => getTheme(querySource?.dataColorTheme)],
     }),
 
     listeners(({ actions, values, props }) => ({
