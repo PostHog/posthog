@@ -1,5 +1,4 @@
 import os
-import django
 from datetime import datetime
 import pandas as pd
 
@@ -10,7 +9,7 @@ from dagster import (
     MetadataValue,
 )
 
-from posthog.clickhouse.client import sync_execute  # noqa
+from posthog.clickhouse.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.settings import (
     CLICKHOUSE_CLUSTER,
@@ -19,10 +18,6 @@ from posthog.settings import (
     CLICKHOUSE_USER,
     CLICKHOUSE_SECURE,
 )
-
-# setup PostHog Django Project
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-django.setup()
 
 
 class DeleteConfig(Config):
