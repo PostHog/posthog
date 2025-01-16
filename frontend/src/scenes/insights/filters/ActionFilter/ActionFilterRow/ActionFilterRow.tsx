@@ -685,8 +685,9 @@ function useMathSelectorOptions({
         if (isPropertyValueMath(math)) {
             return math
         }
-        if (onlyPropertyMathDefinitions?.length) {
-            return onlyPropertyMathDefinitions[0] as PropertyMathType
+        if (allowedMathTypes?.length) {
+            // filter out non-property math types
+            return allowedMathTypes.filter(isPropertyValueMath)[0] as PropertyMathType
         }
         return PropertyMathType.Average
     })
@@ -809,7 +810,6 @@ function useMathSelectorOptions({
         }
     }
 
-    // Add HogQL option if HogQLMathType.HogQL is included in onlyMathTypes
     if (
         mathAvailability !== MathAvailability.FunnelsOnly &&
         (!allowedMathTypes || allowedMathTypes.includes(HogQLMathType.HogQL))
