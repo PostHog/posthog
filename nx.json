@@ -1,0 +1,154 @@
+{
+    "$schema": "./node_modules/nx/schemas/nx-schema.json",
+    "targetDefaults": {
+        "build": {
+            "outputs": ["{projectRoot}/frontend/dist"],
+            "cache": true
+        },
+        "build:esbuild": {
+            "outputs": ["{projectRoot}/frontend/dist"],
+            "cache": true
+        },
+        "schema:build": {
+            "outputs": ["{projectRoot}/posthog/schema.py, frontend/src/queries/schema.json"],
+            "cache": true
+        },
+        "schema:build:json": {
+            "outputs": ["{projectRoot}/frontend/src/queries/schema.json"],
+            "cache": true
+        },
+        "schema:build:python": {
+            "outputs": ["{projectRoot}/posthog/schema.py"],
+            "cache": true
+        },
+        "grammar:build": {
+            "outputs": ["{projectRoot}/posthog/hogql/grammar"],
+            "cache": true
+        },
+        "grammar:build:python": {
+            "outputs": ["{projectRoot}/posthog/hogql/grammar"],
+            "cache": true
+        },
+        "grammar:build:cpp": {
+            "outputs": ["{projectRoot}/hogql_parser"],
+            "cache": true
+        },
+        "packages:build:apps-common": {
+            "outputs": ["{projectRoot}/frontend/@posthog/apps-common/dist"],
+            "cache": true
+        },
+        "packages:build:lemon-ui": {
+            "outputs": ["{projectRoot}/frontend/@posthog/lemon-ui/dist"],
+            "cache": true
+        },
+        "editor:update-tsd": {
+            "outputs": ["{projectRoot}/frontend/src/scenes/plugins/source/types/packages.json"],
+            "cache": true
+        },
+        "copy-scripts": {
+            "cache": true
+        },
+        "test": {
+            "cache": true
+        },
+        "test:unit": {
+            "cache": true
+        },
+        "jest": {
+            "cache": true
+        },
+        "test:visual:update": {
+            "cache": true
+        },
+        "test:visual:update:docker": {
+            "cache": true
+        },
+        "test:visual:debug": {
+            "cache": true
+        },
+        "test:visual:ci:update": {
+            "cache": true
+        },
+        "test:visual:ci:verify": {
+            "cache": true
+        },
+        "clean": {
+            "cache": true
+        },
+        "packages:build": {
+            "cache": true
+        },
+        "typescript:check": {
+            "cache": true
+        },
+        "lint:js": {
+            "cache": true
+        },
+        "lint:css": {
+            "cache": true
+        },
+        "format:backend": {
+            "cache": true
+        },
+        "format:frontend": {
+            "cache": true
+        },
+        "format": {
+            "cache": true
+        },
+        "typegen:write": {
+            "cache": true
+        },
+        "typegen:check": {
+            "cache": true
+        },
+        "typegen:clean": {
+            "cache": true
+        },
+        "build-storybook": {
+            "cache": true
+        },
+        "visualize-toolbar-bundle": {
+            "cache": true
+        }
+    },
+    "defaultBase": "master",
+    "plugins": [
+        {
+            "plugin": "@nx/eslint/plugin",
+            "options": {
+                "targetName": "lint"
+            }
+        },
+        {
+            "plugin": "@nx/storybook/plugin",
+            "options": {
+                "serveStorybookTargetName": "serve:storybook",
+                "buildStorybookTargetName": "build:storybook",
+                "testStorybookTargetName": "test-storybook",
+                "staticStorybookTargetName": "static-storybook"
+            }
+        },
+        {
+            "plugin": "@nx/jest/plugin",
+            "options": {
+                "targetName": "jest:test"
+            }
+        },
+        {
+            "plugin": "@nx/cypress/plugin",
+            "options": {
+                "targetName": "e2e",
+                "openTargetName": "open-cypress",
+                "componentTestingTargetName": "component-test",
+                "ciTargetName": "e2e-ci"
+            }
+        },
+        {
+            "plugin": "@nx/playwright/plugin",
+            "options": {
+                "targetName": "e2e"
+            }
+        }
+    ]
+}
