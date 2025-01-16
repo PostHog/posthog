@@ -2163,13 +2163,6 @@ async def test_insert_into_s3_activity_when_using_distributed_events_recent_tabl
 
     prefix = str(uuid.uuid4())
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
-        batch_export_model = model
-    elif model is not None:
-        batch_export_schema = model
-
     insert_inputs = S3InsertInputs(
         bucket_name=bucket_name,
         region="us-east-1",
@@ -2183,8 +2176,8 @@ async def test_insert_into_s3_activity_when_using_distributed_events_recent_tabl
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,
-        batch_export_schema=batch_export_schema,
-        batch_export_model=batch_export_model,
+        batch_export_schema=None,
+        batch_export_model=model,
     )
 
     with override_settings(
