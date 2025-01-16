@@ -248,7 +248,7 @@ class CohortSerializer(serializers.ModelSerializer):
                             team_id=team_id,
                             # Only appending `team_id` if it's not the same as the cohort's `team_id``, so that
                             # the migration to environments does not accidentally cause duplicate `AsyncDeletion`s
-                            key=f"{cohort.pk}_{cohort.version}{('_'+team_id) if team_id != cohort.team_id else ''}",
+                            key=f"{cohort.pk}_{cohort.version}{('_' + team_id) if team_id != cohort.team_id else ''}",
                         )
                         for team_id in relevant_team_ids
                     ],
@@ -304,6 +304,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
+
+            search_query = self.request.query_params.get("search", None)
+            if search_query:
+                queryset = queryset.filter(name__icontains=search_query)
 
         return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
 

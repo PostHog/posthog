@@ -729,7 +729,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert insight_json["dashboard_tiles"] == []
 
         insight_by_short_id = self.client.get(
-            f'/api/projects/{self.team.pk}/insights?short_id={insight_json["short_id"]}'
+            f"/api/projects/{self.team.pk}/insights?short_id={insight_json['short_id']}"
         )
         assert insight_by_short_id.json()["results"][0]["dashboards"] == []
         assert insight_by_short_id.json()["results"][0]["dashboard_tiles"] == []
@@ -1959,7 +1959,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _create_event(team=self.team, event="user signed up", distinct_id="1")
         _create_event(team=self.team, event="user did things", distinct_id="1")
         response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/funnel/?funnel_window_days=14&events={json.dumps([{'id': 'user signed up', 'type': 'events', 'order': 0}, {'id': 'user did things', 'type': 'events', 'order': 1}, ])}"
+            f"/api/projects/{self.team.id}/insights/funnel/?funnel_window_days=14&events={json.dumps([{'id': 'user signed up', 'type': 'events', 'order': 0}, {'id': 'user did things', 'type': 'events', 'order': 1}])}"
         ).json()
 
         # clickhouse funnels don't have a loading system
@@ -1967,29 +1967,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["result"][0]["name"], "user signed up")
         self.assertEqual(response["result"][1]["name"], "user did things")
         self.assertEqual(response["timezone"], "UTC")
-
-    def test_insight_retention_basic(self) -> None:
-        _create_person(
-            team=self.team,
-            distinct_ids=["person1"],
-            properties={"email": "person1@test.com"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="person1",
-            timestamp=timezone.now() - timedelta(days=11),
-        )
-
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="person1",
-            timestamp=timezone.now() - timedelta(days=10),
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/retention/").json()
-
-        self.assertEqual(len(response["result"]), 11)
 
     def test_logged_out_user_cannot_retrieve_insight(self) -> None:
         self.client.logout()
@@ -2712,7 +2689,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert patched_get_safe_cache.call_args_list[0] == patched_get_safe_cache.call_args_list[1]
 
     def _get_insight_with_client_query_id(self, client_query_id: str) -> None:
-        query_params = f"?events={json.dumps([{'id': '$pageview', }])}&client_query_id={client_query_id}"
+        query_params = f"?events={json.dumps([{'id': '$pageview'}])}&client_query_id={client_query_id}"
         self.client.get(f"/api/projects/{self.team.id}/insights/trend/{query_params}").json()
 
     def assert_insight_activity(self, insight_id: Optional[int], expected: list[dict]):
@@ -3298,73 +3275,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
             )
             self.assertEqual(response_json["timezone"], "UTC")
-
-    def test_insight_retention_hogql(self) -> None:
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            _create_person(
-                team=self.team,
-                distinct_ids=["person1"],
-                properties={"email": "person1@test.com"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="person1",
-                timestamp=timezone.now() - timedelta(days=11),
-                properties={"int_value": 1},
-            )
-
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="person1",
-                timestamp=timezone.now() - timedelta(days=10),
-                properties={"int_value": 20},
-            )
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/retention/").json()
-
-            self.assertEqual(len(response["result"]), 11)
-            self.assertEqual(response["result"][0]["values"][0]["count"], 1)
-
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/retention/",
-                data={
-                    "properties": json.dumps(
-                        [
-                            {
-                                "key": "toInt(properties.int_value) > 100 and 'bla' != 'a%sd'",
-                                "type": "hogql",
-                            },
-                            {
-                                "key": "like(person.properties.email, '%test.com%')",
-                                "type": "hogql",
-                            },
-                        ]
-                    ),
-                },
-            ).json()
-            self.assertEqual(len(response["result"]), 11)
-            self.assertEqual(response["result"][0]["values"][0]["count"], 0)
-
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/retention/",
-                data={
-                    "properties": json.dumps(
-                        [
-                            {
-                                "key": "toInt(properties.int_value) > 0 and 'bla' != 'a%sd'",
-                                "type": "hogql",
-                            },
-                            {
-                                "key": "like(person.properties.email, '%test.com%')",
-                                "type": "hogql",
-                            },
-                        ]
-                    ),
-                },
-            ).json()
-            self.assertEqual(len(response["result"]), 11)
-            self.assertEqual(response["result"][0]["values"][0]["count"], 1)
 
     def test_insight_with_filters_via_hogql(self) -> None:
         filter_dict = {"insight": "LIFECYCLE", "events": [{"id": "$pageview"}]}

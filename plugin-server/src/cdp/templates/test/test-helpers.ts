@@ -1,9 +1,11 @@
-import { HogExecutor } from '../../hog-executor'
+import { buildGlobalsWithInputs, HogExecutor } from '../../hog-executor'
 import {
     HogFunctionInputType,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionQueueParametersFetchResponse,
+    HogFunctionType,
 } from '../../types'
 import { createInvocation } from '../../utils'
 import { compileHog } from '../compiler'
@@ -45,8 +47,9 @@ export class TemplateTester {
         this.executor = new HogExecutor(mockHub, mockHogFunctionManager)
     }
 
-    createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobals {
+    createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
         return {
+            inputs: {},
             project: { id: 1, name: 'project-name', url: 'https://us.posthog.com/projects/1' },
             event: {
                 uuid: 'event-id',
@@ -115,15 +118,17 @@ export class TemplateTester {
 
         const globals = this.createGlobals(_globals)
 
-        const hogFunction = {
+        const hogFunction: HogFunctionType = {
             ...this.template,
             inputs: compiledInputs,
             bytecode: this.template.bytecode,
             team_id: 1,
             enabled: true,
+            mappings: this.template.mappings || null,
         }
 
-        const invocation = createInvocation(globals, hogFunction)
+        const globalsWithInputs = buildGlobalsWithInputs(globals, hogFunction.inputs)
+        const invocation = createInvocation(globalsWithInputs, hogFunction)
         return this.executor.execute(invocation)
     }
 

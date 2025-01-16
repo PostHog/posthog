@@ -1,4 +1,4 @@
-import { LemonFileInput, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonDivider, LemonFileInput, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 import { Form, Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -6,6 +6,7 @@ import { SourceConfig, SourceFieldConfig } from '~/types'
 
 import { SOURCE_DETAILS, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
+import { parseConnectionString } from './parseConnectionString'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -13,7 +14,47 @@ export interface SourceFormProps {
     jobInputs?: Record<string, any>
 }
 
+const CONNECTION_STRING_DEFAULT_PORT = {
+    Postgres: 5432,
+}
+
 const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConfig, lastValue?: any): JSX.Element => {
+    if (field.type === 'text' && field.name === 'connection_string') {
+        return (
+            <>
+                <LemonField key={field.name} name={field.name} label={field.label}>
+                    {({ onChange }) => (
+                        <LemonInput
+                            key={field.name}
+                            className="ph-connection-string"
+                            data-attr={field.name}
+                            placeholder={field.placeholder}
+                            type="text"
+                            onChange={(updatedConnectionString) => {
+                                onChange(updatedConnectionString)
+                                const { host, port, database, user, password, isValid } =
+                                    parseConnectionString(updatedConnectionString)
+
+                                if (isValid) {
+                                    sourceWizardLogic.actions.setSourceConnectionDetailsValues({
+                                        payload: {
+                                            dbname: database || '',
+                                            host: host || '',
+                                            user: user || '',
+                                            port: port || CONNECTION_STRING_DEFAULT_PORT[sourceConfig.name],
+                                            password: password || '',
+                                        },
+                                    })
+                                }
+                            }}
+                        />
+                    )}
+                </LemonField>
+                <LemonDivider />
+            </>
+        )
+    }
+
     if (field.type === 'switch-group') {
         return (
             <LemonField key={field.name} name={[field.name, 'enabled']} label={field.label}>
@@ -113,13 +154,17 @@ const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConf
 
     return (
         <LemonField key={field.name} name={field.name} label={field.label}>
-            <LemonInput
-                className="ph-ignore-input"
-                data-attr={field.name}
-                placeholder={field.placeholder}
-                type={field.type}
-                defaultValue={lastValue}
-            />
+            {({ value, onChange }) => (
+                <LemonInput
+                    className="ph-ignore-input"
+                    data-attr={field.name}
+                    placeholder={field.placeholder}
+                    type={field.type as 'text'}
+                    defaultValue={lastValue}
+                    value={value ?? ''}
+                    onChange={onChange}
+                />
+            )}
         </LemonField>
     )
 }

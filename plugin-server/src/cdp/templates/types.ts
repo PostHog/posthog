@@ -3,6 +3,7 @@ import {
     HogBytecode,
     HogFunctionFilters,
     HogFunctionInputSchemaType,
+    HogFunctionMappingType,
     HogFunctionMasking,
     HogFunctionTypeType,
 } from '../types'
@@ -18,13 +19,8 @@ export type HogFunctionSubTemplate = {
     input_schema_overrides?: Record<string, Partial<HogFunctionInputSchemaType>>
     type?: HogFunctionTypeType
 }
-export type HogFunctionMapping = {
-    filters?: HogFunctionFilters
-    inputs?: Record<string, any>
-    inputs_schema?: Record<string, any>
-}
 
-export type HogFunctionMappingTemplate = HogFunctionMapping & {
+export type HogFunctionMappingTemplate = HogFunctionMappingType & {
     name: string
     include_by_default?: boolean
 }
@@ -40,7 +36,7 @@ export type HogFunctionTemplate = {
     category: string[]
     sub_templates?: HogFunctionSubTemplate[]
     filters?: HogFunctionFilters
-    mappings?: HogFunctionMapping[]
+    mappings?: HogFunctionMappingType[]
     mapping_templates?: HogFunctionMappingTemplate[]
     masking?: HogFunctionMasking
     icon_url?: string

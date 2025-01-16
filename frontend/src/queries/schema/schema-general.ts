@@ -93,6 +93,7 @@ export enum NodeKind {
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
+    CoreWebVitalsQuery = 'CoreWebVitalsQuery',
 
     // Experiment queries
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
@@ -106,6 +107,7 @@ export enum NodeKind {
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
+    TracesQuery = 'TracesQuery',
 }
 
 export type AnyDataNode =
@@ -125,6 +127,7 @@ export type AnyDataNode =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
+    | CoreWebVitalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
@@ -153,6 +156,7 @@ export type QuerySchema =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
+    | CoreWebVitalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
@@ -181,6 +185,7 @@ export type QuerySchema =
     | TeamTaxonomyQuery
     | EventTaxonomyQuery
     | ActorsPropertyTaxonomyQuery
+    | TracesQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -557,6 +562,7 @@ export interface EventsQueryPersonColumn {
     }
     distinct_id: string
 }
+
 export interface EventsQuery extends DataNode<EventsQueryResponse> {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */
@@ -626,6 +632,7 @@ export interface DataTableNode
                     | WebStatsTableQuery
                     | WebExternalClicksTableQuery
                     | WebGoalsQuery
+                    | CoreWebVitalsQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
@@ -646,6 +653,7 @@ export interface DataTableNode
         | WebStatsTableQuery
         | WebExternalClicksTableQuery
         | WebGoalsQuery
+        | CoreWebVitalsQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
@@ -659,6 +667,8 @@ export interface DataTableNode
 export interface GoalLine {
     label: string
     value: number
+    displayLabel?: boolean
+    borderColor?: string
 }
 
 export interface ChartAxis {
@@ -689,6 +699,7 @@ export interface YAxisSettings {
     /** Whether the Y axis should start at zero */
     startAtZero?: boolean
 }
+
 export interface ChartSettings {
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
@@ -884,6 +895,8 @@ export type TrendsFilter = {
     resultCustomizations?:
         | Record<string, ResultCustomizationByValue>
         | Record<numerical_key, ResultCustomizationByPosition>
+    /** Goal Lines */
+    goalLines?: GoalLine[]
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
@@ -1527,6 +1540,26 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase<unknow
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
+export type CoreWebVitalsMetric = 'INP' | 'LCP' | 'CLS' | 'FCP'
+
+export interface CoreWebVitalsQuery<T = InsightQueryNode> extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
+    kind: NodeKind.CoreWebVitalsQuery
+    source: T
+}
+
+export interface CoreWebVitalsItemAction {
+    custom_name: CoreWebVitalsMetric
+    math: PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
+}
+export interface CoreWebVitalsItem {
+    data: number[]
+    days: string[]
+    action: CoreWebVitalsItemAction
+}
+
+export type CoreWebVitalsQueryResponse = AnalyticsQueryResponseBase<CoreWebVitalsItem[]>
+export type CachedCoreWebVitalsQueryResponse = CachedQueryResponse<CoreWebVitalsQueryResponse>
+
 export enum SessionAttributionGroupBy {
     ChannelType = 'ChannelType',
     Medium = 'Medium',
@@ -1558,16 +1591,21 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    issueId?: string
+    issueId?: ErrorTrackingIssue['id']
     select?: HogQLExpression[]
     orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
-    assignee?: integer | null
+    assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
     limit?: integer
     offset?: integer
+}
+
+export interface ErrorTrackingIssueAssignee {
+    type: 'user_group' | 'user'
+    id: integer | string
 }
 
 export interface ErrorTrackingIssue {
@@ -1584,7 +1622,7 @@ export interface ErrorTrackingIssue {
     earliest?: string
     // Sparkline data handled by the DataTable
     volume?: any
-    assignee: number | null
+    assignee: ErrorTrackingIssueAssignee | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
 }
 
@@ -2148,3 +2186,57 @@ export enum DefaultChannelTypes {
     Affiliate = 'Affiliate',
     Unknown = 'Unknown',
 }
+
+export interface LLMGeneration {
+    id: string
+    createdAt: string
+    input: any[]
+    latency: number
+    output?: any
+    provider?: string
+    model?: string
+    inputTokens?: number
+    outputTokens?: number
+    inputCost?: number
+    outputCost?: number
+    totalCost?: number
+    httpStatus?: number
+    baseUrl?: string
+}
+
+export interface LLMTracePerson {
+    uuid: string
+    createdAt: string
+    properties: Record<string, any>
+    distinctId: string
+}
+
+export interface LLMTrace {
+    id: string
+    createdAt: string
+    person: LLMTracePerson
+    totalLatency: number
+    inputTokens: number
+    outputTokens: number
+    inputCost: number
+    outputCost: number
+    totalCost: number
+    events: LLMGeneration[]
+}
+
+export interface TracesQueryResponse extends AnalyticsQueryResponseBase<LLMTrace[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+
+export interface TracesQuery extends DataNode<TracesQueryResponse> {
+    kind: NodeKind.TracesQuery
+    traceId?: string
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>

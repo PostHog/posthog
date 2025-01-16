@@ -120,46 +120,62 @@ export function SharedMetricModal({
             {mode === 'create' && (
                 <div className="space-y-2">
                     {availableSharedMetrics.length > 0 ? (
-                        <LemonTable
-                            dataSource={availableSharedMetrics}
-                            columns={[
-                                {
-                                    title: '',
-                                    key: 'checkbox',
-                                    render: (_, metric: SharedMetric) => (
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedMetricIds.includes(metric.id)}
-                                            onChange={(e) => {
-                                                if (e.target.checked) {
-                                                    setSelectedMetricIds([...selectedMetricIds, metric.id])
-                                                } else {
-                                                    setSelectedMetricIds(
-                                                        selectedMetricIds.filter((id) => id !== metric.id)
-                                                    )
-                                                }
-                                            }}
-                                        />
-                                    ),
-                                },
-                                {
-                                    title: 'Name',
-                                    dataIndex: 'name',
-                                    key: 'name',
-                                },
-                                {
-                                    title: 'Description',
-                                    dataIndex: 'description',
-                                    key: 'description',
-                                },
-                                {
-                                    title: 'Type',
-                                    key: 'type',
-                                    render: (_, metric: SharedMetric) =>
-                                        metric.query.kind.replace('Experiment', '').replace('Query', ''),
-                                },
-                            ]}
-                        />
+                        <>
+                            {experiment.saved_metrics.length > 0 && (
+                                <LemonBanner type="info">
+                                    {`Hiding ${experiment.saved_metrics.length} shared ${
+                                        experiment.saved_metrics.length > 1 ? 'metrics' : 'metric'
+                                    } already in use with this experiment.`}
+                                </LemonBanner>
+                            )}
+                            <LemonTable
+                                dataSource={availableSharedMetrics}
+                                columns={[
+                                    {
+                                        title: '',
+                                        key: 'checkbox',
+                                        render: (_, metric: SharedMetric) => (
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedMetricIds.includes(metric.id)}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedMetricIds([...selectedMetricIds, metric.id])
+                                                    } else {
+                                                        setSelectedMetricIds(
+                                                            selectedMetricIds.filter((id) => id !== metric.id)
+                                                        )
+                                                    }
+                                                }}
+                                            />
+                                        ),
+                                    },
+                                    {
+                                        title: 'Name',
+                                        dataIndex: 'name',
+                                        key: 'name',
+                                    },
+                                    {
+                                        title: 'Description',
+                                        dataIndex: 'description',
+                                        key: 'description',
+                                    },
+                                    {
+                                        title: 'Type',
+                                        key: 'type',
+                                        render: (_, metric: SharedMetric) =>
+                                            metric.query.kind.replace('Experiment', '').replace('Query', ''),
+                                    },
+                                ]}
+                                footer={
+                                    <div className="flex items-center justify-center m-2">
+                                        <LemonButton to={urls.experimentsSharedMetrics()} size="xsmall" type="tertiary">
+                                            See all shared metrics
+                                        </LemonButton>
+                                    </div>
+                                }
+                            />
+                        </>
                     ) : (
                         <LemonBanner
                             className="w-full"

@@ -21,6 +21,7 @@ const HOG_FUNCTION_FIELDS = [
     'encrypted_inputs',
     'inputs_schema',
     'filters',
+    'mappings',
     'bytecode',
     'masking',
     'type',
