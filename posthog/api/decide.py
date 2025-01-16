@@ -144,6 +144,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     response["surveys"] = True if team.surveys_opt_in else False
     response["heatmaps"] = True if team.heatmaps_opt_in else False
+    response["flagsPersistenceDefault"] = True if team.flags_persistence_default else False
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 
     site_apps = []

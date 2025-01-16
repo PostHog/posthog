@@ -97,7 +97,12 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 onMouseEnter={() => setIsHovering(true)}
                                 onMouseLeave={() => setIsHovering(false)}
                             >
-                                {formatBreakdownLabel(value, breakdownFilter, cohorts, formatPropertyValueForDisplay)}
+                                {formatBreakdownLabel(
+                                    value,
+                                    breakdownFilter,
+                                    cohorts.results,
+                                    formatPropertyValueForDisplay
+                                )}
                                 {showCustomizationIcon && <CustomizationIcon isVisible={isHovering} />}
                             </div>
                         )
