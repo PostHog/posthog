@@ -69,6 +69,55 @@ class TestDataWarehouseFolderAPI(APIBaseTest):
         self.assertEqual(response.json()["name"], "My Folder")
         self.assertEqual(response.json()["items"], [])
 
+    def test_list_folders_with_subfolders(self):
+        parent = DataWarehouseFolder.objects.create(name="Parent Folder", team=self.team, created_by=self.user)
+        child = DataWarehouseFolder.objects.create(
+            name="Child Folder", team=self.team, created_by=self.user, parent=parent
+        )
+
+        response = self.client.get(f"{self.base_url}?include_subfolders=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(len(response.json()["results"][0]["children"]), 1)
+        self.assertEqual(response.json()["results"][0]["children"][0]["name"], "Child Folder")
+
+        DataWarehouseFolder.objects.create(name="Grandchild Folder", team=self.team, created_by=self.user, parent=child)
+
+        response = self.client.get(f"{self.base_url}?include_subfolders=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"][0]["children"]), 1)
+        self.assertEqual(response.json()["results"][0]["children"][0]["name"], "Child Folder")
+        self.assertEqual(response.json()["results"][0]["children"][0]["children"][0]["name"], "Grandchild Folder")
+
+    def test_list_folders_with_subfolders_alphabetically(self):
+        # Create folders in non-alphabetical order
+        parent_z = DataWarehouseFolder.objects.create(name="Z Parent", team=self.team, created_by=self.user)
+        parent_a = DataWarehouseFolder.objects.create(name="A Parent", team=self.team, created_by=self.user)
+
+        # Create children in non-alphabetical order
+        DataWarehouseFolder.objects.create(name="Z Child", team=self.team, created_by=self.user, parent=parent_z)
+        DataWarehouseFolder.objects.create(name="A Child", team=self.team, created_by=self.user, parent=parent_z)
+        DataWarehouseFolder.objects.create(name="M Child", team=self.team, created_by=self.user, parent=parent_a)
+        DataWarehouseFolder.objects.create(name="B Child", team=self.team, created_by=self.user, parent=parent_a)
+
+        response = self.client.get(f"{self.base_url}?include_subfolders=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+
+        # Verify parents are alphabetically ordered
+        self.assertEqual(results[0]["name"], "A Parent")
+        self.assertEqual(results[1]["name"], "Z Parent")
+
+        # Verify children within each parent are alphabetically ordered
+        a_parent_children = results[0]["children"]
+        self.assertEqual(a_parent_children[0]["name"], "B Child")
+        self.assertEqual(a_parent_children[1]["name"], "M Child")
+
+        z_parent_children = results[1]["children"]
+        self.assertEqual(z_parent_children[0]["name"], "A Child")
+        self.assertEqual(z_parent_children[1]["name"], "Z Child")
+
     def test_update_folder(self):
         folder = DataWarehouseFolder.objects.create(name="Old Name", team=self.team, created_by=self.user)
 
