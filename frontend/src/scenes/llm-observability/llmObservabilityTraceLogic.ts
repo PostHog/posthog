@@ -24,10 +24,12 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
 
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
+        setEventId: (eventId: string | null) => ({ eventId }),
     }),
 
     reducers({
         traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId }],
+        eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
     }),
 
     selectors({
@@ -67,8 +69,11 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        [urls.llmObservabilityTrace(':id')]: ({ id }) => {
+        [urls.llmObservabilityTrace(':id')]: ({ id }, { event }) => {
             actions.setTraceId(id ?? '')
+            if (event) {
+                actions.setEventId(event)
+            }
         },
     })),
 ])

@@ -48,7 +48,7 @@ export function LLMObservabilityTraceScene(): JSX.Element {
     const traceResponse = response as TracesQueryResponse | null
 
     return (
-        <div className="flex flex-col p-4 pt-0 flex-1 gap-4">
+        <>
             {responseLoading ? (
                 <SpinnerOverlay />
             ) : responseError ? (
@@ -59,15 +59,15 @@ export function LLMObservabilityTraceScene(): JSX.Element {
                     detail="Check if the trace ID is correct."
                 />
             ) : (
-                <>
+                <div className="relative p-4 pt-0 space-y-4 h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] flex flex-col">
                     <TraceMetadata trace={traceResponse.results[0]} />
-                    <div className="flex flex-1 gap-4">
+                    <div className="flex flex-1 min-h-0 gap-4">
                         <TraceSidebar trace={traceResponse.results[0]} />
                         <div className="flex-1 bg-bg-light border rounded flex flex-col border-border" />
                     </div>
-                </>
+                </div>
             )}
-        </div>
+        </>
     )
 }
 
@@ -96,7 +96,7 @@ function TraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
 
 function TraceSidebar({ trace }: { trace: LLMTrace }): JSX.Element {
     return (
-        <aside className="border-border max-w-80 min-w-72 bg-bg-light border rounded">
+        <aside className="border-border w-72 bg-bg-light border rounded h-full overflow-hidden">
             <header className="px-2 pt-2">
                 <h2 className="font-medium text-base p-0 m-0">Timeline</h2>
             </header>
