@@ -1,0 +1,38 @@
+name: Blacksmith Docker Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  posthog_build_github_runner:
+    name: Build Docker Image on GitHub runner
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@v3
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          tags: posthog_github:latest
+          load: true
+
+    posthog_build_blacksmith_runner:
+      name: Build Docker Image on Blacksmith
+      runs-on: blacksmith
+
+      steps:
+        - name: Check out source code
+          uses: actions/checkout@v3
+
+        - name: Build Docker Image
+          uses: useblacksmith/build-push-action@v1
+          with:
+            context: .
+            tags: posthog_blacksmith:latest
+            load: true
