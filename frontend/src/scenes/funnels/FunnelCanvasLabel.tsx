@@ -75,6 +75,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                       key="run-experiment"
                       icon={<IconTestTube />}
                       type="secondary"
+                      data-attr="create-experiment-from-insight"
                       size="xsmall"
                       to={urls.experiment('new', {
                           insight: insight.short_id ?? undefined,
