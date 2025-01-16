@@ -40,7 +40,21 @@ class PersonOverridesSnapshotTable:
         )
 
     def exists(self, client: Client) -> None:
-        raise NotImplementedError
+        results = client.execute(
+            f"""
+                SELECT count()
+                FROM system.tables
+                WHERE
+                    database = %(database)s
+                    AND name = %(name)
+            """,
+            {
+                "database": settings.CLICKHOUSE_DATABASE,
+                "name": self.name,
+            },
+        )
+        [[count]] = results
+        return count > 0
 
     def drop(self, client: Client) -> None:
         client.execute(f"DROP TABLE {self.qualified_name} SYNC")
@@ -113,14 +127,45 @@ class PersonOverridesSnapshotDictionary:
             },
         )
 
-    def exists(self, client: Client) -> None:
-        raise NotImplementedError
+    def exists(self, client: Client) -> bool:
+        results = client.execute(
+            f"""
+            SELECT count()
+            FROM system.dictionaries
+            WHERE
+                database = %(database)s
+                AND name = %(name)
+            """,
+            {
+                "database": settings.CLICKHOUSE_DATABASE,
+                "name": self.name,
+            },
+        )
+        [[count]] = results
+        return count > 0
 
     def drop(self, client: Client) -> None:
         client.execute(f"DROP DICTIONARY {self.qualified_name} SYNC")
 
-    def is_loaded(self, client: Client):  # TODO: check return type
-        raise NotImplementedError
+    def is_loaded(self, client: Client) -> bool:
+        results = client.execute(
+            f"""
+            SELECT status
+            FROM system.dictionaries
+            WHERE
+                database = %(database)s
+                AND name = %(name)
+            """,
+            {
+                "database": settings.CLICKHOUSE_DATABASE,
+                "name": self.name,
+            },
+        )
+        if not results:
+            raise Exception("dictionary does not exist")
+        else:
+            [[status]] = results
+            return status == "LOADED"
 
     def reload(self, client: Client) -> None:
         client.execute(f"SYSTEM RELOAD DICTIONARY {self.qualified_name}")
