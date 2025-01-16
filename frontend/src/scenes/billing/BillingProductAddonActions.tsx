@@ -14,6 +14,8 @@ import { getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { formatFlatRate } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
+import { downgradeLogic } from './downgradeLogic'
+import { DowngradeModal } from './DowngradeModal'
 
 interface BillingProductAddonActionsProps {
     productRef: React.RefObject<HTMLDivElement>
@@ -36,6 +38,8 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
         cancelTrial,
     } = useActions(billingProductLogic({ product: addon }))
     const { featureFlags } = useValues(featureFlagLogic)
+    const { showDowngradeModal } = useActions(downgradeLogic)
+    const { isUserInExperiment } = useValues(downgradeLogic)
 
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const { prorationAmount, isProrated } = useMemo(
@@ -69,19 +73,28 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
             return null
         }
         return (
-            <More
-                overlay={
-                    <LemonButton
-                        fullWidth
-                        onClick={() => {
-                            setSurveyResponse('$survey_response_1', addon.type)
-                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
-                        }}
-                    >
-                        Remove add-on
-                    </LemonButton>
-                }
-            />
+            <>
+                <More
+                    overlay={
+                        <LemonButton
+                            fullWidth
+                            onClick={() => {
+                                if (isUserInExperiment) {
+                                    showDowngradeModal({
+                                        addon,
+                                    })
+                                } else {
+                                    setSurveyResponse('$survey_response_1', addon.type)
+                                    reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
+                                }
+                            }}
+                        >
+                            Remove add-on
+                        </LemonButton>
+                    }
+                />
+                <DowngradeModal />
+            </>
         )
     }
 

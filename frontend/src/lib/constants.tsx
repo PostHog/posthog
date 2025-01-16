@@ -239,6 +239,7 @@ export const FEATURE_FLAGS = {
     REPLAY_LANDING_PAGE: 'replay-landing-page', // owner :#team-replay
     CORE_WEB_VITALS: 'core-web-vitals', // owner: @rafaeelaudibert #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
+    TEAMS_DOWNGRADE_FLOW: 'teams-downgrade-flow', // owner: @sjhavar #team-growth
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
