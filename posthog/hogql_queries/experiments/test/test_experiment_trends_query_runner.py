@@ -854,6 +854,19 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "test_absolute_exposure": 3,
                 },
             ],
+            [
+                "feature_flags",
+                {
+                    "key": "$feature/flag_doesnt_exist",
+                    "type": "event",
+                    "value": ["test", "control"],
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 0,
+                    "test_absolute_exposure": 0,
+                },
+            ],
         ]
     )
     def test_query_runner_with_data_warehouse_internal_filters(self, name, filter: object, filter_expected: object):
@@ -981,18 +994,34 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = ExperimentTrendsQueryRunner(
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
-        with freeze_time("2023-01-07"):
-            result = query_runner.calculate()
+        # "feature_flags" filters out all events
+        if name == "feature_flags":
+            with freeze_time("2023-01-07"), self.assertRaises(ValidationError) as context:
+                query_runner.calculate()
 
-        trend_result = cast(ExperimentTrendsQueryResponse, result)
+            expected_errors = json.dumps(
+                {
+                    ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
+                    ExperimentNoResultsErrorKeys.NO_EVENTS: True,
+                    ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
+                    ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                    ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+                }
+            )
+            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        else:
+            with freeze_time("2023-01-07"):
+                result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+            trend_result = cast(ExperimentTrendsQueryResponse, result)
 
-        control_result = next(variant for variant in trend_result.variants if variant.key == "control")
-        test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+            self.assertEqual(len(result.variants), 2)
 
-        self.assertEqual(control_result.absolute_exposure, filter_expected["control_absolute_exposure"])
-        self.assertEqual(test_result.absolute_exposure, filter_expected["test_absolute_exposure"])
+            control_result = next(variant for variant in trend_result.variants if variant.key == "control")
+            test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+
+            self.assertEqual(control_result.absolute_exposure, filter_expected["control_absolute_exposure"])
+            self.assertEqual(test_result.absolute_exposure, filter_expected["test_absolute_exposure"])
 
         # Run the query again without filtering
         count_query = TrendsQuery(
