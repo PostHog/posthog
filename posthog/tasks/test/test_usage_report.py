@@ -1484,6 +1484,13 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             timestamp="2021-10-09T13:01:01Z",
         )
         _create_event(
+            event="$exception",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T13:01:01Z",
+            properties={"$exception_issue_id": "should_not_be_counted"},
+        )
+        _create_event(
             event="$pageview",
             team=self.team2,
             distinct_id=1,

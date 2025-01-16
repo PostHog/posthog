@@ -344,7 +344,7 @@ def get_teams_with_billable_event_count_in_period(
         f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed') AND (event != '$exception' OR mat_$exception_issue_id IS NULL)
+        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed') AND mat_$exception_issue_id IS NULL
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -374,7 +374,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
         f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed') AND (event != '$exception' OR mat_$exception_issue_id IS NULL) AND person_mode IN ('full', 'force_upgrade')
+        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed') AND mat_$exception_issue_id IS NULL AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
