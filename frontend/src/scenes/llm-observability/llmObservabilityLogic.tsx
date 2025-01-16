@@ -301,6 +301,8 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     select: [
                         '*',
                         'person',
+                        // The f-string wrapping below seems pointless, but it actually disables special rendering
+                        // of the property keys, which would otherwise show property names overly verbose here
                         "f'{properties.$ai_trace_id}' -- Trace ID",
                         "f'{properties.$ai_model}' -- Model",
                         "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
