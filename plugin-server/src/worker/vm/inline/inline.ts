@@ -4,6 +4,7 @@ import { Hub, PluginCapabilities, PluginConfig, PluginLogLevel } from '../../../
 import { upsertInlinePlugin } from '../../../utils/db/sql'
 import { status } from '../../../utils/status'
 import { PluginInstance } from '../lazy'
+import { AI_COST_CONFIG_SCHEMA, AiCostPlugin } from './ai-costs'
 import { NoopInlinePlugin } from './noop'
 import { SEMVER_FLATTENER_CONFIG_SCHEMA, SemverFlattener } from './semver-flattener'
 import { USER_AGENT_CONFIG_SCHEMA, UserAgentPlugin } from './user-agent'
@@ -24,7 +25,12 @@ export interface RegisteredInlinePlugin {
     description: Readonly<InlinePluginDescription>
 }
 
-export const INLINE_PLUGIN_URLS = ['inline://noop', 'inline://semver-flattener', 'inline://user-agent'] as const
+export const INLINE_PLUGIN_URLS = [
+    'inline://noop',
+    'inline://semver-flattener',
+    'inline://user-agent',
+    'inline://ai-costs',
+] as const
 type InlinePluginId = (typeof INLINE_PLUGIN_URLS)[number]
 
 // TODO - add all inline plugins here
@@ -76,6 +82,26 @@ export const INLINE_PLUGIN_MAP: Record<InlinePluginId, RegisteredInlinePlugin> =
             url: 'inline://user-agent',
             config_schema: USER_AGENT_CONFIG_SCHEMA,
             tag: 'user-agent',
+            capabilities: {
+                jobs: [],
+                scheduled_tasks: [],
+                methods: ['processEvent'],
+            },
+            is_stateless: false,
+            log_level: PluginLogLevel.Info,
+        },
+    },
+
+    'inline://ai-costs': {
+        constructor: (hub: Hub, config: PluginConfig) => new AiCostPlugin(hub, config),
+        description: {
+            name: 'AI Cost Calculator',
+            description: 'Calculates AI generation costs based on provider and model',
+            is_global: false,
+            is_preinstalled: false,
+            url: 'inline://ai-costs',
+            config_schema: AI_COST_CONFIG_SCHEMA,
+            tag: 'ai-costs',
             capabilities: {
                 jobs: [],
                 scheduled_tasks: [],

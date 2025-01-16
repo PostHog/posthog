@@ -2,6 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { detect } from 'detect-browser'
 
 import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginMethods } from '../../../types'
+import { status } from '../../../utils/status'
 import { PluginInstance } from '../lazy'
 
 export type UserAgentPluginConfiguration = {
@@ -60,6 +61,9 @@ export class UserAgentPlugin implements PluginInstance {
     }
 
     async addBrowserDetails(event: PluginEvent): Promise<PluginEvent> {
+        await this.createLogEntry(`UserAgentPlugin.processEvent(): Event`, PluginLogEntryType.Warn)
+        status.info('🔁', `UserAgentPlugin.processEvent(): Event`)
+
         if (!event.properties) {
             event.properties = {}
         }
