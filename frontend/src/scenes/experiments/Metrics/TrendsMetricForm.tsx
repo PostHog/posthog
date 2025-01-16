@@ -99,7 +99,6 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     entitiesLimit={1}
                                     showNumericalPropsOnly={true}
                                     onlyMathTypes={[BaseMathType.TotalCount, PropertyMathType.Sum, HogQLMathType.HogQL]}
-                                    onlyPropertyMathDefinitions={[PropertyMathType.Sum]}
                                     {...commonActionFilterProps}
                                 />
                                 <div className="mt-4 space-y-4">
