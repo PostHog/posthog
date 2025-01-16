@@ -66,7 +66,8 @@
                                                               WHERE equals(person.team_id, 99999)
                                                               GROUP BY person.id
                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-     ORDER BY persons.properties___name ASC)
+     ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                     join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -115,7 +116,7 @@
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 00:00:00', 6, 'US/Pacific'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(1))), equals(events.event, '$pageview'))
+           WHERE and(equals(events.team_id, 99999), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$process_person_profile'), ''), 'null'), '^"|"$', ''), 'false'), 1), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 00:00:00', 6, 'US/Pacific'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(1))), equals(events.event, '$pageview'))
            GROUP BY actor_id)
         WHERE and(ifNull(equals(start_of_period, toStartOfDay(parseDateTime64BestEffortOrNull('2020-01-12', 6, 'US/Pacific'))), isNull(start_of_period)
                          and isNull(toStartOfDay(parseDateTime64BestEffortOrNull('2020-01-12', 6, 'US/Pacific')))), ifNull(equals(status, 'returning'), 0))) AS source
@@ -148,13 +149,14 @@
                                                                                                                WHERE equals(person.team_id, 99999)
                                                                                                                GROUP BY person.id
                                                                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 00:00:00', 6, 'US/Pacific'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(1))), equals(events.event, '$pageview'))
+                                                                                                            WHERE and(equals(events.team_id, 99999), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$process_person_profile'), ''), 'null'), '^"|"$', ''), 'false'), 1), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 00:00:00', 6, 'US/Pacific'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(1))), equals(events.event, '$pageview'))
                                                                                                             GROUP BY actor_id)
                                                                                                          WHERE and(ifNull(equals(start_of_period, toStartOfDay(parseDateTime64BestEffortOrNull('2020-01-12', 6, 'US/Pacific'))), isNull(start_of_period)
                                                                                                                           and isNull(toStartOfDay(parseDateTime64BestEffortOrNull('2020-01-12', 6, 'US/Pacific')))), ifNull(equals(status, 'returning'), 0))) AS source)))
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-     ORDER BY persons.properties___name ASC)
+     ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                     join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -192,7 +194,8 @@
         WHERE equals(groups.team_id, 99999)
         GROUP BY groups.group_type_index,
                  groups.group_key) AS groups ON equals(groups.key, source.group_key)
-     ORDER BY groups.properties___name ASC)
+     ORDER BY groups.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                    join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -258,7 +261,8 @@
                                                                                                          WHERE ifNull(equals(num_intervals, 2), 0)) AS source)))
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-     ORDER BY persons.properties___name ASC)
+     ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                     join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -291,7 +295,8 @@
         WHERE equals(groups.team_id, 99999)
         GROUP BY groups.group_type_index,
                  groups.group_key) AS groups ON equals(groups.key, source.actor_id)
-     ORDER BY groups.properties___name ASC)
+     ORDER BY groups.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                    join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -303,16 +308,20 @@
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV1
   '''
-  SELECT name AS name
+  SELECT name AS name,
+         event_distinct_ids AS event_distinct_ids
   FROM
-    (SELECT persons.properties___name AS name
+    (SELECT persons.properties___name AS name,
+            source.event_distinct_ids AS event_distinct_ids
      FROM
        (SELECT actor_id AS actor_id,
-               count() AS event_count
+               count() AS event_count,
+               groupUniqArray(distinct_id) AS event_distinct_ids
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
-                  e.uuid AS uuid
+                  e.uuid AS uuid,
+                  e.distinct_id AS distinct_id
            FROM events AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -337,9 +346,9 @@
         WHERE and(equals(person.team_id, 99999), in(id,
                                                       (SELECT source.actor_id AS actor_id
                                                        FROM
-                                                         (SELECT actor_id AS actor_id, count() AS event_count
+                                                         (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids
                                                           FROM
-                                                            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid
+                                                            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid, e.distinct_id AS distinct_id
                                                              FROM events AS e
                                                              LEFT OUTER JOIN
                                                                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -357,7 +366,8 @@
                                                           GROUP BY actor_id) AS source)))
         GROUP BY person.id
         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-     ORDER BY persons.properties___name ASC)
+     ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                     join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -369,16 +379,20 @@
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV2
   '''
-  SELECT name AS name
+  SELECT name AS name,
+         event_distinct_ids AS event_distinct_ids
   FROM
-    (SELECT persons.properties___name AS name
+    (SELECT persons.properties___name AS name,
+            source.event_distinct_ids AS event_distinct_ids
      FROM
        (SELECT actor_id AS actor_id,
-               count() AS event_count
+               count() AS event_count,
+               groupUniqArray(distinct_id) AS event_distinct_ids
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
-                  e.uuid AS uuid
+                  e.uuid AS uuid,
+                  e.distinct_id AS distinct_id
            FROM events AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -409,9 +423,9 @@
                                                        WHERE and(equals(person.team_id, 99999), in(person.id,
                                                                                                      (SELECT source.actor_id AS actor_id
                                                                                                       FROM
-                                                                                                        (SELECT actor_id AS actor_id, count() AS event_count
+                                                                                                        (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids
                                                                                                          FROM
-                                                                                                           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid
+                                                                                                           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid, e.distinct_id AS distinct_id
                                                                                                             FROM events AS e
                                                                                                             LEFT OUTER JOIN
                                                                                                               (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -432,7 +446,8 @@
                                                                                                          GROUP BY actor_id) AS source)))
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-     ORDER BY persons.properties___name ASC)
+     ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
+                                                     join_algorithm='auto')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

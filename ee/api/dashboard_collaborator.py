@@ -91,7 +91,7 @@ class DashboardCollaboratorViewSet(
     scope_object = "dashboard"
     permission_classes = [CanEditDashboardCollaborator]
     pagination_class = None
-    queryset = DashboardPrivilege.objects.select_related("dashboard").filter(user__is_active=True)
+    queryset = DashboardPrivilege.objects.select_related("dashboard", "dashboard__team").filter(user__is_active=True)
     lookup_field = "user__uuid"
     serializer_class = DashboardCollaboratorSerializer
     filter_rewrite_rules = {"project_id": "dashboard__team__project_id"}

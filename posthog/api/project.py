@@ -123,6 +123,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "surveys_opt_in",  # Compat with TeamSerializer
             "heatmaps_opt_in",  # Compat with TeamSerializer
             "product_intents",  # Compat with TeamSerializer
+            "flags_persistence_default",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -184,6 +185,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
+            "flags_persistence_default",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -191,7 +193,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
-        return GroupTypeMapping.objects.filter(team_id=project.id).exists()
+        return GroupTypeMapping.objects.filter(project_id=project.id).exists()
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)

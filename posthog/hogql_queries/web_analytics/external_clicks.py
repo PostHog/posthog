@@ -43,36 +43,38 @@ class WebExternalClicksTableQueryRunner(WebAnalyticsQueryRunner):
                 """
 SELECT
     url AS "context.columns.url",
-    uniq(filtered_person_id) AS "context.columns.visitors",
-    sum(filtered_click_count) AS "context.columns.clicks"
+    tuple(uniqIf(filtered_person_id, {current_period}), uniqIf(filtered_person_id, {previous_period})) AS "context.columns.visitors",
+    tuple(sumIf(filtered_click_count, {current_period}), sumIf(filtered_click_count, {previous_period})) AS "context.columns.clicks"
 FROM (
     SELECT
         any(person_id) AS filtered_person_id,
         count() AS filtered_click_count,
-        {url_expr} AS url
+        {url_expr} AS url,
+        MIN(session.$start_timestamp) AS start_timestamp
     FROM events
     WHERE and(
-        timestamp >= {date_from},
-        timestamp < {date_to},
         events.event == '$autocapture',
         events.properties.$event_type == 'click',
         url IS NOT NULL,
         url != '',
         cutToFirstSignificantSubdomain(properties.`$external_click_url`) != cutToFirstSignificantSubdomain(properties.`$host`),
-        {all_properties}
+        {inside_periods},
+        {all_properties},
     )
     GROUP BY events.`$session_id`, url
 )
 GROUP BY "context.columns.url"
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.clicks" DESC,
 "context.columns.url" ASC
 """,
                 timings=self.timings,
                 placeholders={
                     "url_expr": url_expr,
                     "all_properties": self._all_properties(),
-                    "date_from": self._date_from(),
-                    "date_to": self._date_to(),
+                    "current_period": self._current_period_expression(),
+                    "previous_period": self._previous_period_expression(),
+                    "inside_periods": self._periods_expression(),
                 },
             )
         assert isinstance(query, ast.SelectQuery)
@@ -81,12 +83,6 @@ ORDER BY "context.columns.visitors" DESC,
     def _all_properties(self) -> ast.Expr:
         properties = self.query.properties + self._test_account_filters
         return property_to_expr(properties, team=self.team)
-
-    def _date_to(self) -> ast.Expr:
-        return self.query_date_range.date_to_as_hogql()
-
-    def _date_from(self) -> ast.Expr:
-        return self.query_date_range.date_from_as_hogql()
 
     def calculate(self):
         query = self.to_query()
@@ -104,8 +100,14 @@ ORDER BY "context.columns.visitors" DESC,
         results_mapped = map_columns(
             results,
             {
-                1: self._unsample,  # views
-                2: self._unsample,  # visitors
+                1: lambda tuple, row: (  # Visitors (tuple)
+                    self._unsample(tuple[0], row),
+                    self._unsample(tuple[1], row),
+                ),
+                2: lambda tuple, row: (  # Clicks (tuple)
+                    self._unsample(tuple[0], row),
+                    self._unsample(tuple[1], row),
+                ),
             },
         )
 

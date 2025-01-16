@@ -17,7 +17,7 @@ export function DashboardEditBar(): JSX.Element {
     return (
         <div
             className={clsx(
-                'flex gap-2 items-center justify-between flex-wrap border',
+                'flex gap-2 items-center justify-between flex-wrap border md:[&>*]:grow-0 [&>*]:grow',
                 dashboardMode === DashboardMode.Edit
                     ? '-m-1.5 p-1.5 border-border-bold border-dashed rounded-lg'
                     : 'border-transparent'

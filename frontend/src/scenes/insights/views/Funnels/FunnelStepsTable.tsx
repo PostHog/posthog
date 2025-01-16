@@ -1,12 +1,13 @@
 import { IconFlag } from '@posthog/icons'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
+import { useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
@@ -19,15 +20,21 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
+import { resultCustomizationsModalLogic } from '../../../../queries/nodes/InsightViz/resultCustomizationsModalLogic'
+import { CustomizationIcon } from '../InsightsTable/columns/SeriesColumn'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns } = useValues(funnelDataLogic(insightProps))
+    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor } = useValues(
+        funnelDataLogic(insightProps)
+    )
     const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility } = useActions(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
+    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
     const isOnlySeries = flattenedBreakdowns.length <= 1
 
@@ -40,6 +47,13 @@ export function FunnelStepsTable(): JSX.Element | null {
     const someChecked = flattenedBreakdowns?.some(
         (b) => !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
     )
+
+    /** :HACKY: We don't want to allow changing of colors in experiments (they can't be
+    saved there). Therefore we use the `disable_baseline` prop on the cached insight passed
+    in by experiments as a measure of detecting wether we are in an experiment context.
+    Likely this can be done in a better way once experiments are re-written to use their own
+    queries. */
+    const showCustomizationIcon = hasInsightColors && !insightProps.cachedInsight?.disable_baseline
 
     const columnsGrouped = [
         {
@@ -67,17 +81,30 @@ export function FunnelStepsTable(): JSX.Element | null {
                         _: void,
                         breakdown: FlattenedFunnelStepByBreakdown
                     ): JSX.Element {
+                        const [isHovering, setIsHovering] = useState(false)
                         // :KLUDGE: `BreakdownStepValues` is always wrapped into an array, which doesn't work for the
                         // formatBreakdownLabel logic. Instead, we unwrap speculatively
                         const value =
                             breakdown.breakdown_value?.length == 1
                                 ? breakdown.breakdown_value[0]
                                 : breakdown.breakdown_value
-                        const label = formatBreakdownLabel(
-                            value,
-                            breakdownFilter,
-                            cohorts,
-                            formatPropertyValueForDisplay
+                        const label = (
+                            <div
+                                className={clsx('flex justify-between items-center', {
+                                    'cursor-pointer': showCustomizationIcon,
+                                })}
+                                onClick={showCustomizationIcon ? () => openModal(breakdown) : undefined}
+                                onMouseEnter={() => setIsHovering(true)}
+                                onMouseLeave={() => setIsHovering(false)}
+                            >
+                                {formatBreakdownLabel(
+                                    value,
+                                    breakdownFilter,
+                                    cohorts.results,
+                                    formatPropertyValueForDisplay
+                                )}
+                                {showCustomizationIcon && <CustomizationIcon isVisible={isHovering} />}
+                            </div>
                         )
                         return isOnlySeries ? (
                             <span className="font-medium">{label}</span>
@@ -290,7 +317,7 @@ export function FunnelStepsTable(): JSX.Element | null {
             loading={insightLoading}
             rowKey="breakdownIndex"
             rowStatus={(record) => (record.significant ? 'highlighted' : null)}
-            rowRibbonColor={(series) => getSeriesColor(series?.breakdownIndex ?? 0)}
+            rowRibbonColor={getFunnelsColor}
             firstColumnSticky
         />
     )

@@ -14,10 +14,7 @@ from collections.abc import Iterable
 from rest_framework import exceptions
 
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns import (
-    TableWithProperties,
-    get_enabled_materialized_columns,
-)
+from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.hogql import HogQLContext
@@ -711,17 +708,18 @@ def get_property_string_expr(
         (optional) alias of the table being queried
     :return:
     """
-    materialized_columns = get_enabled_materialized_columns(table) if allow_denormalized_props else {}
-
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
 
     if (
         allow_denormalized_props
-        and (property_name, materialised_table_column) in materialized_columns
+        and (
+            materialized_column := get_materialized_column_for_property(table, materialised_table_column, property_name)
+        )
+        and not materialized_column.is_nullable
         and "group" not in materialised_table_column
     ):
         return (
-            f'{table_string}"{materialized_columns[(property_name, materialised_table_column)]}"',
+            f'{table_string}"{materialized_column.name}"',
             True,
         )
 

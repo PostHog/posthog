@@ -141,12 +141,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             payload = instance.sync_type_config
             payload["incremental_field"] = data.get("incremental_field")
             payload["incremental_field_type"] = data.get("incremental_field_type")
+            payload["incremental_field_last_value"] = None
+            payload["incremental_field_last_value_v2"] = None
 
             validated_data["sync_type_config"] = payload
         else:
             payload = instance.sync_type_config
             payload.pop("incremental_field", None)
             payload.pop("incremental_field_type", None)
+            payload.pop("incremental_field_last_value", None)
+            payload.pop("incremental_field_last_value_v2", None)
 
             validated_data["sync_type_config"] = payload
 
@@ -350,14 +354,23 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
             sf_schema = source.job_inputs.get("schema")
             role = source.job_inputs.get("role")
 
+            auth_type = source.job_inputs.get("auth_type", "password")
+            auth_type_username = source.job_inputs.get("user")
+            auth_type_password = source.job_inputs.get("password")
+            auth_type_passphrase = source.job_inputs.get("passphrase")
+            auth_type_private_key = source.job_inputs.get("private_key")
+
             sf_schemas = get_snowflake_schemas(
                 account_id=account_id,
                 database=database,
                 warehouse=warehouse,
-                user=user,
-                password=password,
+                user=auth_type_username,
+                password=auth_type_password,
                 schema=sf_schema,
                 role=role,
+                auth_type=auth_type,
+                passphrase=auth_type_passphrase,
+                private_key=auth_type_private_key,
             )
 
             columns = sf_schemas.get(instance.name, [])

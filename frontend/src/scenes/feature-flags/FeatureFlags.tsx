@@ -1,5 +1,5 @@
 import { IconLock } from '@posthog/icons'
-import { LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -20,12 +20,13 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { projectLogic } from 'scenes/projectLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { ProductKey } from '~/types'
 import {
     ActivityScope,
@@ -36,7 +37,6 @@ import {
     FeatureFlagType,
 } from '~/types'
 
-import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic, FeatureFlagsTab, FLAGS_PER_PAGE } from './featureFlagsLogic'
 
 export const scene: SceneExport = {
@@ -53,7 +53,7 @@ export function OverViewTab({
     searchPlaceholder?: string
     nouns?: [string, string]
 }): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
+    const { currentProjectId } = useValues(projectLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
@@ -240,9 +240,11 @@ export function OverViewTab({
                                         status="danger"
                                         onClick={() => {
                                             void deleteWithUndo({
-                                                endpoint: `projects/${currentTeamId}/feature_flags`,
+                                                endpoint: `projects/${currentProjectId}/feature_flags`,
                                                 object: { name: featureFlag.key, id: featureFlag.id },
                                                 callback: loadFeatureFlags,
+                                            }).catch((e) => {
+                                                lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
                                             })
                                         }}
                                         disabledReason={

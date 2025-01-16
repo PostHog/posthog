@@ -10,8 +10,8 @@ import { FunnelsQuery } from '~/queries/schema'
 import { isFunnelsQuery, isInsightQueryNode, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
-export function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
-    if (groupIndex !== undefined) {
+export function getHogQLValue(groupIndex?: number | null, aggregationQuery?: string): string {
+    if (groupIndex != undefined) {
         return `$group_${groupIndex}`
     } else if (aggregationQuery) {
         return aggregationQuery

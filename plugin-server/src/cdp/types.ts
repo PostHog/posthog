@@ -17,12 +17,12 @@ export interface HogFunctionFilterBase {
     id: string
     name: string | null
     order: number
-    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+    properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
 }
 
 export interface HogFunctionFilterEvent extends HogFunctionFilterBase {
     type: 'events'
-    bytecode: HogBytecode
+    bytecode?: HogBytecode
 }
 
 export interface HogFunctionFilterAction extends HogFunctionFilterBase {
@@ -208,7 +208,7 @@ export type HogFunctionInvocationQueueParameters =
 
 export type HogFunctionInvocation = {
     id: string
-    globals: HogFunctionInvocationGlobals
+    globals: HogFunctionInvocationGlobalsWithInputs
     teamId: Team['id']
     hogFunction: HogFunctionType
     priority: number
@@ -273,9 +273,25 @@ export type HogFunctionInputSchemaType = {
     integration_key?: string
     requires_field?: string
     integration_field?: string
+    requiredScopes?: string
 }
 
-export type HogFunctionTypeType = 'destination' | 'email' | 'sms' | 'push' | 'activity' | 'alert' | 'broadcast'
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'transformation'
+    | 'internal_destination'
+    | 'email'
+    | 'sms'
+    | 'push'
+    | 'activity'
+    | 'alert'
+    | 'broadcast'
+
+export interface HogFunctionMappingType {
+    inputs_schema?: HogFunctionInputSchemaType[]
+    inputs?: Record<string, HogFunctionInputType> | null
+    filters?: HogFunctionFilters | null
+}
 
 export type HogFunctionType = {
     id: string
@@ -289,6 +305,7 @@ export type HogFunctionType = {
     inputs?: Record<string, HogFunctionInputType>
     encrypted_inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
+    mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionFiltersMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
 }
@@ -297,6 +314,7 @@ export type HogFunctionInputType = {
     value: any
     secret?: boolean
     bytecode?: HogBytecode | object
+    order?: number
 }
 
 export type IntegrationType = {
@@ -311,6 +329,10 @@ export type IntegrationType = {
     created_at?: string
     created_by_id?: number
 }
+export type HogFunctionAppMetric = Pick<
+    AppMetric2Type,
+    'team_id' | 'app_source_id' | 'metric_kind' | 'metric_name' | 'count'
+>
 
 export type HogFunctionMessageToProduce = {
     topic: string

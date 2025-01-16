@@ -16,7 +16,7 @@ import * as monaco from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { AnyDataNode, HogLanguage } from '~/queries/schema'
+import { AnyDataNode, HogLanguage, HogQLMetadataResponse } from '~/queries/schema/schema-general'
 
 if (loader) {
     loader.config({ monaco })
@@ -32,8 +32,15 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     sourceQuery?: AnyDataNode
     globals?: Record<string, any>
     schema?: Record<string, any> | null
+    onMetadata?: (metadata: HogQLMetadataResponse | null) => void
+    onMetadataLoading?: (loading: boolean) => void
+    onError?: (error: string | null, isValidView: boolean) => void
 }
 let codeEditorIndex = 0
+
+export function initModel(model: editor.ITextModel, builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>): void {
+    ;(model as any).codeEditorLogic = builtCodeEditorLogic
+}
 
 function initEditor(
     monaco: Monaco,
@@ -44,7 +51,9 @@ function initEditor(
 ): void {
     // This gives autocomplete access to the specific editor
     const model = editor.getModel()
-    ;(model as any).codeEditorLogic = builtCodeEditorLogic
+    if (model) {
+        initModel(model, builtCodeEditorLogic)
+    }
 
     if (editorProps?.language === 'hog') {
         initHogLanguage(monaco)
@@ -112,6 +121,9 @@ export function CodeEditor({
     globals,
     sourceQuery,
     schema,
+    onError,
+    onMetadata,
+    onMetadataLoading,
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -130,6 +142,9 @@ export function CodeEditor({
         sourceQuery,
         monaco: monaco,
         editor: editor,
+        onError,
+        onMetadata,
+        onMetadataLoading,
     })
     useMountedLogic(builtCodeEditorLogic)
 

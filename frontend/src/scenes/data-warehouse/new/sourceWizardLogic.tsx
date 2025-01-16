@@ -68,7 +68,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Hubspot: {
         name: 'Hubspot',
         fields: [],
-        caption: 'Succesfully authenticated with Hubspot. Please continue here to complete the source setup',
+        caption: 'Successfully authenticated with Hubspot. Please continue here to complete the source setup',
         oauthPayload: ['code'],
     },
     Postgres: {
@@ -80,6 +80,13 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             </>
         ),
         fields: [
+            {
+                name: 'connection_string',
+                label: 'Connection String (optional)',
+                type: 'text',
+                required: false,
+                placeholder: 'postgresql://user:password@localhost:5432/database',
+            },
             {
                 name: 'host',
                 label: 'Host',
@@ -513,18 +520,60 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: 'COMPUTE_WAREHOUSE',
             },
             {
-                name: 'user',
-                label: 'User',
-                type: 'text',
+                type: 'select',
+                name: 'auth_type',
+                label: 'Authentication type',
                 required: true,
-                placeholder: 'user',
-            },
-            {
-                name: 'password',
-                label: 'Password',
-                type: 'password',
-                required: true,
-                placeholder: '',
+                defaultValue: 'password',
+                options: [
+                    {
+                        label: 'Password',
+                        value: 'password',
+                        fields: [
+                            {
+                                name: 'username',
+                                label: 'Username',
+                                type: 'text',
+                                required: true,
+                                placeholder: 'User1',
+                            },
+                            {
+                                name: 'password',
+                                label: 'Password',
+                                type: 'password',
+                                required: true,
+                                placeholder: '',
+                            },
+                        ],
+                    },
+                    {
+                        label: 'Key pair',
+                        value: 'keypair',
+                        fields: [
+                            {
+                                name: 'username',
+                                label: 'Username',
+                                type: 'text',
+                                required: true,
+                                placeholder: 'User1',
+                            },
+                            {
+                                name: 'private_key',
+                                label: 'Private key',
+                                type: 'textarea',
+                                required: true,
+                                placeholder: '',
+                            },
+                            {
+                                name: 'passphrase',
+                                label: 'Passphrase',
+                                type: 'password',
+                                required: false,
+                                placeholder: '',
+                            },
+                        ],
+                    },
+                ],
             },
             {
                 name: 'role',
@@ -642,6 +691,23 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 required: true,
                 placeholder: '',
             },
+            {
+                type: 'switch-group',
+                name: 'temporary-dataset',
+                label: 'Use a different dataset for the temporary tables?',
+                caption:
+                    "We have to create and delete temporary tables when querying your data, this is a requirement of querying large BigQuery tables. We can use a different dataset if you'd like to limit the permissions available to the service account provided.",
+                default: false,
+                fields: [
+                    {
+                        type: 'text',
+                        name: 'temporary_dataset_id',
+                        label: 'Dataset ID for temporary tables',
+                        required: true,
+                        placeholder: '',
+                    },
+                ],
+            },
         ],
         caption: '',
     },
@@ -695,7 +761,7 @@ export const buildKeaFormDefaultFromSourceDetails = (
     }
 
     const sourceDetailsKeys = Object.keys(sourceDetails)
-    const formDefault = sourceDetailsKeys.reduce(
+    return sourceDetailsKeys.reduce(
         (defaults, cur) => {
             const fields = sourceDetails[cur].fields
             fields.forEach((f) => fieldDefaults(f, defaults['payload']))
@@ -704,8 +770,6 @@ export const buildKeaFormDefaultFromSourceDetails = (
         },
         { prefix: '', payload: {} } as Record<string, any>
     )
-
-    return formDefault
 }
 
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {

@@ -211,6 +211,53 @@ export class UUIDT extends UUID {
     }
 }
 
+export class UUID7 extends UUID {
+    constructor(bufferOrUnixTimeMs?: number | Buffer, rand?: Buffer) {
+        if (bufferOrUnixTimeMs instanceof Buffer) {
+            if (bufferOrUnixTimeMs.length !== 16) {
+                throw new Error(`UUID7 from buffer requires 16 bytes, got ${bufferOrUnixTimeMs.length}`)
+            }
+            super(bufferOrUnixTimeMs)
+            return
+        }
+        const unixTimeMs = bufferOrUnixTimeMs ?? DateTime.utc().toMillis()
+        let unixTimeMsBig = BigInt(unixTimeMs)
+
+        if (!rand) {
+            rand = randomBytes(10)
+        } else if (rand.length !== 10) {
+            throw new Error(`UUID7 requires 10 bytes of random data, got ${rand.length}`)
+        }
+
+        // see https://www.rfc-editor.org/rfc/rfc9562#name-uuid-version-7
+        // a UUIDv7 is 128 bits (16 bytes) total
+        // 48 bits for unix_ts_ms,
+        // 4 bits for ver = 0b111 (7)
+        // 12 bits for rand_a
+        // 2 bits for var = 0b10
+        // 62 bits for rand_b
+        // we set fully random values for rand_a and rand_b
+
+        const array = new Uint8Array(16)
+        // 48 bits for time, WILL FAIL in 10 895 CE
+        // XXXXXXXX-XXXX-****-****-************
+        for (let i = 5; i >= 0; i--) {
+            array[i] = Number(unixTimeMsBig & 0xffn) // use last 8 binary digits to set UUID 2 hexadecimal digits
+            unixTimeMsBig >>= 8n // remove these last 8 binary digits
+        }
+        // rand_a and rand_b
+        // ********-****-*XXX-XXXX-XXXXXXXXXXXX
+        array.set(rand, 6)
+
+        // ver and var
+        // ********-****-7***-X***-************
+        array[6] = 0b0111_0000 | (array[6] & 0b0000_1111)
+        array[8] = 0b1000_0000 | (array[8] & 0b0011_1111)
+
+        super(array)
+    }
+}
+
 /* Format timestamps.
 Allowed timestamp formats support ISO and ClickHouse formats according to
 `timestampFormat`. This distinction is relevant because ClickHouse does NOT
@@ -544,7 +591,6 @@ export const KNOWN_LIB_VALUES = new Set([
     'posthog-python',
     '',
     'js',
-    'posthog-js-lite',
     'posthog-node',
     'posthog-react-native',
     'posthog-ruby',

@@ -51,6 +51,7 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
 
             // As of middle of September 2024, `details` and `danger-zone` are the only sections present
             // at both Environment and Project levels. Others we want to redirect based on the feature flag.
+            // This is just for URLs, since analogous logic for _rendering_ settings is already in settingsLogic.
             if (!section.endsWith('-details') && !section.endsWith('-danger-zone')) {
                 if (values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
                     section = section.replace(/^project/, 'environment')
@@ -73,16 +74,20 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
+        // Replacing history item instead of pushing, so that the environments<>project redirect doesn't affect history
         selectLevel({ level }) {
-            return [urls.settings(level), router.values.searchParams, router.values.hashParams]
+            return [urls.settings(level), router.values.searchParams, router.values.hashParams, { replace: true }]
         },
         selectSection({ section }) {
-            return [urls.settings(section), router.values.searchParams, router.values.hashParams]
+            return [urls.settings(section), router.values.searchParams, router.values.hashParams, { replace: true }]
         },
         selectSetting({ setting }) {
-            const url = urls.settings(values.selectedSectionId ?? values.selectedLevel, setting)
-
-            return [url]
+            return [
+                urls.settings(values.selectedSectionId ?? values.selectedLevel, setting),
+                undefined,
+                undefined,
+                { replace: true },
+            ]
         },
     })),
 ])

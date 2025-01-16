@@ -3,7 +3,7 @@ import os
 from collections import Counter
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Literal, Optional, TypedDict, Union, cast
+from typing import Any, Literal, Optional, TypedDict, Union
 
 import requests
 import structlog
@@ -19,9 +19,8 @@ from sentry_sdk import capture_exception
 
 from posthog import version_requirement
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns
 from posthog.client import sync_execute
-from posthog.cloud_utils import get_cached_instance_license, is_cloud
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.logging.timing import timed_log
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
@@ -29,15 +28,16 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
+from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
+from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import (
     get_helm_info_env,
     get_instance_realm,
     get_instance_region,
-    get_machine_id,
     get_previous_day,
 )
 from posthog.warehouse.models import ExternalDataJob
@@ -277,26 +277,6 @@ def get_org_user_count(organization_id: str) -> int:
     return OrganizationMembership.objects.filter(organization_id=organization_id).count()
 
 
-def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
-    # Find the membership object for the org owner
-    user = None
-    membership = OrganizationMembership.objects.filter(
-        organization_id=organization_id, level=OrganizationMembership.Level.OWNER
-    ).first()
-    if not membership:
-        # If no owner membership is present, pick the first membership association we can find
-        membership = OrganizationMembership.objects.filter(organization_id=organization_id).first()
-    if hasattr(membership, "user"):
-        membership = cast(OrganizationMembership, membership)
-        user = membership.user
-    else:
-        capture_exception(
-            Exception("No user found for org while generating report"),
-            {"org": {"organization_id": organization_id}},
-        )
-    return user
-
-
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3, rate_limit="10/s")
 def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
@@ -334,49 +314,14 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     except Exception as err:
         logger.exception(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
         capture_exception(err)
-        pha_client = Client("sTMFPsFhdP1Ssg")
+        pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
         capture_event(
-            pha_client,
-            f"organization usage report to billing service failure",
-            org_id,
-            {"err": str(err)},
+            pha_client=pha_client,
+            name=f"organization usage report to billing service failure",
+            organization_id=org_id,
+            properties={"err": str(err)},
         )
         raise
-
-
-def capture_event(
-    pha_client: Client,
-    name: str,
-    organization_id: str,
-    properties: dict[str, Any],
-    timestamp: Optional[Union[datetime, str]] = None,
-) -> None:
-    if timestamp and isinstance(timestamp, str):
-        try:
-            timestamp = parser.isoparse(timestamp)
-        except ValueError:
-            timestamp = None
-
-    if is_cloud():
-        org_owner = get_org_owner_or_first_user(organization_id)
-        distinct_id = org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
-        pha_client.capture(
-            distinct_id,
-            name,
-            {**properties, "scope": "user"},
-            groups={"organization": organization_id, "instance": settings.SITE_URL},
-            timestamp=timestamp,
-        )
-        pha_client.group_identify("organization", organization_id, properties)
-    else:
-        pha_client.capture(
-            get_machine_id(),
-            name,
-            {**properties, "scope": "machine"},
-            groups={"instance": settings.SITE_URL},
-            timestamp=timestamp,
-        )
-        pha_client.group_identify("instance", settings.SITE_URL, properties)
 
 
 @timed_log()
@@ -460,10 +405,8 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
-    materialized_columns = get_enabled_materialized_columns("events")
-
     # Check if $lib is materialized
-    lib_expression = materialized_columns.get(("$lib", "properties"), "JSONExtractString(properties, '$lib')")
+    lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
     results = sync_execute(
         f"""
@@ -475,7 +418,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 event LIKE 'keywords_ai%%', 'keywords_ai_events',
                 event LIKE 'traceloop%%', 'traceloop_events',
                 {lib_expression} = 'web', 'web_events',
-                {lib_expression} = 'posthog-js-lite', 'web_lite_events',
+                {lib_expression} = 'js', 'web_lite_events',
                 {lib_expression} = 'posthog-node', 'node_events',
                 {lib_expression} = 'posthog-android', 'android_events',
                 {lib_expression} = 'posthog-flutter', 'flutter_events',
@@ -663,6 +606,7 @@ def get_teams_with_survey_responses_count_in_period(
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     return list(
         ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end)
+        .exclude(pipeline_version=ExternalDataJob.PipelineVersion.V2)
         .values("team_id")
         .annotate(total=Sum("rows_synced"))
     )
@@ -712,21 +656,38 @@ def get_teams_with_hog_function_fetch_calls_in_period(
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def capture_report(
+    *,
     capture_event_name: str,
-    org_id: str,
+    org_id: Optional[str] = None,
+    team_id: Optional[int] = None,
     full_report_dict: dict[str, Any],
     at_date: Optional[datetime] = None,
+    send_for_all_members: bool = False,
 ) -> None:
-    pha_client = Client("sTMFPsFhdP1Ssg")
+    if not org_id and not team_id:
+        raise ValueError("Either org_id or team_id must be provided")
+    pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
     try:
-        capture_event(pha_client, capture_event_name, org_id, full_report_dict, timestamp=at_date)
+        capture_event(
+            pha_client=pha_client,
+            name=capture_event_name,
+            organization_id=org_id,
+            team_id=team_id,
+            properties=full_report_dict,
+            timestamp=at_date,
+        )
         logger.info(f"UsageReport sent to PostHog for organization {org_id}")
     except Exception as err:
         logger.exception(
             f"UsageReport sent to PostHog for organization {org_id} failed: {str(err)}",
         )
-        capture_event(pha_client, f"{capture_event_name} failure", org_id, {"error": str(err)})
-    pha_client.flush()
+        capture_event(
+            pha_client=pha_client,
+            name=f"{capture_event_name} failure",
+            organization_id=org_id,
+            team_id=team_id,
+            properties={"error": str(err)},
+        )
 
 
 # extend this with future usage based products
@@ -938,7 +899,7 @@ def _get_teams_for_usage_reports() -> Sequence[Team]:
     return list(
         Team.objects.select_related("organization")
         .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
-        .only("id", "organization__id", "organization__name", "organization__created_at")
+        .only("id", "name", "organization__id", "organization__name", "organization__created_at")
     )
 
 
@@ -1043,6 +1004,7 @@ def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[s
     logger.info("Getting all usage data...")  # noqa T201
     time_now = datetime.now()
     all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
+
     logger.debug(f"Getting all usage data took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
 
     logger.info("Getting teams for usage reports...")  # noqa T201
@@ -1082,6 +1044,14 @@ def send_all_org_usage_reports(
     skip_capture_event: bool = False,
     only_organization_id: Optional[str] = None,
 ) -> None:
+    import posthoganalytics
+    from sentry_sdk import capture_message
+
+    are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
+    if are_usage_reports_disabled:
+        capture_message(f"Usage reports are disabled for {at}")
+        return
+
     capture_event_name = capture_event_name or "organization usage report"
 
     at_date = parser.parse(at) if at else None
@@ -1110,7 +1080,12 @@ def send_all_org_usage_reports(
             # First capture the events to PostHog
             if not skip_capture_event:
                 at_date_str = at_date.isoformat() if at_date else None
-                capture_report.delay(capture_event_name, org_id, full_report_dict, at_date_str)
+                capture_report.delay(
+                    capture_event_name=capture_event_name,
+                    org_id=org_id,
+                    full_report_dict=full_report_dict,
+                    at_date=at_date_str,
+                )
 
             # Then capture the events to Billing
             if has_non_zero_usage(full_report):

@@ -1,10 +1,15 @@
-from django.db import models
+from django.db import models, transaction
 from django.contrib.postgres.fields import ArrayField
+
 from posthog.models.utils import UUIDModel
 from posthog.models.team import Team
 from posthog.models.user import User
-from django.db import transaction
-from django.db.models import Q, QuerySet
+from posthog.models.user_group import UserGroup
+from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
+
+from posthog.kafka_client.client import ClickhouseProducer
+from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
+from uuid import UUID
 
 
 class ErrorTrackingIssue(UUIDModel):
@@ -20,14 +25,36 @@ class ErrorTrackingIssue(UUIDModel):
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
 
+    def merge(self, issue_ids: list[str]) -> None:
+        fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
+
+        with transaction.atomic():
+            overrides = update_error_tracking_issue_fingerprints(
+                team_id=self.team.pk, issue_id=self.id, fingerprints=fingerprints
+            )
+            ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
+            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+
+    def split(self, fingerprints: list[str]) -> None:
+        overrides: list[ErrorTrackingIssueFingerprintV2] = []
+
+        for fingerprint in fingerprints:
+            with transaction.atomic():
+                new_issue = ErrorTrackingIssue.objects.create(team=self.team)
+                overrides.extend(
+                    update_error_tracking_issue_fingerprints(
+                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fingerprint]
+                    )
+                )
+
+        update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+
 
 class ErrorTrackingIssueAssignment(UUIDModel):
-    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
+    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
+    user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["issue", "user"], name="unique_on_user_and_issue")]
 
 
 class ErrorTrackingIssueFingerprintV2(UUIDModel):
@@ -56,6 +83,7 @@ class ErrorTrackingSymbolSet(UUIDModel):
     # If we failed to resolve this symbol set, we store the reason here, so
     # we can return the language-relevant error in the future.
     failure_reason = models.TextField(null=True, blank=True)
+    content_hash = models.TextField(null=True, blank=False)
 
     class Meta:
         indexes = [
@@ -113,36 +141,6 @@ class ErrorTrackingGroup(UUIDModel):
         blank=True,
     )
 
-    @classmethod
-    def filter_fingerprints(cls, queryset, fingerprints: list[list]) -> QuerySet:
-        query = Q(fingerprint__in=fingerprints)
-
-        for fp in fingerprints:
-            query |= Q(merged_fingerprints__contains=fp)
-
-        return queryset.filter(query)
-
-    @transaction.atomic
-    def merge(self, fingerprints: list[list[str]]) -> None:
-        if not fingerprints:
-            return
-
-        # sets don't like lists so we're converting fingerprints to tuples
-        def convert_fingerprints_to_tuples(fps: list[list[str]]):
-            return [tuple(f) for f in fps]
-
-        merged_fingerprints = set(convert_fingerprints_to_tuples(self.merged_fingerprints))
-        merged_fingerprints.update(convert_fingerprints_to_tuples(fingerprints))
-
-        merging_groups = ErrorTrackingGroup.objects.filter(team=self.team, fingerprint__in=fingerprints)
-        for group in merging_groups:
-            merged_fingerprints |= set(convert_fingerprints_to_tuples(group.merged_fingerprints))
-
-        merging_groups.delete()
-        # converting back to list of lists before saving
-        self.merged_fingerprints = [list(f) for f in merged_fingerprints]
-        self.save()
-
 
 # DEPRECATED: Use ErrorTrackingIssueFingerprintV2 instead
 class ErrorTrackingIssueFingerprint(models.Model):
@@ -154,3 +152,59 @@ class ErrorTrackingIssueFingerprint(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique fingerprint for team")]
+
+
+def resolve_fingerprints_for_issues(team_id: int, issue_ids: list[str]) -> list[str]:
+    return list(
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id__in=issue_ids).values_list(
+            "fingerprint", flat=True
+        )
+    )
+
+
+def update_error_tracking_issue_fingerprints(
+    team_id: int, issue_id: str, fingerprints: list[str]
+) -> list[ErrorTrackingIssueFingerprintV2]:
+    return list(
+        ErrorTrackingIssueFingerprintV2.objects.raw(
+            """
+                UPDATE posthog_errortrackingissuefingerprintv2
+                SET version = version + 1, issue_id = %s
+                WHERE team_id = %s AND fingerprint = ANY(%s)
+                RETURNING fingerprint, version, issue_id, id
+            """,
+            [issue_id, team_id, fingerprints],
+        )
+    )
+
+
+def update_error_tracking_issue_fingerprint_overrides(
+    team_id: int, overrides: list[ErrorTrackingIssueFingerprintV2]
+) -> None:
+    for override in overrides:
+        override_error_tracking_issue_fingerprint(
+            team_id=team_id, fingerprint=override.fingerprint, issue_id=override.issue_id, version=override.version
+        )
+
+
+def override_error_tracking_issue_fingerprint(
+    team_id: int,
+    fingerprint: str,
+    issue_id: UUID,
+    version=0,
+    is_deleted: bool = False,
+    sync: bool = False,
+) -> None:
+    p = ClickhouseProducer()
+    p.produce(
+        topic=KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
+        sql=INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
+        data={
+            "team_id": team_id,
+            "fingerprint": fingerprint,
+            "issue_id": str(issue_id),
+            "version": version,
+            "is_deleted": int(is_deleted),
+        },
+        sync=sync,
+    )

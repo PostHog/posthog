@@ -1,14 +1,12 @@
 import { useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
-import { ConversionGoalWarning, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { ConversionGoalWarning, ProductTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
-    const { statusCheck, conversionGoalWarning } = useValues(webAnalyticsLogic)
-    const isFlagConversionGoalWarningsSet = useFeatureFlag('WEB_ANALYTICS_WARN_CUSTOM_EVENT_NO_SESSION')
+    const { statusCheck, conversionGoalWarning, productTab } = useValues(webAnalyticsLogic)
 
-    if (conversionGoalWarning && isFlagConversionGoalWarningsSet) {
+    if (conversionGoalWarning) {
         switch (conversionGoalWarning) {
             case ConversionGoalWarning.CustomEventWithNoSessionId:
                 return (
@@ -35,37 +33,58 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
         return null
     }
 
-    if (!statusCheck.isSendingPageViews) {
-        return (
-            <LemonBanner type="warning" className="mt-2">
-                <p>
-                    No <code>$pageview</code>{' '}
-                    {!statusCheck.isSendingPageLeaves ? (
-                        <>
-                            or <code>$pageleave</code>{' '}
-                        </>
-                    ) : null}
-                    events have been received. Web analytics won't work correctly (it'll be a little empty!)
-                </p>
-                <p>
-                    Please see{' '}
-                    <Link to="https://posthog.com/docs/libraries/js">documentation for how to set up posthog-js</Link>.
-                </p>
-            </LemonBanner>
-        )
-    } else if (!statusCheck.isSendingPageLeaves) {
-        return (
-            <LemonBanner type="warning" className="mt-2">
-                <p>
-                    No <code>$pageleave</code> events have been received, this means that Bounce rate and Session
-                    duration might be inaccurate.
-                </p>
-                <p>
-                    Please see{' '}
-                    <Link to="https://posthog.com/docs/libraries/js">documentation for how to set up posthog-js</Link>.
-                </p>
-            </LemonBanner>
-        )
+    // TODO: Add docs for Core Web Vitals once available
+    if (productTab === ProductTab.CORE_WEB_VITALS) {
+        if (!statusCheck.isSendingWebVitals) {
+            return (
+                <LemonBanner type="warning" className="mt-2">
+                    <p>
+                        No <code>$web_vitals</code> events have been received. Core Web Vitals won't work correctly
+                        (it'll be a little empty!)
+                    </p>
+                </LemonBanner>
+            )
+        }
+    } else {
+        if (!statusCheck.isSendingPageViews) {
+            return (
+                <LemonBanner type="warning" className="mt-2">
+                    <p>
+                        No <code>$pageview</code>{' '}
+                        {!statusCheck.isSendingPageLeaves ? (
+                            <>
+                                or <code>$pageleave</code>{' '}
+                            </>
+                        ) : null}
+                        events have been received. Web analytics won't work correctly (it'll be a little empty!)
+                    </p>
+                    <p>
+                        Please see{' '}
+                        <Link to="https://posthog.com/docs/libraries/js">
+                            documentation for how to set up posthog-js
+                        </Link>
+                        .
+                    </p>
+                </LemonBanner>
+            )
+        } else if (!statusCheck.isSendingPageLeaves) {
+            return (
+                <LemonBanner type="warning" className="mt-2">
+                    <p>
+                        No <code>$pageleave</code> events have been received, this means that Bounce rate and Session
+                        duration might be inaccurate.
+                    </p>
+                    <p>
+                        Please see{' '}
+                        <Link to="https://posthog.com/docs/libraries/js">
+                            documentation for how to set up posthog-js
+                        </Link>
+                        .
+                    </p>
+                </LemonBanner>
+            )
+        }
     }
+
     return null
 }

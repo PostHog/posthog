@@ -12,7 +12,7 @@ import { KafkaProducerWrapper } from '../../../../utils/db/kafka-producer-wrappe
 import { status } from '../../../../utils/status'
 import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'
-import { createSessionReplayEvent } from '../process-event'
+import { createSessionReplayEvent, RRWebEventType } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 
@@ -71,9 +71,9 @@ export class ReplayEventsIngester {
                 status.error('🔁', '[replay-events] main_loop_error', { error })
 
                 if (error?.isRetriable) {
-                    // We assume the if the error is retriable, then we
+                    // We assume that if the error is retriable, then we
                     // are probably in a state where e.g. Kafka is down
-                    // temporarily and we would rather simply throw and
+                    // temporarily, and we would rather simply throw and
                     // have the process restarted.
                     throw error
                 }
@@ -124,7 +124,7 @@ export class ReplayEventsIngester {
         try {
             const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])
 
-            const { event: replayRecord, warnings } = createSessionReplayEvent(
+            const { event: replayRecord } = createSessionReplayEvent(
                 randomUUID(),
                 event.team_id,
                 event.distinct_id,
@@ -138,6 +138,16 @@ export class ReplayEventsIngester {
                 if (replayRecord !== null) {
                     const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
                     if (!asDate.isValid || Math.abs(asDate.diffNow('day').days) >= 7) {
+                        const eventTypes: { type: number; timestamp: number }[] = []
+                        const customEvents: typeof rrwebEvents = []
+
+                        for (const event of rrwebEvents) {
+                            eventTypes.push({ type: event.type, timestamp: event.timestamp })
+                            if (event.type === RRWebEventType.Custom) {
+                                customEvents.push(event)
+                            }
+                        }
+
                         await captureIngestionWarning(
                             new KafkaProducerWrapper(this.producer),
                             event.team_id,
@@ -148,28 +158,14 @@ export class ReplayEventsIngester {
                                 isValid: asDate.isValid,
                                 daysFromNow: Math.round(Math.abs(asDate.diffNow('day').days)),
                                 processingTimestamp: DateTime.now().toISO(),
+                                eventTypes,
+                                customEvents,
                             },
                             { key: event.session_id }
                         )
                         return drop('invalid_timestamp')
                     }
                 }
-
-                await Promise.allSettled(
-                    warnings.map(async (warning) => {
-                        await captureIngestionWarning(
-                            new KafkaProducerWrapper(this.producer),
-                            event.team_id,
-                            warning,
-                            {
-                                replayRecord,
-                                timestamp: replayRecord.first_timestamp,
-                                processingTimestamp: DateTime.now().toISO(),
-                            },
-                            { key: event.session_id }
-                        )
-                    })
-                )
             } catch (e) {
                 captureException(e, {
                     extra: {

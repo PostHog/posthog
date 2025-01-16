@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -19,7 +17,7 @@ export function DataCollection(): JSX.Element {
     const {
         experimentId,
         experiment,
-        getMetricType,
+        _getMetricType,
         funnelResultsPersonsTotal,
         actualRunningTime,
         minimumDetectableEffect,
@@ -27,14 +25,14 @@ export function DataCollection(): JSX.Element {
 
     const { openExperimentCollectionGoalModal } = useActions(experimentLogic)
 
-    const metricType = getMetricType(0)
+    const metricType = _getMetricType(experiment.metrics[0])
 
     const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
     const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
 
     const experimentProgressPercent =
         metricType === InsightType.FUNNELS
-            ? (funnelResultsPersonsTotal / recommendedSampleSize) * 100
+            ? (funnelResultsPersonsTotal(0) / recommendedSampleSize) * 100
             : (actualRunningTime / recommendedRunningTime) * 100
 
     const hasHighRunningTime = recommendedRunningTime > 62
@@ -82,7 +80,7 @@ export function DataCollection(): JSX.Element {
                     <LemonProgress
                         className="w-full border"
                         bgColor="var(--bg-table)"
-                        size="large"
+                        size="medium"
                         percent={experimentProgressPercent}
                     />
                     {metricType === InsightType.TRENDS && (
@@ -111,7 +109,7 @@ export function DataCollection(): JSX.Element {
                                 <span>
                                     Saw&nbsp;
                                     <b>
-                                        {humanFriendlyNumber(funnelResultsPersonsTotal)} of{' '}
+                                        {humanFriendlyNumber(funnelResultsPersonsTotal(0))} of{' '}
                                         {humanFriendlyNumber(recommendedSampleSize)}{' '}
                                     </b>{' '}
                                     {formatUnitByQuantity(recommendedSampleSize, 'participant')}
@@ -174,16 +172,18 @@ export function DataCollection(): JSX.Element {
 export function DataCollectionGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
     const {
         isExperimentCollectionGoalModalOpen,
-        getMetricType,
+        experiment,
+        _getMetricType,
         trendMetricInsightLoading,
         funnelMetricInsightLoading,
     } = useValues(experimentLogic({ experimentId }))
-    const { closeExperimentCollectionGoalModal, updateExperimentCollectionGoal } = useActions(
-        experimentLogic({ experimentId })
-    )
+    const { closeExperimentCollectionGoalModal, updateExperimentCollectionGoal, restoreUnmodifiedExperiment } =
+        useActions(experimentLogic({ experimentId }))
 
     const isInsightLoading =
-        getMetricType(0) === InsightType.TRENDS ? trendMetricInsightLoading : funnelMetricInsightLoading
+        _getMetricType(experiment.metrics[0]) === InsightType.TRENDS
+            ? trendMetricInsightLoading
+            : funnelMetricInsightLoading
 
     return (
         <LemonModal
@@ -196,13 +196,19 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
                     <LemonButton
                         form="edit-experiment-exposure-form"
                         type="secondary"
-                        onClick={closeExperimentCollectionGoalModal}
+                        onClick={() => {
+                            restoreUnmodifiedExperiment()
+                            closeExperimentCollectionGoalModal()
+                        }}
                     >
                         Cancel
                     </LemonButton>
                     <LemonButton
                         form="edit-experiment-exposure-form"
-                        onClick={() => updateExperimentCollectionGoal()}
+                        onClick={() => {
+                            updateExperimentCollectionGoal()
+                            closeExperimentCollectionGoalModal()
+                        }}
                         type="primary"
                         data-attr="create-annotation-submit"
                     >

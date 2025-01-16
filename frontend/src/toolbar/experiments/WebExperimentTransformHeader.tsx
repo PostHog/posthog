@@ -22,14 +22,13 @@ export function WebExperimentTransformHeader({
 
     return (
         <div className="flex w-full gap-4 items-center">
-            <div className="flex-1">
+            <div className="flex-1 overflow-hidden">
                 <h2>{transform.selector || 'Select element'}</h2>
             </div>
 
             {transform.selector && <SelectorCount selector={transform.selector} />}
 
-            {/*Only show the remove button if there's more than one transform*/}
-            {experimentForm?.variants && experimentForm.variants[variant].transforms.length > 1 && (
+            {experimentForm?.variants && (
                 <LemonButton
                     icon={<IconTrash />}
                     size="small"

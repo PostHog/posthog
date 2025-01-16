@@ -1,9 +1,8 @@
 import type { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { DateRange } from '~/queries/schema'
+import { DateRange, ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
@@ -27,7 +26,9 @@ const customOptions: Record<string, SparklineOption[]> = {
     all: [lastYear, lastMonth, lastDay],
 }
 
-const DEFAULT_FILTER_GROUP = {
+export const DEFAULT_ERROR_TRACKING_DATE_RANGE = { date_from: '-7d', date_to: null }
+
+export const DEFAULT_ERROR_TRACKING_FILTER_GROUP = {
     type: FilterLogicalOperator.And,
     values: [{ type: FilterLogicalOperator.And, values: [] }],
 }
@@ -41,30 +42,29 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
-        setAssignee: (assignee: number | null) => ({ assignee }),
+        setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
+        setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
-        setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setSparklineSelectedPeriod: (period: string | null) => ({ period }),
         _setSparklineOptions: (options: SparklineOption[]) => ({ options }),
     }),
     reducers({
         dateRange: [
-            { date_from: '-7d', date_to: null } as DateRange,
+            DEFAULT_ERROR_TRACKING_DATE_RANGE as DateRange,
             { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
         assignee: [
-            null as number | null,
-            { persist: true },
+            null as ErrorTrackingIssueAssignee | null,
             {
                 setAssignee: (_, { assignee }) => assignee,
             },
         ],
         filterGroup: [
-            DEFAULT_FILTER_GROUP as UniversalFiltersGroup,
+            DEFAULT_ERROR_TRACKING_FILTER_GROUP as UniversalFiltersGroup,
             { persist: true },
             {
                 setFilterGroup: (_, { filterGroup }) => filterGroup,
@@ -96,12 +96,6 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             {
                 _setSparklineOptions: (_, { options }) => options,
             },
-        ],
-    }),
-    selectors({
-        hasGroupActions: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.ERROR_TRACKING_GROUP_ACTIONS],
         ],
     }),
     listeners(({ values, actions }) => ({

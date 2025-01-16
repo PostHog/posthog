@@ -47,7 +47,10 @@ def extract_organization(object: Model, view: ViewSet) -> Organization:
             try:
                 return object.project.organization  # type: ignore
             except AttributeError:
-                pass
+                try:
+                    return object.user.organization  # type: ignore
+                except AttributeError:
+                    pass
     raise ValueError("Object not compatible with organization-based permissions!")
 
 

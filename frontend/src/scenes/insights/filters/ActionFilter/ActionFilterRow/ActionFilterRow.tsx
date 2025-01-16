@@ -40,7 +40,7 @@ import {
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isStickinessQuery } from '~/queries/utils'
 import {
     ActionFilter,
@@ -126,6 +126,8 @@ export interface ActionFilterRowProps {
     trendsDisplayCategory: ChartDisplayCategory | null
     /** Whether properties shown should be limited to just numerical types */
     showNumericalPropsOnly?: boolean
+    /** Only show these property math definitions */
+    onlyPropertyMathDefinitions?: Array<string>
 }
 
 export function ActionFilterRow({
@@ -155,6 +157,7 @@ export function ActionFilterRow({
     renderRow,
     trendsDisplayCategory,
     showNumericalPropsOnly,
+    onlyPropertyMathDefinitions,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -425,6 +428,7 @@ export function ActionFilterRow({
                                             style={{ maxWidth: '100%', width: 'initial' }}
                                             mathAvailability={mathAvailability}
                                             trendsDisplayCategory={trendsDisplayCategory}
+                                            onlyPropertyMathDefinitions={onlyPropertyMathDefinitions}
                                         />
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.PropertyValue && (
@@ -642,6 +646,8 @@ interface MathSelectorProps {
     onMathSelect: (index: number, value: any) => any
     trendsDisplayCategory: ChartDisplayCategory | null
     style?: React.CSSProperties
+    /** Only show these property math definitions */
+    onlyPropertyMathDefinitions?: Array<string>
 }
 
 function isPropertyValueMath(math: string | undefined): math is PropertyMathType {
@@ -660,6 +666,7 @@ function useMathSelectorOptions({
     mathAvailability,
     onMathSelect,
     trendsDisplayCategory,
+    onlyPropertyMathDefinitions,
 }: MathSelectorProps): LemonSelectOptions<string> {
     const mountedInsightDataLogic = insightDataLogic.findMounted()
     const query = mountedInsightDataLogic?.values?.query
@@ -674,9 +681,16 @@ function useMathSelectorOptions({
         staticActorsOnlyMathDefinitions,
     } = useValues(mathsLogic)
 
-    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
-        isPropertyValueMath(math) ? math : PropertyMathType.Average
-    )
+    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(() => {
+        if (isPropertyValueMath(math)) {
+            return math
+        }
+        if (onlyPropertyMathDefinitions?.length) {
+            return onlyPropertyMathDefinitions[0] as PropertyMathType
+        }
+        return PropertyMathType.Average
+    })
+
     const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average
     )
@@ -758,12 +772,19 @@ function useMathSelectorOptions({
                             setPropertyMathTypeShown(value as PropertyMathType)
                             onMathSelect(index, value)
                         }}
-                        options={Object.entries(PROPERTY_MATH_DEFINITIONS).map(([key, definition]) => ({
-                            value: key,
-                            label: definition.shortName,
-                            tooltip: definition.description,
-                            'data-attr': `math-${key}-${index}`,
-                        }))}
+                        options={Object.entries(PROPERTY_MATH_DEFINITIONS)
+                            .filter(([key]) => {
+                                if (undefined === onlyPropertyMathDefinitions) {
+                                    return true
+                                }
+                                return onlyPropertyMathDefinitions.includes(key)
+                            })
+                            .map(([key, definition]) => ({
+                                value: key,
+                                label: definition.shortName,
+                                tooltip: definition.description,
+                                'data-attr': `math-${key}-${index}`,
+                            }))}
                         onClick={(e) => e.stopPropagation()}
                         size="small"
                         dropdownMatchSelectWidth={false}

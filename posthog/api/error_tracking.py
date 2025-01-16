@@ -1,4 +1,6 @@
+from django.core.files.uploadedfile import UploadedFile
 import structlog
+import hashlib
 
 from rest_framework import serializers, viewsets, status
 from rest_framework.response import Response
@@ -8,13 +10,21 @@ from django.conf import settings
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import ErrorTrackingSymbolSet
-from posthog.models.error_tracking import ErrorTrackingStackFrame
+from posthog.api.utils import action
+from posthog.models.error_tracking import (
+    ErrorTrackingIssue,
+    ErrorTrackingSymbolSet,
+    ErrorTrackingStackFrame,
+    ErrorTrackingIssueAssignment,
+)
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 
 
-FIFTY_MEGABYTES = 50 * 1024 * 1024
+ONE_GIGABYTE = 1024 * 1024 * 1024
+JS_DATA_MAGIC = b"posthog_error_tracking"
+JS_DATA_VERSION = 1
+JS_DATA_TYPE_SOURCE_AND_MAP = 2
 
 logger = structlog.get_logger(__name__)
 
@@ -23,29 +33,43 @@ class ObjectStorageUnavailable(Exception):
     pass
 
 
-# class ErrorTrackingGroupSerializer(serializers.ModelSerializer):
-#     class Meta:
-#         model = ErrorTrackingGroup
-#         fields = ["assignee", "status"]
+class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingIssue
+        fields = ["assignee", "status"]
 
 
-# class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-#     scope_object = "INTERNAL"
-#     queryset = ErrorTrackingGroup.objects.all()
-#     serializer_class = ErrorTrackingGroupSerializer
+class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = ErrorTrackingIssue.objects.all()
+    serializer_class = ErrorTrackingIssueSerializer
 
-#     def safely_get_object(self, queryset) -> QuerySet:
-#         stringified_fingerprint = self.kwargs["pk"]
-#         fingerprint = json.loads(urlsafe_base64_decode(stringified_fingerprint))
-#         group, _ = queryset.get_or_create(fingerprint=fingerprint, team=self.team)
-#         return group
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team_id=self.team.id)
 
-#     @action(methods=["POST"], detail=True)
-#     def merge(self, request, **kwargs):
-#         group: ErrorTrackingGroup = self.get_object()
-#         merging_fingerprints: list[list[str]] = request.data.get("merging_fingerprints", [])
-#         group.merge(merging_fingerprints)
-#         return Response({"success": True})
+    @action(methods=["POST"], detail=True)
+    def merge(self, request, **kwargs):
+        issue: ErrorTrackingIssue = self.get_object()
+        ids: list[str] = request.data.get("ids", [])
+        issue.merge(issue_ids=ids)
+        return Response({"success": True})
+
+    @action(methods=["PATCH"], detail=True)
+    def assign(self, request, **kwargs):
+        assignee = request.data.get("assignee", None)
+
+        if assignee:
+            ErrorTrackingIssueAssignment.objects.update_or_create(
+                issue_id=self.get_object().id,
+                defaults={
+                    "user_id": None if assignee["type"] == "user_group" else assignee["id"],
+                    "user_group_id": None if assignee["type"] == "user" else assignee["id"],
+                },
+            )
+        else:
+            ErrorTrackingIssueAssignment.objects.filter(issue_id=self.get_object().id).delete()
+
+        return Response({"success": True})
 
 
 class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
@@ -81,7 +105,7 @@ class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id"]
 
 
-class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ErrorTrackingSymbolSet.objects.all()
     serializer_class = ErrorTrackingSymbolSetSerializer
@@ -97,23 +121,32 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyMod
 
     def update(self, request, *args, **kwargs) -> Response:
         symbol_set = self.get_object()
-        symbol_set.delete()
         # TODO: delete file from s3
-        storage_ptr = upload_symbol_set(request.FILES["source_map"], self.team_id)
+        minified = request.FILES["minified"]
+        source_map = request.FILES["source_map"]
+        (storage_ptr, content_hash) = upload_symbol_set(minified, source_map, self.team_id)
         symbol_set.storage_ptr = storage_ptr
+        symbol_set.content_hash = content_hash
         symbol_set.save()
+        ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
 
-def upload_symbol_set(file, team_id) -> str:
+def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile, team_id) -> tuple[str, str]:
+    js_data = construct_js_data_object(minified.read(), source_map.read())
+    content_hash = hashlib.sha512(js_data).hexdigest()
+
     try:
         if settings.OBJECT_STORAGE_ENABLED:
-            if file.size > FIFTY_MEGABYTES:
-                raise ValidationError(code="file_too_large", detail="Source maps must be less than 50MB")
+            # TODO - maybe a gigabyte is too much?
+            if len(js_data) > ONE_GIGABYTE:
+                raise ValidationError(
+                    code="file_too_large", detail="Combined source map and symbol set must be less than 1 gigabyte"
+                )
 
             upload_path = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
-            object_storage.write(upload_path, file)
-            return upload_path
+            object_storage.write(upload_path, bytes(js_data))
+            return (upload_path, content_hash)
         else:
             raise ObjectStorageUnavailable()
     except ObjectStorageUnavailable:
@@ -121,3 +154,19 @@ def upload_symbol_set(file, team_id) -> str:
             code="object_storage_required",
             detail="Object storage must be available to allow source map uploads.",
         )
+
+
+def construct_js_data_object(minified: bytes, source_map: bytes) -> bytearray:
+    # See rust/cymbal/hacks/js_data.rs
+    data = bytearray()
+    data.extend(JS_DATA_MAGIC)
+    data.extend(JS_DATA_VERSION.to_bytes(4, "little"))
+    data.extend((JS_DATA_TYPE_SOURCE_AND_MAP).to_bytes(4, "little"))
+    # TODO - this doesn't seem right?
+    s_bytes = minified.decode("utf-8").encode("utf-8")
+    data.extend(len(s_bytes).to_bytes(8, "little"))
+    data.extend(s_bytes)
+    sm_bytes = source_map.decode("utf-8").encode("utf-8")
+    data.extend(len(sm_bytes).to_bytes(8, "little"))
+    data.extend(sm_bytes)
+    return data

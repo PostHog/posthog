@@ -22,7 +22,7 @@ jobs:
     posthog_build:
         name: Build and push PostHog
         if: github.repository == 'PostHog/posthog'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -222,6 +222,27 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-data-warehouse",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Trigger Data Warehouse V2 Temporal Worker Cloud deployment
+              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-data-warehouse-v2",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},

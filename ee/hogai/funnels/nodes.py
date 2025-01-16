@@ -6,12 +6,12 @@ from ee.hogai.funnels.toolkit import FUNNEL_SCHEMA, FunnelsTaxonomyAgentToolkit
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.taxonomy_agent.nodes import TaxonomyAgentPlannerNode, TaxonomyAgentPlannerToolsNode
-from ee.hogai.utils import AssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantFunnelsQuery
 
 
 class FunnelPlannerNode(TaxonomyAgentPlannerNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = FunnelsTaxonomyAgentToolkit(self._team)
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -23,7 +23,7 @@ class FunnelPlannerNode(TaxonomyAgentPlannerNode):
 
 
 class FunnelPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = FunnelsTaxonomyAgentToolkit(self._team)
         return super()._run_with_toolkit(state, toolkit, config=config)
 
@@ -36,7 +36,7 @@ class FunnelGeneratorNode(SchemaGeneratorNode[AssistantFunnelsQuery]):
     OUTPUT_MODEL = FunnelsSchemaGeneratorOutput
     OUTPUT_SCHEMA = FUNNEL_SCHEMA
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", FUNNEL_SYSTEM_PROMPT),

@@ -1,23 +1,24 @@
 import './ImagePreview.scss'
 
-import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
+import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { POSTHOG_EVENT_PROMOTED_PROPERTIES } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from 'lib/taxonomy'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
+import { AutocaptureImageTab, AutocapturePreviewImage, autocaptureToImage } from 'lib/utils/event-property-utls'
+import { useState } from 'react'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
-import { DEFAULT_INSPECTOR_ROW_HEIGHT } from 'scenes/session-recordings/player/inspector/PlayerInspectorList'
-
-import { ElementType } from '~/types'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
+
 export interface ItemEventProps {
     item: InspectorListItemEvent
 }
@@ -54,53 +55,6 @@ function SummarizeWebVitals({ properties }: { properties: Record<string, any> })
     )
 }
 
-function autocaptureToImage(
-    elements: ElementType[]
-): null | { src: string | undefined; width: string | undefined; height: string | undefined } {
-    const find = elements.find((el) => el.tag_name === 'img')
-    const image = {
-        src: find?.attributes?.attr__src,
-        width: find?.attributes?.attr__width,
-        height: find?.attributes?.attr__height,
-    }
-    return image.src ? image : null
-}
-
-function AutocaptureImage({ item }: ItemEventProps): JSX.Element | null {
-    const img = autocaptureToImage(item.data.elements)
-    if (img) {
-        return (
-            <Tooltip
-                title={
-                    <div className="flex bg-bg-3000 items-center justify-center relative border-2">
-                        {/* Transparent grid background */}
-                        <div className="ImagePreview__background absolute h-full w-full" />
-
-                        {/* Image preview */}
-                        <img
-                            className="relative z-10 max-h-100 object-contain"
-                            src={img.src}
-                            alt="Autocapture image src"
-                            height={img.height || 'auto'}
-                            width={img.width || 'auto'}
-                        />
-                    </div>
-                }
-            >
-                <img
-                    className="max-h-10"
-                    src={img.src}
-                    alt="Autocapture image src"
-                    height={DEFAULT_INSPECTOR_ROW_HEIGHT}
-                    width="auto"
-                />
-            </Tooltip>
-        )
-    }
-
-    return null
-}
-
 export function ItemEvent({ item }: ItemEventProps): JSX.Element {
     const subValue =
         item.data.event === '$pageview' ? (
@@ -110,7 +64,7 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
         ) : item.data.event === '$web_vitals' ? (
             <SummarizeWebVitals properties={item.data.properties} />
         ) : item.data.elements.length ? (
-            <AutocaptureImage item={item} />
+            <AutocapturePreviewImage elements={item.data.elements} />
         ) : null
 
     return (
@@ -138,10 +92,25 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
 }
 
 export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
+    const [activeTab, setActiveTab] = useState<'properties' | 'flags' | 'image' | 'elements' | 'raw'>('properties')
+
     const insightUrl = insightUrlForEvent(item.data)
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
 
     const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[item.data.event]
+
+    const properties = {}
+    const featureFlagProperties = {}
+
+    for (const key of Object.keys(item.data.properties)) {
+        if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
+            if (key.startsWith('$feature') || key === '$active_feature_flags') {
+                featureFlagProperties[key] = item.data.properties[key]
+            } else {
+                properties[key] = item.data.properties[key]
+            }
+        }
+    }
 
     return (
         <div data-attr="item-event" className="font-light w-full">
@@ -168,7 +137,59 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                     item.data.event === '$exception' ? (
                         <ErrorDisplay eventProperties={item.data.properties} />
                     ) : (
-                        <SimpleKeyValueList item={filterProperties(item.data.properties)} promotedKeys={promotedKeys} />
+                        <LemonTabs
+                            size="small"
+                            activeKey={activeTab}
+                            onChange={(newKey) => setActiveTab(newKey)}
+                            tabs={[
+                                {
+                                    key: 'properties',
+                                    label: 'Properties',
+                                    content: (
+                                        <SimpleKeyValueList
+                                            item={filterProperties(properties)}
+                                            promotedKeys={promotedKeys}
+                                        />
+                                    ),
+                                },
+                                {
+                                    key: 'flags',
+                                    label: 'Flags',
+                                    content: (
+                                        <SimpleKeyValueList item={featureFlagProperties} promotedKeys={promotedKeys} />
+                                    ),
+                                },
+                                item.data.elements && item.data.elements.length > 0
+                                    ? {
+                                          key: 'elements',
+                                          label: 'Elements',
+                                          content: (
+                                              <HTMLElementsDisplay
+                                                  size="xsmall"
+                                                  elements={item.data.elements}
+                                                  selectedText={item.data.properties['$selected_content']}
+                                              />
+                                          ),
+                                      }
+                                    : null,
+                                autocaptureToImage(item.data.elements)
+                                    ? {
+                                          key: 'image',
+                                          label: 'Image',
+                                          content: <AutocaptureImageTab elements={item.data.elements} />,
+                                      }
+                                    : null,
+                                {
+                                    key: 'raw',
+                                    label: 'Raw',
+                                    content: (
+                                        <pre className="text-xs text-muted-alt whitespace-pre-wrap">
+                                            {JSON.stringify(item.data.properties, null, 2)}
+                                        </pre>
+                                    ),
+                                },
+                            ]}
+                        />
                     )
                 ) : (
                     <div className="text-muted-alt flex gap-1 items-center">

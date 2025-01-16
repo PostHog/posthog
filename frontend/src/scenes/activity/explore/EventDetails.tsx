@@ -1,6 +1,5 @@
 import './EventDetails.scss'
 
-import { Properties } from '@posthog/plugin-scaffold'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -11,6 +10,7 @@ import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, KNOWN_PROMOTED_PROPERTY_PARENTS } from 'lib/taxonomy'
 import { pluralize } from 'lib/utils'
+import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/event-property-utls'
 import { useState } from 'react'
 
 import { EventType, PropertyDefinitionType } from '~/types'
@@ -24,9 +24,9 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
     const [showSystemProps, setShowSystemProps] = useState(false)
     const [activeTab, setActiveTab] = useState(event.event === '$exception' ? 'exception' : 'properties')
 
-    const displayedEventProperties: Properties = {}
-    const visibleSystemProperties: Properties = {}
-    const featureFlagProperties: Properties = {}
+    const displayedEventProperties = {}
+    const visibleSystemProperties = {}
+    const featureFlagProperties = {}
     let systemPropsCount = 0
     for (const key of Object.keys(event.properties)) {
         if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] && CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
@@ -111,12 +111,20 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
         })
     }
 
+    if (event.elements && autocaptureToImage(event.elements)) {
+        tabs.push({
+            key: 'image',
+            label: 'Image',
+            content: <AutocaptureImageTab elements={event.elements} />,
+        })
+    }
+
     if (event.event === '$exception') {
         tabs.push({
             key: 'exception',
             label: 'Exception',
             content: (
-                <div className="ml-10 my-2">
+                <div className="mx-2">
                     <ErrorDisplay eventProperties={event.properties} />
                 </div>
             ),

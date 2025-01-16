@@ -135,11 +135,12 @@ def convert_to_hog_function(action: Action, inert=False) -> Optional[HogFunction
         inputs=validate_inputs(
             webhook_template.inputs_schema,
             {"url": {"value": webhook_url}, "method": {"value": "POST"}, "body": {"value": body}},
+            function_type="destination",
         ),
         inputs_schema=webhook_template.inputs_schema,
         template_id=webhook_template.id,
         hog=hog_code,
-        bytecode=compile_hog(hog_code),
+        bytecode=compile_hog(hog_code, "destination"),
         filters=compile_filters_bytecode(
             {"actions": [{"id": f"{action.id}", "type": "actions", "name": action.name, "order": 0}]}, action.team
         ),
@@ -195,15 +196,75 @@ def get_all_inert_hogfunctions() -> QuerySet[HogFunction, HogFunction]:
     return HogFunction.objects.filter(name__startswith="[CDP-TEST-HIDDEN]")
 
 
+def migrate_all_teams_action_webhooks(dry_run=False, inert=False):
+    """Migrate actions for all teams in the system."""
+    print("Starting migration of actions for all teams")  # noqa: T201
+
+    # Get the query without evaluating it
+    query = Action.objects.select_related("team").filter(post_to_slack=True, deleted=False).order_by("id")
+
+    batch_size = 100
+    hog_functions: list[HogFunction] = []
+    actions_to_update: list[Action] = []
+    processed_count = 0
+
+    # Use iterator() to fetch records in batches (instead of paginator)
+    for action in query.iterator(chunk_size=batch_size):
+        if len(action.steps) == 0:
+            continue
+
+        try:
+            hog_function = convert_to_hog_function(action, inert)
+            if hog_function:
+                hog_functions.append(hog_function)
+                if not inert:
+                    action.post_to_slack = False
+                    actions_to_update.append(action)
+        except Exception as e:
+            print(f"Failed to migrate action {action.id}: {e}")  # noqa: T201
+
+        processed_count += 1
+
+        # Bulk create/update when we reach batch_size
+        if len(hog_functions) >= batch_size:
+            if not dry_run:
+                HogFunction.objects.bulk_create(hog_functions)
+                if actions_to_update:
+                    Action.objects.bulk_update(actions_to_update, ["post_to_slack"])
+            else:
+                print(f"Would have created {len(hog_functions)} HogFunctions")  # noqa: T201
+
+            hog_functions = []
+            actions_to_update = []
+
+    # Handle any remaining items
+    if hog_functions:
+        if not dry_run:
+            HogFunction.objects.bulk_create(hog_functions)
+            if actions_to_update:
+                Action.objects.bulk_update(actions_to_update, ["post_to_slack"])
+        else:
+            print(f"Would have created {len(hog_functions)} HogFunctions")  # noqa: T201
+
+    print(f"Processed {processed_count} actions in total")  # noqa: T201
+
+    if not dry_run:
+        reload_all_hog_functions_on_workers()
+
+
 class Command(BaseCommand):
     help = "Migrate action webhooks to HogFunctions"
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--dry-run",
-            type=bool,
+            action="store_true",
             help="If set, will not actually perform the migration, but will print out what would have been done",
         )
+        parser.add_argument(
+            "--inert", action="store_true", help="Create inert HogFunctions that will not fetch but just print"
+        )
+        parser.add_argument("--migrate-all-teams-actions", action="store_true", help="Migrate actions for all teams")
         parser.add_argument("--action-ids", type=str, help="Comma separated list of action ids to sync")
         parser.add_argument("--team-ids", type=str, help="Comma separated list of team ids to sync")
 
@@ -211,13 +272,21 @@ class Command(BaseCommand):
         dry_run = options["dry_run"]
         action_ids = options["action_ids"]
         team_ids = options["team_ids"]
+        inert = options["inert"]
+        migrate_all_teams = options["migrate_all_teams_actions"]
 
-        if action_ids and team_ids:
-            print("Please provide either action_ids or team_ids, not both")  # noqa: T201
+        print(f"Migrating action webhooks with options: {options}")  # noqa: T201
+
+        if sum(bool(x) for x in [action_ids, team_ids, migrate_all_teams]) > 1:
+            print("Please provide only one of: action_ids, team_ids, or migrate-all-teams-actions")  # noqa: T201
             return
 
-        migrate_action_webhooks(
-            action_ids=[int(x) for x in action_ids.split(",")] if action_ids else [],
-            team_ids=[int(x) for x in team_ids.split(",")] if team_ids else [],
-            dry_run=dry_run,
-        )
+        if migrate_all_teams:
+            migrate_all_teams_action_webhooks(dry_run=dry_run, inert=inert)
+        else:
+            migrate_action_webhooks(
+                action_ids=[int(x) for x in action_ids.split(",")] if action_ids else [],
+                team_ids=[int(x) for x in team_ids.split(",")] if team_ids else [],
+                dry_run=dry_run,
+                inert=inert,
+            )

@@ -2,13 +2,14 @@ from datetime import datetime
 from typing import Any, Optional
 from unittest import mock
 from unittest.mock import MagicMock, Mock, patch, ANY
+from dateutil.relativedelta import relativedelta
 
+from freezegun import freeze_time
 from openpyxl import load_workbook
 from io import BytesIO
 import pytest
 from boto3 import resource
 from botocore.client import Config
-from dateutil.relativedelta import relativedelta
 from django.test import override_settings
 from django.utils.timezone import now
 from requests.exceptions import HTTPError
@@ -703,23 +704,75 @@ class TestCSVExporter(APIBaseTest):
         self,
     ) -> None:
         _create_person(distinct_ids=[f"user_1"], team=self.team)
-        events_by_person = {
-            "user_1": [
-                {
-                    "event": "$pageview",
-                    "timestamp": datetime(2023, 3, 21, 13, 46),
-                },
-                {
-                    "event": "$pageview",
-                    "timestamp": datetime(2023, 3, 21, 13, 46),
-                },
-                {
-                    "event": "$pageview",
-                    "timestamp": datetime(2023, 3, 22, 13, 47),
-                },
-            ],
-        }
-        journeys_for(events_by_person, self.team)
+
+        date = datetime(2023, 3, 21, 13, 46)
+        date_next_week = date + relativedelta(days=7)
+
+        _create_event(
+            event="$pageview",
+            distinct_id="1",
+            team=self.team,
+            timestamp=date,
+            properties={"$browser": "Safari"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="1",
+            team=self.team,
+            timestamp=date,
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="1",
+            team=self.team,
+            timestamp=date,
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="1",
+            team=self.team,
+            timestamp=date,
+            properties={"$browser": "Firefox"},
+        )
+
+        _create_event(
+            event="$pageview",
+            distinct_id="1",
+            team=self.team,
+            timestamp=date_next_week,
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="1",
+            team=self.team,
+            timestamp=date_next_week,
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="1",
+            team=self.team,
+            timestamp=date_next_week,
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="1",
+            team=self.team,
+            timestamp=date_next_week,
+            properties={"$browser": "Firefox"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="1",
+            team=self.team,
+            timestamp=date_next_week,
+            properties={"$browser": "Firefox"},
+        )
+
         flush_persons_and_events()
 
         exported_asset = ExportedAsset(
@@ -728,7 +781,10 @@ class TestCSVExporter(APIBaseTest):
             export_context={
                 "source": {
                     "kind": "TrendsQuery",
-                    "dateRange": {"date_to": "2023-03-22", "date_from": "2023-03-22"},
+                    "dateRange": {
+                        "date_from": date.strftime("%Y-%m-%d"),
+                        "date_to": date_next_week.strftime("%Y-%m-%d"),
+                    },
                     "series": [
                         {
                             "kind": "EventsNode",
@@ -738,7 +794,81 @@ class TestCSVExporter(APIBaseTest):
                         },
                     ],
                     "interval": "day",
-                    "compareFilter": {"compare": True},
+                    "compareFilter": {"compare": True, "compare_to": "-1w"},
+                    "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+                }
+            },
+        )
+        exported_asset.save()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+            content = object_storage.read(exported_asset.content_location)  # type: ignore
+
+            lines = (content or "").strip().splitlines()
+
+            expected_lines = [
+                "series,21-Mar-2023,22-Mar-2023,23-Mar-2023,24-Mar-2023,25-Mar-2023,26-Mar-2023,27-Mar-2023,28-Mar-2023",
+                "Chrome - current,2.0,0.0,0.0,0.0,0.0,0.0,0.0,3.0",
+                "Firefox - current,1.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
+                "Safari - current,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
+                "Chrome - previous,0.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
+                "Firefox - previous,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
+                "Safari - previous,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
+            ]
+
+            self.assertEqual(lines, expected_lines)
+
+    def test_csv_exporter_trends_actors(
+        self,
+    ) -> None:
+        with freeze_time("2022-06-01T12:00:00.000Z"):
+            _create_person(distinct_ids=[f"user_1"], team=self.team, uuid="4beb316f-23aa-2584-66d3-4a1b8ab458f2")
+
+        events_by_person = {
+            "user_1": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2020, 3, 22, 13, 46),
+                },
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2020, 3, 22, 13, 47),
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+        _create_event(
+            event="$pageview",
+            distinct_id="user_2",  # personless user
+            person_id="d0780d6b-ccd0-44fa-a227-47efe4f3f30d",
+            timestamp=datetime(2020, 3, 22, 13, 48),
+            team=self.team,
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "ActorsQuery",
+                    "search": "",
+                    "select": ["actor", "event_count"],
+                    "source": {
+                        "day": "2020-03-22T00:00:00Z",
+                        "kind": "InsightActorsQuery",
+                        "series": 0,
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {"kind": "EventsNode", "math": "total", "name": "$pageview", "event": "$pageview"}
+                            ],
+                            "trendsFilter": {},
+                        },
+                        "includeRecordings": False,
+                    },
+                    "orderBy": ["event_count DESC, actor_id DESC"],
                 }
             },
         )
@@ -748,4 +878,11 @@ class TestCSVExporter(APIBaseTest):
             csv_exporter.export_tabular(exported_asset)
             content = object_storage.read(exported_asset.content_location)  # type: ignore
             lines = (content or "").strip().split("\r\n")
-            self.assertEqual(lines, ["series,22-Mar-2023", "$pageview - current,1", "$pageview - previous,2"])
+            self.assertEqual(
+                lines,
+                [
+                    "actor.id,actor.is_identified,actor.created_at,actor.distinct_ids.0,event_count,event_distinct_ids.0",
+                    "4beb316f-23aa-2584-66d3-4a1b8ab458f2,False,2022-06-01 12:00:00+00:00,user_1,2,user_1",
+                    "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,user_2,1,user_2",
+                ],
+            )

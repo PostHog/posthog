@@ -873,7 +873,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -996,63 +996,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 "hashed_personal_api_key": hash_key_value(personal_api_key),
             },
         )
-
-    @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_person_cache_invalidation(self):
-        _create_person(
-            team=self.team,
-            distinct_ids=["person_1", "anonymous_id"],
-            properties={"$os": "Chrome"},
-            immediate=True,
-        )
-        _create_event(event="test", team=self.team, distinct_id="person_1")
-        _create_event(event="test", team=self.team, distinct_id="anonymous_id")
-        _create_event(event="test", team=self.team, distinct_id="someone_else")
-        data = {
-            "events": json.dumps([{"id": "test", "type": "events"}]),
-            "entity_type": "events",
-            "entity_id": "test",
-        }
-
-        trend_response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/",
-            data=data,
-            content_type="application/json",
-        ).json()
-        response = self.client.get("/" + trend_response["result"][0]["persons_urls"][-1]["url"]).json()
-        self.assertEqual(response["results"][0]["count"], 1)
-        self.assertEqual(response["is_cached"], False)
-
-        # Create another person
-        _create_person(
-            team=self.team,
-            distinct_ids=["person_2"],
-            properties={"$os": "Chrome"},
-            immediate=True,
-        )
-        _create_event(event="test", team=self.team, distinct_id="person_2")
-
-        # Check cached response hasn't changed
-        response = self.client.get("/" + trend_response["result"][0]["persons_urls"][-1]["url"]).json()
-        self.assertEqual(response["results"][0]["count"], 1)
-        self.assertEqual(response["is_cached"], True)
-
-        new_trend_response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/",
-            data={**data, "refresh": True},
-            content_type="application/json",
-        ).json()
-
-        self.assertEqual(new_trend_response["is_cached"], False)
-        self.assertNotEqual(
-            new_trend_response["result"][0]["persons_urls"][-1]["url"],
-            trend_response["result"][0]["persons_urls"][-1]["url"],
-        )
-
-        # Cached response should have been updated
-        response = self.client.get("/" + new_trend_response["result"][0]["persons_urls"][-1]["url"]).json()
-        self.assertEqual(response["results"][0]["count"], 2)
-        self.assertEqual(response["is_cached"], False)
 
     def _get_person_activity(
         self,

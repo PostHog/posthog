@@ -2,7 +2,7 @@ from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
 
-from posthog.api import project
+from posthog.api import data_color_theme, metalytics, project
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
@@ -40,7 +40,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    kafka_inspector,
     notebook,
     organization,
     organization_domain,
@@ -50,7 +49,6 @@ from . import (
     personal_api_key,
     plugin,
     plugin_log_entry,
-    property_definition,
     proxy_record,
     query,
     scheduled_change,
@@ -61,7 +59,9 @@ from . import (
     team,
     uploaded_media,
     user,
+    user_group,
 )
+from ..taxonomy import property_definition_api
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet
@@ -110,13 +110,21 @@ def register_grandfathered_environment_nested_viewset(
     return environment_nested, legacy_project_nested
 
 
-register_grandfathered_environment_nested_viewset(
-    r"plugin_configs", plugin.PluginConfigViewSet, "environment_plugin_configs", ["team_id"]
+environment_plugins_configs_router, legacy_project_plugins_configs_router = (
+    register_grandfathered_environment_nested_viewset(
+        r"plugin_configs", plugin.PluginConfigViewSet, "environment_plugin_configs", ["team_id"]
+    )
 )
-register_grandfathered_environment_nested_viewset(
+environment_plugins_configs_router.register(
     r"logs",
     plugin_log_entry.PluginLogEntryViewSet,
     "environment_plugin_config_logs",
+    ["team_id", "plugin_config_id"],
+)
+legacy_project_plugins_configs_router.register(
+    r"logs",
+    plugin_log_entry.PluginLogEntryViewSet,
+    "project_plugin_config_logs",
     ["team_id", "plugin_config_id"],
 )
 register_grandfathered_environment_nested_viewset(
@@ -257,7 +265,7 @@ projects_router.register(
 )
 projects_router.register(
     r"property_definitions",
-    property_definition.PropertyDefinitionViewSet,
+    property_definition_api.PropertyDefinitionViewSet,
     "project_property_definitions",
     ["project_id"],
 )
@@ -370,7 +378,6 @@ router.register(r"instance_status", instance_status.InstanceStatusViewSet, "inst
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
-router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
 router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
 
 from posthog.api.action import ActionViewSet  # noqa: E402
@@ -507,18 +514,25 @@ projects_router.register(
     ["team_id"],
 )
 
-# projects_router.register(
-#     r"error_tracking",
-#     error_tracking.ErrorTrackingGroupViewSet,
-#     "project_error_tracking",
-#     ["team_id"],
-# )
+projects_router.register(
+    r"error_tracking/issue",
+    error_tracking.ErrorTrackingIssueViewSet,
+    "project_error_tracking_issue",
+    ["team_id"],
+)
 
 projects_router.register(
     r"error_tracking/stack_frames",
     error_tracking.ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
     ["project_id"],
+)
+
+projects_router.register(
+    r"user_groups",
+    user_group.UserGroupViewSet,
+    "project_user_groups",
+    ["team_id"],
 )
 
 projects_router.register(
@@ -549,6 +563,13 @@ projects_router.register(
     ["team_id"],
 )
 
+register_grandfathered_environment_nested_viewset(
+    r"metalytics",
+    metalytics.MetalyticsViewSet,
+    "environment_metalytics",
+    ["team_id"],
+)
+
 projects_router.register(
     r"insight_variables",
     insight_variable.InsightVariableViewSet,
@@ -564,3 +585,7 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
+
+register_grandfathered_environment_nested_viewset(
+    r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
+)

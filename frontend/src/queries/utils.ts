@@ -8,14 +8,17 @@ import {
     ActorsQuery,
     BreakdownFilter,
     CompareFilter,
+    CoreWebVitalsQuery,
     DatabaseSchemaQuery,
     DataTableNode,
     DataVisualizationNode,
     DataWarehouseNode,
     DateRange,
+    ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
+    GoalLine,
     HogQLMetadata,
     HogQLQuery,
     HogQuery,
@@ -32,6 +35,7 @@ import {
     PersonsNode,
     QuerySchema,
     QueryStatusResponse,
+    ResultCustomizationBy,
     RetentionQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
@@ -40,8 +44,7 @@ import {
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTopClicksQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { ChartDisplayType, IntervalType } from '~/types'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
@@ -133,18 +136,22 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
     return node?.kind === NodeKind.WebExternalClicksTableQuery
 }
 
-export function isWebTopClicksQuery(node?: Record<string, any> | null): node is WebTopClicksQuery {
-    return node?.kind === NodeKind.WebTopClicksQuery
-}
-
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
+}
+
+export function isCoreWebVitalsQuery(node?: Record<string, any> | null): node is CoreWebVitalsQuery {
+    return node?.kind === NodeKind.CoreWebVitalsQuery
 }
 
 export function isSessionAttributionExplorerQuery(
     node?: Record<string, any> | null
 ): node is SessionAttributionExplorerQuery {
     return node?.kind === NodeKind.SessionAttributionExplorerQuery
+}
+
+export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
+    return node?.kind === NodeKind.ErrorTrackingQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
@@ -329,6 +336,20 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
 export const getYAxisScaleType = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.yAxisScaleType
+    }
+    return undefined
+}
+
+export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.resultCustomizationBy
+    }
+    return undefined
+}
+
+export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.goalLines
     }
     return undefined
 }

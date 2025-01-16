@@ -1,7 +1,8 @@
+from unittest.mock import patch
 import uuid
 
 from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import DataWarehouseModelPath
+from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 
 
 class TestSavedQuery(APIBaseTest):
@@ -33,6 +34,36 @@ class TestSavedQuery(APIBaseTest):
                 }
             ],
         )
+
+    def test_create_with_types(self):
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 100",
+                    },
+                    "types": [["event", "Nullable(String)"]],
+                },
+            )
+            assert response.status_code == 201
+            saved_query = response.json()
+            assert saved_query["name"] == "event_view"
+            assert saved_query["columns"] == [
+                {
+                    "key": "event",
+                    "name": "event",
+                    "type": "string",
+                    "schema_valid": True,
+                    "fields": None,
+                    "table": None,
+                    "chain": None,
+                }
+            ]
+
+            mock_get_columns.assert_not_called()
 
     def test_create_name_overlap_error(self):
         response = self.client.post(

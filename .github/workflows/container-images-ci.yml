@@ -13,7 +13,7 @@ concurrency:
 jobs:
     posthog_build:
         name: Build Docker image
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -51,7 +51,7 @@ jobs:
 
     lint:
         name: Lint changed Dockerfiles
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         steps:
             - name: Check out
               uses: actions/checkout@v3

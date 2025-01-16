@@ -1,4 +1,5 @@
 import { HogFunctionType } from '../../src/cdp/types'
+import { PropertyOperator } from '../../src/types'
 
 /**
  * Hog functions are largely generated and built in the django service, making it tricky to test on this side.
@@ -543,7 +544,9 @@ export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters
                     name: '$pageview',
                     type: 'events',
                     order: 0,
-                    properties: [{ key: '$current_url', type: 'event', value: 'posthog', operator: 'icontains' }],
+                    properties: [
+                        { key: '$current_url', type: 'event', value: 'posthog', operator: PropertyOperator.IContains },
+                    ],
                 },
                 { id: '$autocapture', name: '$autocapture', type: 'events', order: 1 },
             ],
@@ -625,7 +628,9 @@ export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters
                     id: '$autocapture',
                     name: '$autocapture',
                     order: 0,
-                    properties: [{ key: 'text', operator: 'icontains', type: 'element', value: 'reload' }],
+                    properties: [
+                        { key: 'text', operator: PropertyOperator.IContains, type: 'element', value: 'reload' },
+                    ],
                     type: 'events',
                 },
             ],
@@ -661,7 +666,12 @@ export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters
                     name: '$autocapture',
                     order: 0,
                     properties: [
-                        { key: 'href', operator: 'icontains', type: 'element', value: '/project/1/activity/explore' },
+                        {
+                            key: 'href',
+                            operator: PropertyOperator.IContains,
+                            type: 'element',
+                            value: '/project/1/activity/explore',
+                        },
                     ],
                     type: 'events',
                 },
@@ -736,7 +746,9 @@ export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters
                     id: '$autocapture',
                     name: '$autocapture',
                     order: 0,
-                    properties: [{ key: 'selector', operator: 'icontains', type: 'element', value: 'div#root' }],
+                    properties: [
+                        { key: 'selector', operator: PropertyOperator.IContains, type: 'element', value: 'div#root' },
+                    ],
                     type: 'events',
                 },
             ],

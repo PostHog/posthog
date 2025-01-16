@@ -6,8 +6,10 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { humanFriendlyLargeNumber } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
@@ -15,9 +17,11 @@ import { ErrorTrackingIssue } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
+import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
+import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
@@ -39,9 +43,9 @@ export function ErrorTrackingScene(): JSX.Element {
                 width: '50%',
                 render: CustomGroupTitleColumn,
             },
-            occurrences: { align: 'center' },
-            sessions: { align: 'center' },
-            users: { align: 'center' },
+            occurrences: { align: 'center', render: CountColumn },
+            sessions: { align: 'center', render: CountColumn },
+            users: { align: 'center', render: CountColumn },
             volume: { renderTitle: CustomVolumeColumnHeader },
             assignee: { render: AssigneeColumn },
         },
@@ -50,14 +54,18 @@ export function ErrorTrackingScene(): JSX.Element {
     }
 
     return (
-        <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
-            <Header />
-            <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
-            <ErrorTrackingFilters.FilterGroup />
-            <LemonDivider className="mt-2" />
-            {selectedIssueIds.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
-            <Query query={query} context={context} />
-        </BindLogic>
+        <AlphaAccessScenePrompt>
+            <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
+                <Header />
+                <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
+                <ErrorTrackingFilters.FilterGroup>
+                    <ErrorTrackingFilters.UniversalSearch />
+                </ErrorTrackingFilters.FilterGroup>
+                <LemonDivider className="mt-2" />
+                {selectedIssueIds.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
+                <Query query={query} context={context} />
+            </BindLogic>
+        </AlphaAccessScenePrompt>
     )
 }
 
@@ -109,7 +117,6 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const { hasGroupActions } = useValues(errorTrackingLogic)
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
 
@@ -119,19 +126,17 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 
     return (
         <div className="flex items-start space-x-1.5 group">
-            {hasGroupActions && (
-                <LemonCheckbox
-                    className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
-                    checked={checked}
-                    onChange={(newValue) => {
-                        setSelectedIssueIds(
-                            newValue
-                                ? [...new Set([...selectedIssueIds, record.id])]
-                                : selectedIssueIds.filter((id) => id != record.id)
-                        )
-                    }}
-                />
-            )}
+            <LemonCheckbox
+                className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
+                checked={checked}
+                onChange={(newValue) => {
+                    setSelectedIssueIds(
+                        newValue
+                            ? [...new Set([...selectedIssueIds, record.id])]
+                            : selectedIssueIds.filter((id) => id != record.id)
+                    )
+                }}
+            />
             <LemonTableLink
                 title={record.name || 'Unknown Type'}
                 description={
@@ -146,9 +151,18 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                 }
                 className="flex-1"
                 to={urls.errorTrackingIssue(record.id)}
+                onClick={() => {
+                    const issueLogic = errorTrackingIssueSceneLogic({ id: record.id })
+                    issueLogic.mount()
+                    issueLogic.actions.setIssue(record)
+                }}
             />
         </div>
     )
+}
+
+const CountColumn: QueryContextColumnComponent = ({ value }) => {
+    return <>{humanFriendlyLargeNumber(value as number)}</>
 }
 
 const AssigneeColumn: QueryContextColumnComponent = (props) => {
@@ -158,18 +172,34 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
 
     return (
         <div className="flex justify-center">
-            <AssigneeSelect assignee={record.assignee} onChange={(assigneeId) => assignIssue(record.id, assigneeId)} />
+            <AssigneeSelect assignee={record.assignee} onChange={(assignee) => assignIssue(record.id, assignee)} />
         </div>
     )
 }
 
 const Header = (): JSX.Element => {
+    const { user } = useValues(userLogic)
+
     return (
         <PageHeader
             buttons={
-                <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
-                    Configure
-                </LemonButton>
+                <>
+                    {user?.is_staff ? (
+                        <LemonButton
+                            onClick={() => {
+                                throw Error('Oh my!')
+                            }}
+                        >
+                            Send an exception
+                        </LemonButton>
+                    ) : null}
+                    <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
+                        Documentation
+                    </LemonButton>
+                    <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
+                        Configure
+                    </LemonButton>
+                </>
             }
         />
     )

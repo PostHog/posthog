@@ -730,9 +730,9 @@ def calculate_decide_usage() -> None:
 
     ph_client = get_ph_client()
 
-    capture_decide_usage_for_all_teams(ph_client)
-
-    ph_client.shutdown()
+    if ph_client:
+        capture_decide_usage_for_all_teams(ph_client)
+        ph_client.shutdown()
 
 
 @shared_task(ignore_result=True)
@@ -908,34 +908,6 @@ def ee_persist_finished_recordings() -> None:
         pass
     else:
         persist_finished_recordings()
-
-
-# this task runs a CH query and triggers other tasks
-# it can run on the default queue
-@shared_task(ignore_result=True)
-def calculate_replay_embeddings() -> None:
-    try:
-        from ee.tasks.replay import generate_recordings_embeddings_batch
-
-        generate_recordings_embeddings_batch()
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.error("Failed to calculate replay embeddings", error=e, exc_info=True)
-
-
-# this task triggers other tasks
-# it can run on the default queue
-@shared_task(ignore_result=True)
-def calculate_replay_error_clusters() -> None:
-    try:
-        from ee.tasks.replay import generate_replay_embedding_error_clusters
-
-        generate_replay_embedding_error_clusters()
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.error("Failed to calculate replay error clusters", error=e, exc_info=True)
 
 
 @shared_task(ignore_result=True)

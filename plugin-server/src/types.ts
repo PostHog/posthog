@@ -84,6 +84,7 @@ export enum PluginServerMode {
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     cdp_processed_events = 'cdp-processed-events',
+    cdp_internal_events = 'cdp-internal-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     functional_tests = 'functional-tests',
@@ -359,6 +360,7 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
     cdpProcessedEvents?: boolean
+    cdpInternalEvents?: boolean
     cdpFunctionCallbacks?: boolean
     cdpCyclotronWorker?: boolean
     appManagementSingleton?: boolean
@@ -529,6 +531,12 @@ export enum PluginLogLevel {
     Critical = 4, // only error type and system source
 }
 
+export enum CookielessServerHashMode {
+    Disabled = 0,
+    Stateless = 1,
+    Stateful = 2,
+}
+
 export interface PluginLogEntry {
     id: string
     team_id: number
@@ -634,13 +642,15 @@ export interface Team {
     api_token: string
     slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
-    person_processing_opt_out?: boolean
+    person_processing_opt_out: boolean | null
     heatmaps_opt_in: boolean | null
     ingested_event: boolean
     person_display_name_properties: string[] | null
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null
+    cookieless_server_hash_mode: CookielessServerHashMode | null
+    timezone: string
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
@@ -1104,6 +1114,7 @@ export interface EventDefinitionType {
     volume_30_day: number | null
     query_usage_30_day: number | null
     team_id: number
+    project_id: number | null
     last_seen_at: string // DateTime
     created_at: string // DateTime
 }
@@ -1143,6 +1154,7 @@ export interface PropertyDefinitionType {
     volume_30_day: number | null
     query_usage_30_day: number | null
     team_id: number
+    project_id: number | null
     property_type?: PropertyType
     type: PropertyDefinitionTypeEnum
     group_type_index: number | null
@@ -1153,6 +1165,7 @@ export interface EventPropertyType {
     event: string
     property: string
     team_id: number
+    project_id: number | null
 }
 
 export type PluginFunction = 'onEvent' | 'processEvent' | 'pluginTask'
@@ -1254,6 +1267,7 @@ export type AppMetric2Type = {
         | 'disabled_permanently'
         | 'masked'
         | 'filtering_failed'
+        | 'inputs_failed'
         | 'fetch'
     count: number
 }

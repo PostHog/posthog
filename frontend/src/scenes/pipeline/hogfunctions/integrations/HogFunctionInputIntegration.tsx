@@ -15,6 +15,7 @@ export function HogFunctionInputIntegration({ schema, ...props }: HogFunctionInp
         <>
             <IntegrationChoice
                 {...props}
+                schema={schema}
                 integration={schema.integration}
                 redirectUrl={`${window.location.pathname}?integration_target=${schema.key}`}
                 beforeRedirect={() => persistForUnload()}

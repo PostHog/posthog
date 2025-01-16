@@ -18,7 +18,10 @@ import { status } from '../../utils/status'
 import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
-    return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
+    return {
+        ...(person as BasePerson),
+        ...(person.created_at ? { created_at: person.created_at.toISO() ?? undefined } : {}),
+    }
 }
 
 export function escapeQuotes(input: string): string {
@@ -74,6 +77,8 @@ export const campaignParams = new Set([
     'igshid', // instagram
     'ttclid', // tiktok
     'rdt_cid', // reddit
+    'irclid', // impact
+    '_kx', // klaviyo
 ])
 
 export const initialCampaignParams = new Set(Array.from(campaignParams, (key) => `$initial_${key.replace('$', '')}`))

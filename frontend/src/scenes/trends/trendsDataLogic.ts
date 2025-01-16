@@ -7,6 +7,7 @@ import {
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
+    getTrendResultCustomizationColorToken,
 } from 'scenes/insights/utils'
 
 import {
@@ -55,6 +56,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'series',
                 'formula',
                 'display',
+                'goalLines',
                 'compareFilter',
                 'interval',
                 'enabledIntervals',
@@ -77,6 +79,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'showLegend',
                 'vizSpecificOptions',
                 'yAxisScaleType',
+                'resultCustomizationBy',
+                'theme',
             ],
         ],
         actions: [
@@ -199,7 +203,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (s) => [s.series, s.querySource, s.isLifecycle],
             (series, querySource, isLifecycle): 'people' | 'none' | number => {
                 // Find the commonly shared aggregation group index if there is one.
-                let firstAggregationGroupTypeIndex: 'people' | 'none' | number | undefined
+                let firstAggregationGroupTypeIndex: 'people' | 'none' | number | undefined | null
                 if (isLifecycle) {
                     firstAggregationGroupTypeIndex = (querySource as LifecycleQuery)?.aggregation_group_type_index
                 } else {
@@ -258,6 +262,35 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (s) => [s.trendsFilter, s.stickinessFilter],
             (trendsFilter, stickinessFilter): number[] => {
                 return trendsFilter?.hiddenLegendIndexes || stickinessFilter?.hiddenLegendIndexes || []
+            },
+        ],
+        resultCustomizations: [(s) => [s.trendsFilter], (trendsFilter) => trendsFilter?.resultCustomizations],
+        getTrendsColorToken: [
+            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.theme],
+            (resultCustomizationBy, resultCustomizations, theme) => {
+                return (dataset) => {
+                    if (theme == null) {
+                        return null
+                    }
+                    return getTrendResultCustomizationColorToken(
+                        resultCustomizationBy,
+                        resultCustomizations,
+                        theme,
+                        dataset
+                    )
+                }
+            },
+        ],
+        getTrendsColor: [
+            (s) => [s.theme, s.getTrendsColorToken],
+            (theme, getTrendsColorToken) => {
+                return (dataset) => {
+                    if (theme == null) {
+                        return '#000000' // fallback while loading
+                    }
+
+                    return theme[getTrendsColorToken(dataset)!]
+                }
             },
         ],
     })),

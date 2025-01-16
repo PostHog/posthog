@@ -8,12 +8,13 @@ import {
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -22,20 +23,15 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
-import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
+import { NotebookNodeType, ReplayTabs } from '~/types'
 
-import { SessionRecordingErrors } from './errors/SessionRecordingErrors'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
-import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
 
 function Header(): JSX.Element {
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
-    const { playlists } = useValues(playlistsLogic)
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
@@ -83,17 +79,11 @@ function Header(): JSX.Element {
                                 data-attr="session-recordings-filters-save-as-playlist"
                                 type="primary"
                                 onClick={(e) =>
-                                    guardAvailableFeature(
-                                        AvailableFeature.RECORDINGS_PLAYLISTS,
-                                        () => {
-                                            // choose the type of playlist handler so that analytics correctly report
-                                            // whether filters have been changed before saving
-                                            totalFiltersCount === 0
-                                                ? newPlaylistHandler.onEvent?.(e)
-                                                : saveFiltersPlaylistHandler.onEvent?.(e)
-                                        },
-                                        { currentUsage: playlists.count }
-                                    )
+                                    // choose the type of playlist handler so that analytics correctly report
+                                    // whether filters have been changed before saving
+                                    totalFiltersCount === 0
+                                        ? newPlaylistHandler.onEvent?.(e)
+                                        : saveFiltersPlaylistHandler.onEvent?.(e)
                                 }
                             >
                                 Save as playlist
@@ -111,13 +101,7 @@ function Header(): JSX.Element {
                     {tab === ReplayTabs.Playlists && (
                         <LemonButton
                             type="primary"
-                            onClick={(e) =>
-                                guardAvailableFeature(
-                                    AvailableFeature.RECORDINGS_PLAYLISTS,
-                                    () => newPlaylistHandler.onEvent?.(e),
-                                    { currentUsage: playlists.count }
-                                )
-                            }
+                            onClick={(e) => newPlaylistHandler.onEvent?.(e)}
                             data-attr="save-recordings-playlist-button"
                             loading={newPlaylistHandler.loading}
                         >
@@ -141,7 +125,10 @@ function Warnings(): JSX.Element {
         type: AuthorizedUrlListType.RECORDING_DOMAINS,
     })
     const { suggestions, authorizedUrls } = useValues(theAuthorizedUrlsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const mightBeRefusingRecordings = suggestions.length > 0 && authorizedUrls.length > 0
+    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <>
@@ -157,7 +144,7 @@ function Warnings(): JSX.Element {
                         children: 'Configure',
                     }}
                 >
-                    Session recordings are currently disabled for this project.
+                    Session recordings are currently disabled for this {settingLevel}.
                 </LemonBanner>
             ) : null}
 
@@ -196,8 +183,6 @@ function MainPanel(): JSX.Element {
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
-            ) : tab === ReplayTabs.Errors ? (
-                <SessionRecordingErrors />
             ) : tab === ReplayTabs.Templates ? (
                 <SessionRecordingTemplates />
             ) : null}
@@ -206,13 +191,13 @@ function MainPanel(): JSX.Element {
 }
 
 function PageTabs(): JSX.Element {
-    const { tab, tabs, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
+    const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
 
     return (
         <LemonTabs
             activeKey={tab}
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-            tabs={tabs.map((replayTab) => {
+            tabs={Object.values(ReplayTabs).map((replayTab) => {
                 return {
                     label: (
                         <>

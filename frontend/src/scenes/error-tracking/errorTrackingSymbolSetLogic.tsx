@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -16,18 +16,25 @@ export enum ErrorGroupTab {
     Breakdowns = 'breakdowns',
 }
 
+export type SymbolSetUpload = SourceMapUpload
+
+export interface SourceMapUpload {
+    minified: File
+    sourcemap: File
+}
+
 export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSymbolSetLogic']),
 
     actions({
-        setUploadSymbolSetReference: (ref: ErrorTrackingSymbolSet['id'] | null) => ({ ref }),
+        setUploadSymbolSetId: (id: ErrorTrackingSymbolSet['id'] | null) => ({ id }),
     }),
 
     reducers({
-        uploadSymbolSetReference: [
+        uploadSymbolSetId: [
             null as string | null,
             {
-                setUploadSymbolSetReference: (_, { ref }) => ref,
+                setUploadSymbolSetId: (_, { id }) => id,
             },
         ],
     }),
@@ -40,10 +47,10 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
                     const response = await api.errorTracking.symbolSets()
                     return response.results
                 },
-                deleteSymbolSet: async (ref) => {
-                    await api.errorTracking.deleteSymbolSet(ref)
+                deleteSymbolSet: async (id) => {
+                    await api.errorTracking.deleteSymbolSet(id)
                     const newValues = [...values.symbolSets]
-                    return newValues.filter((v) => v.ref !== ref)
+                    return newValues.filter((v) => v.id !== id)
                 },
             },
         ],
@@ -70,22 +77,30 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
 
     forms(({ values, actions }) => ({
         uploadSymbolSet: {
-            defaults: { files: [] } as { files: File[] },
-            submit: async ({ files }) => {
-                if (files.length > 0 && values.uploadSymbolSetReference) {
-                    const formData = new FormData()
-                    const file = files[0]
-                    formData.append('source_map', file)
-                    await api.errorTracking.updateSymbolSet(values.uploadSymbolSetReference, formData)
-                    actions.setUploadSymbolSetReference(null)
-                    actions.loadSymbolSets()
-                    lemonToast.success('Source map uploaded')
+            defaults: { minified: [], sourceMap: [] } as { minified: File[]; sourceMap: File[] },
+            submit: async ({ minified, sourceMap }) => {
+                if (minified.length < 1 || sourceMap.length < 1) {
+                    lemonToast.error('Please select both a minified file and a source map file')
+                    return
                 }
+
+                const minifiedSrc = minified[0]
+                const sourceMapSrc = sourceMap[0]
+                const id = values.uploadSymbolSetId
+
+                if (id == null) {
+                    return
+                }
+
+                const formData = new FormData()
+                formData.append('minified', minifiedSrc)
+                formData.append('source_map', sourceMapSrc)
+                await api.errorTracking.updateSymbolSet(id, formData)
+                actions.setUploadSymbolSetId(null)
+                actions.loadSymbolSets()
+                actions.resetUploadSymbolSet()
+                lemonToast.success('Source map uploaded')
             },
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadSymbolSets()
-    }),
 ])
