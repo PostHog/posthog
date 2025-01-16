@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json.schemastore.org/nx",
+    "name": "frontend",
+    "sourceRoot": "./src",
+    "projectType": "library",
+    "implicitDependencies": ["hogvm"],
+    "targets": {
+        "build": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": ["cd .. && npm run build"]
+            }
+        },
+        "serve": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": ["cd .. && npm start"]
+            }
+        },
+        "test": {
+            "executor": "@nrwl/jest:jest",
+            "options": {
+                "jestConfig": "../jest.config.ts"
+            }
+        }
+    }
+}

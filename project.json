@@ -1,0 +1,20 @@
+{
+    "name": "posthog-django",
+    "root": ".",
+    "projectType": "application",
+    "implicitDependencies": ["frontend", "plugin-transpiler"],
+    "targets": {
+        "serve": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": ["python manage.py runserver 0.0.0.0:8000"]
+            }
+        },
+        "test": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": ["python manage.py test"]
+            }
+        }
+    }
+}
