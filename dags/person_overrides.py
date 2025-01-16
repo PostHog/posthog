@@ -278,19 +278,17 @@ class SnapshotConfig(dagster.Config):
 
 @dagster.op
 def create_snapshot_table(context: dagster.OpExecutionContext, config: SnapshotConfig) -> PersonOverridesSnapshotTable:
-    cluster = get_cluster()
-
     table = PersonOverridesSnapshotTable(
         id=uuid.UUID(context.run.run_id).hex,
         timestamp=config.datetime,
     )
+    get_cluster().map_all_hosts(table.create).result()
+    return table
 
-    cluster.map_all_hosts(table.create).result()
 
-    # TODO: wait for all hosts
-
-    cluster.any_host(table.populate).result()
-
+@dagster.op
+def populate_snasphot_table(table: PersonOverridesSnapshotTable) -> PersonOverridesSnapshotTable:
+    get_cluster().any_host(table.populate).result()
     return table
 
 
@@ -365,7 +363,9 @@ def squash_person_overrides():
     drop_snapshot_table(
         drop_snapshot_dictionary(
             run_overrides_delete_mutation(
-                run_person_id_update_mutation(create_snapshot_dictionary(create_snapshot_table()))
+                run_person_id_update_mutation(
+                    create_snapshot_dictionary(populate_snasphot_table(create_snapshot_table()))
+                )
             )
         )
     )
