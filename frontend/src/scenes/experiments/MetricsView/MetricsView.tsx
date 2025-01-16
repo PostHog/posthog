@@ -1,6 +1,7 @@
-import { IconInfo, IconPlus } from '@posthog/icons'
+import { IconInfo, IconPlus, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { experimentLogic } from '../experimentLogic'
@@ -97,6 +98,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
         secondaryMetricsResultErrors,
         credibleIntervalForVariant,
     } = useValues(experimentLogic)
+    const { loadMetricResults, loadSecondaryMetricResults } = useActions(experimentLogic)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
     if (!variants) {
@@ -105,6 +107,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
     const results = isSecondary ? secondaryMetricResults : metricResults
     const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
     const hasSomeResults = results?.some((result) => result?.insight)
+    const lastRefresh = results?.[0]?.last_refresh
 
     let metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
     const sharedMetrics = experiment.saved_metrics
@@ -212,49 +215,83 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                     <div className="ml-auto">
                         {metrics.length > 0 && (
                             <div className="mb-2 mt-4 justify-end">
-                                {isSecondary ? <AddSecondaryMetric /> : <AddPrimaryMetric />}
+                                <div className="flex items-center text-xs text-muted-alt z-10 space-x-2">
+                                    <span>
+                                        Refreshed&nbsp;
+                                        <span
+                                            className={`font-semibold ${
+                                                lastRefresh
+                                                    ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
+                                                        ? 'text-danger'
+                                                        : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
+                                                        ? 'text-warning'
+                                                        : ''
+                                                    : ''
+                                            }`}
+                                        >
+                                            {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
+                                        </span>
+                                    </span>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        onClick={() => {
+                                            if (isSecondary) {
+                                                loadSecondaryMetricResults(true)
+                                            } else {
+                                                loadMetricResults(true)
+                                            }
+                                        }}
+                                        data-attr="refresh-experiment"
+                                        icon={<IconRefresh />}
+                                        tooltip="Refresh experiment results"
+                                    />
+                                </div>
                             </div>
                         )}
                     </div>
                 </div>
             </div>
             {metrics.length > 0 ? (
-                <div className="w-full overflow-x-auto">
-                    <div className="min-w-[1000px]">
-                        {metrics.map((metric, metricIndex) => {
-                            const result = results?.[metricIndex]
-                            const isFirstMetric = metricIndex === 0
+                <>
+                    <div className="w-full overflow-x-auto">
+                        <div className="min-w-[1000px]">
+                            {metrics.map((metric, metricIndex) => {
+                                const result = results?.[metricIndex]
+                                const isFirstMetric = metricIndex === 0
 
-                            return (
-                                <div
-                                    key={metricIndex}
-                                    className={`w-full border border-border bg-light ${
-                                        metrics.length === 1
-                                            ? 'rounded'
-                                            : isFirstMetric
-                                            ? 'rounded-t'
-                                            : metricIndex === metrics.length - 1
-                                            ? 'rounded-b'
-                                            : ''
-                                    }`}
-                                >
-                                    <DeltaChart
-                                        isSecondary={!!isSecondary}
-                                        result={result}
-                                        error={errors?.[metricIndex]}
-                                        variants={variants}
-                                        metricType={_getMetricType(metric)}
-                                        metricIndex={metricIndex}
-                                        isFirstMetric={isFirstMetric}
-                                        metric={metric}
-                                        tickValues={commonTickValues}
-                                        chartBound={chartBound}
-                                    />
-                                </div>
-                            )
-                        })}
+                                return (
+                                    <div
+                                        key={metricIndex}
+                                        className={`w-full border border-border bg-light ${
+                                            metrics.length === 1
+                                                ? 'rounded'
+                                                : isFirstMetric
+                                                ? 'rounded-t'
+                                                : metricIndex === metrics.length - 1
+                                                ? 'rounded-b'
+                                                : ''
+                                        }`}
+                                    >
+                                        <DeltaChart
+                                            isSecondary={!!isSecondary}
+                                            result={result}
+                                            error={errors?.[metricIndex]}
+                                            variants={variants}
+                                            metricType={_getMetricType(metric)}
+                                            metricIndex={metricIndex}
+                                            isFirstMetric={isFirstMetric}
+                                            metric={metric}
+                                            tickValues={commonTickValues}
+                                            chartBound={chartBound}
+                                        />
+                                    </div>
+                                )
+                            })}
+                        </div>
                     </div>
-                </div>
+                    <div className="mt-2">{isSecondary ? <AddSecondaryMetric /> : <AddPrimaryMetric />}</div>
+                </>
             ) : (
                 <div className="border rounded bg-bg-light pt-6 pb-8 text-muted mt-2">
                     <div className="flex flex-col items-center mx-auto space-y-3">
