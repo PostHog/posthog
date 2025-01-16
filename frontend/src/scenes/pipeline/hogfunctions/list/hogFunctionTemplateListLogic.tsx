@@ -8,9 +8,10 @@ import { objectsEqual } from 'lib/utils'
 import { hogFunctionNewUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 
-import { HogFunctionSubTemplateIdType, HogFunctionTemplateType, HogFunctionTypeType } from '~/types'
+import { HogFunctionSubTemplateIdType, HogFunctionTemplateType, HogFunctionTypeType, UserType } from '~/types'
 
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
+import { userLogic } from 'scenes/userLogic'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<HogFunctionTemplateType> {}
@@ -28,6 +29,19 @@ export type HogFunctionTemplateListLogicProps = {
     syncFiltersWithUrl?: boolean
 }
 
+export const shouldShowHogFunctionTemplate = (
+    hogFunctionTemplate: HogFunctionTemplateType,
+    user?: UserType | null
+): boolean => {
+    if (!user) {
+        return false
+    }
+    if (hogFunctionTemplate.status === 'alpha' && !user.is_staff) {
+        return false
+    }
+    return true
+}
+
 export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType>([
     props({} as HogFunctionTemplateListLogicProps),
     key(
@@ -38,7 +52,14 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
     ),
     path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
     connect({
-        values: [pipelineAccessLogic, ['canEnableNewDestinations'], featureFlagLogic, ['featureFlags']],
+        values: [
+            pipelineAccessLogic,
+            ['canEnableNewDestinations'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user'],
+        ],
     }),
     actions({
         setFilters: (filters: Partial<HogFunctionTemplateListFilters>) => ({ filters }),
@@ -87,11 +108,12 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         filteredTemplates: [
-            (s) => [s.filters, s.templates, s.templatesFuse],
+            (s) => [s.filters, s.templates, s.templatesFuse, s.user],
             (filters, templates, templatesFuse): HogFunctionTemplateType[] => {
                 const { search } = filters
-
-                return search ? templatesFuse.search(search).map((x) => x.item) : templates
+                return (search ? templatesFuse.search(search).map((x) => x.item) : templates).filter((x) =>
+                    shouldShowHogFunctionTemplate(x, user)
+                )
             },
         ],
 
