@@ -282,7 +282,7 @@ async def generate_test_data(
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=1000,
+        count=1000000,
         count_outside_range=10,
         count_other_team=10,
         duplicate=True,

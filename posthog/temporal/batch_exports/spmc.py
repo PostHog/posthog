@@ -1,6 +1,7 @@
 import abc
 import asyncio
 import collections.abc
+import dataclasses
 import datetime as dt
 import operator
 import typing
@@ -101,8 +102,8 @@ class TaskNotDoneError(Exception):
         super().__init__(f"Expected task '{task}' to be done by now")
 
 
-class RecordBatchTaskError(Exception):
-    """Raised when an error occurs during consumption of record batches."""
+class RecordBatchProducerError(Exception):
+    """Raised when an error occurs during a task that handles record batches."""
 
     def __init__(self):
         super().__init__("The record batch consumer encountered an error during execution")
@@ -123,7 +124,7 @@ async def raise_on_task_failure(task: asyncio.Task) -> None:
     exc = task.exception()
     logger = get_internal_logger()
     await logger.aexception("%s task failed", task.get_name(), exc_info=exc)
-    raise RecordBatchTaskError() from exc
+    raise RecordBatchProducerError() from exc
 
 
 async def wait_for_schema_or_producer(queue: RecordBatchQueue, producer_task: asyncio.Task) -> pa.Schema | None:
@@ -209,10 +210,16 @@ class Consumer:
         include_inserted_at: bool = False,
         task_name: str = "record_batch_consumer",
         max_file_size_bytes: int = 0,
+        task_group: asyncio.TaskGroup | None = None,
         **kwargs,
     ) -> asyncio.Task:
         """Create a record batch consumer task."""
-        consumer_task = asyncio.create_task(
+        if task_group is not None:
+            create_task = task_group.create_task
+        else:
+            create_task = asyncio.create_task
+
+        consumer_task = create_task(
             self.start(
                 queue=queue,
                 producer_task=producer_task,
@@ -370,18 +377,45 @@ class Consumer:
         self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
 
 
-class RecordBatchConsumerRetryableExceptionGroup(ExceptionGroup):
-    """ExceptionGroup raised when at least one task fails with a retryable exception."""
-
-    def derive(self, excs):
-        return RecordBatchConsumerRetryableExceptionGroup(self.message, excs)
+class BatchExportsRetryableError(Exception):
+    pass
 
 
-class RecordBatchConsumerNonRetryableExceptionGroup(ExceptionGroup):
-    """ExceptionGroup raised when all tasks fail with non-retryable exception."""
+class BatchExportsNonRetryableError(Exception):
+    pass
 
-    def derive(self, excs):
-        return RecordBatchConsumerNonRetryableExceptionGroup(self.message, excs)
+
+@dataclasses.dataclass
+class ConsumerResults:
+    records_completed: int
+    non_retryable_errors: list[Exception] = dataclasses.field(default_factory=list)
+    retryable_errors: list[Exception] = dataclasses.field(default_factory=list)
+
+    @property
+    def is_successful(self) -> bool:
+        return not self.non_retryable_errors and not self.retryable_errors
+
+    async def report(self, logger) -> None:
+        for non_retryable_error in self.non_retryable_errors:
+            await logger.aerror(
+                "Encountered a non-retryable error '%s' while running batch export: %s."
+                "Due to the nature of the error, we could not automatically recover.",
+                non_retryable_error.__class__.__name__,
+                non_retryable_error,
+            )
+        for retryable_error in self.retryable_errors:
+            await logger.awarning(
+                "Encountered a retryable error '%s' while running batch export: %s."
+                "The batch export will be automatically retried to attempt to clear the error.",
+                retryable_error.__class__.__name__,
+                retryable_error,
+            )
+
+    def raise_on_error(self) -> None:
+        if self.retryable_errors:
+            raise BatchExportsRetryableError()
+        elif self.non_retryable_errors:
+            raise BatchExportsNonRetryableError()
 
 
 async def run_consumer(
@@ -395,8 +429,10 @@ async def run_consumer(
     writer_file_kwargs: collections.abc.Mapping[str, typing.Any] | None = None,
     include_inserted_at: bool = False,
     max_file_size_bytes: int = 0,
+    max_consumers: int = 1,
+    non_retryable_error_types: collections.abc.Sequence[str] = (),
     **kwargs,
-) -> int:
+) -> ConsumerResults:
     """Run one record batch consumer.
 
     When a consumer starts flushing, a new consumer will be started, and so on in
@@ -410,12 +446,6 @@ async def run_consumer(
     Returns:
         Number of records exported. Not the number of record batches, but the
         number of records in all record batches.
-
-    Raises:
-        RecordBatchConsumerRetryableExceptionGroup: When at least one consumer task
-            fails with a retryable error.
-        RecordBatchConsumerNonRetryableExceptionGroup: When all consumer tasks fail
-            with non-retryable errors.
     """
     consumer_tasks_pending: set[asyncio.Task] = set()
     consumer_tasks_done = set()
@@ -436,34 +466,48 @@ async def run_consumer(
 
     await consumer.logger.adebug("Starting record batch consumer")
 
-    consumer_task = consumer.create_consumer_task(
-        queue=queue,
-        producer_task=producer_task,
-        max_bytes=max_bytes,
-        schema=schema,
-        json_columns=json_columns,
-        multiple_files=multiple_files,
-        include_inserted_at=include_inserted_at,
-        max_file_size_bytes=max_file_size_bytes,
-        **writer_file_kwargs or {},
-    )
-    consumer_tasks_pending.add(consumer_task)
-    consumer_task.add_done_callback(consumer_done_callback)
+    retryable = []
+    non_retryable = []
 
-    await asyncio.wait(consumer_tasks_pending)
+    try:
+        async with asyncio.TaskGroup() as tg:
+            for consumer_number in range(max_consumers):
+                consumer_task = consumer.create_consumer_task(
+                    queue=queue,
+                    producer_task=producer_task,
+                    max_bytes=max_bytes,
+                    schema=schema,
+                    json_columns=json_columns,
+                    multiple_files=multiple_files,
+                    include_inserted_at=include_inserted_at,
+                    max_file_size_bytes=max_file_size_bytes,
+                    task_name=f"record_batch_consumer_{consumer_number}",
+                    task_group=tg,
+                    **writer_file_kwargs or {},
+                )
+                consumer_tasks_pending.add(consumer_task)
+                consumer_task.add_done_callback(consumer_done_callback)
+    except ExceptionGroup as exc_group:
+        retryable = []
+        non_retryable = []
 
-    if consumer_task.done():
-        consumer_task_exception = consumer_task.exception()
-
-        if consumer_task_exception is not None:
-            raise consumer_task_exception
+        for exc in exc_group.exceptions:
+            if exc.__class__.__name__ in non_retryable_error_types:
+                await consumer.logger.aexception("Consumer task has failed with a non-retryable %s", exc, exc_info=exc)
+                non_retryable.append(exc)
+            else:
+                await consumer.logger.aexception("Consumer task has failed with a retryable %s", exc, exc_info=exc)
+                retryable.append(exc)
 
     await raise_on_task_failure(producer_task)
-    await consumer.logger.adebug("Successfully finished record batch consumer")
 
-    consumer.complete_heartbeat()
+    if not retryable and not non_retryable:
+        await consumer.logger.adebug("Successfully finished record batch consumer")
+        consumer.complete_heartbeat()
+    else:
+        await consumer.logger.adebug("Record batch consumer finished with errors")
 
-    return records_completed
+    return ConsumerResults(records_completed, retryable_errors=retryable, non_retryable_errors=non_retryable)
 
 
 class BatchExportField(typing.TypedDict):

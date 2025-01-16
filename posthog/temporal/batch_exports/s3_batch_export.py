@@ -549,7 +549,7 @@ class S3Consumer(Consumer):
             writer_format=writer_format,
         )
         self.heartbeat_details: S3HeartbeatDetails = heartbeat_details
-        self.s3_upload: S3MultiPartUpload | None = s3_upload
+        self.s3_upload: S3MultiPartUpload = s3_upload
         self.s3_inputs = s3_inputs
         self.file_number = 0
 
@@ -564,17 +564,12 @@ class S3Consumer(Consumer):
         error: Exception | None,
     ):
         if error is not None:
-            if not self.s3_upload:
-                return
             await self.logger.adebug("Error while writing part %d", self.s3_upload.part_number + 1, exc_info=error)
             await self.logger.awarning(
                 "An error was detected while writing part %d. Partial part will not be uploaded in case it can be retried.",
                 self.s3_upload.part_number + 1,
             )
             return
-
-        if self.s3_upload is None:
-            self.s3_upload = initialize_upload(self.s3_inputs, self.file_number)
 
         async with self.s3_upload as s3_upload:
             await self.logger.adebug(
@@ -594,10 +589,10 @@ class S3Consumer(Consumer):
                 await self.logger.adebug(
                     "Completing multipart upload %s for file number %s", s3_upload.upload_id, self.file_number
                 )
-                await s3_upload.complete()
+                async with asyncio.Lock():
+                    await s3_upload.complete()
 
         if is_last:
-            self.s3_upload = None
             self.heartbeat_details.mark_file_upload_as_complete()
             self.file_number += 1
         else:
@@ -607,12 +602,14 @@ class S3Consumer(Consumer):
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
     async def close(self):
-        if self.s3_upload is not None:
+        if self.s3_upload.is_upload_in_progress():
             await self.logger.adebug(
                 "Completing multipart upload %s for file number %s", self.s3_upload.upload_id, self.file_number
             )
-            await self.s3_upload.complete()
-            self.heartbeat_details.mark_file_upload_as_complete()
+            async with asyncio.Lock():
+                await self.s3_upload.complete()
+
+        self.heartbeat_details.mark_file_upload_as_complete()
 
 
 async def initialize_and_resume_multipart_upload(
@@ -797,7 +794,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             s3_upload=s3_upload,
             s3_inputs=inputs,
         )
-        await run_consumer(
+        results = await run_consumer(
             consumer=consumer,
             queue=queue,
             producer_task=producer_task,
@@ -806,9 +803,12 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             include_inserted_at=True,
             writer_file_kwargs={"compression": inputs.compression},
             max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
+            max_consumers=settings.BATCH_EXPORT_S3_MAX_CONSUMERS,
         )
+        await results.report(logger)
+        results.raise_on_error()
 
-        return details.records_completed
+        return results.records_completed
 
 
 @workflow.defn(name="s3-export", failure_exception_types=[workflow.NondeterminismError])
