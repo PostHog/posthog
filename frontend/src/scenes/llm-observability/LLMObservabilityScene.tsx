@@ -30,16 +30,15 @@ const Filters = (): JSX.Element => {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
 
     return (
-        <div className="flex justify-between items-center gap-4 py-4 -mt-4 mb-4 border-b">
-            <div className="flex items-center gap-4">
-                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-                <PropertyFilters
-                    propertyFilters={propertyFilters}
-                    taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
-                    onChange={setPropertyFilters}
-                    pageKey="llm-observability"
-                />
-            </div>
+        <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
+            <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+            <PropertyFilters
+                propertyFilters={propertyFilters}
+                taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
+                onChange={setPropertyFilters}
+                pageKey="llm-observability"
+            />
+            <div className="flex-1" />
             <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
         </div>
     )
@@ -49,14 +48,19 @@ const Tiles = (): JSX.Element => {
     const { tiles } = useValues(llmObservabilityLogic)
 
     return (
-        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4">
+        <div className="mt-2 grid grid-cols-1 @xl/dashboard:grid-cols-2 @4xl/dashboard:grid-cols-6 gap-4">
             {tiles.map(({ title, description, query }, i) => (
                 <QueryCard
                     key={i}
                     title={title}
                     description={description}
                     query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
-                    className={clsx('h-96', i < 3 || i >= 5 ? 'xl:col-span-2' : 'xl:col-span-3')}
+                    className={
+                        clsx(
+                            'h-96',
+                            i < 3 || i >= 5 ? '@4xl/dashboard:col-span-2' : '@4xl/dashboard:col-span-3'
+                        ) /* Second row is the only one to have 2 tiles in the xl layout */
+                    }
                 />
             ))}
         </div>
@@ -90,10 +94,10 @@ const IngestionStatusCheck = (): JSX.Element | null => {
 
 function LLMObservabilityDashboard(): JSX.Element {
     return (
-        <>
+        <div className="@container/dashboard">
             <Filters />
             <Tiles />
-        </>
+        </div>
     )
 }
 

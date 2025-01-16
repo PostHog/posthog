@@ -355,7 +355,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Cohorts',
                         searchPlaceholder: 'cohorts',
                         type: TaxonomicFilterGroupType.Cohorts,
-                        logic: cohortsModel,
+                        endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
                         value: 'cohorts',
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,

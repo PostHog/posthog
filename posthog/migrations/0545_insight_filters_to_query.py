@@ -41,7 +41,7 @@ def rollback_insight_filters_to_query(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0543_alter_batchexportdestination_config")]
+    dependencies = [("posthog", "0544_team_flags_persistence_default")]
 
     operations = [
         migrations.RunPython(migrate_insight_filters_to_query, rollback_insight_filters_to_query),
