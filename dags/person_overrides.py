@@ -1,6 +1,7 @@
 import time
 from dataclasses import dataclass
 from datetime import datetime
+import uuid
 
 import dagster
 from clickhouse_driver import Client
@@ -268,13 +269,15 @@ class PersonOverridesSnapshotDictionary:
 
 
 @dagster.op
-def create_snapshot_table() -> PersonOverridesSnapshotTable:
+def create_snapshot_table(context: dagster.OpExecutionContext) -> PersonOverridesSnapshotTable:
     import datetime
-    import uuid
 
     cluster = get_cluster()
 
-    table = PersonOverridesSnapshotTable(id=uuid.uuid4().hex, timestamp=datetime.datetime.now())
+    table = PersonOverridesSnapshotTable(
+        id=uuid.UUID(context.run.run_id).hex,
+        timestamp=datetime.datetime.now(),
+    )
 
     cluster.map_all_hosts(table.create).result()
 
