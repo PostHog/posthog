@@ -31,16 +31,9 @@ export const scene: SceneExport = {
 export function LLMObservabilityTraceScene(): JSX.Element {
     const { traceId, query, eventId } = useValues(llmObservabilityTraceLogic)
 
-    const {
-        response,
-        responseLoading,
-        responseError,
-        // queryCancelled,
-        // nextDataLoading,
-        // newDataLoading,
-        // highlightedRows,
-        // backToSourceQuery,
-    } = useValues(dataNodeLogic(getDataNodeLogicProps({ traceId, query })))
+    const { response, responseLoading, responseError } = useValues(
+        dataNodeLogic(getDataNodeLogicProps({ traceId, query }))
+    )
 
     const traceResponse = response as TracesQueryResponse | null
     const event = useMemo(() => {

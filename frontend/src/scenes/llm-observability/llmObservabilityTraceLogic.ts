@@ -29,6 +29,7 @@ export function getDataNodeLogicProps({
         query: query.source,
         key: vizKey,
         dataNodeCollectionId: traceId,
+        alwaysRefresh: false,
     }
     return dataNodeLogicProps
 }
@@ -94,9 +95,7 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     urlToAction(({ actions }) => ({
         [urls.llmObservabilityTrace(':id')]: ({ id }, { event }) => {
             actions.setTraceId(id ?? '')
-            if (event) {
-                actions.setEventId(event)
-            }
+            actions.setEventId(event || null)
         },
     })),
 ])
