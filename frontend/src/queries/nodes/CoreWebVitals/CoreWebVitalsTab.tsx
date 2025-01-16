@@ -44,13 +44,13 @@ export function CoreWebVitalsTab({
 
             <div className="flex flex-row items-end">
                 <span className={clsx('text-2xl', `text-${thresholdColor}`)}>
-                    {parsedValue || <LemonSkeleton fade className="w-4 h-4" />}
+                    {parsedValue || <LemonSkeleton fade className="w-20 h-8" />}
                 </span>
                 {inSeconds && <span className="text-xs ml-1 mb-1">{unit}</span>}
             </div>
 
             <div className="w-full mt-2 hidden sm:block">
-                {value != null && <CoreWebVitalsProgressBar value={value} threshold={threshold} />}
+                <CoreWebVitalsProgressBar value={value} threshold={threshold} />
             </div>
         </div>
     )
