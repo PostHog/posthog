@@ -236,11 +236,8 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                                         type="secondary"
                                         size="xsmall"
                                         onClick={() => {
-                                            if (isSecondary) {
-                                                loadSecondaryMetricResults(true)
-                                            } else {
-                                                loadMetricResults(true)
-                                            }
+                                            loadMetricResults(true)
+                                            loadSecondaryMetricResults(true)
                                         }}
                                         data-attr="refresh-experiment"
                                         icon={<IconRefresh />}
