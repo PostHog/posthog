@@ -120,6 +120,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_BUCKET: 'posthog',
+        LOG_EVENT_SAMPLE_RATE: 0,
         PLUGIN_SERVER_MODE: null,
         PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,

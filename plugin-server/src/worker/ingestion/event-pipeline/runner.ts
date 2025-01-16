@@ -105,12 +105,14 @@ export class EventPipelineRunner {
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.originalEvent = event
 
-        // NOTE: Important log to help with debugging
-        status.info('🧩', `Processing event`, {
-            event: event.event,
-            distinct_id: event.distinct_id,
-            token: event.token,
-        })
+        if (Math.random() < this.hub.LOG_EVENT_SAMPLE_RATE) {
+            // NOTE: Important log to help with debugging
+            status.info('🧩', `Processing event`, {
+                event: event.event,
+                distinct_id: event.distinct_id,
+                token: event.token,
+            })
+        }
 
         try {
             if (this.isEventDisallowed(event)) {
