@@ -268,15 +268,21 @@ class PersonOverridesSnapshotDictionary:
         return Mutation(table, mutation_id)
 
 
-@dagster.op
-def create_snapshot_table(context: dagster.OpExecutionContext) -> PersonOverridesSnapshotTable:
-    import datetime
+class SnapshotConfig(dagster.Config):
+    timestamp: int
 
+    @property
+    def datetime(self) -> datetime:
+        return datetime.fromtimestamp(self.timestamp)
+
+
+@dagster.op
+def create_snapshot_table(context: dagster.OpExecutionContext, config: SnapshotConfig) -> PersonOverridesSnapshotTable:
     cluster = get_cluster()
 
     table = PersonOverridesSnapshotTable(
         id=uuid.UUID(context.run.run_id).hex,
-        timestamp=datetime.datetime.now(),
+        timestamp=config.datetime,
     )
 
     cluster.map_all_hosts(table.create).result()
