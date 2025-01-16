@@ -1,4 +1,5 @@
-import { ModelDetailsMap, ModelRow } from '../interfaces/Cost'
+import { ModelDetailsMap, ModelRow } from 'types'
+
 import { anthropicProvider } from './anthropic'
 import { costs as awsBedrockCosts } from './awsBedrock'
 import { costs as azureCosts } from './azure'

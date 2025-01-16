@@ -3,7 +3,6 @@ import bigDecimal from 'js-big-decimal'
 
 import { Hub, ModelRow, PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginMethods } from '../../../types'
 import { providers } from '../../../utils/ai-cost-data/mappings'
-import { status } from '../../../utils/status'
 import { PluginInstance } from '../lazy'
 
 export type AiCostPluginConfiguration = {
@@ -35,7 +34,6 @@ export class AiCostPlugin implements PluginInstance {
     debugMode: boolean
 
     constructor(hub: Hub, pluginConfig: PluginConfig) {
-        status.info('🔌', 'AI Cost Plugin: Initializing...')
         this.hub = hub
         this.config = pluginConfig
         this.usedImports = new Set()
@@ -56,12 +54,11 @@ export class AiCostPlugin implements PluginInstance {
     }
 
     public async processEvent(event: PluginEvent): Promise<PluginEvent> {
-        await this.createLogEntry(`AiCostPlugin.processEvent(): Event`, PluginLogEntryType.Warn)
-        status.info('🔁', `AiCostPlugin.processEvent(): Event`)
-
         if (event.event !== '$ai_generation' || !event.properties) {
             return event
         }
+
+        await this.createLogEntry(`AiCostPlugin.processEvent(): Ai Generation Event Received`, PluginLogEntryType.Warn)
 
         if (!event.properties['$ai_provider'] || !event.properties['$ai_model']) {
             return event
