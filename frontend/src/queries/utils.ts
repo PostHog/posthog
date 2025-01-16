@@ -40,6 +40,7 @@ import {
     SavedInsightNode,
     SessionAttributionExplorerQuery,
     StickinessQuery,
+    TracesQuery,
     TrendsQuery,
     WebGoalsQuery,
     WebOverviewQuery,
@@ -138,6 +139,10 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
 
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
+}
+
+export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
+    return node?.kind === NodeKind.TracesQuery
 }
 
 export function isCoreWebVitalsQuery(node?: Record<string, any> | null): node is CoreWebVitalsQuery {
