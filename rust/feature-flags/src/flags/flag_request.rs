@@ -73,111 +73,11 @@ impl FlagRequest {
         }
     }
 
-    /// Extracts the token from the request and verifies it against the cache.
-    /// If the token is not found in the cache, it will be verified against the database.
-    pub async fn extract_and_verify_token(
-        &self,
-        redis_client: Arc<dyn RedisClient + Send + Sync>,
-        pg_client: Arc<dyn DatabaseClient + Send + Sync>,
-    ) -> Result<String, FlagError> {
-        let token = match self {
-            FlagRequest {
-                token: Some(token), ..
-            } => token.to_string(),
-            _ => return Err(FlagError::NoTokenError),
-        };
-
-        let (result, cache_hit) = match Team::from_redis(redis_client.clone(), token.clone()).await
-        {
-            Ok(_) => (Ok(token.clone()), true),
-            Err(_) => {
-                match Team::from_pg(pg_client, token.clone()).await {
-                    Ok(team) => {
-                        inc(
-                            DB_TEAM_READS_COUNTER,
-                            &[("token".to_string(), token.clone())],
-                            1,
-                        );
-                        // Token found in PostgreSQL, update Redis cache so that we can verify it from Redis next time
-                        if let Err(e) = Team::update_redis_cache(redis_client, &team).await {
-                            tracing::warn!("Failed to update Redis cache: {}", e);
-                            inc(
-                                TEAM_CACHE_ERRORS_COUNTER,
-                                &[("reason".to_string(), "redis_update_failed".to_string())],
-                                1,
-                            );
-                        }
-                        (Ok(token.clone()), false)
-                    }
-                    Err(_) => {
-                        inc(
-                            TOKEN_VALIDATION_ERRORS_COUNTER,
-                            &[("reason".to_string(), "token_not_found".to_string())],
-                            1,
-                        );
-                        (Err(FlagError::TokenValidationError), false)
-                    }
-                }
-            }
-        };
-
-        inc(
-            TEAM_CACHE_HIT_COUNTER,
-            &[
-                ("token".to_string(), token.clone()),
-                ("cache_hit".to_string(), cache_hit.to_string()),
-            ],
-            1,
-        );
-
-        result
-    }
-
-    /// Fetches the team from the cache or the database.
-    /// If the team is not found in the cache, it will be fetched from the database and stored in the cache.
-    /// Returns the team if found, otherwise an error.
-    pub async fn get_team_from_cache_or_pg(
-        &self,
-        token: &str,
-        redis_client: Arc<dyn RedisClient + Send + Sync>,
-        pg_client: Arc<dyn DatabaseClient + Send + Sync>,
-    ) -> Result<Team, FlagError> {
-        let (team_result, cache_hit) =
-            match Team::from_redis(redis_client.clone(), token.to_owned()).await {
-                Ok(team) => (Ok(team), true),
-                Err(_) => match Team::from_pg(pg_client, token.to_owned()).await {
-                    Ok(team) => {
-                        inc(
-                            DB_TEAM_READS_COUNTER,
-                            &[("token".to_string(), token.to_string())],
-                            1,
-                        );
-                        // If we have the team in postgres, but not redis, update redis so we're faster next time
-                        if let Err(e) = Team::update_redis_cache(redis_client, &team).await {
-                            tracing::warn!("Failed to update Redis cache: {}", e);
-                            inc(
-                                TEAM_CACHE_ERRORS_COUNTER,
-                                &[("reason".to_string(), "redis_update_failed".to_string())],
-                                1,
-                            );
-                        }
-                        (Ok(team), false)
-                    }
-                    // TODO what kind of error should we return here?
-                    Err(e) => (Err(e), false),
-                },
-            };
-
-        inc(
-            TEAM_CACHE_HIT_COUNTER,
-            &[
-                ("token".to_string(), token.to_string()),
-                ("cache_hit".to_string(), cache_hit.to_string()),
-            ],
-            1,
-        );
-
-        team_result
+    pub fn extract_token(&self) -> Result<String, FlagError> {
+        match &self.token {
+            Some(token) if !token.is_empty() => Ok(token.clone()),
+            _ => Err(FlagError::NoTokenError),
+        }
     }
 
     /// Extracts the distinct_id from the request.
@@ -204,59 +104,6 @@ impl FlagRequest {
             properties.extend(person_properties.clone());
         }
         properties
-    }
-
-    /// Fetches the flags from the cache or the database.
-    /// If the flags are not found in the cache, they will be fetched from the database and stored in the cache.
-    /// Returns the flags if found, otherwise an error.
-    pub async fn get_flags_from_cache_or_pg(
-        &self,
-        team_id: i32,
-        redis_client: &Arc<dyn RedisClient + Send + Sync>,
-        pg_client: &Arc<dyn DatabaseClient + Send + Sync>,
-    ) -> Result<FeatureFlagList, FlagError> {
-        let (flags_result, cache_hit) =
-            match FeatureFlagList::from_redis(redis_client.clone(), team_id).await {
-                Ok(flags) => (Ok(flags), true),
-                Err(_) => match FeatureFlagList::from_pg(pg_client.clone(), team_id).await {
-                    Ok(flags) => {
-                        inc(
-                            DB_FLAG_READS_COUNTER,
-                            &[("team_id".to_string(), team_id.to_string())],
-                            1,
-                        );
-                        if let Err(e) = FeatureFlagList::update_flags_in_redis(
-                            redis_client.clone(),
-                            team_id,
-                            &flags,
-                        )
-                        .await
-                        {
-                            tracing::warn!("Failed to update Redis cache: {}", e);
-                            inc(
-                                FLAG_CACHE_ERRORS_COUNTER,
-                                &[("reason".to_string(), "redis_update_failed".to_string())],
-                                1,
-                            );
-                        }
-                        (Ok(flags), false)
-                    }
-                    // TODO what kind of error should we return here?  This should be postgres
-                    // I guess it can be whatever the FlagError is
-                    Err(e) => (Err(e), false),
-                },
-            };
-
-        inc(
-            FLAG_CACHE_HIT_COUNTER,
-            &[
-                ("team_id".to_string(), team_id.to_string()),
-                ("cache_hit".to_string(), cache_hit.to_string()),
-            ],
-            1,
-        );
-
-        flags_result
     }
 }
 

@@ -14,7 +14,7 @@ use tower_http::{
 };
 
 use crate::{
-    api::endpoint,
+    api::{endpoint, test_endpoint},
     client::{
         database::Client as DatabaseClient, geoip::GeoIpClient, redis::Client as RedisClient,
     },
@@ -63,6 +63,22 @@ where
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
 
+    // for testing flag requests
+    let test_router = Router::new()
+        .route(
+            "/test_flags/black_hole",
+            post(test_endpoint::test_black_hole)
+                .get(test_endpoint::test_black_hole)
+                .options(endpoint::options),
+        )
+        .route(
+            "/test_flags/black_hole/",
+            post(test_endpoint::test_black_hole)
+                .get(test_endpoint::test_black_hole)
+                .options(endpoint::options),
+        )
+        .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
+
     let status_router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
@@ -76,6 +92,7 @@ where
     let router = Router::new()
         .merge(status_router)
         .merge(flags_router)
+        .merge(test_router)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))

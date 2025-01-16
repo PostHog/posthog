@@ -29,6 +29,8 @@ serde-pickle = { version = "1.1.1"}
 sha1 = "0.10.6"
 regex = "1.10.4"
 maxminddb = "0.17"
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 sqlx = { workspace = true }
 uuid = { workspace = true }
 base64.workspace = true

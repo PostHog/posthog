@@ -219,9 +219,7 @@ fn process_group_property_overrides(
 }
 
 /// Decode a request into a `FlagRequest`
-/// - Currently only supports JSON requests
-// TODO support all supported content types
-fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagError> {
+pub fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagError> {
     let content_type = headers
         .get("content-type")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));

@@ -1921,6 +1921,8 @@ dependencies = [
  "futures",
  "health",
  "maxminddb",
+ "metrics",
+ "metrics-exporter-prometheus",
  "moka",
  "once_cell",
  "petgraph",

@@ -176,7 +176,7 @@ impl From<CustomRedisError> for FlagError {
         match e {
             CustomRedisError::NotFound => FlagError::TokenValidationError,
             CustomRedisError::PickleError(e) => {
-                tracing::error!("failed to fetch data: {}", e);
+                tracing::error!("failed to fetch data from redis: {}", e);
                 FlagError::RedisDataParsingError
             }
             CustomRedisError::Timeout(_) => FlagError::TimeoutError,
