@@ -42,8 +42,8 @@ interface QueryTabProps {
 }
 
 function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryTabProps): JSX.Element {
-    const [isEditing, setIsEditing] = useState(false)
     const [tabName, setTabName] = useState(() => model.name || 'New tab')
+    const [isEditing, setIsEditing] = useState(false)
 
     const handleRename = (): void => {
         setIsEditing(false)
@@ -51,7 +51,7 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
     }
 
     return (
-        <button
+        <div
             onClick={() => onClick?.(model)}
             className={clsx(
                 'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--bg-light)] cursor-pointer',
@@ -75,7 +75,7 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
                     }}
                 />
             ) : (
-                <div onClick={() => setIsEditing(!isEditing)} className="flex-grow text-left">
+                <div onClick={() => setIsEditing(!isEditing)} className="flex-grow text-left whitespace-pre">
                     {tabName}
                 </div>
             )}
@@ -89,6 +89,6 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
                     icon={<IconX />}
                 />
             )}
-        </button>
+        </div>
     )
 }

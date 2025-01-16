@@ -138,18 +138,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 addTab: (state, { tab }) => {
                     return [...state, tab]
                 },
-                renameTab: (state, { tab, newName }) => {
-                    // localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(updatedTabs))
-                    return state.map((t) => {
-                        if (t.uri.toString() === tab.uri.toString()) {
-                            return {
-                                ...t,
-                                name: newName,
-                            }
-                        }
-                        return t
-                    })
-                },
                 removeTab: (state, { tab: tabToRemove }) => {
                     return state.filter((tab) => tab.uri.toString() !== tabToRemove.uri.toString())
                 },

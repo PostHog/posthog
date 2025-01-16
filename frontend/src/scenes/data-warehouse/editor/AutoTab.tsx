@@ -11,26 +11,24 @@ interface AutoTabProps {
 
 const AutoTab = ({ value, onChange, onKeyDown, onBlur, autoFocus, handleRename }: AutoTabProps): JSX.Element => {
     const inputRef = useRef<HTMLInputElement>(null)
-    const mirrorRef = useRef<HTMLSpanElement>(null)
+    const spanRef = useRef<HTMLSpanElement>(null)
 
     useEffect(() => {
-        if (!inputRef.current || !mirrorRef.current) {
+        if (!inputRef.current || !spanRef.current) {
             return
         }
-        const newWidth = mirrorRef.current.offsetWidth
+        const newWidth = spanRef.current.offsetWidth
         inputRef.current.style.width = newWidth + 'px'
     }, [value])
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
-        if (e.target.value.length > 0) {
-            onChange(e)
-            handleRename()
-        }
+        onChange(e)
+        handleRename()
     }
 
     return (
         <div className="relative inline-block">
-            <span ref={mirrorRef} className="pointer-events-none absolute invisible whitespace-pre" aria-hidden="true">
+            <span ref={spanRef} className="pointer-events-none absolute invisible whitespace-pre" aria-hidden="true">
                 {value}
             </span>
             <input
