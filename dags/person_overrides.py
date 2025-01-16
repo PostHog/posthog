@@ -349,11 +349,33 @@ def load_snapshot_dictionary(dictionary: PersonOverridesSnapshotDictionary) -> P
 
 
 @dagster.op
-def run_person_id_update_mutation(dictionary: PersonOverridesSnapshotDictionary) -> PersonOverridesSnapshotDictionary:
+def run_person_id_update_mutation(
+    context: dagster.OpExecutionContext, dictionary: PersonOverridesSnapshotDictionary
+) -> PersonOverridesSnapshotDictionary:
     cluster = get_cluster()
 
-    cluster.map_one_host_per_shard(dictionary.enqueue_person_id_update_mutation).result()
-    # TODO: need a way to target queries at all nodes on a shard to implement waiting correctly
+    shard_mutations = {
+        host.shard_num: mutation
+        for host, mutation in cluster.map_one_host_per_shard(dictionary.enqueue_person_id_update_mutation)
+        .result()
+        .items()
+    }
+
+    while True:
+        waiting_on_hosts = set()
+
+        shard_mutation_statuses = {
+            shard: cluster.map_all_hosts_in_shard(shard, mutation.is_done)
+            for shard, mutation in shard_mutations.items()
+        }
+        for host_mutation_statuses in shard_mutation_statuses.values():
+            waiting_on_hosts.update(host for host, is_done in host_mutation_statuses.result().items() if not is_done)
+
+        if waiting_on_hosts:
+            context.log.info("Still waiting on %r to finish mutation...", waiting_on_hosts)
+            time.sleep(15.0)
+        else:
+            break
 
     return dictionary
 
