@@ -783,7 +783,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     properties: webAnalyticsFilters,
                                 },
                             },
-                            insightProps: {},
+                            insightProps: {
+                                dashboardItemId: getDashboardItemId(TileId.WEB_VITALS, 'web-vitals-overview', false),
+                                loadPriority: 0,
+                                dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                            },
                             canOpenInsight: false,
                             canOpenModal: false,
                             showIntervalSelect: true,
