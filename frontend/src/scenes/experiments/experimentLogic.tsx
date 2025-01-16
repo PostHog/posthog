@@ -9,6 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import merge from 'lodash.merge'
 import {
     indexToVariantKeyFeatureFlagPayloads,
     variantKeyToIndexFeatureFlagPayloads,
@@ -35,7 +36,9 @@ import {
     ExperimentFunnelsQuery,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
+    type FunnelsQuery,
     NodeKind,
+    type TrendsQuery,
 } from '~/queries/schema'
 import { isFunnelsQuery, isTrendsQuery } from '~/queries/utils'
 import { isNodeWithSource, isValidQueryForExperiment } from '~/queries/utils'
@@ -991,7 +994,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         metrics = [...metrics, ...sharedMetrics]
                     }
 
-                    return (await Promise.all(
+                    return await Promise.all(
                         metrics.map(async (metric, index) => {
                             try {
                                 const queryWithExperimentId = {
@@ -1018,7 +1021,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 return null
                             }
                         })
-                    )) as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]
+                    )
                 },
             },
         ],
@@ -1036,7 +1039,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         metrics = [...metrics, ...sharedMetrics]
                     }
 
-                    return (await Promise.all(
+                    return await Promise.all(
                         metrics.map(async (metric, index) => {
                             try {
                                 const queryWithExperimentId = {
@@ -1063,7 +1066,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 return null
                             }
                         })
-                    )) as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]
+                    )
                 },
             },
         ],
@@ -1927,17 +1930,38 @@ export function getExperimentMetricFromInsight(
     const metricName = (insight?.name || insight?.derived_name) ?? undefined
 
     if (isFunnelsQuery(insight.query.source)) {
+        const defaultFunnelsQuery = getDefaultFunnelsMetric().funnels_query
+
+        const funnelsQuery: FunnelsQuery = merge(defaultFunnelsQuery, {
+            series: insight.query.source.series,
+            funnelsFilter: {
+                funnelAggregateByHogQL: insight.query.source.funnelsFilter?.funnelAggregateByHogQL,
+                funnelWindowInterval: insight.query.source.funnelsFilter?.funnelWindowInterval,
+                funnelWindowIntervalUnit: insight.query.source.funnelsFilter?.funnelWindowIntervalUnit,
+                layout: insight.query.source.funnelsFilter?.layout,
+            },
+            filterTestAccounts: insight.query.source.filterTestAccounts,
+            aggregation_group_type_index: insight.query.source.aggregation_group_type_index,
+        })
+
         return {
             kind: NodeKind.ExperimentFunnelsQuery,
-            funnels_query: insight.query.source,
+            funnels_query: funnelsQuery,
             name: metricName,
         }
     }
 
     if (isTrendsQuery(insight.query.source)) {
+        const defaultTrendsQuery = getDefaultTrendsMetric().count_query
+
+        const trendsQuery: TrendsQuery = merge(defaultTrendsQuery, {
+            series: insight.query.source.series,
+            filterTestAccounts: insight.query.source.filterTestAccounts,
+        })
+
         return {
             kind: NodeKind.ExperimentTrendsQuery,
-            count_query: insight.query.source,
+            count_query: trendsQuery,
             name: metricName,
         }
     }

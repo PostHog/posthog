@@ -25,6 +25,7 @@ import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable
 import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
+import { TrendCanvasLabel } from 'scenes/trends/TrendCanvasLabel'
 import { TrendInsight } from 'scenes/trends/Trends'
 
 import { QueryContext } from '~/queries/types'
@@ -66,6 +67,7 @@ export function InsightVizDisplay({
     const {
         isFunnels,
         isPaths,
+        isTrends,
         hasDetailedResultsTable,
         showLegend,
         trendsFilter,
@@ -250,6 +252,7 @@ export function InsightVizDisplay({
                                 <div className="flex items-center gap-2">
                                     {isPaths && <PathCanvasLabel />}
                                     {isFunnels && <FunnelCanvasLabel />}
+                                    {isTrends && <TrendCanvasLabel />}
                                 </div>
                             </div>
                         )}
