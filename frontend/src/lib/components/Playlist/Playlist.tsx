@@ -7,7 +7,6 @@ import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
 import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { FiltersPanel } from 'scenes/session-recordings/playlist/filters/FiltersPanel'
 
 import { SessionRecordingType } from '~/types'
 
@@ -41,6 +40,7 @@ export type PlaylistProps = {
     loading?: boolean
     headerActions?: JSX.Element
     footerActions?: JSX.Element
+    filterActions?: JSX.Element | null
     onScrollListEdge?: (edge: 'top' | 'bottom') => void
     // Optionally select the first item in the list. Only works in controlled mode
     selectInitialItem?: boolean
@@ -61,6 +61,7 @@ export function Playlist({
     sections,
     headerActions,
     footerActions,
+    filterActions,
     onScrollListEdge,
     listEmptyState,
     selectInitialItem,
@@ -106,9 +107,7 @@ export function Playlist({
                 })}
             >
                 <div ref={playlistListRef} className={clsx('Playlist__list w-full', 'Playlist__list--collapsed')}>
-                    <DraggableToNotebook href={notebooksHref}>
-                        <FiltersPanel />
-                    </DraggableToNotebook>
+                    <DraggableToNotebook href={notebooksHref}>{filterActions}</DraggableToNotebook>
 
                     <List
                         title={title}
@@ -239,10 +238,10 @@ const List = ({
                         const content =
                             'content' in s ? (
                                 s.content
-                            ) : loading && s.key === 'other' ? (
-                                <LoadingState />
                             ) : 'items' in s && !!s.items.length ? (
                                 <ListSection {...s} onClick={setActiveItemId} activeItemId={activeItemId} />
+                            ) : loading ? (
+                                <LoadingState />
                             ) : (
                                 emptyState
                             )
