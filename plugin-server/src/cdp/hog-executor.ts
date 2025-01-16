@@ -327,15 +327,51 @@ export class HogExecutor {
         }
     }
 
-    execute(invocation: HogFunctionInvocation): HogFunctionInvocationResult {
+    executeTransformation(invocation: HogFunctionInvocation): HogFunctionInvocationResult {
+        const result = this.execute(invocation, {
+            allowAsync: false,
+            requireResult: true,
+            functionType: 'transformation',
+        })
+
+        // For transformations, we require a result to be returned
+        if (result.finished && result.execResult === undefined) {
+            result.error = 'Transformation function must return a value'
+            result.logs.push({
+                level: 'error',
+                timestamp: DateTime.now(),
+                message: 'Transformation function must return a value',
+            })
+        }
+
+        return result
+    }
+
+    executeDestination(invocation: HogFunctionInvocation): HogFunctionInvocationResult {
+        return this.execute(invocation, {
+            allowAsync: true,
+            requireResult: false,
+            functionType: 'destination',
+        })
+    }
+
+    private execute(
+        invocation: HogFunctionInvocation,
+        options: {
+            allowAsync: boolean
+            requireResult: boolean
+            functionType: 'transformation' | 'destination'
+        }
+    ): HogFunctionInvocationResult {
         const loggingContext = {
             invocationId: invocation.id,
             hogFunctionId: invocation.hogFunction.id,
             hogFunctionName: invocation.hogFunction.name,
             hogFunctionUrl: invocation.globals.source?.url,
+            functionType: options.functionType,
         }
 
-        status.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
+        status.debug('🦔', `[HogExecutor] Executing ${options.functionType} function`, loggingContext)
 
         const result: HogFunctionInvocationResult = {
             invocation,
@@ -347,7 +383,7 @@ export class HogExecutor {
         result.logs.push({
             level: 'debug',
             timestamp: DateTime.now(),
-            message: invocation.vmState ? 'Resuming function' : `Executing function`,
+            message: invocation.vmState ? 'Resuming function' : `Executing ${options.functionType} function`,
         })
 
         try {
@@ -460,44 +496,12 @@ export class HogExecutor {
                 let hogLogs = 0
                 execRes = execHog(invocationInput, {
                     globals: invocation.functionToExecute ? undefined : globals,
-                    maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
-                    asyncFunctions: {
-                        // We need to pass these in but they don't actually do anything as it is a sync exec
-                        fetch: async () => Promise.resolve(),
-                    },
-                    // importBytecode: (module) => {
-                    //     // TODO: more than one hardcoded module
-                    //     if (module === 'provider/email') {
-                    //         const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
-                    //         if (!provider) {
-                    //             throw new Error('No email provider configured')
-                    //         }
-                    //         try {
-                    //             const providerGlobals = this.buildHogFunctionGlobals({
-                    //                 id: '',
-                    //                 teamId: invocation.teamId,
-                    //                 hogFunction: provider,
-                    //                 globals: {} as any,
-                    //                 queue: 'hog',
-                    //                 timings: [],
-                    //                 priority: 0,
-                    //             } satisfies HogFunctionInvocation)
-
-                    //             return {
-                    //                 bytecode: provider.bytecode,
-                    //                 globals: providerGlobals,
-                    //             }
-                    //         } catch (e) {
-                    //             result.logs.push({
-                    //                 level: 'error',
-                    //                 timestamp: DateTime.now(),
-                    //                 message: `Error building inputs: ${e}`,
-                    //             })
-                    //             throw e
-                    //         }
-                    //     }
-                    //     throw new Error(`Can't import unknown module: ${module}`)
-                    // },
+                    maxAsyncSteps: options.allowAsync ? MAX_ASYNC_STEPS : 0,
+                    asyncFunctions: options.allowAsync
+                        ? {
+                              fetch: async () => Promise.resolve(),
+                          }
+                        : {},
                     functions: {
                         print: (...args) => {
                             hogLogs++
@@ -566,7 +570,7 @@ export class HogExecutor {
                 result.logs.push({
                     level: 'error',
                     timestamp: DateTime.now(),
-                    message: `Error executing function on event ${eventId}: ${e}`,
+                    message: `Error executing ${options.functionType} function on event ${eventId}: ${e}`,
                 })
                 throw e
             }
@@ -582,6 +586,10 @@ export class HogExecutor {
             })
 
             if (!execRes.finished) {
+                if (!options.allowAsync) {
+                    throw new Error(`${options.functionType} functions cannot perform async operations`)
+                }
+
                 const args = (execRes.asyncFunctionArgs ?? []).map((arg) => convertHogToJS(arg))
                 if (!execRes.state) {
                     // NOTE: This shouldn't be possible so is more of a type sanity check
@@ -668,7 +676,7 @@ export class HogExecutor {
             result.finished = true // Explicitly set to true to prevent infinite loops
             status.error(
                 '🦔',
-                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.globals.event?.url}'`,
+                `[HogExecutor] Error executing ${options.functionType} function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.globals.event?.url}'`,
                 err
             )
         }

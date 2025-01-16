@@ -480,7 +480,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
                 func: async () => {
                     const hogResults = await this.runManyWithHeartbeat(kafkaInvocations, (item) =>
-                        this.hogExecutor.execute(item)
+                        this.hogExecutor.executeDestination(item)
                     )
                     return [...hogResults]
                 },
@@ -721,7 +721,9 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                 )
 
                 const hogQueue = invocations.filter((item) => item.queue === 'hog')
-                const hogResults = await this.runManyWithHeartbeat(hogQueue, (item) => this.hogExecutor.execute(item))
+                const hogResults = await this.runManyWithHeartbeat(hogQueue, (item) =>
+                    this.hogExecutor.executeDestination(item)
+                )
                 return [...hogResults, ...(fetchResults.filter(Boolean) as HogFunctionInvocationResult[])]
             },
         })
@@ -842,7 +844,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 )
 
                 const hogQueue = invocations.filter((item) => item.queue === 'hog')
-                const hogResults = await this.runManyWithHeartbeat(hogQueue, (item) => this.hogExecutor.execute(item))
+                const hogResults = await this.runManyWithHeartbeat(hogQueue, (item) =>
+                    this.hogExecutor.executeDestination(item)
+                )
                 return [...hogResults, ...(fetchResults.filter(Boolean) as HogFunctionInvocationResult[])]
             },
         })

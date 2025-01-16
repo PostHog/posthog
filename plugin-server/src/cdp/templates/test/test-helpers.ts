@@ -129,7 +129,7 @@ export class TemplateTester {
 
         const globalsWithInputs = buildGlobalsWithInputs(globals, hogFunction.inputs)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
-        return this.executor.execute(invocation)
+        return this.executor.executeTransformation(invocation)
     }
 
     invokeFetchResponse(invocation: HogFunctionInvocation, response: HogFunctionQueueParametersFetchResponse) {
@@ -139,6 +139,6 @@ export class TemplateTester {
             queueParameters: response,
         }
 
-        return this.executor.execute(modifiedInvocation)
+        return this.executor.executeTransformation(modifiedInvocation)
     }
 }

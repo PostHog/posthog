@@ -193,7 +193,7 @@ export class CdpApi {
                             response = await this.fetchExecutor!.executeLocally(invocation)
                         }
                     } else {
-                        response = this.hogExecutor.execute(invocation)
+                        response = this.hogExecutor.executeDestination(invocation)
                     }
 
                     logs = logs.concat(response.logs)
