@@ -703,7 +703,7 @@ function useMathSelectorOptions({
         definitions = staticActorsOnlyMathDefinitions
     }
 
-    let options: LemonSelectOption<string>[] = Object.entries(definitions)
+    const options: LemonSelectOption<string>[] = Object.entries(definitions)
         .filter(([key]) => {
             if (isStickiness) {
                 // Remove WAU and MAU from stickiness insights
@@ -837,7 +837,7 @@ function useMathSelectorOptions({
 
 function MathSelector(props: MathSelectorProps & { onlyMathTypes?: string[] }): JSX.Element {
     const options = useMathSelectorOptions(props)
-    const { math, mathGroupTypeIndex, index, onMathSelect, disabled, disabledReason, onlyMathTypes } = props
+    const { math, mathGroupTypeIndex, index, onMathSelect, disabled, disabledReason } = props
 
     const mathType = apiValueToMathType(math, mathGroupTypeIndex)
 
