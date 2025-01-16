@@ -44,9 +44,6 @@ from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.constants import (
     INSIGHT,
-    INSIGHT_FUNNELS,
-    INSIGHT_STICKINESS,
-    TRENDS_STICKINESS,
     FunnelVizType,
 )
 from posthog.decorators import cached_by_filters
@@ -62,7 +59,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
-from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters, get_query_method
+from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
@@ -86,20 +83,12 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.alert import are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
-from posthog.queries.funnels import (
-    ClickhouseFunnelTimeToConvert,
-    ClickhouseFunnelTrends,
-)
-from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.stickiness import Stickiness
-from posthog.queries.trends.trends import Trends
-from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -175,7 +164,6 @@ def capture_legacy_api_call(request: request.Request, team: Team):
         properties = {
             "path": request._request.path,
             "method": request._request.method,
-            "query_method": get_query_method(request=request, team=team),
             "filter": get_filter(request=request, team=team),
             "was_impersonated": is_impersonated_session(request),
         }
@@ -631,9 +619,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     (
                         dashboard_filters_override
                         if dashboard_filters_override is not None
-                        else dashboard.filters
-                        if dashboard
-                        else {}
+                        else dashboard.filters if dashboard else {}
                     ),
                     instance.team,
                 )
@@ -988,11 +974,7 @@ When set, the specified dashboard's filters and date range override will be appl
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
-                query_method = get_query_method(request=request, team=self.team)
-                if query_method == "hogql":
-                    result = self.calculate_trends_hogql(request)
-                else:
-                    result = self.calculate_trends(request)
+                result = self.calculate_trends_hogql(request)
         except ExposedHogQLError as e:
             raise ValidationError(str(e))
         except Cohort.DoesNotExist as e:
@@ -1038,24 +1020,6 @@ When set, the specified dashboard's filters and date range override will be appl
         return Response({**result, "next": next})
 
     @cached_by_filters
-    def calculate_trends(self, request: request.Request) -> dict[str, Any]:
-        team = self.team
-        filter = Filter(request=request, team=self.team)
-
-        if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
-            stickiness_filter = StickinessFilter(
-                request=request,
-                team=team,
-                get_earliest_timestamp=get_earliest_timestamp,
-            )
-            result = self.stickiness_query_class().run(stickiness_filter, team)
-        else:
-            trends_query = Trends()
-            result = trends_query.run(filter, team, is_csv_export=bool(request.GET.get("is_csv_export", False)))
-
-        return {"result": result, "timezone": team.timezone}
-
-    @cached_by_filters
     def calculate_trends_hogql(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=team)
@@ -1097,11 +1061,7 @@ When set, the specified dashboard's filters and date range override will be appl
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
-                query_method = get_query_method(request=request, team=self.team)
-                if query_method == "hogql":
-                    funnel = self.calculate_funnel_hogql(request)
-                else:
-                    funnel = self.calculate_funnel(request)
+                funnel = self.calculate_funnel_hogql(request)
 
         except ExposedHogQLError as e:
             raise ValidationError(str(e))
@@ -1112,28 +1072,6 @@ When set, the specified dashboard's filters and date range override will be appl
         funnel["timings"] = [val.model_dump() for val in timings.to_list()]
 
         return Response(funnel)
-
-    @cached_by_filters
-    def calculate_funnel(self, request: request.Request) -> dict[str, Any]:
-        team = self.team
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
-
-        if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            return {
-                "result": ClickhouseFunnelTrends(team=team, filter=filter).run(),
-                "timezone": team.timezone,
-            }
-        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            return {
-                "result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run(),
-                "timezone": team.timezone,
-            }
-        else:
-            funnel_order_class = get_funnel_order_class(filter)
-            return {
-                "result": funnel_order_class(team=team, filter=filter).run(),
-                "timezone": team.timezone,
-            }
 
     @cached_by_filters
     def calculate_funnel_hogql(self, request: request.Request) -> dict[str, Any]:

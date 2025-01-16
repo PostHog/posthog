@@ -1,7 +1,4 @@
-import copy
 import threading
-from datetime import datetime, timedelta
-from itertools import accumulate
 from typing import Any, Optional, cast
 from collections.abc import Callable
 from zoneinfo import ZoneInfo
@@ -273,53 +270,3 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             result = self._run_parallel(filter, team)
 
         return result
-
-    def _format_serialized(self, entity: Entity, result: list[dict[str, Any]]):
-        serialized_data = []
-
-        serialized: dict[str, Any] = {
-            "action": entity.to_dict(),
-            "label": entity.name,
-            "count": 0,
-            "data": [],
-            "labels": [],
-            "days": [],
-        }
-
-        for queried_metric in result:
-            serialized_copy = copy.deepcopy(serialized)
-            serialized_copy.update(queried_metric)
-            serialized_data.append(serialized_copy)
-
-        return serialized_data
-
-    def _handle_cumulative(self, entity_metrics: list) -> list[dict[str, Any]]:
-        for metrics in entity_metrics:
-            metrics.update(data=list(accumulate(metrics["data"])))
-        return entity_metrics
-
-
-def is_filter_date_present(filter: Filter, latest_cached_datetime: datetime) -> bool:
-    diff = filter.date_to - latest_cached_datetime
-
-    if filter.interval == "hour":
-        return diff < timedelta(hours=1)
-    elif filter.interval == "day":
-        return diff < timedelta(days=1)
-    elif filter.interval == "week":
-        return diff < timedelta(weeks=1)
-    elif filter.interval == "month":
-        return diff < timedelta(days=30)
-
-
-def interval_unit(interval: str) -> str:
-    if interval == "hour":
-        return "-1hr"
-    if interval == "day":
-        return "-1d"
-    elif interval == "week":
-        return "-1w"
-    elif interval == "month":
-        return "-1m"
-    else:
-        raise ValueError("Invalid interval")

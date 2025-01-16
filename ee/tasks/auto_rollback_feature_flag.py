@@ -1,13 +1,10 @@
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from celery import shared_task
 
 from ee.api.sentry_stats import get_stats_for_timerange
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
-from posthog.queries.trends.trends import Trends
 
 
 def check_flags_to_rollback():
@@ -30,27 +27,29 @@ def check_feature_flag_rollback_conditions(feature_flag_id: int) -> None:
 
 
 def calculate_rolling_average(threshold_metric: dict, team: Team, timezone: str) -> float:
-    curr = datetime.now(tz=ZoneInfo(timezone))
+    return False
+    # curr = datetime.now(tz=ZoneInfo(timezone))
 
-    rolling_average_days = 7
+    # rolling_average_days = 7
 
-    filter = Filter(
-        data={
-            **threshold_metric,
-            "date_from": (curr - timedelta(days=rolling_average_days)).strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "date_to": curr.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        },
-        team=team,
-    )
-    trends_query = Trends()
-    result = trends_query.run(filter, team)
+    # filter = Filter(
+    #     data={
+    #         **threshold_metric,
+    #         "date_from": (curr - timedelta(days=rolling_average_days)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+    #         "date_to": curr.strftime("%Y-%m-%d %H:%M:%S.%f"),
+    #     },
+    #     team=team,
+    # )
 
-    if not len(result):
-        return False
+    # trends_query = Trends()
+    # result = trends_query.run(filter, team)
 
-    data = result[0]["data"]
+    # if not len(result):
+    #     return False
 
-    return sum(data) / rolling_average_days
+    # data = result[0]["data"]
+
+    # return sum(data) / rolling_average_days
 
 
 def check_condition(rollback_condition: dict, feature_flag: FeatureFlag) -> bool:

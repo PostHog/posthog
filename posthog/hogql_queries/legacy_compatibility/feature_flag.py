@@ -1,7 +1,5 @@
-from typing import Literal
 import posthoganalytics
 from posthog.models import Team
-from rest_framework.request import Request
 
 
 def hogql_insights_replace_filters(team: Team) -> bool:
@@ -89,13 +87,3 @@ def insight_api_use_legacy_queries(team: Team) -> bool:
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
-
-
-LegacyAPIQueryMethod = Literal["legacy", "hogql"]
-
-
-def get_query_method(request: Request, team: Team) -> LegacyAPIQueryMethod:
-    query_method_param = request.query_params.get("query_method", None)
-    if query_method_param in ["hogql", "legacy"]:
-        return query_method_param  # type: ignore
-    return "legacy" if insight_api_use_legacy_queries(team) else "hogql"
