@@ -130,6 +130,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
+    # NB this is enforced in the UI too
     iteration_count = serializers.IntegerField(required=False, allow_null=True, max_value=500, min_value=0)
 
     class Meta:
