@@ -7,11 +7,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { hogFunctionNewUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionSubTemplateIdType, HogFunctionTemplateType, HogFunctionTypeType, UserType } from '~/types'
 
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
-import { userLogic } from 'scenes/userLogic'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<HogFunctionTemplateType> {}
@@ -109,7 +109,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
         filteredTemplates: [
             (s) => [s.filters, s.templates, s.templatesFuse, s.user],
-            (filters, templates, templatesFuse): HogFunctionTemplateType[] => {
+            (filters, templates, templatesFuse, user): HogFunctionTemplateType[] => {
                 const { search } = filters
                 return (search ? templatesFuse.search(search).map((x) => x.item) : templates).filter((x) =>
                     shouldShowHogFunctionTemplate(x, user)
