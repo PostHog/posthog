@@ -128,8 +128,6 @@ export interface ActionFilterRowProps {
     showNumericalPropsOnly?: boolean
     /** Only show these property math definitions */
     onlyPropertyMathDefinitions?: Array<string>
-    /** Only show these count per actor math definitions */
-    onlyCountPerActorMathDefinitions?: Array<string>
 }
 
 export function ActionFilterRow({
@@ -160,7 +158,6 @@ export function ActionFilterRow({
     trendsDisplayCategory,
     showNumericalPropsOnly,
     onlyPropertyMathDefinitions,
-    onlyCountPerActorMathDefinitions,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -432,7 +429,6 @@ export function ActionFilterRow({
                                             mathAvailability={mathAvailability}
                                             trendsDisplayCategory={trendsDisplayCategory}
                                             onlyPropertyMathDefinitions={onlyPropertyMathDefinitions}
-                                            onlyCountPerActorMathDefinitions={onlyCountPerActorMathDefinitions}
                                         />
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.PropertyValue && (
@@ -652,8 +648,6 @@ interface MathSelectorProps {
     style?: React.CSSProperties
     /** Only show these property math definitions */
     onlyPropertyMathDefinitions?: Array<string>
-    /** Only show these count per actor math definitions */
-    onlyCountPerActorMathDefinitions?: Array<string>
 }
 
 function isPropertyValueMath(math: string | undefined): math is PropertyMathType {
@@ -673,7 +667,6 @@ function useMathSelectorOptions({
     onMathSelect,
     trendsDisplayCategory,
     onlyPropertyMathDefinitions,
-    onlyCountPerActorMathDefinitions,
 }: MathSelectorProps): LemonSelectOptions<string> {
     const mountedInsightDataLogic = insightDataLogic.findMounted()
     const query = mountedInsightDataLogic?.values?.query
@@ -752,18 +745,11 @@ function useMathSelectorOptions({
                             setCountPerActorMathTypeShown(value as CountPerActorMathType)
                             onMathSelect(index, value)
                         }}
-                        options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS)
-                            .filter(([key]) => {
-                                if (undefined === onlyCountPerActorMathDefinitions) {
-                                    return true
-                                }
-                                return onlyCountPerActorMathDefinitions.includes(key)
-                            })
-                            .map(([key, definition]) => ({
-                                value: key,
-                                label: definition.shortName,
-                                'data-attr': `math-${key}-${index}`,
-                            }))}
+                        options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS).map(([key, definition]) => ({
+                            value: key,
+                            label: definition.shortName,
+                            'data-attr': `math-${key}-${index}`,
+                        }))}
                         onClick={(e) => e.stopPropagation()}
                         size="small"
                         dropdownMatchSelectWidth={false}
