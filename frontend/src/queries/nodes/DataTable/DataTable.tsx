@@ -499,7 +499,7 @@ export function DataTable({
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
                     {showFirstRow && (
-                        <div className="flex gap-4 items-center flex-wrap">
+                        <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
                             {firstRowLeft}
                             {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {firstRowRight}
