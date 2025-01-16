@@ -161,6 +161,8 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/session_recordings': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/insights/my_last_viewed': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/insights/my_last_viewed': EMPTY_PAGINATED_RESPONSE,
+        'api/projects/:team_id/early_access_feature': EMPTY_PAGINATED_RESPONSE,
+        'api/environments/:team_id/early_access_feature': EMPTY_PAGINATED_RESPONSE,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
