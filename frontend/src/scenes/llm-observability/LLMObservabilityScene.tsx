@@ -55,12 +55,11 @@ const Tiles = (): JSX.Element => {
                     title={title}
                     description={description}
                     query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
-                    className={
-                        clsx(
-                            'h-96',
-                            i < 3 || i >= 5 ? '@4xl/dashboard:col-span-2' : '@4xl/dashboard:col-span-3'
-                        ) /* Second row is the only one to have 2 tiles in the xl layout */
-                    }
+                    className={clsx(
+                        'h-96',
+                        /* Second row is the only one to have 2 tiles in the xl layout */
+                        i < 3 || i >= 5 ? '@4xl/dashboard:col-span-2' : '@4xl/dashboard:col-span-3'
+                    )}
                 />
             ))}
         </div>

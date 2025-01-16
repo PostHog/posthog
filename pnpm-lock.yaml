@@ -57,8 +57,8 @@ dependencies:
     specifier: ^1.0.66
     version: 1.0.66(luxon@3.5.0)
   '@posthog/icons':
-    specifier: 0.9.3
-    version: 0.9.3(react-dom@18.2.0)(react@18.2.0)
+    specifier: 0.10.0
+    version: 0.10.0(react-dom@18.2.0)(react@18.2.0)
   '@posthog/plugin-scaffold':
     specifier: ^1.4.4
     version: 1.4.4
@@ -5417,8 +5417,8 @@ packages:
       luxon: 3.5.0
     dev: false
 
-  /@posthog/icons@0.9.3(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-INNWsjlp0DgqERPrCo3KT9MVQTjJ1pLGTfUtgOzoe+2I9djCpcz+isofI+pzRjSGygQderU6A4j3+sPjFraIRQ==}
+  /@posthog/icons@0.10.0(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-+4dJpth1g+fpT22N5rmqjprdeV6ckUw1E8XDodpwaPRwFXGnt+5V+UyGSBms7c2yv7E8vDYCTXnarbVtyi4dRw==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
