@@ -90,7 +90,7 @@ class PersonOverridesSnapshotTable:
             FROM system.replicas
             WHERE
                 database = %(database)s
-                AND table = %(table)s"
+                AND table = %(table)s
             """,
             {"database": settings.CLICKHOUSE_DATABASE, "table": self.name},
         )
