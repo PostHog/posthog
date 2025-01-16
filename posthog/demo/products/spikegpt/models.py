@@ -90,8 +90,7 @@ class SpikeGPTPerson(SimPerson):
         next_session_datetime = self.cluster.simulation_time
         while True:
             next_session_datetime += dt.timedelta(
-                seconds=self.cluster.random.betavariate(2.5, 1 + self.need)
-                * (36_000 if self.has_signed_up else 172_800)
+                seconds=self.cluster.random.betavariate(2.5, 1 + self.need) * (12_000 if self.has_signed_up else 36_800)
                 + 24
             )
             time_appropriateness: float
@@ -134,8 +133,9 @@ class SpikeGPTPerson(SimPerson):
         elif self.active_session_intent == SpikeGPTSessionIntent.CHAT:
             self.start_chat()
             self.satisfaction += (self.cluster.random.random() - 0.5) * 0.1
-            if self.satisfaction > 0 and self.cluster.random.random() < 0.3:
-                self.start_chat()
+            for _ in range(3):
+                if self.satisfaction > 0 and self.cluster.random.random() < 0.3:
+                    self.start_chat()
 
     # Individual actions
 
