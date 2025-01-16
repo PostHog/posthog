@@ -16,7 +16,7 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, FilterType, HogQLMathType, PropertyMathType } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType, PropertyMathType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
@@ -98,11 +98,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     showSeriesIndicator={true}
                                     entitiesLimit={1}
                                     showNumericalPropsOnly={true}
-                                    allowedMathTypes={[
-                                        BaseMathType.TotalCount,
-                                        PropertyMathType.Sum,
-                                        HogQLMathType.HogQL,
-                                    ]}
+                                    allowedMathTypes={[BaseMathType.TotalCount, PropertyMathType.Sum]}
                                     {...commonActionFilterProps}
                                 />
                                 <div className="mt-4 space-y-4">
