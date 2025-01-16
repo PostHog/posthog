@@ -4,11 +4,34 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { TracesQueryResponse } from '~/queries/schema'
-import { Breadcrumb } from '~/types'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { DataTableNode, TracesQueryResponse } from '~/queries/schema'
+import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import { llmObservabilityLogic } from './llmObservabilityLogic'
 import type { llmObservabilityTraceLogicType } from './llmObservabilityTraceLogicType'
+
+export interface LLMObservabilityTraceDataNodeLogicParams {
+    traceId: string
+    query: DataTableNode
+}
+
+export function getDataNodeLogicProps({
+    traceId,
+    query,
+}: LLMObservabilityTraceDataNodeLogicParams): DataNodeLogicProps {
+    const insightProps: InsightLogicProps<DataTableNode> = {
+        dashboardItemId: `new-Trace.${traceId}`,
+        dataNodeCollectionId: traceId,
+    }
+    const vizKey = insightVizDataNodeKey(insightProps)
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: query.source,
+        key: vizKey,
+        dataNodeCollectionId: traceId,
+    }
+    return dataNodeLogicProps
+}
 
 export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     path(['scenes', 'llm-observability', 'llmObservabilityTraceLogic']),
@@ -28,7 +51,7 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     }),
 
     reducers({
-        traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId }],
+        traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
     }),
 
