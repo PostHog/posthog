@@ -8,7 +8,7 @@ import {
     AuthorizedUrlListType,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { FilmCameraHog } from 'lib/components/hedgehogs'
+import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
@@ -142,7 +142,7 @@ function Warnings(): JSX.Element {
                 <LemonBanner type="info" hideIcon={true}>
                     <div className="flex gap-8 p-8 md:flex-row justify-center flex-wrap">
                         <div className="flex justify-center items-center w-full md:w-50">
-                            <FilmCameraHog className="w-full h-auto md:h-[200px] md:w-[200px] max-w-50" />
+                            <WarningHog className="w-full h-auto md:h-[200px] md:w-[200px] max-w-50" />
                         </div>
                         <div className="flex flex-col gap-2 flex-shrink max-w-180">
                             <h2 className="text-lg font-semibold">
