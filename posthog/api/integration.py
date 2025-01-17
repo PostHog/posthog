@@ -9,6 +9,7 @@ from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from django.core.cache import cache
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -128,4 +129,12 @@ class IntegrationViewSet(
         instance = self.get_object()
         google_ads = GoogleAdsIntegration(instance)
 
-        return Response({"accessibleAccounts": google_ads.list_google_ads_accessible_accounts()})
+        key = f"google_ads/{google_ads.integration.team.id}/accessible_accounts"
+        data = cache.get(key)
+
+        if data is not None:
+            return Response(data)
+
+        response_data = {"accessibleAccounts": google_ads.list_google_ads_accessible_accounts()}
+        cache.set(key, response_data, 60)
+        return Response(response_data)
