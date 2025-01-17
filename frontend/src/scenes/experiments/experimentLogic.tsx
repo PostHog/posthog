@@ -2002,9 +2002,10 @@ export function getExperimentMetricFromInsight(
                 funnelWindowInterval: insight.query.source.funnelsFilter?.funnelWindowInterval,
                 funnelWindowIntervalUnit: insight.query.source.funnelsFilter?.funnelWindowIntervalUnit,
                 layout: insight.query.source.funnelsFilter?.layout,
+                breakdownAttributionType: insight.query.source.funnelsFilter?.breakdownAttributionType,
+                breakdownAttributionValue: insight.query.source.funnelsFilter?.breakdownAttributionValue,
             },
             filterTestAccounts: insight.query.source.filterTestAccounts,
-            aggregation_group_type_index: insight.query.source.aggregation_group_type_index,
         })
 
         return {
