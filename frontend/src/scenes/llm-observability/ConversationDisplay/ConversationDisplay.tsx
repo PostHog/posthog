@@ -207,15 +207,34 @@ function MessageDisplay({
             )}
             {!!additionalKwargsEntries && additionalKwargsEntries.length > 0 && (
                 <div className="p-2 text-xs border-t">
-                    {additionalKwargsEntries.map(([key, value]) => (
-                        <JSONViewer
-                            key={key}
-                            name={key}
-                            src={value}
-                            collapseStringsAfterLength={200}
-                            displayDataTypes={false}
-                        />
-                    ))}
+                    {additionalKwargsEntries.map(([key, value]) => {
+                        if (key === 'tool_calls' && Array.isArray(value)) {
+                            value = value.map((toolCall: any) => {
+                                if ('function' in toolCall && toolCall.function && 'arguments' in toolCall.function) {
+                                    return {
+                                        ...toolCall,
+                                        function: {
+                                            ...toolCall.function,
+                                            arguments: JSON.parse(toolCall.function.arguments),
+                                        },
+                                    }
+                                }
+                            })
+                        }
+                        return (
+                            <JSONViewer
+                                key={key}
+                                name={key}
+                                src={value}
+                                collapseStringsAfterLength={200}
+                                displayDataTypes={false}
+                                // shouldCollapse limits depth shown at first. `> 4` is chosen so that we do show
+                                // function arguments in `tool_calls`, but if an argument is an object,
+                                // its child objects are collapsed by default
+                                shouldCollapse={({ namespace }) => namespace.length > 5}
+                            />
+                        )
+                    })}
                 </div>
             )}
         </div>
