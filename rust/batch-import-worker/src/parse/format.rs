@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
 use anyhow::Error;
-use common_types::InternallyCapturedEvent;
+use common_types::{InternallyCapturedEvent, RawEvent};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{context::AppContext, job::model::JobModel};
 
 use super::{
-    content::{mixpanel::MixpanelEvent, ContentType, TransformContext},
+    content::{
+        captured::captured_parse_fn, mixpanel::MixpanelEvent, ContentType, TransformContext,
+    },
     Parsed,
 };
 
@@ -20,30 +22,30 @@ pub enum FormatConfig {
     },
 }
 
+pub type ParserFn = Box<dyn Fn(Vec<u8>) -> Result<Parsed<Vec<InternallyCapturedEvent>>, Error>>;
+
 impl FormatConfig {
     pub async fn get_parser(
         &self,
         model: &JobModel,
         context: Arc<AppContext>,
-    ) -> Result<impl Fn(Vec<u8>) -> Result<Parsed<Vec<InternallyCapturedEvent>>, Error>, Error>
-    {
+    ) -> Result<ParserFn, Error> {
         // Only support json-lines for now
         let Self::JsonLines {
             skip_blanks,
             content,
         } = self;
 
-        let format_parse = json_nd(*skip_blanks);
-
         let transform_context = TransformContext {
             team_id: model.team_id,
             token: context.get_token_for_team_id(model.team_id).await?,
         };
 
-        let parser = match content {
+        match content {
             ContentType::Mixpanel => {
+                let format_parse = json_nd(*skip_blanks);
                 let event_transform = MixpanelEvent::parse_fn(transform_context);
-                move |data| {
+                let parser = move |data| {
                     let parsed: Parsed<Vec<MixpanelEvent>> = format_parse(data)?;
                     let consumed = parsed.consumed;
                     let result: Result<_, Error> =
@@ -52,68 +54,83 @@ impl FormatConfig {
                         data: result?,
                         consumed,
                     })
-                }
-            }
-            ContentType::AsCapture => {
-                // TODO - implement
-                unimplemented!()
-            }
-        };
+                };
 
-        Ok(parser)
+                Ok(Box::new(parser))
+            }
+            ContentType::Captured => {
+                let format_parse = json_nd(*skip_blanks);
+                let event_transform = captured_parse_fn(transform_context);
+                let parser = move |data| {
+                    let parsed: Parsed<Vec<RawEvent>> = format_parse(data)?;
+                    let consumed = parsed.consumed;
+                    let result: Result<_, Error> =
+                        parsed.data.into_iter().map(&event_transform).collect();
+                    Ok(Parsed {
+                        data: result?,
+                        consumed,
+                    })
+                };
+
+                Ok(Box::new(parser))
+            }
+        }
     }
 }
+
+const NEWLINE_DELIM: u8 = b'\n';
 
 pub const fn newline_delim<T>(
     skip_blank_lines: bool,
     inner: impl Fn(&str) -> Result<T, Error>,
 ) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error> {
     let out = move |data: Vec<u8>| {
-        // zero-copy conversion, important because our consumed tracking below is in bytes,
-        // and we have to know how many bytes /of the input/ we've read, which means we have to operate
-        // on the input without any representation conversions
-        let data = std::str::from_utf8(data.as_slice())?;
-        let line_count = data.lines().count();
+        let mut out = Vec::new();
 
-        let lines = data.lines();
-        let all_but_last = lines.clone().take(line_count - 1);
-        let last = lines.last();
+        let mut cursor = 0;
+        let mut last_consumed_byte = 0;
 
-        let mut results = Vec::with_capacity(line_count);
-        for line in all_but_last {
-            if line.len() == 0 && skip_blank_lines {
-                continue;
-            }
-            let parsed = (inner)(line)?;
-            results.push(parsed);
-        }
-
-        let mut bytes_read = data.as_bytes().len();
-
-        if let Some(last) = last {
-            // NOTE - we exclude the "skip_blank_lines" check here, because
-            // we can't actually know if the 0 bytes following the \n is a
-            // blank line, or just a chunk boundary. The following chunk, if it
-            // is a chunk boundary, will either start with a newline character,
-            // indicating this /was/ a blank line, or it won't, indicating it wasn't.
-            if last.len() > 0 {
-                match inner(last) {
-                    Ok(parsed) => {
-                        results.push(parsed);
-                    }
-                    Err(_) => {
-                        // if we can't parse the last line, we don't want to consume it
-                        // so we subtract its length from the total bytes read
-                        bytes_read -= last.len();
-                    }
+        // TODO - I'm reasonably sure this is actually invalid in the face of utf-8 encoding... we should immediately parse the
+        // data as utf-8, and then consume character-by-character, marking how many bytes we consume as we go. I could redesign
+        // this to do that.
+        while cursor < data.len() {
+            // The cursor != 0 bit here is because the "this might be the end of the file" handling below this can sometimes
+            // cause the next chunk to start exactly on a newline. This does run the risk of accidentally skipping a blank line,
+            // but we generally don't consider newlines important anyway (skip_blank_lines is generally only set to false to ensure
+            // the presence of one in the input will cause the inner function to return an error, not because they're semantically
+            // relevant)
+            if data[cursor] == NEWLINE_DELIM && cursor != 0 {
+                let line = std::str::from_utf8(&data[last_consumed_byte..cursor])?;
+                if !skip_blank_lines || !line.trim().is_empty() {
+                    out.push(inner(line.trim())?);
                 }
+                last_consumed_byte = cursor;
             }
+
+            // If we're at the end of the chunk, and we didn't just consume a line, we should try to parse the last line,
+            // under the assumption its the final line of the overall file
+            if cursor == data.len() - 1 && last_consumed_byte < cursor {
+                let line = std::str::from_utf8(&data[last_consumed_byte..cursor + 1])?;
+                if !skip_blank_lines || !line.trim().is_empty() {
+                    let Ok(t) = inner(line.trim()) else {
+                        // A failure here generally indicates we're just at the end of the chunk, rather than the end of the file,
+                        // so we should just return the parsed data we have so far
+                        break;
+                    };
+                    out.push(t);
+                }
+                last_consumed_byte = cursor;
+            }
+
+            cursor += 1;
         }
 
-        return Ok(Parsed {
-            data: results,
-            consumed: bytes_read,
-        });
+        let parsed = Parsed {
+            data: out,
+            consumed: last_consumed_byte + 1,
+        };
+
+        Ok(parsed)
     };
 
     out

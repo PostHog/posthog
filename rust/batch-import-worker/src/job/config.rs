@@ -23,7 +23,7 @@ pub struct JobConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum SourceConfig {
     Folder(FolderSourceConfig),
     UrlList(UrlListConfig),
@@ -43,6 +43,7 @@ pub enum SinkConfig {
     NoOp,
 }
 
+#[derive(Debug, Clone)]
 pub struct JobSecrets {
     pub secrets: HashMap<String, Value>,
 }
@@ -77,10 +78,14 @@ impl JobSecrets {
 }
 
 impl SourceConfig {
-    pub async fn construct(&self, _context: Arc<AppContext>) -> Result<Box<dyn DataSource>, Error> {
+    pub async fn construct(
+        &self,
+        secrets: &JobSecrets,
+        _context: Arc<AppContext>,
+    ) -> Result<Box<dyn DataSource>, Error> {
         match self {
             SourceConfig::Folder(config) => Ok(Box::new(config.create_source().await?)),
-            SourceConfig::UrlList(config) => Ok(Box::new(config.create_source().await?)),
+            SourceConfig::UrlList(config) => Ok(Box::new(config.create_source(secrets).await?)),
         }
     }
 }

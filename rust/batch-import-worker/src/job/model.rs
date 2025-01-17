@@ -11,6 +11,7 @@ use crate::context::AppContext;
 
 use super::config::{JobConfig, JobSecrets};
 
+#[derive(Debug, Clone)]
 pub struct JobModel {
     pub id: Uuid,
     pub team_id: i32,
@@ -137,7 +138,7 @@ impl JobModel {
         }
     }
 
-    async fn flush(&mut self, pool: &PgPool, extend_lease: bool) -> Result<(), Error> {
+    pub async fn flush(&mut self, pool: &PgPool, extend_lease: bool) -> Result<(), Error> {
         if extend_lease {
             self.lease_id = Some(Uuid::now_v7().to_string());
         } else {
@@ -176,30 +177,27 @@ impl JobModel {
         Ok(())
     }
 
-    pub async fn pause(mut self, context: Arc<AppContext>, reason: String) -> Result<(), Error> {
+    pub async fn pause(&mut self, context: Arc<AppContext>, reason: String) -> Result<(), Error> {
         self.status = JobStatus::Paused;
         self.status_message = Some(reason);
         self.flush(&context.db, false).await
     }
 
-    pub async fn fail(mut self, pool: &PgPool, reason: String) -> Result<(), Error> {
+    pub async fn unpause(&mut self, context: Arc<AppContext>) -> Result<(), Error> {
+        self.status = JobStatus::Running;
+        self.status_message = None;
+        self.flush(&context.db, true).await
+    }
+
+    pub async fn fail(&mut self, pool: &PgPool, reason: String) -> Result<(), Error> {
         self.status = JobStatus::Failed;
         self.status_message = Some(reason);
         self.flush(pool, false).await
     }
 
-    pub async fn complete(mut self, pool: &PgPool) -> Result<(), Error> {
+    pub async fn complete(&mut self, pool: &PgPool) -> Result<(), Error> {
         self.status = JobStatus::Completed;
         self.flush(pool, false).await
-    }
-
-    pub async fn flush_state_update(
-        &mut self,
-        db: &PgPool,
-        updated: JobState,
-    ) -> Result<(), Error> {
-        self.state = Some(updated);
-        self.flush(db, true).await
     }
 }
 

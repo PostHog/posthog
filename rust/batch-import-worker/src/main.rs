@@ -10,7 +10,7 @@ use batch_import_worker::{
 use common_metrics::{serve, setup_metrics_routes};
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
-use tracing::info;
+use tracing::{debug, error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -63,11 +63,24 @@ pub async fn main() -> Result<(), Error> {
             continue;
         };
 
+        debug!("Claimed job: {:?}", model);
+
         let mut next_step = Some(Job::new(model, context.clone()).await?);
         while let Some(job) = next_step {
-            next_step = job.process_next_chunk().await?;
+            next_step = match job.process_next_chunk().await {
+                Ok(next) => next,
+                Err(e) => {
+                    // process_next_chunk is written such that if an error occurs that should
+                    // prevent the job from being picked up by a subsequent worker (which generally
+                    // means an error in chunk commits to the jobs sink), the job will be in a paused
+                    // state. This is why, in the event of an error, we don't try to set the job model
+                    // state in PG - the job itself handles all of that.
+                    error!("Error processing job: {:?}, dropping", e);
+                    None
+                }
+            };
             info!("Processed chunk, starting on next one");
         }
-        info!("Job completed, waiting for next job");
+        info!("Finished with job, waiting for the next one");
     }
 }
