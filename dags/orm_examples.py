@@ -10,7 +10,7 @@ def pending_deletions() -> list[AsyncDeletion]:
     Asset that fetches pending async deletions from Django ORM.
     """
     pending_deletions = AsyncDeletion.objects.filter(
-        Q(deletion_type=DeletionType.Person) & Q(completed_at__isnull=True)
+        Q(deletion_type=DeletionType.Person) & Q(delete_verified_at__isnull=True)
     ).all()
 
     return list(pending_deletions)
