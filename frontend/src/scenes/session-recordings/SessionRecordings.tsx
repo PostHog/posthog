@@ -8,8 +8,9 @@ import {
     AuthorizedUrlListType,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { WarningHog } from 'lib/components/hedgehogs'
+import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
@@ -26,6 +27,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { NotebookNodeType, ReplayTabs } from '~/types'
+import { ProductKey } from '~/types'
 
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
@@ -138,15 +140,15 @@ function Warnings(): JSX.Element {
 
             {recordingsDisabled ? (
                 <LemonBanner type="info" hideIcon={true}>
-                    <div className="flex flex-col gap-8 p-4 md:flex-row">
-                        <div className="w-full md:w-50">
-                            <WarningHog className="w-full max-w-50" />
+                    <div className="flex gap-8 p-8 md:flex-row justify-center flex-wrap">
+                        <div className="flex justify-center items-center w-full md:w-50">
+                            <FilmCameraHog className="w-full h-auto md:h-[200px] md:w-[200px] max-w-50" />
                         </div>
-                        <div className="flex flex-col gap-2 flex-1">
+                        <div className="flex flex-col gap-2 flex-shrink max-w-180">
                             <h2 className="text-lg font-semibold">
-                                Session recordings are currently disabled for this {settingLevel}
+                                Session recordings are not yet enabled for this {settingLevel}
                             </h2>
-                            <p className="font-normal">Enabling Session Recordings will help you:</p>
+                            <p className="font-normal">Enabling session recordings will help you:</p>
                             <ul className="list-disc list-inside font-normal">
                                 <li>
                                     <strong>Understand user behavior:</strong> Get a clear view of how people navigate
@@ -166,7 +168,7 @@ function Warnings(): JSX.Element {
                                 </li>
                             </ul>
                             <p className="font-normal">
-                                Turn on Session Recordings to unlock these benefits and create better experiences for
+                                Enable session recordings to unlock these benefits and create better experiences for
                                 your users.
                             </p>
                             <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
@@ -179,7 +181,7 @@ function Warnings(): JSX.Element {
                                     Configure
                                 </LemonButton>
                                 <LemonButton
-                                    type="secondary"
+                                    type="tertiary"
                                     sideIcon={<IconOpenSidebar className="w-4 h-4" />}
                                     to="https://posthog.com/docs/session-replay?utm_medium=in-product&utm_campaign=empty-state-docs-link"
                                     data-attr="product-introduction-docs-link"
@@ -191,7 +193,16 @@ function Warnings(): JSX.Element {
                         </div>
                     </div>
                 </LemonBanner>
-            ) : null}
+            ) : (
+                <ProductIntroduction
+                    productName="session replay"
+                    productKey={ProductKey.SESSION_REPLAY}
+                    thingName="playlist"
+                    description="Use session replay playlists to easily group and analyze user sessions. Curate playlists based on events or user segments, spot patterns, diagnose issues, and share insights with your team."
+                    docsURL="https://posthog.com/docs/session-replay/manual"
+                    customHog={FilmCameraHog}
+                />
+            )}
 
             {!recordingsDisabled && mightBeRefusingRecordings ? (
                 <LemonBanner
@@ -217,7 +228,7 @@ function MainPanel(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-4 mt-2">
             <Warnings />
 
             {!tab ? (
