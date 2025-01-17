@@ -64,9 +64,10 @@ const appendPathNodes = (
                 }
             }
             if (isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, d)) {
-                return d3.color('purple')
+                return 'var(--paths-node-start-or-end)'
             }
-            const startNodeColor = c && d3.color(c) ? d3.color(c) : d3.color('#5375ff')
+            console.debug('c', c)
+            const startNodeColor = c && d3.color(c) ? d3.color(c) : 'var(--paths-node)'
             return startNodeColor
         })
         .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
@@ -92,7 +93,7 @@ const appendDropoffs = (svg: D3Selector): void => {
         .attr('id', 'dropoff-gradient')
         .attr('gradientTransform', 'rotate(90)')
 
-    dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(220,53,69,0.7)')
+    dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'var(--paths-dropoff)')
 
     dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', 'var(--bg-light)')
 }
@@ -109,7 +110,7 @@ const appendPathLinks = (
         .selectAll('g')
         .data(links)
         .join('g')
-        .attr('stroke', 'var(--primary)')
+        .attr('stroke', 'var(--paths-link)')
         .attr('opacity', 0.35)
 
     link.append('path')
@@ -119,7 +120,7 @@ const appendPathLinks = (
             return Math.max(1, d.width)
         })
         .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
-            svg.select(`#path-${data.index}`).attr('stroke', 'blue')
+            svg.select(`#path-${data.index}`).attr('stroke', 'var(--paths-link-hover)')
             if (data?.source?.targetLinks.length === 0) {
                 return
             }
@@ -127,8 +128,8 @@ const appendPathLinks = (
             const pathCardsToShow: number[] = []
             while (nodesToColor.length > 0) {
                 const _node = nodesToColor.pop()
-                _node?.targetLinks.forEach((_link: PathTargetLink) => {
-                    svg.select(`#path-${_link.index}`).attr('stroke', 'blue')
+                _node._node?.targetLinks.forEach((_link: PathTargetLink) => {
+                    svg.select(`#path-${_link.index}`).attr('stroke', 'var(--paths-link-hover)')
                     nodesToColor.push(_link.source)
                     pathCardsToShow.push(_link.source.index)
                 })
@@ -154,7 +155,7 @@ const appendPathLinks = (
             )
         })
         .on('mouseleave', () => {
-            svg.selectAll('path').attr('stroke', 'var(--primary)')
+            svg.selectAll('path').attr('stroke', 'var(--paths-link)')
         })
 
     link.append('g')

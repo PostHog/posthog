@@ -9,6 +9,8 @@ import { useEffect } from 'react'
 import { histogramLogic } from 'scenes/insights/views/Histogram/histogramLogic'
 
 import { createRoundedRectPath, D3HistogramDatum, getConfig, INITIAL_CONFIG } from './histogramUtils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export interface HistogramDatum {
     id: string | number
@@ -41,6 +43,11 @@ export function Histogram({
 }: HistogramProps): JSX.Element {
     const { config } = useValues(histogramLogic)
     const { setConfig } = useActions(histogramLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { theme } = useValues(insightVizDataLogic(insightProps))
+
+    const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
+
     const isEmpty = data.length === 0 || d3.sum(data.map((d) => d.count)) === 0
 
     // Initialize x-axis and y-axis scales
@@ -262,5 +269,11 @@ export function Histogram({
     /* minWidth required to enforce d3's width calculations on the div wrapping the svg
      so that scrolling horizontally works */
     //  eslint-disable-next-line react/forbid-dom-props
-    return <div className="histogram-container" ref={ref} style={{ minWidth: config.width }} />
+    return (
+        <div
+            className="histogram-container"
+            ref={ref}
+            style={{ minWidth: config.width, '--histogram-fill': backgroundColor } as React.CSSProperties}
+        />
+    )
 }
