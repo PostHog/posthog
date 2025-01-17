@@ -20,7 +20,6 @@ from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
-from rest_framework import serializers
 
 import lzstring
 import posthoganalytics
@@ -38,6 +37,7 @@ from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
+from rest_framework import serializers
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
@@ -365,7 +365,7 @@ def render_template(
         context["js_posthog_ui_host"] = "'https://us.posthog.com'"
 
     elif settings.SELF_CAPTURE:
-        api_token = get_self_capture_api_token(request)
+        api_token = get_self_capture_api_token(request.user)
 
         if api_token:
             context["js_posthog_api_key"] = f"'{api_token}'"
@@ -396,12 +396,12 @@ def render_template(
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
-        from posthog.api.project import ProjectSerializer
         from posthog.api.user import UserSerializer
-        from posthog.user_permissions import UserPermissions
         from posthog.rbac.user_access_control import UserAccessControl
+        from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
         posthog_app_context = {
@@ -499,13 +499,13 @@ def render_template(
     return response
 
 
-def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
+def get_self_capture_api_token(user: Optional[Union["AbstractBaseUser", "AnonymousUser"]]) -> Optional[str]:
     from posthog.models import Team
 
     # Get the current user's team (or first team in the instance) to set self capture configs
     team: Optional[Team] = None
-    if request and getattr(request, "user", None) and getattr(request.user, "team", None):
-        team = request.user.team  # type: ignore
+    if user and getattr(user, "team", None):
+        team = user.team  # type: ignore
     else:
         try:
             team = Team.objects.only("api_token").first()

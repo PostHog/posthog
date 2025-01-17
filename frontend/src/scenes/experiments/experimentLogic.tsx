@@ -28,7 +28,7 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { performQuery } from '~/queries/query'
+import { performQuery, QUERY_TIMEOUT_ERROR_MESSAGE } from '~/queries/query'
 import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
@@ -151,6 +151,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentHoldoutAssigned',
                 'reportExperimentSharedMetricAssigned',
                 'reportExperimentDashboardCreated',
+                'reportExperimentMetricTimeout',
             ],
             teamLogic,
             ['addProductIntent'],
@@ -1062,8 +1063,10 @@ export const experimentLogic = kea<experimentLogicType>([
                                     fakeInsightId: Math.random().toString(36).substring(2, 15),
                                 }
                             } catch (error: any) {
-                                const errorDetailMatch = error.detail.match(/\{.*\}/)
-                                const errorDetail = errorDetailMatch ? JSON.parse(errorDetailMatch[0]) : error.detail
+                                const errorDetailMatch = error.detail?.match(/\{.*\}/)
+                                const errorDetail = errorDetailMatch
+                                    ? JSON.parse(errorDetailMatch[0])
+                                    : error.detail || error.message
 
                                 const currentErrors = [...(values.primaryMetricsResultErrors || [])]
                                 currentErrors[index] = {
@@ -1072,6 +1075,11 @@ export const experimentLogic = kea<experimentLogicType>([
                                     hasDiagnostics: !!errorDetailMatch,
                                 }
                                 actions.setPrimaryMetricsResultErrors(currentErrors)
+
+                                if (errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE) {
+                                    actions.reportExperimentMetricTimeout(values.experimentId, metric)
+                                }
+
                                 return null
                             }
                         })
@@ -1107,8 +1115,10 @@ export const experimentLogic = kea<experimentLogicType>([
                                     fakeInsightId: Math.random().toString(36).substring(2, 15),
                                 }
                             } catch (error: any) {
-                                const errorDetailMatch = error.detail.match(/\{.*\}/)
-                                const errorDetail = errorDetailMatch ? JSON.parse(errorDetailMatch[0]) : error.detail
+                                const errorDetailMatch = error.detail?.match(/\{.*\}/)
+                                const errorDetail = errorDetailMatch
+                                    ? JSON.parse(errorDetailMatch[0])
+                                    : error.detail || error.message
 
                                 const currentErrors = [...(values.secondaryMetricsResultErrors || [])]
                                 currentErrors[index] = {
@@ -1117,6 +1127,11 @@ export const experimentLogic = kea<experimentLogicType>([
                                     hasDiagnostics: !!errorDetailMatch,
                                 }
                                 actions.setSecondaryMetricsResultErrors(currentErrors)
+
+                                if (errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE) {
+                                    actions.reportExperimentMetricTimeout(values.experimentId, metric)
+                                }
+
                                 return null
                             }
                         })
