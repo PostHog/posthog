@@ -1,3 +1,4 @@
+import collections.abc
 import datetime as dt
 import typing
 from dataclasses import asdict, dataclass, fields
@@ -24,6 +25,7 @@ from posthog.batch_exports.models import (
     BatchExportDestination,
     BatchExportRun,
 )
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
@@ -847,3 +849,43 @@ async def afetch_batch_export_runs_in_range(
     ).order_by("data_interval_start")
 
     return [run async for run in queryset]
+
+
+def fetch_earliest_backfill_start_at(
+    *,
+    team_id: int,
+    model: str,
+    interval_time_delta: dt.timedelta,
+    exclude_events: collections.abc.Iterable[str] | None = None,
+    include_events: collections.abc.Iterable[str] | None = None,
+) -> dt.datetime:
+    """Get the earliest start_at for a batch export backfill."""
+    interval_seconds = interval_time_delta.total_seconds()
+    if model == "events":
+        exclude_events = exclude_events or []
+        include_events = include_events or []
+        query = """
+            SELECT toStartOfInterval(MIN(timestamp), INTERVAL %(interval_seconds)s SECONDS)
+            FROM events
+            WHERE team_id = %(team_id)s
+            AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
+            AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
+        """
+        query_args = {
+            "team_id": team_id,
+            "include_events": include_events,
+            "exclude_events": exclude_events,
+            "interval_seconds": interval_seconds,
+        }
+    elif model == "persons":
+        query = """
+            SELECT toStartOfInterval(MIN(_timestamp), INTERVAL %(interval_seconds)s SECONDS)
+            FROM person
+            WHERE team_id = %(team_id)s
+        """
+        query_args = {
+            "team_id": team_id,
+            "interval_seconds": interval_seconds,
+        }
+
+    return sync_execute(query, query_args)[0][0]
