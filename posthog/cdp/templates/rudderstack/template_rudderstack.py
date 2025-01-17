@@ -4,7 +4,7 @@ from copy import deepcopy
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
     type="destination",
     id="template-rudderstack",
     name="RudderStack",
