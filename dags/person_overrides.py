@@ -154,12 +154,15 @@ class PersonOverridesSnapshotDictionary:
             else:
                 raise Exception(f"unexpected status: {status}")
 
-    def load(self, client: Client) -> None:
+    def load(self, client: Client):
+        # TODO: this should probably not reload if the dictionary is already loaded
         client.execute(f"SYSTEM RELOAD DICTIONARY {self.qualified_name}")
+
+        # reload is async, so we need to wait for the dictionary to actually be loaded
+        # TODO: this should probably throw on unexpected reloads
         while not self.__is_loaded(client):
             time.sleep(5.0)
 
-    def get_checksum(self, client: Client):  # TODO: check return type
         results = client.execute(
             f"""
             SELECT groupBitXor(row_checksum) AS table_checksum
@@ -284,10 +287,8 @@ def load_and_verify_snapshot_dictionary(
     context: dagster.OpExecutionContext,
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotDictionary:
-    cluster = get_cluster(context.log)
-    # TODO: it might make sense to merge these two methods together, so that loading returns the checksum
-    cluster.map_all_hosts(dictionary.load).result()
-    assert len(set(cluster.map_all_hosts(dictionary.get_checksum).result().values())) == 1
+    checksums = get_cluster(context.log).map_all_hosts(dictionary.load).result()
+    assert len(set(checksums.values())) == 1
     return dictionary
 
 
