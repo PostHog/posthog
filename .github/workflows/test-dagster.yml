@@ -22,7 +22,7 @@ jobs:
             #       echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^dags/' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Dagster Code Location Reload
-              if: steps.check_changes_dagster_code_location.outputs.changed == 'true'
+              #   if: steps.check_changes_dagster_code_location.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
