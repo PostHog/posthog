@@ -6,10 +6,17 @@ from functools import reduce
 import dagster
 from clickhouse_driver import Client
 
+from posthog.clickhouse.cluster import ClickhouseCluster
 from ee.clickhouse.materialized_columns.columns import get_cluster  # XXX
 from posthog import settings
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
+
+
+class ClickhouseClusterResource(dagster.ConfigurableResource):
+    def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
+        # TODO: inject settings
+        return get_cluster(context.log)
 
 
 @dataclass
@@ -284,28 +291,34 @@ class SnapshotConfig(dagster.Config):
 
 
 @dagster.op
-def create_snapshot_table(context: dagster.OpExecutionContext, config: SnapshotConfig) -> PersonOverridesSnapshotTable:
+def create_snapshot_table(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    config: SnapshotConfig,
+) -> PersonOverridesSnapshotTable:
     table = PersonOverridesSnapshotTable(
         id=uuid.UUID(context.run.run_id).hex,
         timestamp=config.timestamp,
     )
-    get_cluster(context.log).map_all_hosts(table.create).result()
+    cluster.map_all_hosts(table.create).result()
     return table
 
 
 @dagster.op
 def populate_snapshot_table(
-    context: dagster.OpExecutionContext, table: PersonOverridesSnapshotTable
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    table: PersonOverridesSnapshotTable,
 ) -> PersonOverridesSnapshotTable:
-    get_cluster(context.log).any_host(table.populate).result()
+    cluster.any_host(table.populate).result()
     return table
 
 
 @dagster.op
 def wait_for_snapshot_table_replication(
-    context: dagster.OpExecutionContext, table: PersonOverridesSnapshotTable
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    table: PersonOverridesSnapshotTable,
 ) -> PersonOverridesSnapshotTable:
-    get_cluster(context.log).map_all_hosts(table.sync).result()
+    cluster.map_all_hosts(table.sync).result()
     return table
 
 
@@ -314,19 +327,20 @@ def wait_for_snapshot_table_replication(
 
 @dagster.op
 def create_snapshot_dictionary(
-    context: dagster.OpExecutionContext, table: PersonOverridesSnapshotTable
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    table: PersonOverridesSnapshotTable,
 ) -> PersonOverridesSnapshotDictionary:
     dictionary = PersonOverridesSnapshotDictionary(table)
-    get_cluster(context.log).map_all_hosts(dictionary.create).result()
+    cluster.map_all_hosts(dictionary.create).result()
     return dictionary
 
 
 @dagster.op
 def load_and_verify_snapshot_dictionary(
-    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotDictionary:
-    checksums = get_cluster(context.log).map_all_hosts(dictionary.load).result()
+    checksums = cluster.map_all_hosts(dictionary.load).result()
     assert len(set(checksums.values())) == 1
     return dictionary
 
@@ -338,10 +352,9 @@ ShardMutations = dict[int, Mutation]
 
 @dagster.op
 def start_person_id_update_mutations(
-    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> tuple[PersonOverridesSnapshotDictionary, ShardMutations]:
-    cluster = get_cluster(context.log)
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (
@@ -353,11 +366,10 @@ def start_person_id_update_mutations(
 
 @dagster.op
 def wait_for_person_id_update_mutations(
-    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
     inputs: tuple[PersonOverridesSnapshotDictionary, ShardMutations],
 ) -> PersonOverridesSnapshotDictionary:
     [dictionary, shard_mutations] = inputs
-    cluster = get_cluster(context.log)
     reduce(
         lambda x, y: x | y,
         [cluster.map_all_hosts_in_shard(shard, mutation.wait) for shard, mutation in shard_mutations.items()],
@@ -367,34 +379,38 @@ def wait_for_person_id_update_mutations(
 
 @dagster.op
 def start_overrides_delete_mutations(
-    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> tuple[PersonOverridesSnapshotDictionary, Mutation]:
-    mutation = get_cluster(context.log).any_host(dictionary.enqueue_overrides_delete_mutation).result()
+    mutation = cluster.any_host(dictionary.enqueue_overrides_delete_mutation).result()
     return (dictionary, mutation)
 
 
 @dagster.op
 def wait_for_overrides_delete_mutations(
-    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
     inputs: tuple[PersonOverridesSnapshotDictionary, Mutation],
 ) -> PersonOverridesSnapshotDictionary:
     [dictionary, mutation] = inputs
-    get_cluster(context.log).map_all_hosts(mutation.wait).result()
+    cluster.map_all_hosts(mutation.wait).result()
     return dictionary
 
 
 @dagster.op
 def drop_snapshot_dictionary(
-    context: dagster.OpExecutionContext, dictionary: PersonOverridesSnapshotDictionary
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotTable:
-    get_cluster(context.log).map_all_hosts(dictionary.drop).result()
+    cluster.map_all_hosts(dictionary.drop).result()
     return dictionary.source
 
 
 @dagster.op
-def drop_snapshot_table(context: dagster.OpExecutionContext, table: PersonOverridesSnapshotTable) -> None:
-    get_cluster(context.log).map_all_hosts(table.drop).result()
+def drop_snapshot_table(
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    table: PersonOverridesSnapshotTable,
+) -> None:
+    cluster.map_all_hosts(table.drop).result()
 
 
 @dagster.job
