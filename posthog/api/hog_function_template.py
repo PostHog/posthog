@@ -71,7 +71,7 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
                 continue
 
             if request.path.startswith("/api/public_hog_function_templates"):
-                if "[CDP-TEST-HIDDEN]" in template.name or template.status == "alpha":
+                if template.status == "alpha":
                     continue
 
             matching_templates.append(template)
