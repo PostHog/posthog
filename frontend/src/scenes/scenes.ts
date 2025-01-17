@@ -286,6 +286,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/ai-engineering/observability',
     },
+    [Scene.LLMObservabilityTrace]: {
+        projectBased: true,
+        name: 'LLM observability trace',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/ai-engineering/observability',
+    },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
@@ -664,4 +670,5 @@ export const routes: Record<string, [Scene, string]> = {
     [urls.llmObservability('dashboard')]: [Scene.LLMObservability, 'llmObservabilityDashboard'],
     [urls.llmObservability('generations')]: [Scene.LLMObservability, 'llmObservabilityGenerations'],
     [urls.llmObservability('traces')]: [Scene.LLMObservability, 'llmObservabilityTraces'],
+    [urls.llmObservabilityTrace(':id')]: [Scene.LLMObservabilityTrace, 'llmObservabilityTrace'],
 }
