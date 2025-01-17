@@ -444,6 +444,9 @@ def wait_for_overrides_delete_mutations(
     return dictionary
 
 
+# Cleanup
+
+
 @dagster.op
 def drop_snapshot_dictionary(
     cluster: dagster.ResourceParam[ClickhouseCluster],
@@ -461,6 +464,9 @@ def drop_snapshot_table(
 ) -> None:
     """Drop the snapshot table on all hosts."""
     cluster.map_all_hosts(table.drop).result()
+
+
+# Job Definition
 
 
 @dagster.job
