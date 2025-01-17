@@ -3468,6 +3468,23 @@ export interface TiledIconModuleProps {
 
 export type EventOrPropType = EventDefinition & PropertyDefinition
 
+export type PostHogCoreTaxonomy = Record<
+    Extract<
+        TaxonomicFilterGroupType,
+        | TaxonomicFilterGroupType.Events
+        | TaxonomicFilterGroupType.Elements
+        | TaxonomicFilterGroupType.Metadata
+        | TaxonomicFilterGroupType.EventProperties
+        | TaxonomicFilterGroupType.NumericalEventProperties
+        | TaxonomicFilterGroupType.PersonProperties
+        | TaxonomicFilterGroupType.SessionProperties
+        | TaxonomicFilterGroupType.GroupsPrefix
+        | TaxonomicFilterGroupType.Replay
+        | TaxonomicFilterGroupType.LogEntries
+    >,
+    Record<string, CoreFilterDefinition>
+>
+
 export interface AppContext {
     current_user: UserType | null
     current_project: ProjectType | null
@@ -3483,7 +3500,7 @@ export interface AppContext {
     year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
-    posthog_taxonomy: Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>
+    posthog_taxonomy: PostHogCoreTaxonomy
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

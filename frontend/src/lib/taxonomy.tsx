@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { CoreFilterDefinition, PropertyFilterValue } from '~/types'
+import { CoreFilterDefinition, PostHogCoreTaxonomy, PropertyFilterValue } from '~/types'
 
 import { TaxonomicFilterGroupType } from './components/TaxonomicFilter/types'
 import { Link } from './lemon-ui/Link'
@@ -59,7 +59,20 @@ export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
 ])
 
 // changing values in here you need to sync to python posthog/posthog/taxonomy/taxonomy.py
-export const CORE_FILTER_DEFINITIONS_BY_GROUP = window.POSTHOG_APP_CONTEXT!.posthog_taxonomy
+export const CORE_FILTER_DEFINITIONS_BY_GROUP: PostHogCoreTaxonomy = window.POSTHOG_APP_CONTEXT?.posthog_taxonomy || {
+    // there's an empty definition here to make the types happy,
+    // but we should never start the application without posthog_taxonomy on the window
+    events: {},
+    event_properties: {},
+    numerical_event_properties: {},
+    session_properties: {},
+    metadata: {},
+    elements: {},
+    replay: {},
+    log_entries: {},
+    person_properties: {},
+    groups: {},
+}
 
 /**
  * the backend taxonomy can't send JSX but some descriptions need to be nicer than plain strings
