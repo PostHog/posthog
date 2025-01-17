@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
@@ -260,17 +261,25 @@ export function DashboardHeader(): JSX.Element | null {
                                             >
                                                 Create notebook from dashboard
                                             </LemonButton>
-                                            {canEditDashboard && (
-                                                <LemonButton
-                                                    onClick={() => {
-                                                        showDeleteDashboardModal(dashboard.id)
-                                                    }}
-                                                    status="danger"
-                                                    fullWidth
-                                                >
-                                                    Delete dashboard
-                                                </LemonButton>
-                                            )}
+
+                                            <AccessControlAction
+                                                userAccessLevel={dashboard.user_access_level}
+                                                requiredLevels={['admin', 'editor']}
+                                                resourceType="dashboard"
+                                            >
+                                                {({ disabledReason: accessControlDisabledReason }) => (
+                                                    <LemonButton
+                                                        onClick={() => {
+                                                            showDeleteDashboardModal(dashboard.id)
+                                                        }}
+                                                        status="danger"
+                                                        fullWidth
+                                                        disabledReason={accessControlDisabledReason}
+                                                    >
+                                                        Delete dashboard
+                                                    </LemonButton>
+                                                )}
+                                            </AccessControlAction>
                                         </>
                                     ) : undefined
                                 }
@@ -292,34 +301,43 @@ export function DashboardHeader(): JSX.Element | null {
                                 </>
                             )}
                             {dashboard ? (
-                                <LemonButton
-                                    onClick={showAddInsightToDashboardModal}
-                                    type="primary"
-                                    data-attr="dashboard-add-graph-header"
-                                    disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
-                                    sideAction={{
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <>
-                                                    <LemonButton
-                                                        fullWidth
-                                                        onClick={() => {
-                                                            push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                                        }}
-                                                        data-attr="add-text-tile-to-dashboard"
-                                                    >
-                                                        Add text card
-                                                    </LemonButton>
-                                                </>
-                                            ),
-                                        },
-                                        disabled: false,
-                                        'data-attr': 'dashboard-add-dropdown',
-                                    }}
+                                <AccessControlAction
+                                    userAccessLevel={dashboard.user_access_level}
+                                    requiredLevels={['admin', 'editor']}
+                                    resourceType="dashboard"
                                 >
-                                    Add insight
-                                </LemonButton>
+                                    {({ disabledReason: accessControlDisabledReason }) => (
+                                        <LemonButton
+                                            onClick={showAddInsightToDashboardModal}
+                                            type="primary"
+                                            data-attr="dashboard-add-graph-header"
+                                            disabledReason={accessControlDisabledReason}
+                                            sideAction={{
+                                                dropdown: {
+                                                    placement: 'bottom-end',
+                                                    overlay: (
+                                                        <>
+                                                            <LemonButton
+                                                                fullWidth
+                                                                onClick={() => {
+                                                                    push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                                }}
+                                                                data-attr="add-text-tile-to-dashboard"
+                                                                disabledReason={accessControlDisabledReason}
+                                                            >
+                                                                Add text card
+                                                            </LemonButton>
+                                                        </>
+                                                    ),
+                                                },
+                                                disabled: false,
+                                                'data-attr': 'dashboard-add-dropdown',
+                                            }}
+                                        >
+                                            Add insight
+                                        </LemonButton>
+                                    )}
+                                </AccessControlAction>
                             ) : null}
                         </>
                     )
