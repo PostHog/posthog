@@ -66,7 +66,6 @@ const appendPathNodes = (
             if (isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, d)) {
                 return 'var(--paths-node-start-or-end)'
             }
-            console.debug('c', c)
             const startNodeColor = c && d3.color(c) ? d3.color(c) : 'var(--paths-node)'
             return startNodeColor
         })
