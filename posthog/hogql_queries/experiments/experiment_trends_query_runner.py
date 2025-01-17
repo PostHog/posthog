@@ -169,69 +169,18 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def _prepare_exposure_query(self) -> TrendsQuery:
         """
-        This method prepares the exposure query for the experiment analysis.
-
         Exposure is the count of users who have seen the experiment. This is necessary to calculate the statistical
         significance of the experiment.
 
-        There are 3 possible cases for the exposure query:
-        1. If math aggregation is used, we construct an implicit exposure query
-        2. Otherwise, if an exposure query is provided, we use it as is, adapting it to the experiment's duration and breakdown
-        3. Otherwise, we construct a default exposure query (the count of $feature_flag_called events)
+        There are 2 possible cases for the exposure query:
+        1. Otherwise, if an exposure query is provided, we use it as is, adapting it to the experiment's duration and breakdown
+        2. Otherwise, we construct a default exposure query (the count of $feature_flag_called events)
         """
 
-        # 1. If math aggregation is used, we construct an implicit exposure query: unique users for the count event
-        uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(self.query.count_query)
         prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
 
-        if uses_math_aggregation:
-            prepared_exposure_query = prepared_count_query
-            prepared_exposure_query.dateRange = self._get_date_range()
-            prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
-
-            # For a data warehouse query, we can use the unique users for the series
-            if self._is_data_warehouse_query(prepared_exposure_query):
-                prepared_exposure_query.breakdownFilter = self._get_data_warehouse_breakdown_filter()
-                prepared_exposure_query.series[0].math = BaseMathType.DAU
-                prepared_exposure_query.series[0].math_property = None
-                prepared_exposure_query.series[0].math_property_type = None
-                prepared_exposure_query.properties = [
-                    DataWarehousePropertyFilter(
-                        key="events.event",
-                        value="$feature_flag_called",
-                        operator=PropertyOperator.EXACT,
-                        type="data_warehouse",
-                    ),
-                    DataWarehousePropertyFilter(
-                        key=f"events.properties.{self.breakdown_key}",
-                        value=self.variants,
-                        operator=PropertyOperator.EXACT,
-                        type="data_warehouse",
-                    ),
-                ]
-            else:
-                count_event = self.query.count_query.series[0]
-                if hasattr(count_event, "event"):
-                    prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()
-                    prepared_exposure_query.series = [
-                        EventsNode(
-                            event=count_event.event,
-                            math=BaseMathType.DAU,
-                        )
-                    ]
-                    prepared_exposure_query.properties = [
-                        EventPropertyFilter(
-                            key=self.breakdown_key,
-                            value=self.variants,
-                            operator=PropertyOperator.EXACT,
-                            type="event",
-                        )
-                    ]
-                else:
-                    raise ValueError("Expected first series item to have an 'event' attribute")
-
-        # 2. Otherwise, if an exposure query is provided, we use it as is, adapting the date range and breakdown
-        elif self.query.exposure_query and not self._is_data_warehouse_query(prepared_count_query):
+        # 1. If an exposure query is provided, we use it as is, adapting it to the experiment's duration and breakdown
+        if self.query.exposure_query and not self._is_data_warehouse_query(prepared_count_query):
             prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
             prepared_exposure_query.dateRange = self._get_date_range()
             prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
@@ -244,7 +193,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                     type="event",
                 )
             ]
-        # 3. Otherwise, we construct a default exposure query: unique users for the $feature_flag_called event
+        # 2. Otherwise, we construct a default exposure query: unique users for the $feature_flag_called event
         else:
             prepared_exposure_query = TrendsQuery(
                 dateRange=self._get_date_range(),

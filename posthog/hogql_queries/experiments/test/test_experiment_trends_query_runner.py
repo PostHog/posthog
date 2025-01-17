@@ -438,6 +438,141 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_result.absolute_exposure, 2)
 
     @freeze_time("2020-01-01T12:00:00Z")
+    def test_query_runner_with_custom_exposure_sum_math(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        ff_property = f"$feature/{feature_flag.key}"
+        count_query = TrendsQuery(series=[EventsNode(event="$pageview", math="sum", math_property="amount")])
+        exposure_query = TrendsQuery(
+            series=[EventsNode(event="custom_exposure_event", properties=[{"key": "valid_exposure", "value": "true"}])]
+        )
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=exposure_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        journeys_for(
+            {
+                "user_control_1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "control", "amount": 100},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "control", "amount": 200},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "control", "valid_exposure": "true"},
+                    },
+                ],
+                "user_control_2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "control", "amount": 100},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "control", "valid_exposure": "true"},
+                    },
+                ],
+                "user_test_1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "test", "amount": 100},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "test", "amount": 200},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "test", "amount": 300},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "test", "valid_exposure": "true"},
+                    },
+                ],
+                "user_test_2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "test", "amount": 100},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "test", "amount": 200},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "test", "valid_exposure": "true"},
+                    },
+                ],
+                "user_out_of_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"amount": 100}},
+                ],
+                "user_out_of_control_exposure": [
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-02",
+                        "properties": {ff_property: "control", "valid_exposure": "false"},
+                    },
+                ],
+                "user_out_of_date_range": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2019-01-01",
+                        "properties": {ff_property: "control", "amount": 100},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2019-01-01",
+                        "properties": {ff_property: "control", "valid_exposure": "true"},
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        result = query_runner.calculate()
+
+        trend_result = cast(ExperimentTrendsQueryResponse, result)
+
+        control_result = next(variant for variant in trend_result.variants if variant.key == "control")
+        test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+
+        self.assertEqual(control_result.count, 400)
+        self.assertEqual(test_result.count, 900)
+
+        self.assertEqual(control_result.absolute_exposure, 2)
+        self.assertEqual(test_result.absolute_exposure, 2)
+
+    @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_default_exposure(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
