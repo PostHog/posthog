@@ -18,6 +18,30 @@ def create_batch_export_ok(client: TestClient, team_id: int, batch_export_data: 
     return response.json()
 
 
+def new_query_batch_export(client: TestClient, team_id: int, destination: str, model: str):
+    return client.post(
+        f"/api/projects/{team_id}/batch_exports/new_query",
+        {"destination": destination, "model": model},
+        content_type="application/json",
+    )
+
+
+def new_query_batch_export_ok(client: TestClient, team_id: int, destination: str, model: str):
+    response = new_query_batch_export(client, team_id, destination, model)
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    return response.json()
+
+
+def query_batch_export(client: TestClient, team_id: int, batch_export_id: UUIDT):
+    return client.get(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/query")
+
+
+def query_batch_export_ok(client: TestClient, team_id: int, batch_export_id: UUIDT):
+    response = query_batch_export(client, team_id, batch_export_id)
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    return response.json()
+
+
 def pause_batch_export(client: TestClient, team_id: int, batch_export_id: UUIDT):
     return client.post(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/pause")
 

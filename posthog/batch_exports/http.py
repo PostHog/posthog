@@ -1,11 +1,11 @@
 import datetime as dt
 from typing import Any, TypedDict, cast
-from loginas.utils import is_impersonated_session
 
 import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
+from loginas.utils import is_impersonated_session
 from rest_framework import filters, request, response, serializers, viewsets
 from rest_framework.exceptions import (
     NotAuthenticated,
@@ -499,6 +499,55 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         instance.save().
         """
         disable_and_delete_export(instance)
+
+    @action(methods=["GET"], detail=True, required_scopes=["batch_export:read"])
+    def query(self, *args, **kwargs) -> response.Response:
+        """Return a batch export's model query.
+
+        If a query is not defined, a default one is fetched.
+        """
+
+        batch_export: BatchExport = self.get_object()
+        if batch_export.schema is not None and batch_export.schema.get("hogql_query"):
+            return response.Response({"kind": "HogQLQuery", "query": batch_export.schema["hogql_query"]})
+
+        match (batch_export.destination.type, batch_export.model):
+            case (BatchExportDestination.Destination.NOOP, _):
+                hogql_query = "select 1"
+            case (_, BatchExport.Model.PERSONS):
+                with open("posthog/batch-exports/sql/persons.sql") as f:
+                    hogql_query = f.read()
+            case (destination, BatchExport.Model.EVENTS):
+                with open(f"posthog/batch-exports/sql/events_{destination.lower()}.sql") as f:
+                    hogql_query = f.read()
+            case _:
+                raise ValidationError("Invalid batch export destination type and model combination")
+
+        return response.Response({"kind": "HogQLQuery", "query": hogql_query})
+
+    @action(methods=["POST"], detail=False, required_scopes=["batch_export:read"])
+    def new_query(self, request, parent_lookup_team_id=None) -> response.Response:
+        """Return a query for a new batch export."""
+
+        try:
+            destination = str(request.data["destination"])
+            model = str(request.data["model"])
+        except Exception:
+            raise ValidationError("Request body must contain destination and model keys.")
+
+        match (destination, model):
+            case (BatchExportDestination.Destination.NOOP, _):
+                hogql_query = "select 1"
+            case (_, BatchExport.Model.PERSONS):
+                with open("./posthog/batch_exports/sql/persons.sql") as f:
+                    hogql_query = f.read()
+            case (destination, BatchExport.Model.EVENTS):
+                with open(f"./posthog/batch_exports/sql/events_{destination.lower()}.sql") as f:
+                    hogql_query = f.read()
+            case _:
+                raise ValidationError("Invalid batch export destination type and model combination")
+
+        return response.Response({"kind": "HogQLQuery", "query": hogql_query})
 
 
 class BatchExportOrganizationViewSet(BatchExportViewSet):
