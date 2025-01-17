@@ -79,11 +79,13 @@ where
         )
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
 
+    // liveness/readiness checks
     let status_router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
+    // flags endpoint
     let flags_router = Router::new()
         .route("/flags", post(endpoint::flags).get(endpoint::flags))
         .route("/flags/", post(endpoint::flags).get(endpoint::flags))
@@ -100,6 +102,7 @@ where
 
     // Don't install metrics unless asked to
     // Global metrics recorders can play poorly with e.g. tests
+    // In other words, only turn these on in production
     if config.enable_metrics {
         common_metrics::set_label_filter(team_id_label_filter(config.team_ids_to_track.clone()));
         let recorder_handle = setup_metrics_recorder();

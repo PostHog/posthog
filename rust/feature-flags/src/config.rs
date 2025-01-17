@@ -69,7 +69,7 @@ impl FromStr for TeamIdsToTrack {
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
-    #[envconfig(default = "127.0.0.1:3001")]
+    #[envconfig(default = "127.0.0.1:3002")]
     pub address: SocketAddr,
 
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
@@ -151,7 +151,7 @@ mod tests {
         let config = Config::init_from_env().unwrap();
         assert_eq!(
             config.address,
-            SocketAddr::from_str("127.0.0.1:3001").unwrap()
+            SocketAddr::from_str("127.0.0.1:3002").unwrap()
         );
         assert_eq!(
             config.write_database_url,

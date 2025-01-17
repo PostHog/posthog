@@ -65,7 +65,7 @@ impl Team {
 
         let query = "SELECT id, name, api_token, project_id FROM posthog_team WHERE api_token = $1";
         let row = sqlx::query_as::<_, Team>(query)
-            .bind(&token)
+            .bind(token)
             .fetch_one(&mut *conn)
             .await?;
 
