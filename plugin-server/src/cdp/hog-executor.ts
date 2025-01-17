@@ -107,7 +107,7 @@ const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => 
     return message
 }
 
-const buildGlobalsWithInputs = (
+export const buildGlobalsWithInputs = (
     globals: HogFunctionInvocationGlobals,
     inputs: HogFunctionType['inputs']
 ): HogFunctionInvocationGlobalsWithInputs => {
@@ -557,6 +557,11 @@ export class HogExecutor {
                 if (execRes.error) {
                     throw execRes.error
                 }
+
+                // Store the result if execution finished
+                if (execRes.finished && execRes.result !== undefined) {
+                    result.execResult = convertHogToJS(execRes.result)
+                }
             } catch (e) {
                 result.logs.push({
                     level: 'error',
@@ -693,7 +698,8 @@ export class HogExecutor {
             }
         })
 
-        return values
+        // We don't want to add "REDACTED" for empty strings
+        return values.filter((v) => v.trim())
     }
 }
 

@@ -278,6 +278,8 @@ export const experimentLogic = kea<experimentLogicType>([
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
+        setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
+        restoreUnmodifiedExperiment: true,
     }),
     reducers({
         experiment: [
@@ -473,6 +475,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setExperiment: () => true,
                 loadExperiment: () => false,
                 updateExperiment: () => false,
+            },
+        ],
+        unmodifiedExperiment: [
+            null as Experiment | null,
+            {
+                setUnmodifiedExperiment: (_, { experiment }) => experiment,
             },
         ],
         tabKey: [
@@ -728,8 +736,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     minimum_detectable_effect: minimumDetectableEffect,
                 },
             })
-            actions.closePrimaryMetricModal()
-            actions.closeSecondaryMetricModal()
         },
         updateExperimentCollectionGoal: async () => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
@@ -742,12 +748,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     minimum_detectable_effect: minimumDetectableEffect || 0,
                 },
             })
-            actions.closeExperimentCollectionGoalModal()
-        },
-        closeExperimentCollectionGoalModal: () => {
-            if (values.experimentValuesChangedLocally) {
-                actions.loadExperiment()
-            }
         },
         resetRunningExperiment: async () => {
             actions.updateExperiment({ start_date: null, end_date: null, archived: false })
@@ -917,8 +917,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 saved_metrics_ids: combinedMetricsIds,
             })
 
-            actions.closePrimarySharedMetricModal()
-            actions.closeSecondarySharedMetricModal()
             actions.loadExperiment()
         },
         removeSharedMetricFromExperiment: async ({ sharedMetricId }) => {
@@ -932,8 +930,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 saved_metrics_ids: sharedMetricsIds,
             })
 
-            actions.closePrimarySharedMetricModal()
-            actions.closeSecondarySharedMetricModal()
             actions.loadExperiment()
         },
         createExperimentDashboard: async () => {
@@ -1003,16 +999,22 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             actions.setIsCreatingExperimentDashboard(false)
         },
+        restoreUnmodifiedExperiment: () => {
+            if (values.unmodifiedExperiment) {
+                actions.setExperiment(structuredClone(values.unmodifiedExperiment))
+            }
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
             loadExperiment: async () => {
                 if (props.experimentId && props.experimentId !== 'new') {
                     try {
-                        const response = await api.get(
+                        const response: Experiment = await api.get(
                             `api/projects/${values.currentProjectId}/experiments/${props.experimentId}`
                         )
-                        return response as Experiment
+                        actions.setUnmodifiedExperiment(structuredClone(response))
+                        return response
                     } catch (error: any) {
                         if (error.status === 404) {
                             actions.setExperimentMissing()
@@ -1028,6 +1030,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     update
                 )
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 return response
             },
         },
@@ -1155,16 +1158,6 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
-        dynamicFeatureFlagKey: [
-            (s) => [s.experiment],
-            (experiment: Experiment): string => {
-                return experiment.name
-                    .toLowerCase()
-                    .replace(/[^A-Za-z0-9-_]+/g, '-')
-                    .replace(/-+$/, '')
-                    .replace(/^-+/, '')
-            },
-        ],
         experimentId: [
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,

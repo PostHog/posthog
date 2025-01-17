@@ -133,6 +133,7 @@ export type AnyDataNode =
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | RecordingsQuery
+    | TracesQuery
 
 /**
  * @discriminator kind
@@ -637,6 +638,7 @@ export interface DataTableNode
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
+                    | TracesQuery
                 )['response']
             >
         >,
@@ -658,6 +660,7 @@ export interface DataTableNode
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
+        | TracesQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -2204,23 +2207,24 @@ export interface LLMGeneration {
     baseUrl?: string
 }
 
+// Snake-case here for the DataTable component.
 export interface LLMTracePerson {
     uuid: string
-    createdAt: string
+    created_at: string
     properties: Record<string, any>
-    distinctId: string
+    distinct_id: string
 }
 
 export interface LLMTrace {
     id: string
     createdAt: string
     person: LLMTracePerson
-    totalLatency: number
-    inputTokens: number
-    outputTokens: number
-    inputCost: number
-    outputCost: number
-    totalCost: number
+    totalLatency?: number
+    inputTokens?: number
+    outputTokens?: number
+    inputCost?: number
+    outputCost?: number
+    totalCost?: number
     events: LLMGeneration[]
 }
 
@@ -2237,6 +2241,9 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     dateRange?: DateRange
     limit?: integer
     offset?: integer
+    filterTestAccounts?: boolean
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
 }
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
