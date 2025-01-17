@@ -371,13 +371,15 @@ class FeatureFlagHashKeyOverride(models.Model):
     # and we only ever want to get the key.
     feature_flag_key = models.CharField(max_length=400)
     person = models.ForeignKey("Person", on_delete=models.CASCADE)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team_id = (
+        models.IntegerField()
+    )  # Note: in order to move persons to separate database, this is a int instead of foreingkey
     hash_key = models.CharField(max_length=400)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["team", "person", "feature_flag_key"],
+                fields=["team_id", "person", "feature_flag_key"],
                 name="Unique hash_key for a user/team/feature_flag combo",
             )
         ]

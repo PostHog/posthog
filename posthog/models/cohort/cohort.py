@@ -82,7 +82,6 @@ class Cohort(models.Model):
     deleted = models.BooleanField(default=False)
     filters = models.JSONField(null=True, blank=True)
     query = models.JSONField(null=True, blank=True)
-    people = models.ManyToManyField("Person", through="CohortPeople")
     version = models.IntegerField(blank=True, null=True)
     pending_version = models.IntegerField(blank=True, null=True)
     count = models.IntegerField(blank=True, null=True)
@@ -376,7 +375,7 @@ def get_and_update_pending_version(cohort: Cohort):
 
 class CohortPeople(models.Model):
     id = models.BigAutoField(primary_key=True)
-    cohort = models.ForeignKey("Cohort", on_delete=models.CASCADE)
+    cohort_id = models.IntegerField()
     person = models.ForeignKey("Person", on_delete=models.CASCADE)
     version = models.IntegerField(blank=True, null=True)
 

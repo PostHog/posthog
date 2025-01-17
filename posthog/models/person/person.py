@@ -37,9 +37,9 @@ class Person(models.Model):
     # used for evaluating if we need to override the value or not (value: set or set_once)
     properties_last_operation = models.JSONField(null=True, blank=True)
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team_id = models.IntegerField()
     properties = models.JSONField(default=dict)
-    is_user = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
+    is_user_id = models.IntegerField(null=True, blank=True)
     is_identified = models.BooleanField(default=False)
     uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)
 
@@ -118,7 +118,7 @@ class Person(models.Model):
 
 
 class PersonDistinctId(models.Model):
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
+    team_id = models.IntegerField(db_index=False)
     person = models.ForeignKey(Person, on_delete=models.CASCADE)
     distinct_id = models.CharField(max_length=400)
 
@@ -126,19 +126,19 @@ class PersonDistinctId(models.Model):
     version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
+        constraints = [models.UniqueConstraint(fields=["team_id", "distinct_id"], name="unique distinct_id for team")]
 
 
 class PersonlessDistinctId(models.Model):
     id = models.BigAutoField(primary_key=True)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
+    team_id = models.IntegerField(db_index=False)
     distinct_id = models.CharField(max_length=400)
     is_merged = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "distinct_id"], name="unique personless distinct_id for team")
+            models.UniqueConstraint(fields=["team_id", "distinct_id"], name="unique personless distinct_id for team")
         ]
 
 
@@ -146,7 +146,7 @@ class PersonOverrideMapping(models.Model):
     """A model of persons to be overriden in merge or merge-like events."""
 
     id = models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team_id = models.BigIntegerField()
+    team_id = models.IntegerField()
     uuid = models.UUIDField()
 
     class Meta:
@@ -169,7 +169,7 @@ class PersonOverride(models.Model):
     """
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team_id = models.IntegerField()
 
     old_person_id = models.ForeignKey(
         "PersonOverrideMapping",
@@ -190,7 +190,7 @@ class PersonOverride(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["team", "old_person_id"],
+                fields=["team_id", "old_person_id"],
                 name="unique override per old_person_id",
             ),
             models.CheckConstraint(
@@ -228,7 +228,7 @@ class PendingPersonOverride(models.Model):
     """
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team_id = models.BigIntegerField()
+    team_id = models.IntegerField()
     old_person_id = models.UUIDField()
     override_person_id = models.UUIDField()
     oldest_event = models.DateTimeField()
@@ -273,7 +273,7 @@ class FlatPersonOverride(models.Model):
     """
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team_id = models.BigIntegerField()
+    team_id = models.IntegerField()
     old_person_id = models.UUIDField()
     override_person_id = models.UUIDField()
     oldest_event = models.DateTimeField()
@@ -317,12 +317,12 @@ def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> list[str
 
     if person is not None:
         first_ids = (
-            PersonDistinctId.objects.filter(person=person, team=team)
+            PersonDistinctId.objects.filter(person=person, team_id=team.pk)
             .order_by("id")
             .values_list("distinct_id", flat=True)[:first_ids_limit]
         )
         last_ids = (
-            PersonDistinctId.objects.filter(person=person, team=team)
+            PersonDistinctId.objects.filter(person=person, team_id=team.pk)
             .order_by("-id")
             .values_list("distinct_id", flat=True)[:last_ids_limit]
         )
