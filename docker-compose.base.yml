@@ -29,12 +29,21 @@ services:
                         path /capture*
                     }
 
+                    @flags {
+                        path /flags
+                        path /flags*
+                    }
+
                     handle @capture {
                         reverse_proxy capture:3000
                     }
 
                     handle @replay-capture {
                         reverse_proxy replay-capture:3000
+                    }
+
+                    handle @flags {
+                        reverse_proxy feature-flags:3001
                     }
 
                     handle {
@@ -191,6 +200,19 @@ services:
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
+            SKIP_WRITES: 'false'
+            SKIP_READS: 'false'
+            FILTER_MODE: 'opt-out'
+
+    feature-flags:
+        image: ghcr.io/posthog/posthog/feature-flags:master
+        build:
+            context: rust/
+            args:
+                BIN: feature-flags
+        restart: on-failure
+        environment:
+            REDIS_URL: 'redis://redis:6379/'
             SKIP_WRITES: 'false'
             SKIP_READS: 'false'
             FILTER_MODE: 'opt-out'

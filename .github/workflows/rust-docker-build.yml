@@ -33,6 +33,8 @@ jobs:
                       dockerfile: ./rust/Dockerfile
                     - image: cymbal
                       dockerfile: ./rust/Dockerfile
+                    - image: feature-flags
+                      dockerfile: ./rust/Dockerfile
         runs-on: depot-ubuntu-22.04-4
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -49,7 +51,7 @@ jobs:
             hook-worker_digest: ${{ steps.digest.outputs.hook-worker_digest }}
             hook-migrator_digest: ${{ steps.digest.outputs.hook-migrator_digest }}
             cymbal_digest: ${{ steps.digest.outputs.cymbal_digest }}
-
+            feature-flags_digest: ${{ steps.digest.outputs.feature-flags_digest }}
         defaults:
             run:
                 working-directory: rust
@@ -142,6 +144,10 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.property-defs-rs_digest }}'
+                    - release: feature-flags
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.feature-flags_digest }}'
                     - release: cymbal
                       values:
                           image:

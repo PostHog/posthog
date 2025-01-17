@@ -17,6 +17,7 @@ services:
         depends_on:
             - replay-capture
             - capture
+            - feature-flags
         extra_hosts:
             - 'web:host-gateway'
     db:
@@ -153,6 +154,14 @@ services:
             service: property-defs-rs
         depends_on:
             - kafka
+
+    feature-flags:
+        extends:
+            file: docker-compose.base.yml
+            service: feature-flags
+        depends_on:
+            - redis
+            - db
 
     livestream:
         extends:
