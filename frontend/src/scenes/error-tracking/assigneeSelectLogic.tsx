@@ -10,14 +10,9 @@ import { OrganizationMemberType, UserGroup } from '~/types'
 
 import type { assigneeSelectLogicType } from './assigneeSelectLogicType'
 
-type AssigneeDisplayType = { id: string | number; icon: JSX.Element; displayName?: string }
+export type AssigneeDisplayType = { id: string | number; icon: JSX.Element; displayName?: string }
 
-const unassignedUser = {
-    id: 'unassigned',
-    icon: <IconPerson className="rounded-full border border-dashed border-muted text-muted p-0.5" />,
-}
-
-type SidePanelDocsLogicProps = {
+export type ErrorTrackingAssigneeSelectProps = {
     assignee: ErrorTrackingIssue['assignee']
 }
 
@@ -33,9 +28,14 @@ const userDisplay = (member: OrganizationMemberType): AssigneeDisplayType => ({
     icon: <ProfilePicture size="md" user={member.user} />,
 })
 
+const unassignedUser = {
+    id: 'unassigned',
+    icon: <IconPerson className="rounded-full border border-dashed border-muted text-muted p-0.5" />,
+}
+
 export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
     path(['scenes', 'error-tracking', 'assigneeSelectLogic']),
-    props({} as SidePanelDocsLogicProps),
+    props({} as ErrorTrackingAssigneeSelectProps),
 
     connect(() => ({
         values: [
