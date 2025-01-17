@@ -645,30 +645,9 @@ class Status(StrEnum):
     PENDING_RELEASE = "pending_release"
 
 
-<<<<<<< HEAD
-class ErrorTrackingIssue(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    assignee: Optional[float] = None
-    customVolume: Optional[list[float]] = None
-    description: Optional[str] = None
-    earliest: Optional[str] = None
-    first_seen: AwareDatetime
-    id: str
-    last_seen: AwareDatetime
-    name: Optional[str] = None
-    occurrences: float
-    sessions: float
-    status: Status
-    users: float
-    volumeDay: list[float]
-    volumeMonth: list[float]
-=======
 class Type1(StrEnum):
     USER_GROUP = "user_group"
     USER = "user"
->>>>>>> master
 
 
 class OrderBy(StrEnum):
@@ -4314,6 +4293,7 @@ class ErrorTrackingIssue(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
+    customVolume: Optional[list[float]] = None
     description: Optional[str] = None
     earliest: Optional[str] = None
     first_seen: AwareDatetime
@@ -4324,7 +4304,8 @@ class ErrorTrackingIssue(BaseModel):
     sessions: float
     status: Status
     users: float
-    volume: Optional[Any] = None
+    volumeDay: list[float]
+    volumeMonth: list[float]
 
 
 class ErrorTrackingQueryResponse(BaseModel):
@@ -6402,12 +6383,8 @@ class ErrorTrackingQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-<<<<<<< HEAD
-    assignee: Optional[int] = None
-    customVolume: Optional[ErrorTrackingSparklineConfig] = None
-=======
     assignee: Optional[ErrorTrackingIssueAssignee] = None
->>>>>>> master
+    customVolume: Optional[ErrorTrackingSparklineConfig] = None
     dateRange: DateRange
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
