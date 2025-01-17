@@ -1,4 +1,4 @@
-import { Reader } from '@maxmind/geoip2-node'
+import { City, Reader, ReaderModel } from '@maxmind/geoip2-node'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
@@ -44,13 +44,13 @@ export class TemplateTester {
     we need transformResult to be able to test the geoip template
     the same way we did it here https://github.com/PostHog/posthog-plugin-geoip/blob/a5e9370422752eb7ea486f16c5cc8acf916b67b0/index.test.ts#L79
     */
-    async beforeEach(transformResult?: (res: any) => any) {
+    async beforeEach(transformResult?: (res: City) => any) {
         this.template = {
             ...this._template,
             bytecode: await compileHog(this._template.hog),
         }
 
-        let mmdb
+        let mmdb: ReaderModel
         try {
             const mmdbBrotliContents = readFileSync(
                 join(__dirname, '../../../../tests/assets/GeoLite2-City-Test.mmdb.br')
