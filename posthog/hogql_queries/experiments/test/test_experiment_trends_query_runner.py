@@ -997,13 +997,12 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             filterTestAccounts=True,
         )
-        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")], filterTestAccounts=True)
 
         experiment_query = ExperimentTrendsQuery(
             experiment_id=experiment.id,
             kind="ExperimentTrendsQuery",
             count_query=count_query,
-            exposure_query=exposure_query,
+            exposure_query=None,
         )
 
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
