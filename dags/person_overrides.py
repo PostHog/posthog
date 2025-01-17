@@ -14,7 +14,11 @@ from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
-    client_settings: dict[str, str] | None = None
+    client_settings: dict[str, str] = {
+        "max_execution_time": "0",
+        "max_memory_usage": "0",
+        "receive_timeout": f"{10 * 60}",  # some queries like dictionary checksumming can be very slow
+    }
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
         return get_cluster(context.log, client_settings=self.client_settings)
