@@ -1519,15 +1519,20 @@ const api = {
         async duplicate(cohortId: CohortType['id']): Promise<CohortType> {
             return await new ApiRequest().cohortsDuplicate(cohortId).get()
         },
-        async list(): Promise<PaginatedResponse<CohortType>> {
-            // TODO: Remove hard limit and paginate cohorts
-            return await new ApiRequest().cohorts().withQueryString('limit=600').get()
-        },
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
         determineListUrl(cohortId: number | 'new', params: PersonListParams): string {
             return `/api/cohort/${cohortId}/persons?${toParams(params)}`
+        },
+        async listPaginated(
+            params: {
+                limit?: number
+                offset?: number
+                search?: string
+            } = {}
+        ): Promise<CountedPaginatedResponse<CohortType>> {
+            return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
         },
     },
 

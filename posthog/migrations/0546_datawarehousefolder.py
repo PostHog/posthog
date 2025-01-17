@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0543_alter_batchexportdestination_config"),
+        ("posthog", "0545_insight_filters_to_query"),
     ]
 
     operations = [

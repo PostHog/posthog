@@ -376,10 +376,6 @@
             background: var(--accordion-header-background);
         }
     }
-
-    &:not([aria-busy='true']) .Accordion__header .LemonIcon {
-        visibility: hidden;
-    }
 }
 
 .Accordion__header {
