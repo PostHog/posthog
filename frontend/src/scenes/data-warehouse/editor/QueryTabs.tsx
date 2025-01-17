@@ -75,7 +75,7 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
                     }}
                 />
             ) : (
-                <div onClick={() => setIsEditing(!isEditing)} className="flex-grow text-left whitespace-pre">
+                <div onDoubleClick={() => setIsEditing(!isEditing)} className="flex-grow text-left whitespace-pre">
                     {tabName}
                 </div>
             )}

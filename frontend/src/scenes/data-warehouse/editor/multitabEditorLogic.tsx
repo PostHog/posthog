@@ -201,12 +201,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.addTab({
                     uri,
                     view,
-                    name: NEW_QUERY,
+                    name: view?.name || NEW_QUERY,
                 })
                 actions.selectTab({
                     uri,
                     view,
-                    name: NEW_QUERY,
+                    name: view?.name || NEW_QUERY,
                 })
 
                 const queries = values.allTabs.map((tab) => {
