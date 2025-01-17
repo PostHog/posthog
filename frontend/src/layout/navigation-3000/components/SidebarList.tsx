@@ -12,7 +12,7 @@ import { IconChevronRight } from 'lib/lemon-ui/icons/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { capitalizeFirstLetter } from 'lib/utils'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
 import { List, ListProps } from 'react-virtualized/dist/es/List'
@@ -55,7 +55,7 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
     } = useValues(navigation3000Logic)
     const { cancelNewItem } = useActions(navigation3000Logic)
     const { saveNewItem } = useAsyncActions(navigation3000Logic)
-    const { folders } = useValues(editorSidebarLogic)
+    const { folders, isFolder } = useValues(editorSidebarLogic)
     const { moveViewToFolder } = useActions(editorSidebarLogic)
     const [activeId, setActiveId] = useState<string | null>(null)
 
@@ -77,34 +77,33 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
     const handleDragEnd = (event: DragEndEvent): void => {
         const { active, over } = event
 
+        // Get the last item in the chain of item separator
+        const getLastItemInChain = (key: string): string => {
+            const parts = key.split(ITEM_KEY_PART_SEPARATOR)
+            return parts[parts.length - 1]
+        }
+
         if (over && active.id !== over.id) {
             const activeId = active.id.toString()
             const overId = over.id.toString()
 
-            // Get the last item in the chain of item separator
-            const getLastItemInChain = (key: string): string => {
-                const parts = key.split(ITEM_KEY_PART_SEPARATOR)
-                return parts[parts.length - 1]
-            }
-
-            const getLastFolderInChain = (key: string): string => {
-                const parts = key.split(ITEM_KEY_PART_SEPARATOR)
-                return parts.reverse().find((part) => part.includes('folder')) || parts[0]
-            }
-
-            const overItemKey = getLastFolderInChain(overId)
+            const overItemKey = getLastItemInChain(overId)
             const activeItemKey = getLastItemInChain(activeId)
 
             // If dropping onto a folder, move to that folder
-            if (overItemKey.includes('folder')) {
-                moveViewToFolder(activeItemKey, overItemKey)
+            if (isFolder(overItemKey)) {
+                moveViewToFolder({ viewId: activeItemKey, toFolderId: overItemKey })
             } else {
-                // If dropping outside folders, remove from current folder
                 const currentFolder = folders.find((folder) => folder.items.includes(activeItemKey))
                 if (currentFolder) {
-                    moveViewToFolder(activeItemKey, '') // Empty string as folderId removes it from folders
+                    moveViewToFolder({ viewId: activeItemKey, toFolderId: '' }) // Empty string as folderId removes it from folders
                 }
             }
+        } else {
+            const activeId = active.id.toString()
+            const activeItemKey = getLastItemInChain(activeId)
+            // If dropping outside folders, remove from current folder
+            moveViewToFolder({ viewId: activeItemKey, toFolderId: '' })
         }
         setActiveId(null)
     }
@@ -314,33 +313,37 @@ function SidebarListItem({ item, validateName, active, style: styleFromProps }: 
         }
         return true
     }
-    const save = isItemTentative(item)
-        ? async (name: string): Promise<void> => {
-              if (!validate(name)) {
-                  return
-              }
-              await item.onSave(name)
-          }
-        : !isListItemAccordion(item) && item.onRename
-        ? async (newName: string): Promise<void> => {
-              if (!newName || newName === item.name) {
-                  return cancel() // No change to be saved
-              }
-              if (!validate(newName)) {
-                  return
-              }
-              setIsSavingName(true)
-              try {
-                  await item.onRename?.(newName)
-              } catch (error) {
-                  captureException(error)
-                  lemonToast.error('Could not rename item')
-              } finally {
-                  setIsSavingName(false)
-                  cancel()
-              }
-          }
-        : null
+    const save = useMemo(
+        () =>
+            isItemTentative(item)
+                ? async (name: string): Promise<void> => {
+                      if (!validate(name)) {
+                          return
+                      }
+                      await item.onSave(name)
+                  }
+                : !isListItemAccordion(item) && item.onRename
+                ? async (newName: string): Promise<void> => {
+                      if (!newName || newName === item.name) {
+                          return cancel() // No change to be saved
+                      }
+                      if (!validate(newName)) {
+                          return
+                      }
+                      setIsSavingName(true)
+                      try {
+                          await item.onRename?.(newName)
+                      } catch (error) {
+                          captureException(error)
+                          lemonToast.error('Could not rename item')
+                      } finally {
+                          setIsSavingName(false)
+                          cancel()
+                      }
+                  }
+                : null,
+        [item, validate, cancel]
+    )
 
     useEffect(() => {
         // Add double-click handler for renaming
@@ -634,17 +637,16 @@ function SidebarListItemAccordion({
 
     const ref = useRef<HTMLDivElement>(null)
 
-    const { key, items } = category
+    const { key } = category
 
-    const isEmpty = items.length === 0
     const keyString = Array.isArray(key) ? key.join(ITEM_KEY_PART_SEPARATOR) : key.toString()
     const isExpanded = !(keyString in listItemAccordionCollapseMapping) || !listItemAccordionCollapseMapping[keyString]
 
-    const startRenaming = (): void => {
+    const startRenaming = useCallback((): void => {
         if (category.onRename) {
             setIsRenaming(true)
         }
-    }
+    }, [category.onRename])
 
     const cancelRenaming = (): void => {
         setIsRenaming(false)
@@ -727,15 +729,7 @@ function SidebarListItemAccordion({
                         />
                     </div>
                 ) : (
-                    <h4>
-                        {category.name || capitalizeFirstLetter(pluralizeCategory(category.noun))}
-                        {isEmpty && (
-                            <>
-                                {' '}
-                                <i>(empty)</i>
-                            </>
-                        )}
-                    </h4>
+                    <h4>{category.name || capitalizeFirstLetter(pluralizeCategory(category.noun))}</h4>
                 )}
             </div>
         </li>

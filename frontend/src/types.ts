@@ -4110,7 +4110,6 @@ export interface DataWarehouseFolder {
     name: string
     parent: string | null
     items: string[]
-    children: DataWarehouseFolder[]
 }
 
 export interface DataWarehouseTable {

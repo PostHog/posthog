@@ -1,6 +1,6 @@
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
-import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
+import { connect, events, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -57,10 +57,6 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             ['selectSourceTable', 'toggleJoinTableModal'],
         ],
     }),
-    actions({
-        moveViewToFolder: (viewId: string, folderId: string) => ({ viewId, folderId }),
-        removeViewFromFolder: (viewId: string, folderId: string) => ({ viewId, folderId }),
-    }),
     loaders(({ values }) => ({
         folders: [
             [] as DataWarehouseFolder[],
@@ -81,51 +77,47 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                     const _folder = await api.dataWarehouseFolders.update(id, { name })
                     return values.folders.map((folder) => (folder.id === id ? _folder : folder))
                 },
+                moveViewToFolder: async ({ viewId, toFolderId }) => {
+                    let newFolders = [...values.folders]
+
+                    const fromFolder = values.folders.find((folder) => folder.items.includes(viewId))
+                    const toFolder = values.folders.find((folder) => folder.id === toFolderId)
+
+                    if (fromFolder?.id === toFolder?.id) {
+                        return newFolders
+                    }
+
+                    if (fromFolder) {
+                        const fromFolderNew = await api.dataWarehouseFolders.update(fromFolder.id, {
+                            items: fromFolder.items.filter((id) => id !== viewId),
+                        })
+                        newFolders = newFolders.map((folder) => (folder.id === fromFolder.id ? fromFolderNew : folder))
+                    }
+
+                    if (toFolder) {
+                        const toFolderNew = await api.dataWarehouseFolders.update(toFolder.id, {
+                            items: [...toFolder.items, viewId],
+                        })
+                        newFolders = newFolders.map((folder) => (folder.id === toFolder.id ? toFolderNew : folder))
+                    }
+
+                    return newFolders
+                },
             },
         ],
     })),
-    reducers({
-        folders: {
-            moveViewToFolder: (state, { viewId, folderId }) => {
-                // First, remove the item from any existing folder
-                const newState = state.map((folder: DataWarehouseFolder) => ({
-                    ...folder,
-                    items: folder.items.filter((id: string) => id !== viewId),
-                }))
-
-                // If folderId is empty, just return the state with the item removed from all folders
-                if (!folderId) {
-                    return newState
-                }
-
-                // Otherwise, add it to the new folder
-                return newState.map((folder: DataWarehouseFolder) => {
-                    if (folder.id === folderId) {
-                        return {
-                            ...folder,
-                            items: [...folder.items, viewId],
-                        }
-                    }
-                    return folder
-                })
-            },
-            removeViewFromFolder: (state, { viewId, folderId }) => {
-                const newState = state.map((folder: DataWarehouseFolder) => {
-                    if (folder.id === folderId) {
-                        return {
-                            ...folder,
-                            items: folder.items.filter((id: string) => id !== viewId),
-                        }
-                    }
-                    return folder
-                })
-                return newState
-            },
-        },
-    }),
     selectors(({ actions }) => ({
+        isFolder: [
+            (s) => [s.folders],
+            (folders) => {
+                return (id: string) => {
+                    return folders.some((folder) => folder.id === id)
+                }
+            },
+        ],
         contents: [
             (s) => [
+                s.dataWarehouseSavedQueries,
                 s.relevantSavedQueries,
                 s.initialDataWarehouseSavedQueryLoading,
                 s.relevantSources,
@@ -134,6 +126,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                 s.folders,
             ],
             (
+                dataWarehouseSavedQueries,
                 relevantSavedQueries,
                 initialDataWarehouseSavedQueryLoading,
                 relevantSources,
@@ -148,9 +141,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         .map((folder) => {
                             const folderItems = folder.items
                                 .map((itemId: string) => {
-                                    const [savedQuery, matches] = relevantSavedQueries.find(
-                                        ([q]) => q.id === itemId
-                                    ) || [null, null]
+                                    const savedQuery = dataWarehouseSavedQueries.find((q) => q.id === itemId)
                                     if (!savedQuery) {
                                         return null
                                     }
@@ -167,13 +158,6 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                                 <IconClipboardEdit />
                                             </Tooltip>
                                         ),
-                                        searchMatch: matches
-                                            ? {
-                                                  matchingFields: matches.map((match) => match.key),
-                                                  nameHighlightRanges: matches.find((match) => match.key === 'name')
-                                                      ?.indices,
-                                              }
-                                            : null,
                                         onClick: () => {
                                             editorSceneLogic.actions.selectSchema(savedQuery)
                                         },
@@ -191,12 +175,6 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                                 onClick: () => {
                                                     viewLinkLogic.actions.selectSourceTable(savedQuery.name)
                                                     viewLinkLogic.actions.toggleJoinTableModal()
-                                                },
-                                            },
-                                            {
-                                                label: 'Remove from folder',
-                                                onClick: () => {
-                                                    actions.removeViewFromFolder(savedQuery.id, folder.id)
                                                 },
                                             },
                                             {
@@ -252,46 +230,62 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                 },
                             },
                         ],
-                        items: [
-                            ...buildFolderTree(),
-                            ...(relevantSavedQueries
-                                .filter(
-                                    ([savedQuery]) => !folders.some((folder) => folder.items.includes(savedQuery.id))
-                                )
-                                .map(([savedQuery, matches]) => ({
-                                    key: savedQuery.id,
-                                    name: savedQuery.name,
-                                    url: '',
-                                    icon: savedQuery.status ? (
-                                        <Tooltip title="Materialized view">
-                                            <IconCalculate />
-                                        </Tooltip>
-                                    ) : (
-                                        <Tooltip title="View">
-                                            <IconClipboardEdit />
-                                        </Tooltip>
-                                    ),
-                                    searchMatch: matches
-                                        ? {
-                                              matchingFields: matches.map((match) => match.key),
-                                              nameHighlightRanges: matches.find((match) => match.key === 'name')
-                                                  ?.indices,
-                                          }
-                                        : null,
-                                    onClick: () => {
-                                        editorSceneLogic.actions.selectSchema(savedQuery)
-                                    },
-                                    menuItems: [
-                                        {
-                                            label: 'Add join',
-                                            onClick: () => {
-                                                viewLinkLogic.actions.selectSourceTable(savedQuery.name)
-                                                viewLinkLogic.actions.toggleJoinTableModal()
-                                            },
-                                        },
-                                    ],
-                                })) as BasicListItem[]),
-                        ],
+                        items:
+                            relevantSavedQueries.length > 0
+                                ? [
+                                      ...relevantSavedQueries.map(([savedQuery, matches]) => ({
+                                          key: savedQuery.id,
+                                          name: savedQuery.name,
+                                          url: '',
+                                          searchMatch: matches,
+                                          onClick: () => {
+                                              editorSceneLogic.actions.selectSchema(savedQuery)
+                                          },
+                                          menuItems: [
+                                              {
+                                                  label: 'Add join',
+                                                  onClick: () => {
+                                                      viewLinkLogic.actions.selectSourceTable(savedQuery.name)
+                                                      viewLinkLogic.actions.toggleJoinTableModal()
+                                                  },
+                                              },
+                                          ],
+                                      })),
+                                  ]
+                                : [
+                                      ...buildFolderTree(),
+                                      ...(dataWarehouseSavedQueries
+                                          .filter(
+                                              (savedQuery) =>
+                                                  !folders.some((folder) => folder.items.includes(savedQuery.id))
+                                          )
+                                          .map((savedQuery) => ({
+                                              key: savedQuery.id,
+                                              name: savedQuery.name,
+                                              url: '',
+                                              icon: savedQuery.status ? (
+                                                  <Tooltip title="Materialized view">
+                                                      <IconCalculate />
+                                                  </Tooltip>
+                                              ) : (
+                                                  <Tooltip title="View">
+                                                      <IconClipboardEdit />
+                                                  </Tooltip>
+                                              ),
+                                              onClick: () => {
+                                                  editorSceneLogic.actions.selectSchema(savedQuery)
+                                              },
+                                              menuItems: [
+                                                  {
+                                                      label: 'Add join',
+                                                      onClick: () => {
+                                                          viewLinkLogic.actions.selectSourceTable(savedQuery.name)
+                                                          viewLinkLogic.actions.toggleJoinTableModal()
+                                                      },
+                                                  },
+                                              ],
+                                          })) as BasicListItem[]),
+                                  ],
                     } as SidebarCategory,
                     {
                         key: 'sources',
@@ -399,14 +393,14 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             },
         ],
         relevantSavedQueries: [
-            (s) => [s.dataWarehouseSavedQueries, navigation3000Logic.selectors.searchTerm],
-            (dataWarehouseSavedQueries, searchTerm): [DataWarehouseSavedQuery, FuseSearchMatch[] | null][] => {
+            () => [navigation3000Logic.selectors.searchTerm],
+            (searchTerm): [DataWarehouseSavedQuery, FuseSearchMatch[] | null][] => {
                 if (searchTerm) {
                     return savedQueriesfuse
                         .search(searchTerm)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
-                return dataWarehouseSavedQueries.map((savedQuery) => [savedQuery, null])
+                return []
             },
         ],
         relevantSources: [
