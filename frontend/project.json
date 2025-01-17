@@ -3,14 +3,15 @@
     "name": "frontend",
     "sourceRoot": "./src",
     "projectType": "library",
-    "implicitDependencies": ["hogvm-ts", "lemon-ui"],
+    "implicitDependencies": ["hogvm-ts", "lemon-ui", "apps-common"],
     "targets": {
         "build": {
             "executor": "nx:run-commands",
             "options": {
                 "commands": ["npm run build"],
                 "cwd": "."
-            }
+            },
+            "outputs": ["./dist"]
         },
         "serve": {
             "executor": "nx:run-commands",

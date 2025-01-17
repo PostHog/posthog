@@ -1,9 +1,8 @@
 {
     "$schema": "https://json.schemastore.org/nx",
-    "name": "plugin-server",
+    "name": "apps-common",
     "sourceRoot": "./src",
-    "projectType": "application",
-    "implicitDependencies": ["hogvm-ts", "cyclotron-node"],
+    "projectType": "library",
     "targets": {
         "build": {
             "executor": "nx:run-commands",
@@ -11,12 +10,6 @@
                 "commands": ["npm run build"]
             },
             "outputs": ["dist"]
-        },
-        "test": {
-            "executor": "@nx/jest",
-            "options": {
-                "jestConfig": "./jest.config.ts"
-            }
         }
     }
 }
