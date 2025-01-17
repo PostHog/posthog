@@ -599,7 +599,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
             )
 
-            const insight = values.insight as QueryBasedInsightModel | null
+            const insight = values.queryFromInsight
 
             const experimentMetric = getExperimentMetricFromInsight(insight)
 
@@ -1049,12 +1049,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 return response
             },
         },
-        insight: {
-            loadInsight: async (shortId: InsightShortId): Promise<QueryBasedInsightModel | null> => {
-                const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
-                return insight
+        queryFromInsight: [
+            null as QueryBasedInsightModel | null,
+            {
+                loadQueryFromInsight: async (shortId: InsightShortId): Promise<QueryBasedInsightModel | null> => {
+                    const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
+                    return insight
+                },
             },
-        },
+        ],
         metricResults: [
             null as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[] | null,
             {
@@ -1851,7 +1854,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
 
                 if (query.insight) {
-                    actions.loadInsight(query.insight as InsightShortId)
+                    actions.loadQueryFromInsight(query.insight as InsightShortId)
                 }
             }
         },

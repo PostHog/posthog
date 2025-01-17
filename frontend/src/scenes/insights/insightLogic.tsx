@@ -318,7 +318,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
         ],
         showPersonsModal: [() => [(s) => s.query], (query) => !query || !query.hidePersonsModal],
-        supportsCreatingExperiment: [(s) => [s.insight], (insight) => isValidQueryForExperiment(insight.query)],
+        supportsCreatingExperiment: [
+            (s) => [s.insight],
+            (insight) => insight?.short_id && insight?.query && isValidQueryForExperiment(insight.query),
+        ],
     }),
     listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode }) => {

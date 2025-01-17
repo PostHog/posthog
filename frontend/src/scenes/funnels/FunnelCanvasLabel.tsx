@@ -5,16 +5,17 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
 import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
 import { urls } from 'scenes/urls'
 
-import { FunnelVizType } from '~/types'
+import { FunnelVizType, ItemMode } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, insight, supportsCreatingExperiment } = useValues(insightLogic)
-
+    const { insightMode } = useValues(insightSceneLogic)
     const { conversionMetrics, aggregationTargetLabel, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
@@ -69,7 +70,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
               ]
             : []),
 
-        ...(supportsCreatingExperiment
+        ...(supportsCreatingExperiment && insightMode === ItemMode.View
             ? [
                   <LemonButton
                       key="run-experiment"
@@ -82,7 +83,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           name: (insight.name || insight.derived_name) ?? undefined,
                       })}
                   >
-                      Run Experiment
+                      Run experiment
                   </LemonButton>,
               ]
             : []),
