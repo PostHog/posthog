@@ -16,8 +16,6 @@ from posthog.admin.admins import (
     PluginAdmin,
     TextAdmin,
     CohortAdmin,
-    PersonAdmin,
-    PersonDistinctIdAdmin,
     SurveyAdmin,
     DataWarehouseTableAdmin,
     ProjectAdmin,
@@ -70,8 +68,6 @@ admin.site.register(Plugin, PluginAdmin)
 admin.site.register(Text, TextAdmin)
 
 admin.site.register(Cohort, CohortAdmin)
-admin.site.register(Person, PersonAdmin)
-admin.site.register(PersonDistinctId, PersonDistinctIdAdmin)
 
 admin.site.register(Survey, SurveyAdmin)
 
