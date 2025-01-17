@@ -1,10 +1,11 @@
-import { IconPerson } from '@posthog/icons'
+import { IconPerson, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDropdown, LemonInput, Lettermark, ProfilePicture } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { fullName } from 'lib/utils'
 import { useEffect, useMemo, useState } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userGroupsLogic } from 'scenes/settings/environment/userGroupsLogic'
+import { urls } from 'scenes/urls'
 
 import { OrganizationMemberType, UserGroup } from '~/types'
 
@@ -61,7 +62,7 @@ export const AssigneeSelect = ({
         }
 
         return unassignedUser
-    }, [assignee, meFirstMembers, userGroupsLoading])
+    }, [assignee, meFirstMembers, userGroups])
 
     return (
         <LemonDropdown
@@ -80,21 +81,33 @@ export const AssigneeSelect = ({
                         onChange={setSearch}
                         fullWidth
                     />
-                    <ul className="space-y-px">
+                    <ul className="space-y-2">
                         <Section
-                            loading={membersLoading}
-                            search={!!search}
-                            type="user"
-                            items={filteredMembers.map(userDisplay)}
-                            onSelect={_onChange}
-                            activeId={assignee?.id}
-                        />
-
-                        <Section
+                            title="Groups"
                             loading={userGroupsLoading}
                             search={!!search}
                             type="user_group"
                             items={userGroups.map(groupDisplay)}
+                            onSelect={_onChange}
+                            activeId={assignee?.id}
+                            emptyState={
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    icon={<IconPlusSmall />}
+                                    to={urls.settings('environment-error-tracking', 'user-groups')}
+                                >
+                                    <div className="text-muted-alt">Create user group</div>
+                                </LemonButton>
+                            }
+                        />
+
+                        <Section
+                            title="Users"
+                            loading={membersLoading}
+                            search={!!search}
+                            type="user"
+                            items={filteredMembers.map(userDisplay)}
                             onSelect={_onChange}
                             activeId={assignee?.id}
                         />
@@ -120,18 +133,22 @@ const Section = ({
     items,
     onSelect,
     activeId,
+    emptyState,
+    title,
 }: {
+    title: string
     loading: boolean
     search: boolean
     type: ErrorTrackingIssueAssignee['type']
     items: AssigneeDisplayType[]
     onSelect: (value: ErrorTrackingIssue['assignee']) => void
     activeId?: string | number
+    emptyState?: JSX.Element
 }): JSX.Element => {
     return (
         <li>
             <section className="space-y-px">
-                <h5 className="mx-2 my-1">{type}s</h5>
+                <h5 className="mx-2 my-0.5">{title}</h5>
                 {items.map((item) => (
                     <li key={item.id}>
                         <LemonButton
@@ -152,9 +169,7 @@ const Section = ({
                 {loading ? (
                     <div className="p-2 text-muted-alt italic truncate border-t">Loading...</div>
                 ) : items.length === 0 ? (
-                    <div className="p-2 text-muted-alt italic truncate border-t">
-                        {search ? <span>No matches</span> : <span>No {type}s</span>}
-                    </div>
+                    <div className="border-t pt-1">{search ? <span>No matches</span> : emptyState}</div>
                 ) : null}
             </section>
         </li>
