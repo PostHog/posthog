@@ -348,7 +348,6 @@ def start_person_id_update_mutations(
             cluster.map_one_host_per_shard(dictionary.enqueue_person_id_update_mutation).result().items()
         )
     }
-
     return (dictionary, shard_mutations)
 
 
@@ -358,14 +357,11 @@ def wait_for_person_id_update_mutations(
     inputs: tuple[PersonOverridesSnapshotDictionary, ShardMutations],
 ) -> PersonOverridesSnapshotDictionary:
     [dictionary, shard_mutations] = inputs
-
     cluster = get_cluster(context.log)
-
     reduce(
         lambda x, y: x | y,
         [cluster.map_all_hosts_in_shard(shard, mutation.wait) for shard, mutation in shard_mutations.items()],
     ).result()
-
     return dictionary
 
 
@@ -384,9 +380,7 @@ def wait_for_overrides_delete_mutations(
     inputs: tuple[PersonOverridesSnapshotDictionary, Mutation],
 ) -> PersonOverridesSnapshotDictionary:
     [dictionary, mutation] = inputs
-
     get_cluster(context.log).map_all_hosts(mutation.wait).result()
-
     return dictionary
 
 
