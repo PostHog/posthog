@@ -32,16 +32,41 @@ def inline_css(value: str) -> str:
     return lxml.html.tostring(tree, doctype="<!DOCTYPE html>").decode("utf-8")
 
 
+def is_http_email_service_available() -> bool:
+    """
+    Returns whether HTTP email services are available on this instance (i.e. settings are in place).
+    This currently only supports Customer.io.
+    """
+    return bool(settings.CUSTOMER_IO_API_KEY)
+
+
+def is_smtp_email_service_available() -> bool:
+    """
+    Returns whether SMTP email services are available on this instance (i.e. settings are in place).
+    """
+    return bool(get_instance_setting("EMAIL_HOST"))
+
+
 def is_email_available(with_absolute_urls: bool = False) -> bool:
     """
     Returns whether email services are available on this instance (i.e. settings are in place).
     Emails with absolute URLs can't be sent if SITE_URL is unset.
     """
-    return (
-        get_instance_setting("EMAIL_ENABLED")
-        and bool(get_instance_setting("EMAIL_HOST"))
-        and (not with_absolute_urls or settings.SITE_URL is not None)
-    )
+    email_enabled = get_instance_setting("EMAIL_ENABLED")
+    smtp_email_service_available = is_smtp_email_service_available()
+    http_email_service_available = is_http_email_service_available()
+    site_url_set = settings.SITE_URL is not None
+
+    if not email_enabled:
+        return False
+
+    if not (smtp_email_service_available or http_email_service_available):
+        return False
+
+    if with_absolute_urls and not site_url_set:
+        return False
+
+    return True
 
 
 EMAIL_TASK_KWARGS = {
@@ -53,7 +78,8 @@ EMAIL_TASK_KWARGS = {
 }
 
 
-def _send_via_customerio(
+# Note: this http sender is only configure for customer.io right now
+def _send_via_http(
     to: list[dict[str, str]],
     campaign_key: str,
     subject: str,
@@ -79,12 +105,10 @@ def _send_via_customerio(
                     raw_email=dest["raw_email"], campaign_key=campaign_key
                 )
 
-                # Lock object while sending
                 record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
                 if record.sent_at:
                     continue
 
-                # Prepare properties for Customer.io
                 properties = {
                     "subject": subject,
                     "body": html_body,
@@ -111,7 +135,7 @@ def _send_via_customerio(
                 record.save()
 
     except Exception as err:
-        print("Could not send email via Customer.io:", err, file=sys.stderr)
+        print("Could not send email via http:", err, file=sys.stderr)
         capture_exception(err)
 
 
@@ -193,13 +217,13 @@ def _send_email(
     txt_body: str = "",
     html_body: str = "",
     reply_to: Optional[str] = None,
-    use_customerio: Optional[bool] = False,
+    use_http: Optional[bool] = False,
 ) -> None:
     """
-    Sends built email message asynchronously, either through SMTP or Customer.io
+    Sends built email message asynchronously, either through SMTP or HTTP
     """
-    if use_customerio:
-        _send_via_customerio(
+    if use_http:
+        _send_via_http(
             to=to,
             campaign_key=campaign_key,
             subject=subject,
@@ -228,7 +252,7 @@ class EmailMessage:
         template_context: Optional[dict] = None,
         headers: Optional[dict] = None,
         reply_to: Optional[str] = None,
-        use_customerio: Optional[bool] = False,
+        use_http: Optional[bool] = False,
     ):
         if template_context is None:
             template_context = {}
@@ -246,7 +270,7 @@ class EmailMessage:
         self.headers = headers if headers else {}
         self.to: list[dict[str, str]] = []
         self.reply_to = reply_to
-        self.use_customerio = use_customerio
+        self.use_http = use_http
 
     def add_recipient(self, email: str, name: Optional[str] = None) -> None:
         self.to.append({"recipient": f'"{name}" <{email}>' if name else email, "raw_email": email})
@@ -263,7 +287,7 @@ class EmailMessage:
             "txt_body": self.txt_body,
             "html_body": self.html_body,
             "reply_to": self.reply_to,
-            "use_customerio": self.use_customerio,
+            "use_http": self.use_http,
         }
 
         if send_async:
