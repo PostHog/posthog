@@ -95,7 +95,7 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
                     },
                     {
                         key: [Scene.LLMObservability, traceId || ''],
-                        name: `Trace ${traceId}`,
+                        name: traceId,
                     },
                 ]
             },

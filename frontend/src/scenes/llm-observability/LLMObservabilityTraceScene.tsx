@@ -2,6 +2,7 @@ import { PersonDisplay, TZLabel, urls } from '@posthog/apps-common'
 import { LemonCollapse, LemonDivider, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import classNames from 'classnames'
 import { useValues } from 'kea'
+import { NotFound } from 'lib/components/NotFound'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React, { useMemo } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -51,10 +52,7 @@ export function LLMObservabilityTraceScene(): JSX.Element {
             ) : responseError ? (
                 <InsightErrorState />
             ) : !traceResponse || traceResponse.results.length === 0 ? (
-                <InsightEmptyState
-                    heading={`The trace with ID ${traceId} has not been found`}
-                    detail="Check if the trace ID is correct."
-                />
+                <NotFound object="trace" />
             ) : (
                 <div className="relative pb-4 space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
                     <TraceMetadata trace={traceResponse.results[0]} />
@@ -88,16 +86,16 @@ function CostChip({ cost, title }: { cost: number; title: string }): JSX.Element
 
 function TraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
     return (
-        <header className="flex gap-8 flex-wrap border border-border rounded p-4 bg-bg-light text-sm">
+        <header className="flex gap-x-8 gap-y-2 flex-wrap border border-border rounded p-4 bg-bg-light text-sm">
             {'person' in trace && (
                 <Chip title="Person">
-                    <PersonDisplay person={trace.person} />
+                    <PersonDisplay withIcon="sm" person={trace.person} />
                 </Chip>
             )}
             <UsageChip event={trace} />
-            {typeof trace.inputCost === 'number' && <CostChip cost={trace.inputCost} title="Input Cost" />}
-            {typeof trace.outputCost === 'number' && <CostChip cost={trace.outputCost} title="Output Cost" />}
-            {typeof trace.totalCost === 'number' && <CostChip cost={trace.totalCost} title="Total Cost" />}
+            {typeof trace.inputCost === 'number' && <CostChip cost={trace.inputCost} title="Input cost" />}
+            {typeof trace.outputCost === 'number' && <CostChip cost={trace.outputCost} title="Output cost" />}
+            {typeof trace.totalCost === 'number' && <CostChip cost={trace.totalCost} title="Total cost" />}
         </header>
     )
 }
@@ -105,10 +103,10 @@ function TraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
 function TraceSidebar({ trace, eventId }: { trace: LLMTrace; eventId?: string | null }): JSX.Element {
     return (
         <aside className="border-border h-80 bg-bg-light border rounded overflow-hidden md:h-full md:w-72">
-            <header className="px-2 pt-2">
+            <header className="p-2">
                 <h2 className="font-medium text-base p-0 m-0">Timeline</h2>
             </header>
-            <LemonDivider />
+            <LemonDivider className="m-0" />
             <ul className="overflow-y-auto h-full">
                 {trace.events.map((event, index) => {
                     const usage = formatLLMUsage(event)
