@@ -55,7 +55,7 @@ export function Paths(): JSX.Element {
             const elements = canvasContainerRef.current?.querySelectorAll(`.Paths__canvas`)
             elements?.forEach((node) => node?.parentNode?.removeChild(node))
         }
-    }, [paths, !insightDataLoading, canvasWidth, canvasHeight, theme])
+    }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter, funnelPathsFilter])
 
     if (insightDataError) {
         return <InsightErrorState query={insightQuery} excludeDetail />
