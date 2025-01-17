@@ -1,12 +1,14 @@
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { isNotNil } from 'lib/utils'
 import { Dispatch, SetStateAction, useState } from 'react'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-const DELETE_CONFIRMATION_TEXT = 'permanently delete account'
+const DELETE_CONFIRMATION_TEXT = 'permanently delete data'
 
 export function DeleteUserModal({
     isOpen,
@@ -16,8 +18,9 @@ export function DeleteUserModal({
     setIsOpen: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
     const { user } = useValues(userLogic)
+    const { push } = useActions(router)
+    const { updateCurrentOrganization } = useActions(userLogic)
     const { deleteUser } = useActions(userLogic)
-
     const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
     const isDeletionInProgress = false
 
@@ -48,18 +51,17 @@ export function DeleteUserModal({
                         status="danger"
                         onClick={() => deleteUser()}
                     >
-                        Delete account
+                        {ownedOrganizations.length > 0 ? 'Delete account and organizations' : 'Delete account'}
                     </LemonButton>
                 </>
             }
             isOpen={isOpen}
         >
-            <p>
-                Account deletion <b>cannot be undone</b>. You will lose all your data permanently.
-            </p>
-            <p>The following organizations will be deleted:</p>
             {ownedOrganizations.length > 0 && (
                 <>
+                    <p className="text-danger font-semibold">
+                        The following organizations will be deleted along with all their data
+                    </p>
                     <LemonTable
                         dataSource={ownedOrganizations}
                         size="small"
@@ -74,10 +76,24 @@ export function DeleteUserModal({
                                 title: '',
                                 render: function RenderActionButton(_, organization) {
                                     return (
-                                        <div className="flex justify-end py-1 text-danger font-semibold">
-                                            {organization.membership_level === OrganizationMembershipLevel.Owner
-                                                ? 'Will be deleted'
-                                                : 'Leave'}
+                                        <div className="flex justify-end items-center gap-2 py-1 text-danger font-semibold">
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                status="danger"
+                                                onClick={() => {
+                                                    if (organization.id === user?.organization?.id) {
+                                                        push(urls.settings('organization-members'))
+                                                    } else {
+                                                        updateCurrentOrganization(
+                                                            organization.id,
+                                                            urls.settings('organization-members')
+                                                        )
+                                                    }
+                                                }}
+                                            >
+                                                Transfer ownership
+                                            </LemonButton>
                                         </div>
                                     )
                                 },
@@ -88,7 +104,11 @@ export function DeleteUserModal({
             )}
 
             <p className="pt-4">
-                Please type <strong>{DELETE_CONFIRMATION_TEXT}</strong> to confirm account deletion.
+                Account deletion <b>cannot be undone</b>. You will lose all your data permanently.
+            </p>
+            <p>
+                Please type <strong className="select-none">{DELETE_CONFIRMATION_TEXT}</strong> to confirm account
+                deletion.
             </p>
             <LemonInput
                 type="text"
