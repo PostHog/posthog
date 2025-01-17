@@ -9,7 +9,6 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
-import { personsManagementSceneLogic } from 'scenes/persons-management/personsManagementSceneLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -105,7 +104,7 @@ export const cohortsModel = kea<cohortsModelType>([
     path(['models', 'cohortsModel']),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
-        actions: [exportsLogic, ['startExport'], personsManagementSceneLogic, ['setTabKey']],
+        actions: [exportsLogic, ['startExport']],
     })),
     actions(() => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
