@@ -38,7 +38,11 @@ export class TemplateTester {
         this.executor = new HogExecutor(mockHub, mockHogFunctionManager)
     }
 
-    async beforeEach() {
+    /*
+    we need transformResult to be able to test the geoip template
+    the same way we did it here https://github.com/PostHog/posthog-plugin-geoip/blob/a5e9370422752eb7ea486f16c5cc8acf916b67b0/index.test.ts#L79
+    */
+    async beforeEach(transformResult?: (res: any) => any) {
         this.template = {
             ...this._template,
             bytecode: await compileHog(this._template.hog),
@@ -52,7 +56,14 @@ export class TemplateTester {
         }
 
         const mockHub = {
-            mmdb,
+            mmdb: transformResult
+                ? {
+                      city: (ipAddress: string) => {
+                          const res = mmdb.city(ipAddress)
+                          return transformResult(res)
+                      },
+                  }
+                : mmdb,
         } as any
         const mockHogFunctionManager = {} as any
 
