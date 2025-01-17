@@ -340,7 +340,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         "f'{properties.$ai_trace_id}' -- Trace ID",
                         "f'{properties.$ai_model}' -- Model",
                         "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
-                        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {properties.$ai_input_tokens + properties.$ai_output_tokens})' -- Token usage",
+                        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {properties.$ai_input_tokens + properties.$ai_output_tokens})' -- Token usage",
                         "f'{properties.$ai_latency} s' -- Latency",
                         'timestamp',
                     ],
