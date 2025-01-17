@@ -46,6 +46,12 @@ class PersonOverridesSnapshotTable:
         client.execute(f"DROP TABLE IF EXISTS {self.qualified_name} SYNC")
 
     def populate(self, client: Client) -> None:
+        # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
+        # this could optionally support truncate as a config option if necessary to reset the table state, or
+        # force an optimize after insertion to compact the table before dictionary insertion (if that's even needed)
+        [[count]] = client.execute(f"SELECT count() FROM {self.qualified_name}")
+        assert count == 0
+
         client.execute(
             f"""
             INSERT INTO {self.qualified_name} (team_id, distinct_id, person_id, version)
@@ -202,8 +208,7 @@ class PersonOverridesSnapshotDictionary:
                 return Mutation(table, mutation_id)
 
         # if this mutation already exists, don't start it again
-        # TODO: this is theoretically subject to replication lag and should probably be checked on all the hosts in the
-        # shard instead of just the selected one
+        # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
         if mutation := _find_existing_mutation():
             return mutation
 
@@ -251,8 +256,7 @@ class PersonOverridesSnapshotDictionary:
                 return Mutation(table, mutation_id)
 
         # if this mutation already exists, don't start it again
-        # TODO: this is theoretically subject to replication lag and should probably be checked on all the hosts in the
-        # shard instead of just the selected one
+        # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
         if mutation := _find_existing_mutation():
             return mutation
 
@@ -293,7 +297,6 @@ def create_snapshot_table(context: dagster.OpExecutionContext, config: SnapshotC
 def populate_snapshot_table(
     context: dagster.OpExecutionContext, table: PersonOverridesSnapshotTable
 ) -> PersonOverridesSnapshotTable:
-    # NOTE: this needs to be careful with retries
     get_cluster(context.log).any_host(table.populate).result()
     return table
 
