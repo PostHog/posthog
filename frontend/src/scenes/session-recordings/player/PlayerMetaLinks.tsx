@@ -1,5 +1,13 @@
 import { IconDownload, IconEllipsis, IconNotebook, IconPin, IconPinFilled, IconShare, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonButtonWithDropdown,
+    LemonDialog,
+    LemonDivider,
+    LemonMenu,
+    LemonMenuItems,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -161,12 +169,58 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
     )
 }
 
-const MenuActions = (): JSX.Element => {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { exportRecordingToFile, deleteRecording, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
+const ExportRecordings = (): JSX.Element => {
+    const { exportRecordingToFile } = useActions(sessionRecordingPlayerLogic)
 
     const hasMobileExportFlag = useFeatureFlag('SESSION_REPLAY_EXPORT_MOBILE_DATA')
     const hasMobileExport = window.IMPERSONATED_SESSION || hasMobileExportFlag
+
+    return (
+        <LemonButtonWithDropdown
+            size="xsmall"
+            fullWidth
+            icon={<IconDownload />}
+            data-attr="export-recording-button"
+            dropdown={{
+                actionable: true,
+                placement: 'right-start',
+                closeParentPopoverOnClickInside: true,
+                overlay: (
+                    <>
+                        <h5 className="text-xxs">File type</h5>
+                        <LemonDivider />
+                        <LemonButton
+                            fullWidth
+                            onClick={() => exportRecordingToFile(false)}
+                            size="xsmall"
+                            data-attr="export-recording-json"
+                            tooltip="Export recording to a JSON file. This can be loaded later into PostHog for playback."
+                        >
+                            .json
+                        </LemonButton>
+                        {hasMobileExport && (
+                            <LemonButton
+                                fullWidth
+                                onClick={() => exportRecordingToFile(true)}
+                                size="xsmall"
+                                data-attr="export-mobile-recording-json"
+                                tooltip="DEBUG ONLY - Export untransformed recording to a file. This can be loaded later into PostHog for playback."
+                            >
+                                mobile .json (support only)
+                            </LemonButton>
+                        )}
+                    </>
+                ),
+            }}
+        >
+            Export
+        </LemonButtonWithDropdown>
+    )
+}
+
+const MenuActions = (): JSX.Element => {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { deleteRecording, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
 
     const onDelete = (): void => {
         setIsFullScreen(false)
@@ -186,17 +240,8 @@ const MenuActions = (): JSX.Element => {
 
     const items: LemonMenuItems = [
         {
-            label: 'Export to file',
-            onClick: () => exportRecordingToFile(false),
-            icon: <IconDownload />,
-            tooltip: 'Export recording to a file. This can be loaded later into PostHog for playback.',
-        },
-        hasMobileExport && {
-            label: 'Export mobile replay to file',
-            onClick: () => exportRecordingToFile(true),
-            tooltip:
-                'DEBUG ONLY - Export untransformed recording to a file. This can be loaded later into PostHog for playback.',
-            icon: <IconDownload />,
+            label: () => <ExportRecordings />,
+            custom: true,
         },
         logicProps.playerKey !== 'modal' && {
             label: 'Delete recording',
