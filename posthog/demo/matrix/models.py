@@ -208,6 +208,7 @@ class SimServerClient(SimClient):
                 "$ai_latency": latency,
                 "$ai_trace_id": trace_id or str(uuid7()),
             },
+            distinct_id=distinct_id,
         )
 
 

@@ -497,7 +497,7 @@ def render_template(
     return response
 
 
-def get_self_capture_api_token(user: Optional["User"]) -> Optional[str]:
+def get_self_capture_api_token(user: Optional["AbstractBaseUser" | "AnonymousUser"]) -> Optional[str]:
     from posthog.models import Team
 
     # Get the current user's team (or first team in the instance) to set self capture configs
