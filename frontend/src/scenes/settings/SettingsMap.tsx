@@ -18,6 +18,7 @@ import {
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
+import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
@@ -296,6 +297,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'surveys-interface',
                 title: 'Surveys web interface',
                 component: <SurveySettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-feature-flags',
+        title: 'Feature flags',
+        settings: [
+            {
+                id: 'feature-flags-interface',
+                title: 'Feature flags',
+                component: <FeatureFlagSettings />,
             },
         ],
     },

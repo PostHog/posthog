@@ -981,6 +981,7 @@ class LLMGeneration(BaseModel):
     inputTokens: Optional[float] = None
     latency: float
     model: Optional[str] = None
+    modelParameters: Optional[dict[str, Any]] = None
     output: Optional[Any] = None
     outputCost: Optional[float] = None
     outputTokens: Optional[float] = None
@@ -992,8 +993,8 @@ class LLMTracePerson(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    createdAt: str
-    distinctId: str
+    created_at: str
+    distinct_id: str
     properties: dict[str, Any]
     uuid: str
 
@@ -1176,7 +1177,7 @@ class QueryResponseAlternative5(BaseModel):
     stdout: Optional[str] = None
 
 
-class QueryResponseAlternative36(BaseModel):
+class QueryResponseAlternative37(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2241,13 +2242,13 @@ class LLMTrace(BaseModel):
     createdAt: str
     events: list[LLMGeneration]
     id: str
-    inputCost: float
-    inputTokens: float
-    outputCost: float
-    outputTokens: float
+    inputCost: Optional[float] = None
+    inputTokens: Optional[float] = None
+    outputCost: Optional[float] = None
+    outputTokens: Optional[float] = None
     person: LLMTracePerson
-    totalCost: float
-    totalLatency: float
+    totalCost: Optional[float] = None
+    totalLatency: Optional[float] = None
 
 
 class LifecycleFilter(BaseModel):
@@ -4087,6 +4088,31 @@ class Response7(BaseModel):
     types: Optional[list] = None
 
 
+class Response11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[LLMTrace]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class DataWarehouseNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5229,6 +5255,31 @@ class QueryResponseAlternative28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[LLMTrace]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative29(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -5247,7 +5298,7 @@ class QueryResponseAlternative28(BaseModel):
     )
 
 
-class QueryResponseAlternative29(BaseModel):
+class QueryResponseAlternative30(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5269,7 +5320,7 @@ class QueryResponseAlternative29(BaseModel):
     )
 
 
-class QueryResponseAlternative31(BaseModel):
+class QueryResponseAlternative32(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5290,7 +5341,7 @@ class QueryResponseAlternative31(BaseModel):
     )
 
 
-class QueryResponseAlternative34(BaseModel):
+class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5316,7 +5367,7 @@ class QueryResponseAlternative34(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative37(BaseModel):
+class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5337,7 +5388,7 @@ class QueryResponseAlternative37(BaseModel):
     )
 
 
-class QueryResponseAlternative38(BaseModel):
+class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5358,7 +5409,7 @@ class QueryResponseAlternative38(BaseModel):
     )
 
 
-class QueryResponseAlternative39(BaseModel):
+class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5379,7 +5430,7 @@ class QueryResponseAlternative39(BaseModel):
     )
 
 
-class QueryResponseAlternative40(BaseModel):
+class QueryResponseAlternative41(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5480,12 +5531,32 @@ class TracesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
+    filterTestAccounts: Optional[bool] = None
     kind: Literal["TracesQuery"] = "TracesQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[TracesQueryResponse] = None
     traceId: Optional[str] = None
 
@@ -5983,7 +6054,7 @@ class PropertyGroupFilter(BaseModel):
     values: list[PropertyGroupFilterValue]
 
 
-class QueryResponseAlternative30(BaseModel):
+class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6972,7 +7043,7 @@ class PathsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
-class QueryResponseAlternative35(BaseModel):
+class QueryResponseAlternative36(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7020,13 +7091,14 @@ class QueryResponseAlternative(
             QueryResponseAlternative29,
             QueryResponseAlternative30,
             QueryResponseAlternative31,
-            QueryResponseAlternative34,
+            QueryResponseAlternative32,
             QueryResponseAlternative35,
             QueryResponseAlternative36,
             QueryResponseAlternative37,
             QueryResponseAlternative38,
             QueryResponseAlternative39,
             QueryResponseAlternative40,
+            QueryResponseAlternative41,
         ]
     ]
 ):
@@ -7060,13 +7132,14 @@ class QueryResponseAlternative(
         QueryResponseAlternative29,
         QueryResponseAlternative30,
         QueryResponseAlternative31,
-        QueryResponseAlternative34,
+        QueryResponseAlternative32,
         QueryResponseAlternative35,
         QueryResponseAlternative36,
         QueryResponseAlternative37,
         QueryResponseAlternative38,
         QueryResponseAlternative39,
         QueryResponseAlternative40,
+        QueryResponseAlternative41,
     ]
 
 
@@ -7304,6 +7377,7 @@ class DataTableNode(BaseModel):
             Response8,
             Response9,
             Response10,
+            Response11,
         ]
     ] = None
     showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
@@ -7347,6 +7421,7 @@ class DataTableNode(BaseModel):
         ErrorTrackingQuery,
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
+        TracesQuery,
     ] = Field(..., description="Source of the events")
 
 
@@ -7388,6 +7463,7 @@ class HogQLAutocomplete(BaseModel):
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
             RecordingsQuery,
+            TracesQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -7433,6 +7509,7 @@ class HogQLMetadata(BaseModel):
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
             RecordingsQuery,
+            TracesQuery,
         ]
     ] = Field(
         default=None,
