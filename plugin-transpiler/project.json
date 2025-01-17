@@ -1,4 +1,5 @@
 {
+    "$schema": "https://json.schemastore.org/nx",
     "name": "plugin-transpiler",
     "root": ".",
     "sourceRoot": "./src",

@@ -1,0 +1,8 @@
+{
+    "$schema": "https://json.schemastore.org/nx",
+    "name": "ee",
+    "sourceRoot": ".",
+    "projectType": "library",
+    "implicitDependencies": [],
+    "targets": {}
+}

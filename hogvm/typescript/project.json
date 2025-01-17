@@ -1,6 +1,6 @@
 {
     "$schema": "https://json.schemastore.org/nx",
-    "name": "hogvm",
+    "name": "hogvm-ts",
     "sourceRoot": "./src",
     "projectType": "library",
     "targets": {

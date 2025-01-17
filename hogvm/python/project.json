@@ -1,0 +1,7 @@
+{
+    "$schema": "https://json.schemastore.org/nx",
+    "name": "hogvm-py",
+    "sourceRoot": "./",
+    "projectType": "library",
+    "targets": {}
+}

@@ -3,24 +3,26 @@
     "name": "frontend",
     "sourceRoot": "./src",
     "projectType": "library",
-    "implicitDependencies": ["hogvm"],
+    "implicitDependencies": ["hogvm-ts", "lemon-ui"],
     "targets": {
         "build": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["cd .. && npm run build"]
+                "commands": ["npm run build"],
+                "cwd": "."
             }
         },
         "serve": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["cd .. && npm start"]
+                "commands": ["npm start"],
+                "cwd": "."
             }
         },
         "test": {
-            "executor": "@nrwl/jest:jest",
+            "executor": "@nx/jest:jest",
             "options": {
-                "jestConfig": "../jest.config.ts"
+                "jestConfig": "./jest.config.ts"
             }
         }
     }

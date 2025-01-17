@@ -10,7 +10,7 @@
             "cache": true
         },
         "schema:build": {
-            "outputs": ["{projectRoot}/posthog/schema.py, frontend/src/queries/schema.json"],
+            "outputs": ["{projectRoot}/posthog/schema.py", "frontend/src/queries/schema.json"],
             "cache": true
         },
         "schema:build:json": {
