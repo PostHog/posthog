@@ -533,7 +533,6 @@ export class HogExecutor {
 
                             try {
                                 const result = this.server.mmdb.city(ipAddress)
-                                console.log('GeoIP Result:', result)
                                 return result
                             } catch (e) {
                                 if (e.name !== 'AddressNotFoundError') {
