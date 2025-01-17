@@ -25,6 +25,7 @@ import { normalizeEventStep } from './normalizeEventStep'
 import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
+import { processAiEvent } from './processAiEvent'
 import { processPersonsStep } from './processPersonsStep'
 import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
 
@@ -213,6 +214,10 @@ export class EventPipelineRunner {
 
         if (event.event === '$$heatmap') {
             return this.runHeatmapPipelineSteps(event, kafkaAcks)
+        }
+
+        if (event.event === '$ai_generation' || event.event === '$ai_embedding') {
+            event = processAiEvent(event)
         }
 
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
