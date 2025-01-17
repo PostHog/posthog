@@ -174,6 +174,39 @@ class PersonOverridesSnapshotDictionary:
 
     def enqueue_person_id_update_mutation(self, client: Client) -> Mutation:
         table = EVENTS_DATA_TABLE()
+
+        def _find_existing_mutation() -> Mutation | None:
+            results = client.execute(
+                f"""
+                SELECT mutation_id
+                FROM system.mutations
+                WHERE
+                    database = %(database)s
+                    AND table = %(table)s
+                    AND startsWith(command, 'UPDATE')
+                    AND command like concat('%%', %(name)s, '%%')
+                    AND NOT is_killed  -- ok to restart a killed mutation
+                ORDER BY create_time DESC
+                """,
+                {
+                    "database": settings.CLICKHOUSE_DATABASE,
+                    "table": table,
+                    "name": self.qualified_name,
+                },
+            )
+            if not results:
+                return None
+            else:
+                assert len(results) == 1
+                [[mutation_id]] = results
+                return Mutation(table, mutation_id)
+
+        # if this mutation already exists, don't start it again
+        # TODO: this is theoretically subject to replication lag and should probably be checked on all the hosts in the
+        # shard instead of just the selected one
+        if mutation := _find_existing_mutation():
+            return mutation
+
         client.execute(
             f"""
             ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{table}
@@ -183,28 +216,46 @@ class PersonOverridesSnapshotDictionary:
             {"name": self.qualified_name},
         )
 
-        [[table, mutation_id]] = client.execute(
-            f"""
-            SELECT table, mutation_id
-            FROM system.mutations
-            WHERE
-                database = %(database)s
-                AND table = %(table)s
-                AND startsWith(command, 'UPDATE')
-                AND command like concat('%%', %(name)s, '%%')
-            ORDER BY create_time DESC
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "table": table,
-                "name": self.qualified_name,
-            },
-        )
+        mutation = _find_existing_mutation()
+        assert mutation is not None
 
-        return Mutation(table, mutation_id)
+        return mutation
 
     def enqueue_overrides_delete_mutation(self, client: Client) -> Mutation:
         table = PERSON_DISTINCT_ID_OVERRIDES_TABLE
+
+        def _find_existing_mutation() -> Mutation | None:
+            results = client.execute(
+                f"""
+                SELECT mutation_id
+                FROM system.mutations
+                WHERE
+                    database = %(database)s
+                    AND table = %(table)s
+                    AND startsWith(command, 'DELETE')
+                    AND command like concat('%%', %(name)s, '%%')
+                    AND NOT is_killed  -- ok to restart a killed mutation
+                ORDER BY create_time DESC
+                """,
+                {
+                    "database": settings.CLICKHOUSE_DATABASE,
+                    "table": table,
+                    "name": self.qualified_name,
+                },
+            )
+            if not results:
+                return None
+            else:
+                assert len(results) == 1
+                [[mutation_id]] = results
+                return Mutation(table, mutation_id)
+
+        # if this mutation already exists, don't start it again
+        # TODO: this is theoretically subject to replication lag and should probably be checked on all the hosts in the
+        # shard instead of just the selected one
+        if mutation := _find_existing_mutation():
+            return mutation
+
         client.execute(
             f"""
             ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{table}
@@ -215,25 +266,10 @@ class PersonOverridesSnapshotDictionary:
             {"name": self.qualified_name},
         )
 
-        [[table, mutation_id]] = client.execute(
-            f"""
-            SELECT table, mutation_id
-            FROM system.mutations
-            WHERE
-                database = %(database)s
-                AND table = %(table)s
-                AND startsWith(command, 'DELETE')
-                AND command like concat('%%', %(name)s, '%%')
-            ORDER BY create_time DESC
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "table": table,
-                "name": self.qualified_name,
-            },
-        )
+        mutation = _find_existing_mutation()
+        assert mutation is not None
 
-        return Mutation(table, mutation_id)
+        return mutation
 
 
 # Snapshot Table Management
@@ -302,7 +338,6 @@ def start_person_id_update_mutations(
     context: dagster.OpExecutionContext,
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> tuple[PersonOverridesSnapshotDictionary, ShardMutations]:
-    # TODO: this needs to be careful with retries to avoid kicking off mutations that may have already started
     cluster = get_cluster(context.log)
     shard_mutations = {
         host.shard_num: mutation
@@ -336,7 +371,6 @@ def start_overrides_delete_mutations(
     context: dagster.OpExecutionContext,
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> tuple[PersonOverridesSnapshotDictionary, Mutation]:
-    # TODO: this needs to be careful with retries to avoid kicking off mutations that may have already started
     mutation = get_cluster(context.log).any_host(dictionary.enqueue_overrides_delete_mutation).result()
     return (dictionary, mutation)
 
