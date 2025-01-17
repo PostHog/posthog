@@ -251,20 +251,24 @@ def create_snapshot_table(context: dagster.OpExecutionContext, config: SnapshotC
         id=uuid.UUID(context.run.run_id).hex,
         timestamp=config.datetime,
     )
-    get_cluster().map_all_hosts(table.create).result()
+    get_cluster(context.log).map_all_hosts(table.create).result()
     return table
 
 
 @dagster.op
-def populate_snapshot_table(table: PersonOverridesSnapshotTable) -> PersonOverridesSnapshotTable:
+def populate_snapshot_table(
+    context: dagster.OpExecutionContext, table: PersonOverridesSnapshotTable
+) -> PersonOverridesSnapshotTable:
     # NOTE: this needs to be careful with retries
-    get_cluster().any_host(table.populate).result()
+    get_cluster(context.log).any_host(table.populate).result()
     return table
 
 
 @dagster.op
-def wait_for_snapshot_table_replication(table: PersonOverridesSnapshotTable) -> PersonOverridesSnapshotTable:
-    get_cluster().map_all_hosts(table.sync).result()
+def wait_for_snapshot_table_replication(
+    context: dagster.OpExecutionContext, table: PersonOverridesSnapshotTable
+) -> PersonOverridesSnapshotTable:
+    get_cluster(context.log).map_all_hosts(table.sync).result()
     return table
 
 
@@ -272,17 +276,20 @@ def wait_for_snapshot_table_replication(table: PersonOverridesSnapshotTable) -> 
 
 
 @dagster.op
-def create_snapshot_dictionary(table: PersonOverridesSnapshotTable) -> PersonOverridesSnapshotDictionary:
+def create_snapshot_dictionary(
+    context: dagster.OpExecutionContext, table: PersonOverridesSnapshotTable
+) -> PersonOverridesSnapshotDictionary:
     dictionary = PersonOverridesSnapshotDictionary(table)
-    get_cluster().map_all_hosts(dictionary.create).result()
+    get_cluster(context.log).map_all_hosts(dictionary.create).result()
     return dictionary
 
 
 @dagster.op
 def load_and_verify_snapshot_dictionary(
+    context: dagster.OpExecutionContext,
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotDictionary:
-    cluster = get_cluster()
+    cluster = get_cluster(context.log)
     # TODO: it might make sense to merge these two methods together, so that loading returns the checksum
     cluster.map_all_hosts(dictionary.load).result()
     assert len(set(cluster.map_all_hosts(dictionary.get_checksum).result().values())) == 1
@@ -296,10 +303,11 @@ ShardMutations = dict[int, Mutation]
 
 @dagster.op
 def start_person_id_update_mutations(
+    context: dagster.OpExecutionContext,
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> tuple[PersonOverridesSnapshotDictionary, ShardMutations]:
     # TODO: this needs to be careful with retries to avoid kicking off mutations that may have already started
-    cluster = get_cluster()
+    cluster = get_cluster(context.log)
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (
@@ -312,11 +320,12 @@ def start_person_id_update_mutations(
 
 @dagster.op
 def wait_for_person_id_update_mutations(
+    context: dagster.OpExecutionContext,
     inputs: tuple[PersonOverridesSnapshotDictionary, ShardMutations],
 ) -> PersonOverridesSnapshotDictionary:
     [dictionary, shard_mutations] = inputs
 
-    cluster = get_cluster()
+    cluster = get_cluster(context.log)
 
     reduce(
         lambda x, y: x | y,
@@ -328,33 +337,37 @@ def wait_for_person_id_update_mutations(
 
 @dagster.op
 def start_overrides_delete_mutations(
+    context: dagster.OpExecutionContext,
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> tuple[PersonOverridesSnapshotDictionary, Mutation]:
     # TODO: this needs to be careful with retries to avoid kicking off mutations that may have already started
-    mutation = get_cluster().any_host(dictionary.enqueue_overrides_delete_mutation).result()
+    mutation = get_cluster(context.log).any_host(dictionary.enqueue_overrides_delete_mutation).result()
     return (dictionary, mutation)
 
 
 @dagster.op
 def wait_for_overrides_delete_mutations(
+    context: dagster.OpExecutionContext,
     inputs: tuple[PersonOverridesSnapshotDictionary, Mutation],
 ) -> PersonOverridesSnapshotDictionary:
     [dictionary, mutation] = inputs
 
-    get_cluster().map_all_hosts(mutation.wait).result()
+    get_cluster(context.log).map_all_hosts(mutation.wait).result()
 
     return dictionary
 
 
 @dagster.op
-def drop_snapshot_dictionary(dictionary: PersonOverridesSnapshotDictionary) -> PersonOverridesSnapshotTable:
-    get_cluster().map_all_hosts(dictionary.drop).result()
+def drop_snapshot_dictionary(
+    context: dagster.OpExecutionContext, dictionary: PersonOverridesSnapshotDictionary
+) -> PersonOverridesSnapshotTable:
+    get_cluster(context.log).map_all_hosts(dictionary.drop).result()
     return dictionary.source
 
 
 @dagster.op
-def drop_snapshot_table(table: PersonOverridesSnapshotTable) -> None:
-    get_cluster().map_all_hosts(table.drop).result()
+def drop_snapshot_table(context: dagster.OpExecutionContext, table: PersonOverridesSnapshotTable) -> None:
+    get_cluster(context.log).map_all_hosts(table.drop).result()
 
 
 @dagster.job

@@ -12,9 +12,6 @@ from django.conf import settings
 from posthog.clickhouse.client.connection import make_ch_pool
 
 
-logger = logging.getLogger(__name__)
-
-
 K = TypeVar("K")
 V = TypeVar("V")
 
@@ -73,7 +70,15 @@ T = TypeVar("T")
 
 
 class ClickhouseCluster:
-    def __init__(self, bootstrap_client: Client, extra_hosts: Sequence[ConnectionInfo] | None = None) -> None:
+    def __init__(
+        self,
+        bootstrap_client: Client,
+        extra_hosts: Sequence[ConnectionInfo] | None = None,
+        logger: logging.Logger | None = None,
+    ) -> None:
+        if logger is None:
+            logger = logging.getLogger(__name__)
+
         self.__hosts = [
             HostInfo(ConnectionInfo(host_address), shard_num, replica_num)
             for (host_address, shard_num, replica_num) in bootstrap_client.execute(
@@ -91,6 +96,7 @@ class ClickhouseCluster:
                 [HostInfo(connection_info, shard_num=None, replica_num=None) for connection_info in extra_hosts]
             )
         self.__pools: dict[HostInfo, ChPool] = {}
+        self.__logger = logger
 
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
@@ -99,14 +105,14 @@ class ClickhouseCluster:
 
         def task():
             with pool.get_client() as client:
-                logger.debug("Executing %r on %r...", fn, host)
+                self.__logger.debug("Executing %r on %r...", fn, host)
                 try:
                     result = fn(client)
                 except Exception:
-                    logger.exception("Failed to execute %r on %r!", fn, host)
+                    self.__logger.debug("Failed to execute %r on %r!", fn, host, exc_info=True)
                     raise
                 else:
-                    logger.debug("Successfully executed %r on %r.", fn, host)
+                    self.__logger.debug("Successfully executed %r on %r.", fn, host)
                 return result
 
         return task
