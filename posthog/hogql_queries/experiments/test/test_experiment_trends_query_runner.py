@@ -1581,7 +1581,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(str(context.exception), "'invalid_table_name'")
 
     # Uses the same values as test_query_runner_with_data_warehouse_series_avg_amount for easy comparison
-    @freeze_time("2020-01-01T12:00:00Z")
+    @freeze_time("2020-01-01T00:00:00Z")
     def test_query_runner_with_avg_math(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -1590,16 +1590,15 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         count_query = TrendsQuery(
             series=[
+                # Starts with math="avg" but will be changed to math="sum"
                 EventsNode(event="purchase", math="avg", math_property="amount", math_property_type="event_properties")
             ]
         )
-        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
-
         experiment_query = ExperimentTrendsQuery(
             experiment_id=experiment.id,
             kind="ExperimentTrendsQuery",
             count_query=count_query,
-            exposure_query=exposure_query,
+            exposure_query=None,
         )
 
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
