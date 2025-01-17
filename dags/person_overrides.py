@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import partial, reduce
 
 import dagster
+import pydantic
 from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
@@ -14,6 +15,10 @@ from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
+    """
+    The ClickHouse cluster used to run the job.
+    """
+
     client_settings: dict[str, str] = {
         "max_execution_time": "0",
         "max_memory_usage": "0",
@@ -292,7 +297,16 @@ class PersonOverridesSnapshotDictionary:
 
 
 class SnapshotTableConfig(dagster.Config):
-    timestamp: str
+    """
+    Configuration for creating and populating the initial snapshot table.
+    """
+
+    timestamp: str = pydantic.Field(
+        description="The upper bound (non-inclusive) timestamp used when selecting person overrides to be squashed. The "
+        "value can be provided in any format that is can be parsed by ClickHouse. This value should be far enough in "
+        "the past that there is no reasonable likelihood that events or overrides prior to this time have not yet been "
+        "written to the database and replicated to all hosts in the cluster."
+    )
 
 
 @dagster.op
@@ -301,6 +315,7 @@ def create_snapshot_table(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     config: SnapshotTableConfig,
 ) -> PersonOverridesSnapshotTable:
+    """Create the snapshot table on all hosts in the cluster."""
     table = PersonOverridesSnapshotTable(
         id=uuid.UUID(context.run.run_id).hex,
         timestamp=config.timestamp,
@@ -314,6 +329,7 @@ def populate_snapshot_table(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     table: PersonOverridesSnapshotTable,
 ) -> PersonOverridesSnapshotTable:
+    """Fill the snapshot data with the selected overrides based on the configuration timestamp."""
     cluster.any_host(table.populate).result()
     return table
 
@@ -323,6 +339,7 @@ def wait_for_snapshot_table_replication(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     table: PersonOverridesSnapshotTable,
 ) -> PersonOverridesSnapshotTable:
+    """Wait for the snapshot table data to be replicated to all hosts in the cluster."""
     cluster.map_all_hosts(table.sync).result()
     return table
 
@@ -331,8 +348,16 @@ def wait_for_snapshot_table_replication(
 
 
 class SnapshotDictionaryConfig(dagster.Config):
-    shards: int = 16
-    max_execution_time: int = 15 * 60
+    shards: int = pydantic.Field(
+        default=16,
+        description="The number of shards to be used when building the dictionary. Using larger values can speed up the "
+        "creation process. See the ClickHouse documentation for more information.",
+    )
+    max_execution_time: int = pydantic.Field(
+        default=0,
+        description="The maximum amount of time to wait for the dictionary to be loaded before considering the operation "
+        "a failure, or 0 to wait an unlimited amount of time.",
+    )
 
 
 @dagster.op
@@ -341,6 +366,7 @@ def create_snapshot_dictionary(
     config: SnapshotDictionaryConfig,
     table: PersonOverridesSnapshotTable,
 ) -> PersonOverridesSnapshotDictionary:
+    """Create the snapshot dictionary (from the snapshot table data) on all hosts in the cluster."""
     dictionary = PersonOverridesSnapshotDictionary(table)
     cluster.map_all_hosts(
         partial(
@@ -357,6 +383,7 @@ def load_and_verify_snapshot_dictionary(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotDictionary:
+    """Load the dictionary data on all hosts in the cluster, and ensure all hosts have identical data."""
     checksums = cluster.map_all_hosts(dictionary.load).result()
     assert len(set(checksums.values())) == 1
     return dictionary
@@ -372,6 +399,7 @@ def start_person_id_update_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> tuple[PersonOverridesSnapshotDictionary, ShardMutations]:
+    """Start the mutation to update `sharded_events.person_id` with the snapshot data on all shards."""
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (
@@ -386,6 +414,7 @@ def wait_for_person_id_update_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     inputs: tuple[PersonOverridesSnapshotDictionary, ShardMutations],
 ) -> PersonOverridesSnapshotDictionary:
+    """Wait for all hosts to complete the `sharded_events.person_id` update mutation."""
     [dictionary, shard_mutations] = inputs
     reduce(
         lambda x, y: x | y,
@@ -399,6 +428,7 @@ def start_overrides_delete_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> tuple[PersonOverridesSnapshotDictionary, Mutation]:
+    """Start the mutation to remove overrides contained within the snapshot from the overrides table."""
     mutation = cluster.any_host(dictionary.enqueue_overrides_delete_mutation).result()
     return (dictionary, mutation)
 
@@ -408,6 +438,7 @@ def wait_for_overrides_delete_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     inputs: tuple[PersonOverridesSnapshotDictionary, Mutation],
 ) -> PersonOverridesSnapshotDictionary:
+    """Wait for all hosts to complete the mutation to remove overrides contained within the snapshot from the overrides table."""
     [dictionary, mutation] = inputs
     cluster.map_all_hosts(mutation.wait).result()
     return dictionary
@@ -418,6 +449,7 @@ def drop_snapshot_dictionary(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotTable:
+    """Drop the snapshot dictionary on all hosts."""
     cluster.map_all_hosts(dictionary.drop).result()
     return dictionary.source
 
@@ -427,6 +459,7 @@ def drop_snapshot_table(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     table: PersonOverridesSnapshotTable,
 ) -> None:
+    """Drop the snapshot table on all hosts."""
     cluster.map_all_hosts(table.drop).result()
 
 
