@@ -25,6 +25,7 @@ export type DeepPartialHogFunctionInvocationGlobals = {
 export class TemplateTester {
     public template: HogFunctionTemplateCompiled
     private executor: HogExecutor
+    private mockHub: Hub
 
     public mockFetch = jest.fn()
     public mockPrint = jest.fn()
@@ -50,7 +51,7 @@ export class TemplateTester {
             bytecode: await compileHog(this._template.hog),
         }
 
-        const mockHub = { mmdb: undefined } as any
+        this.mockHub = { mmdb: undefined } as any
 
         if (!skipMMDB) {
             try {
@@ -60,7 +61,7 @@ export class TemplateTester {
                 const mmdbBuffer = brotliDecompressSync(mmdbBrotliContents)
                 const mmdb = Reader.openBuffer(mmdbBuffer)
 
-                mockHub.mmdb = transformResult
+                this.mockHub.mmdb = transformResult
                     ? {
                           city: (ipAddress: string) => {
                               const res = mmdb.city(ipAddress)
@@ -74,7 +75,7 @@ export class TemplateTester {
         }
 
         const mockHogFunctionManager = {} as any
-        this.executor = new HogExecutor(mockHub, mockHogFunctionManager)
+        this.executor = new HogExecutor(this.mockHub, mockHogFunctionManager)
     }
 
     createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
@@ -159,7 +160,26 @@ export class TemplateTester {
 
         const globalsWithInputs = buildGlobalsWithInputs(globals, hogFunction.inputs)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
-        return this.executor.execute(invocation)
+
+        const transformationFunctions = {
+            geoipLookup: (ipAddress: unknown) => {
+                if (typeof ipAddress !== 'string') {
+                    return null
+                }
+                if (!this.mockHub.mmdb) {
+                    return null
+                }
+                try {
+                    return this.mockHub.mmdb.city(ipAddress)
+                } catch {
+                    return null
+                }
+            },
+        }
+
+        const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}
+
+        return this.executor.execute(invocation, { functions: extraFunctions })
     }
 
     invokeFetchResponse(invocation: HogFunctionInvocation, response: HogFunctionQueueParametersFetchResponse) {

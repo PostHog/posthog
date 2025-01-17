@@ -64,13 +64,6 @@ export class HogFunctionManager {
         this.hogTypes = hogTypes
         // TRICKY - when running with individual capabilities, this won't run twice but locally or as a complete service it will...
 
-        // When transformations are supported and MMDB is not available, throw an error
-        if (hogTypes.includes('transformation') && !this.hub.mmdb) {
-            throw new Error(
-                'GeoIP transformation requires MMDB to be configured. Please ensure the MMDB file is properly set up.'
-            )
-        }
-
         if (this.started) {
             return
         }

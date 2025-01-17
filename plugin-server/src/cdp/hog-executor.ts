@@ -327,7 +327,10 @@ export class HogExecutor {
         }
     }
 
-    execute(invocation: HogFunctionInvocation): HogFunctionInvocationResult {
+    execute(
+        invocation: HogFunctionInvocation,
+        options: { functions?: Record<string, (args: unknown[]) => unknown> } = {}
+    ): HogFunctionInvocationResult {
         const loggingContext = {
             invocationId: invocation.id,
             hogFunctionId: invocation.hogFunction.id,
@@ -458,6 +461,7 @@ export class HogExecutor {
 
             try {
                 let hogLogs = 0
+
                 execRes = execHog(invocationInput, {
                     globals: invocation.functionToExecute ? undefined : globals,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
@@ -519,16 +523,7 @@ export class HogExecutor {
                                 },
                             })
                         },
-                        geoipLookup: (ipAddress: string) => {
-                            if (!this.hub.mmdb) {
-                                return null
-                            }
-                            try {
-                                return this.hub.mmdb.city(ipAddress)
-                            } catch {
-                                return null
-                            }
-                        },
+                        ...(options.functions ?? {}),
                     },
                 })
                 if (execRes.error) {
