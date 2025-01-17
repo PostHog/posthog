@@ -32,3 +32,6 @@ def print_clickhouse_version(config: ClickHouseConfig):
     with open(config.result_path) as f:
         print(f.read())  # noqa
     return MaterializeResult(metadata={"version": config.result_path})
+
+
+# dummy change
