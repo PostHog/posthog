@@ -5,6 +5,7 @@ import { Survey, SurveyType } from '~/types'
 import { NewSurvey } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
+import { getNextQuestionIndex } from './utils/branchingPreviewLogic'
 
 interface SurveyFormAppearanceProps {
     previewPageIndex: number
@@ -23,7 +24,16 @@ export function SurveyFormAppearance({
             <SurveyAppearancePreview
                 survey={survey as Survey}
                 previewPageIndex={previewPageIndex}
-                onPreviewSubmit={() => handleSetSelectedPageIndex(previewPageIndex + 1)}
+                onPreviewSubmit={(response) => {
+                    handleSetSelectedPageIndex(
+                        getNextQuestionIndex(
+                            survey.questions[previewPageIndex],
+                            survey.questions.length,
+                            previewPageIndex,
+                            response
+                        )
+                    )
+                }}
             />
             <LemonSelect
                 onChange={(pageIndex) => handleSetSelectedPageIndex(pageIndex)}
