@@ -2140,6 +2140,7 @@ async def test_s3_export_workflow_with_request_timeouts(
 @pytest.mark.parametrize(
     "data_interval_end", [dt.datetime.now(tz=dt.UTC).replace(minute=0, second=0, microsecond=0, tzinfo=dt.UTC)]
 )
+@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 async def test_insert_into_s3_activity_when_using_distributed_events_recent_table(
     clickhouse_client,
     bucket_name,

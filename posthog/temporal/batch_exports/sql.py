@@ -134,7 +134,7 @@ SETTINGS
 """
 )
 
-SELECT_FROM_EVENTS_VIEW_RECENT_DISTRIBUTED = Template(
+SELECT_FROM_DISTRIBUTED_EVENTS_RECENT = Template(
     """
 SELECT
     $fields
@@ -151,17 +151,17 @@ FROM (
         toString(person_id) AS person_id,
         nullIf(properties, '') AS properties,
         nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
+        nullIf(JSONExtractString(properties, '$$set'), '') AS set,
+        nullIf(JSONExtractString(properties, '$$set_once'), '') AS set_once
     FROM
         distributed_events_recent
     PREWHERE
-        distributed_events_recent.inserted_at >= {{interval_start:DateTime64}}
-        AND distributed_events_recent.inserted_at < {{interval_end:DateTime64}}
+        distributed_events_recent.inserted_at >= {interval_start}::DateTime64
+        AND distributed_events_recent.inserted_at < {interval_end}::DateTime64
     WHERE
-        team_id = {{team_id:Int64}}
-        AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
-        AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
+        team_id = {team_id}::Int64
+        AND (length({include_events}::Array(String)) = 0 OR event IN {include_events}::Array(String))
+        AND (length({exclude_events}::Array(String)) = 0 OR event NOT IN {exclude_events}::Array(String))
     ORDER BY
         _inserted_at, event
 )

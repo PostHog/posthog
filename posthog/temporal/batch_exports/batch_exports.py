@@ -33,6 +33,7 @@ from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
+from posthog.temporal.batch_exports.sql import SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -199,26 +200,6 @@ SETTINGS
 """
 )
 
-SELECT_FROM_EVENTS_VIEW_RECENT_DISTRIBUTED = Template(
-    """
-SELECT
-    $fields
-FROM
-    events_batch_export_recent_distributed(
-        team_id={team_id},
-        interval_start={interval_start},
-        interval_end={interval_end},
-        include_events={include_events}::Array(String),
-        exclude_events={exclude_events}::Array(String)
-    ) AS events
-FORMAT ArrowStream
-SETTINGS
-    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
-    max_bytes_before_external_sort=50000000000,
-    max_replica_delay_for_distributed_queries=60,
-    fallback_to_stale_replicas_for_distributed_queries=0
-"""
-)
 
 SELECT_FROM_EVENTS_VIEW_BACKFILL = Template(
     """
@@ -376,7 +357,7 @@ async def iter_records_from_model_view(
         # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
         # which is a distributed table that sits in front of the `events_recent` table
         elif use_distributed_events_recent_table(is_backfill=is_backfill, team_id=team_id):
-            query_template = SELECT_FROM_EVENTS_VIEW_RECENT_DISTRIBUTED
+            query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
         elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
             query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
         elif is_backfill:
@@ -671,7 +652,7 @@ def iter_records(
     # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
     # which is a distributed table that sits in front of the `events_recent` table
     elif use_distributed_events_recent_table(is_backfill=is_backfill, team_id=team_id):
-        query = SELECT_FROM_EVENTS_VIEW_RECENT_DISTRIBUTED
+        query = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
     elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
     elif is_backfill:

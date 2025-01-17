@@ -19,10 +19,10 @@ from posthog.temporal.batch_exports.metrics import (
     get_rows_exported_metric,
 )
 from posthog.temporal.batch_exports.sql import (
+    SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
-    SELECT_FROM_EVENTS_VIEW_RECENT_DISTRIBUTED,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     SELECT_FROM_PERSONS_VIEW,
     SELECT_FROM_PERSONS_VIEW_BACKFILL,
@@ -591,7 +591,7 @@ class Producer:
             # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
             # which is a distributed table that sits in front of the `events_recent` table
             elif use_distributed_events_recent_table(is_backfill=is_backfill, team_id=team_id):
-                query_template = SELECT_FROM_EVENTS_VIEW_RECENT_DISTRIBUTED
+                query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
                 query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
             elif is_backfill:
