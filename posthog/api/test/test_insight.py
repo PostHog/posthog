@@ -32,6 +32,7 @@ from posthog.models import (
     Text,
     User,
 )
+from ee.models.rbac.access_control import AccessControl
 from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.project import Project
@@ -1224,7 +1225,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response["last_refresh"], None)
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
-        #  Test property filter
+        #  Test property filter
 
         dashboard = Dashboard.objects.get(pk=dashboard_id)
         dashboard.filters = {
@@ -1387,7 +1388,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
             self.assertFalse(response["is_cached"])
 
-        #  Test property filter
+        #  Test property filter
 
         Dashboard.objects.update(
             id=dashboard_id,
@@ -2635,7 +2636,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_cancel_running_query(self) -> None:
         # There is no good way of writing a test that tests this without it being very slow
-        #  Just verify it doesn't throw an error
+        #  Just verify it doesn't throw an error
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/cancel",
             {"client_query_id": f"testid"},
@@ -3396,3 +3397,39 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert value["code_name"] == variable.code_name
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "override value!"
+
+    def test_insight_access_control_filtering(self) -> None:
+        """Test that insights are properly filtered based on access control."""
+
+        user2 = self._create_user("test2@posthog.com")
+
+        visible_insight = Insight.objects.create(
+            team=self.team,
+            name="Public Insight",
+            created_by=self.user,
+            filters={"events": [{"id": "$pageview"}]},
+        )
+        hidden_insight = Insight.objects.create(
+            team=self.team,
+            name="Hidden Insight",
+            created_by=self.user,
+            filters={"events": [{"id": "$pageview"}]},
+        )
+        AccessControl.objects.create(
+            resource="insight", resource_id=hidden_insight.id, team=self.team, access_level="none"
+        )
+
+        # Verify we can access visible insights
+        self.client.force_login(user2)
+        response = self.client.get(f"/api/projects/{self.team.pk}/insights/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        insight_ids = [insight["id"] for insight in response.json()["results"]]
+        self.assertIn(visible_insight.id, insight_ids)
+        self.assertNotIn(hidden_insight.id, insight_ids)
+
+        # Verify we can access all insights as creator
+        self.client.force_login(self.user)
+        response = self.client.get(f"/api/projects/{self.team.pk}/insights/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(visible_insight.id, [insight["id"] for insight in response.json()["results"]])
+        self.assertIn(hidden_insight.id, [insight["id"] for insight in response.json()["results"]])
