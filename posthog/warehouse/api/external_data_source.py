@@ -72,6 +72,7 @@ from posthog.warehouse.models.external_data_schema import (
     filter_snowflake_incremental_fields,
     get_snowflake_schemas,
     get_sql_schemas_for_source_type,
+    get_postgres_row_count,
 )
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
@@ -1061,10 +1062,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": get_generic_sql_error(source_type)},
                 )
 
+            estimated_rows = {}
             if source_type == ExternalDataSource.Type.POSTGRES:
                 filtered_results = [
                     (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
                 ]
+                estimated_rows = get_postgres_row_count(host, port, database, user, password, schema)
+
             elif source_type == ExternalDataSource.Type.MYSQL:
                 filtered_results = [
                     (table_name, filter_mysql_incremental_fields(columns)) for table_name, columns in result.items()
@@ -1078,6 +1082,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {
                     "table": table_name,
                     "should_sync": False,
+                    "estimated_rows": estimated_rows.get(table_name, 0),
                     "incremental_fields": [
                         {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                         for column_name, column_type in columns

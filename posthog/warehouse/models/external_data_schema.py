@@ -309,6 +309,37 @@ def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[t
     return results
 
 
+def get_postgres_row_count(
+    host: str, port: str, database: str, user: str, password: str, schema: str
+) -> dict[str, int]:
+    connection = psycopg2.connect(
+        host=host,
+        port=port,
+        dbname=database,
+        user=user,
+        password=password,
+        sslmode="prefer",
+        connect_timeout=5,
+        sslrootcert="/tmp/no.txt",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
+    )
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT relname as table_name, n_live_tup as estimated_row_count FROM pg_stat_user_tables WHERE schemaname = %(schema)s ORDER BY table_name ASC",
+            {"schema": schema},
+        )
+        row_count_result = cursor.fetchall()
+        row_counts = defaultdict(int)
+        for row in row_count_result:
+            row_counts[row[0]] = row[1]
+
+    connection.close()
+
+    return row_counts
+
+
 def get_postgres_schemas(
     host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
 ) -> dict[str, list[tuple[str, str]]]:

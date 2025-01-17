@@ -43,6 +43,16 @@ export default function SchemaForm(): JSX.Element {
                                 },
                             },
                             {
+                                title: 'Estimated rows',
+                                key: 'estimated_rows',
+                                tooltip:
+                                    'Database engines can provide an estimate of the number of rows in a table. This number can be inaccurate, especially for very small tables.',
+                                render: function RenderEstimatedRows(_, schema) {
+                                    return schema.estimated_rows ? `~${schema.estimated_rows}` : 'Unknown'
+                                },
+                            },
+
+                            {
                                 key: 'sync_type',
                                 title: 'Sync method',
                                 align: 'right',
