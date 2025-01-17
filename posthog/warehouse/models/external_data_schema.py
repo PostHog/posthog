@@ -8,6 +8,7 @@ from django_deprecate_fields import deprecate_field
 import numpy
 import snowflake.connector
 from django.conf import settings
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 import uuid
@@ -51,6 +52,8 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
+
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_last_value_v2": any }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -70,25 +73,47 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     def is_incremental(self):
         return self.sync_type == self.SyncType.INCREMENTAL
 
-    def soft_delete(self):
-        self.deleted = True
-        self.deleted_at = datetime.now()
-        self.save()
-
     def update_incremental_field_last_value(self, last_value: Any) -> None:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
 
         last_value_py = last_value.item() if isinstance(last_value, numpy.generic) else last_value
+        last_value_json: Any
+
+        if last_value_py is None:
+            return
 
         if (
             incremental_field_type == IncrementalFieldType.Integer
             or incremental_field_type == IncrementalFieldType.Numeric
         ):
-            last_value_json = last_value_py
+            if isinstance(last_value_py, int | float):
+                last_value_json = last_value_py
+            elif isinstance(last_value_py, datetime):
+                last_value_json = last_value_py.isoformat()
+            else:
+                last_value_json = int(last_value_py)
+        elif (
+            incremental_field_type == IncrementalFieldType.DateTime
+            or incremental_field_type == IncrementalFieldType.Timestamp
+        ):
+            if isinstance(last_value_py, datetime):
+                last_value_json = last_value_py.isoformat()
+            else:
+                last_value_json = str(last_value_py)
         else:
             last_value_json = str(last_value_py)
 
-        self.sync_type_config["incremental_field_last_value"] = last_value_json
+        if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
+            key = "incremental_field_last_value_v2"
+        else:
+            key = "incremental_field_last_value"
+
+        self.sync_type_config[key] = last_value_json
+        self.save()
+
+    def soft_delete(self):
+        self.deleted = True
+        self.deleted_at = datetime.now()
         self.save()
 
 

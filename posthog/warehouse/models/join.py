@@ -65,14 +65,20 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 raise ResolutionError(f"No fields requested from {join_to_add.to_table}")
 
             left = parse_expr(_source_table_key)
-            if not isinstance(left, ast.Field):
-                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
-            left.chain = [join_to_add.from_table, *left.chain]
+            if isinstance(left, ast.Field):
+                left.chain = [join_to_add.from_table, *left.chain]
+            elif isinstance(left, ast.Call) and isinstance(left.args[0], ast.Field):
+                left.args[0].chain = [join_to_add.from_table, *left.args[0].chain]
+            else:
+                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
             right = parse_expr(_joining_table_key)
-            if not isinstance(right, ast.Field):
-                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
-            right.chain = [join_to_add.to_table, *right.chain]
+            if isinstance(right, ast.Field):
+                right.chain = [join_to_add.to_table, *right.chain]
+            elif isinstance(right, ast.Call) and isinstance(right.args[0], ast.Field):
+                right.args[0].chain = [join_to_add.to_table, *right.args[0].chain]
+            else:
+                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
             join_expr = ast.JoinExpr(
                 table=ast.SelectQuery(
@@ -113,6 +119,27 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if not timestamp_key:
                 raise ResolutionError("experiments_timestamp_key is not set for this join")
 
+            whereExpr: list[ast.Expr] = [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value="$feature_flag_called"),
+                )
+            ]
+            # :HACK: We need to pull the timestamp gt/lt values from node.where.exprs[0] because
+            # we can't reference the parent data warehouse table in the where clause.
+            if node.where and hasattr(node.where, "exprs"):
+                for expr in node.where.exprs:
+                    if isinstance(expr, ast.CompareOperation):
+                        if expr.op == ast.CompareOperationOp.GtEq or expr.op == ast.CompareOperationOp.LtEq:
+                            # Match within hogql string because it could be 'toDateTime(timestamp)'
+                            if isinstance(expr.left, ast.Alias) and timestamp_key in expr.left.expr.to_hogql():
+                                whereExpr.append(
+                                    ast.CompareOperation(
+                                        op=expr.op, left=ast.Field(chain=["timestamp"]), right=expr.right
+                                    )
+                                )
+
             return ast.JoinExpr(
                 table=ast.SelectQuery(
                     select=[
@@ -128,11 +155,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                         }.items()
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    where=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value="$feature_flag_called"),
-                    ),
+                    where=ast.And(exprs=whereExpr),
                 ),
                 # ASOF JOIN finds the most recent matching event that occurred at or before each data warehouse timestamp.
                 #
@@ -167,7 +190,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                                     ]
                                 ),
                                 op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
+                                right=ast.Field(chain=[join_to_add.to_table, *self.joining_table_key.split(".")]),
                             ),
                             ast.CompareOperation(
                                 left=ast.Field(

@@ -11,7 +11,12 @@ from django.conf import settings
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet, ErrorTrackingStackFrame
+from posthog.models.error_tracking import (
+    ErrorTrackingIssue,
+    ErrorTrackingSymbolSet,
+    ErrorTrackingStackFrame,
+    ErrorTrackingIssueAssignment,
+)
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 
@@ -34,7 +39,7 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
         fields = ["assignee", "status"]
 
 
-class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ErrorTrackingIssue.objects.all()
     serializer_class = ErrorTrackingIssueSerializer
@@ -47,6 +52,23 @@ class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue: ErrorTrackingIssue = self.get_object()
         ids: list[str] = request.data.get("ids", [])
         issue.merge(issue_ids=ids)
+        return Response({"success": True})
+
+    @action(methods=["PATCH"], detail=True)
+    def assign(self, request, **kwargs):
+        assignee = request.data.get("assignee", None)
+
+        if assignee:
+            ErrorTrackingIssueAssignment.objects.update_or_create(
+                issue_id=self.get_object().id,
+                defaults={
+                    "user_id": None if assignee["type"] == "user_group" else assignee["id"],
+                    "user_group_id": None if assignee["type"] == "user" else assignee["id"],
+                },
+            )
+        else:
+            ErrorTrackingIssueAssignment.objects.filter(issue_id=self.get_object().id).delete()
+
         return Response({"success": True})
 
 

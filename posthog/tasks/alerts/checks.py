@@ -1,4 +1,3 @@
-import time
 import traceback
 
 from datetime import datetime, timedelta, UTC
@@ -25,16 +24,16 @@ from posthog.schema import (
     AlertState,
 )
 from posthog.utils import get_from_dict_or_attr
-from prometheus_client import Counter, Gauge
 from django.db.models import Q, F
 from collections import defaultdict
 from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
     calculation_interval_to_order,
+    next_check_time,
     send_notifications_for_breaches,
     send_notifications_for_errors,
+    skip_because_of_weekend,
     WRAPPER_NODE_KINDS,
-    alert_calculation_interval_to_relativedelta,
 )
 from posthog.tasks.alerts.trends import check_trends_alert
 from posthog.ph_client import ph_us_client
@@ -53,26 +52,6 @@ class AlertCheckException(Exception):
     def __init__(self, err: Exception):
         self.__traceback__ = err.__traceback__
 
-
-HOURLY_ALERTS_BACKLOG_GAUGE = Gauge(
-    "hourly_alerts_backlog",
-    "Number of hourly alerts that are not being checked in the last hour.",
-)
-
-DAILY_ALERTS_BACKLOG_GAUGE = Gauge(
-    "daily_alerts_backlog",
-    "Number of daily alerts that are not being checked in the last 24 hours.",
-)
-
-ALERT_CHECK_ERROR_COUNTER = Counter(
-    "alerts_check_failures",
-    "Number of alert check errors that don't notify the user",
-)
-
-ALERT_COMPUTED_COUNTER = Counter(
-    "alerts_computed",
-    "Number of alerts we calculated",
-)
 
 ANIRUDH_DISTINCT_ID = "wcPbDRs08GtNzrNIXfzHvYAkwUaekW7UrAo4y3coznT"
 
@@ -102,8 +81,6 @@ def alerts_backlog_task() -> None:
         )
     ).count()
 
-    HOURLY_ALERTS_BACKLOG_GAUGE.set(hourly_alerts_breaching_sla)
-
     now = datetime.now(UTC)
 
     daily_alerts_breaching_sla = AlertConfiguration.objects.filter(
@@ -113,8 +90,6 @@ def alerts_backlog_task() -> None:
             last_checked_at__lte=now - relativedelta(days=1, minutes=15),
         )
     ).count()
-
-    DAILY_ALERTS_BACKLOG_GAUGE.set(daily_alerts_breaching_sla)
 
     with ph_us_client() as capture_ph_event:
         capture_ph_event(
@@ -134,9 +109,6 @@ def alerts_backlog_task() -> None:
                 "backlog": hourly_alerts_breaching_sla,
             },
         )
-
-    # sleeping 30s for prometheus to pick up the metrics sent during task
-    time.sleep(30)
 
 
 @shared_task(
@@ -245,6 +217,17 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
         )
         return
 
+    if skip_because_of_weekend(alert):
+        logger.info(
+            "Skipping alert check because weekend checking is disabled",
+            alert=alert,
+        )
+
+        # ignore alert check until due again
+        alert.next_check_at = next_check_time(alert)
+        alert.save()
+        return
+
     if alert.snoozed_until:
         if alert.snoozed_until > now:
             logger.info(
@@ -266,7 +249,6 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
     try:
         check_alert_and_notify_atomically(alert, capture_ph_event)
     except Exception as err:
-        ALERT_CHECK_ERROR_COUNTER.inc()
         user = cast(User, alert.created_by)
 
         capture_ph_event(
@@ -309,9 +291,6 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         so we can retry notification without re-computing insight.
     """
     set_tag("alert_config_id", alert.id)
-
-    ALERT_COMPUTED_COUNTER.inc()
-
     user = cast(User, alert.created_by)
 
     # Event to count alert checks
@@ -426,9 +405,7 @@ def add_alert_check(
 
     # IMPORTANT: update next_check_at according to interval
     # ensure we don't recheck alert until the next interval is due
-    alert.next_check_at = (alert.next_check_at or now) + alert_calculation_interval_to_relativedelta(
-        cast(AlertCalculationInterval, alert.calculation_interval)
-    )
+    alert.next_check_at = next_check_time(alert)
 
     if notify:
         alert.last_notified_at = now

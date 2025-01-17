@@ -15,9 +15,11 @@ import {
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
@@ -212,6 +214,7 @@ export function AccountPopoverOverlay(): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { preflight, isCloudOrDev, isCloud } = useValues(preflightLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -223,12 +226,16 @@ export function AccountPopoverOverlay(): JSX.Element {
                 {isCloudOrDev ? (
                     <LemonButton
                         onClick={closeAccountPopover}
-                        to={urls.organizationBilling()}
+                        to={
+                            featureFlags[FEATURE_FLAGS.BILLING_USAGE_DASHBOARD]
+                                ? urls.organizationBillingSection('overview')
+                                : urls.organizationBilling()
+                        }
                         icon={<IconReceipt />}
                         fullWidth
                         data-attr="top-menu-item-billing"
                     >
-                        Billing
+                        {featureFlags[FEATURE_FLAGS.BILLING_USAGE_DASHBOARD] ? 'Billing & Usage' : 'Billing'}
                     </LemonButton>
                 ) : null}
                 <InviteMembersButton />

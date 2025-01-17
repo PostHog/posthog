@@ -1452,21 +1452,30 @@ export function resolveWebhookService(webhookUrl: string): string {
     return 'your webhook service'
 }
 
-function hexToRGB(hex: string): { r: number; g: number; b: number } {
-    const originalString = hex.trim()
-    const hasPoundSign = originalString[0] === '#'
-    const originalColor = hasPoundSign ? originalString.slice(1) : originalString
+export function hexToRGB(hex: string): { r: number; g: number; b: number; a: number } {
+    // Remove the "#" if it exists
+    hex = hex.replace(/^#/, '')
 
-    if (originalColor.length !== 6) {
-        console.warn(`Incorrectly formatted color string: ${hex}.`)
-        return { r: 0, g: 0, b: 0 }
+    // Handle shorthand notation (e.g., "#123" => "#112233")
+    if (hex.length === 3 || hex.length === 4) {
+        hex = hex
+            .split('')
+            .map((char) => char + char)
+            .join('')
     }
 
-    const originalBase16 = parseInt(originalColor, 16)
-    const r = originalBase16 >> 16
-    const g = (originalBase16 >> 8) & 0x00ff
-    const b = originalBase16 & 0x0000ff
-    return { r, g, b }
+    if (hex.length !== 6 && hex.length !== 8) {
+        console.warn(`Incorrectly formatted color string: ${hex}.`)
+        return { r: 0, g: 0, b: 0, a: 0 }
+    }
+
+    // Extract the rgb values
+    const r = parseInt(hex.slice(0, 2), 16)
+    const g = parseInt(hex.slice(2, 4), 16)
+    const b = parseInt(hex.slice(4, 6), 16)
+    const a = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1
+
+    return { r, g, b, a }
 }
 
 export function hexToRGBA(hex: string, alpha = 1): string {
@@ -1511,6 +1520,26 @@ export function lightenDarkenColor(hex: string, pct: number): string {
     b = output(b + amt)
 
     return `rgb(${[r, g, b].join(',')})`
+}
+
+/* Colors in hsl for gradation. */
+export const BRAND_BLUE_HSL: [number, number, number] = [228, 100, 56]
+export const PURPLE: [number, number, number] = [260, 88, 71]
+
+/**
+ * Gradate color saturation based on its intended strength.
+ * This is for visualizations where a data point's color depends on its value.
+ * @param hsl The HSL color to gradate.
+ * @param strength The strength of the data point.
+ * @param floor The minimum saturation. This preserves proportionality of strength, so doesn't just cut it off.
+ */
+export function gradateColor(
+    hsl: [number, number, number],
+    strength: number,
+    floor: number = 0
+): `hsla(${number}, ${number}%, ${number}%, ${string})` {
+    const saturation = floor + (1 - floor) * strength
+    return `hsla(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%, ${saturation.toPrecision(3)})`
 }
 
 export function toString(input?: any): string {

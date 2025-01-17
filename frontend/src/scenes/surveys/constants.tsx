@@ -2,6 +2,7 @@ import { allOperatorsMapping } from 'lib/utils'
 
 import {
     Survey,
+    SurveyAppearance,
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
     SurveyType,
@@ -30,6 +31,7 @@ export const SurveyUrlMatchTypeLabels = {
 }
 
 export const defaultSurveyAppearance = {
+    fontFamily: 'system-ui' as SurveyAppearance['fontFamily'],
     backgroundColor: '#eeeded',
     submitButtonColor: 'black',
     submitButtonTextColor: 'white',
@@ -303,3 +305,15 @@ export const defaultSurveyTemplates = [
         description: 'Find out if it was something you said.',
     },
 ]
+
+export const WEB_SAFE_FONTS = [
+    'system-ui',
+    'Arial',
+    'Verdana',
+    'Tahoma',
+    'Trebuchet MS',
+    'Helvetica',
+    'Times New Roman',
+    'Georgia',
+    'Courier New',
+] as const

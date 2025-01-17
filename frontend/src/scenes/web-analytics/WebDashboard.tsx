@@ -1,10 +1,12 @@
 import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
@@ -18,6 +20,7 @@ import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyt
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import {
+    ProductTab,
     QueryTile,
     TabsTile,
     TileId,
@@ -32,6 +35,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { QuerySchema } from '~/queries/schema'
+import { PropertyMathType } from '~/types'
 
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 
@@ -40,35 +44,58 @@ const Filters = (): JSX.Element => {
         webAnalyticsFilters,
         dateFilter: { dateTo, dateFrom },
         compareFilter,
+        productTab,
+        coreWebVitalsPercentile,
     } = useValues(webAnalyticsLogic)
-    const { setWebAnalyticsFilters, setDates, setCompareFilter } = useActions(webAnalyticsLogic)
+    const { setWebAnalyticsFilters, setDates, setCompareFilter, setCoreWebVitalsPercentile } =
+        useActions(webAnalyticsLogic)
     const { mobileLayout } = useValues(navigationLogic)
-    const { conversionGoal } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div
             className={clsx(
-                'sticky z-20 pt-2 bg-bg-3000',
+                'sticky z-20 bg-bg-3000',
                 mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
             )}
         >
-            <div className="flex flex-row flex-wrap gap-2">
+            <div className="border-b py-2 flex flex-row flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PERIOD_COMPARISON] ? (
-                    <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
-                ) : null}
+
+                {productTab === ProductTab.ANALYTICS ? (
+                    <>
+                        {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PERIOD_COMPARISON] ? (
+                            <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+                        ) : null}
+                        <WebConversionGoal />
+                    </>
+                ) : (
+                    <LemonSegmentedSelect
+                        size="small"
+                        value={coreWebVitalsPercentile}
+                        onChange={setCoreWebVitalsPercentile}
+                        options={[
+                            { value: PropertyMathType.P75, label: 'P75' },
+                            {
+                                value: PropertyMathType.P90,
+                                label: (
+                                    <Tooltip title="P90 is recommended by the standard as a good baseline" delayMs={0}>
+                                        P90
+                                    </Tooltip>
+                                ),
+                            },
+                            { value: PropertyMathType.P99, label: 'P99' },
+                        ]}
+                    />
+                )}
 
                 <WebPropertyFilters
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
                 />
-                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS] || conversionGoal ? (
-                    <WebConversionGoal />
-                ) : null}
+
                 <ReloadAll />
             </div>
-            <div className="bg-border h-px w-full mt-2" />
         </div>
     )
 }
@@ -95,7 +122,7 @@ const Tiles = (): JSX.Element => {
 }
 
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
-    const { query, title, layout, insightProps, showPathCleaningControls, showIntervalSelect, docs } = tile
+    const { query, title, layout, insightProps, control, showIntervalSelect, docs } = tile
 
     const { openModal } = useActions(webAnalyticsLogic)
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
@@ -145,9 +172,10 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             <WebQuery
                 query={query}
                 insightProps={insightProps}
-                showPathCleaningControls={showPathCleaningControls}
+                control={control}
                 showIntervalSelect={showIntervalSelect}
             />
+
             {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
         </div>
     )
@@ -177,7 +205,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                         key={tab.id}
                         query={tab.query}
                         showIntervalSelect={tab.showIntervalSelect}
-                        showPathCleaningControls={tab.showPathCleaningControls}
+                        control={tab.control}
                         insightProps={tab.insightProps}
                     />
                 ),
@@ -332,15 +360,44 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
+    const { isWindowLessThan } = useWindowSize()
+    const isMobile = isWindowLessThan('sm')
+
+    const { productTab } = useValues(webAnalyticsLogic)
+    const { setProductTab } = useActions(webAnalyticsLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
-                    <WebAnalyticsLiveUserCount />
+                    <div className="flex flex-col sm:flex-row gap-2 justify-between items-center sm:items-start w-full border-b pb-2 mb-2 sm:mb-0">
+                        <div>
+                            <WebAnalyticsLiveUserCount />
+                        </div>
+
+                        {featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && (
+                            <LemonSegmentedSelect
+                                shrinkOn={3}
+                                size="small"
+                                value={productTab}
+                                fullWidth={isMobile}
+                                dropdownMatchSelectWidth={false}
+                                onChange={setProductTab}
+                                options={[
+                                    { value: ProductTab.ANALYTICS, label: 'Web Analytics' },
+                                    { value: ProductTab.CORE_WEB_VITALS, label: 'Core Web Vitals' },
+                                ]}
+                            />
+                        )}
+                    </div>
+
                     <Filters />
                     <WebAnalyticsHealthCheck />
+
                     <Tiles />
                 </div>
             </BindLogic>

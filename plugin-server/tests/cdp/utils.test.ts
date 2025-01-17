@@ -1,13 +1,8 @@
 import { DateTime } from 'luxon'
 
-import { HogFunctionInvocationGlobals, HogFunctionInvocationResult } from '../../src/cdp/types'
-import {
-    convertToHogFunctionFilterGlobal,
-    gzipObject,
-    prepareLogEntriesForClickhouse,
-    unGzipObject,
-} from '../../src/cdp/utils'
-import { createHogFunction, createInvocation, insertHogFunction as _insertHogFunction } from './fixtures'
+import { HogFunctionInvocationGlobals, HogFunctionInvocationLogEntry } from '../../src/cdp/types'
+import { convertToHogFunctionFilterGlobal, fixLogDeduplication, gzipObject, unGzipObject } from '../../src/cdp/utils'
+import { insertHogFunction as _insertHogFunction } from './fixtures'
 
 describe('Utils', () => {
     describe('gzip compressions', () => {
@@ -20,44 +15,44 @@ describe('Utils', () => {
         })
     })
 
-    describe('prepareLogEntriesForClickhouse', () => {
-        const startTime = DateTime.fromMillis(1620000000000)
-        const example: HogFunctionInvocationResult = {
-            invocation: {
-                ...createInvocation(createHogFunction({ id: 'hog-1' })),
-                id: 'inv-1',
-            },
-            finished: false,
-            logs: [
-                {
-                    level: 'info',
-                    timestamp: startTime.plus(2),
-                    message: 'Third log message',
-                },
-                {
-                    level: 'info',
-                    timestamp: startTime,
-                    message: 'First log message',
-                },
-                {
-                    level: 'info',
-                    timestamp: startTime.plus(1),
-                    message: 'Second log message',
-                },
-                {
-                    level: 'info',
-                    timestamp: startTime.plus(2),
-                    message: 'Duplicate log message',
-                },
-            ],
+    describe('fixLogDeduplication', () => {
+        const commonProps = {
+            team_id: 1,
+            log_source: 'hog_function',
+            log_source_id: 'hog-1',
+            instance_id: 'inv-1',
+            level: 'info' as const,
         }
+        const startTime = DateTime.fromMillis(1620000000000)
+        const example: HogFunctionInvocationLogEntry[] = [
+            {
+                ...commonProps,
+                timestamp: startTime.plus(2),
+                message: 'Third log message',
+            },
+            {
+                ...commonProps,
+                timestamp: startTime,
+                message: 'First log message',
+            },
+            {
+                ...commonProps,
+                timestamp: startTime.plus(1),
+                message: 'Second log message',
+            },
+            {
+                ...commonProps,
+                timestamp: startTime.plus(2),
+                message: 'Duplicate log message',
+            },
+        ]
 
         it('should add the relevant info to the logs', () => {
-            const prepared = prepareLogEntriesForClickhouse(example)
+            const prepared = fixLogDeduplication(example)
 
             expect(prepared).toMatchInlineSnapshot(`
-                Array [
-                  Object {
+                [
+                  {
                     "instance_id": "inv-1",
                     "level": "info",
                     "log_source": "hog_function",
@@ -66,7 +61,7 @@ describe('Utils', () => {
                     "team_id": 1,
                     "timestamp": "2021-05-03 00:00:00.000",
                   },
-                  Object {
+                  {
                     "instance_id": "inv-1",
                     "level": "info",
                     "log_source": "hog_function",
@@ -75,7 +70,7 @@ describe('Utils', () => {
                     "team_id": 1,
                     "timestamp": "2021-05-03 00:00:00.001",
                   },
-                  Object {
+                  {
                     "instance_id": "inv-1",
                     "level": "info",
                     "log_source": "hog_function",
@@ -84,7 +79,7 @@ describe('Utils', () => {
                     "team_id": 1,
                     "timestamp": "2021-05-03 00:00:00.002",
                   },
-                  Object {
+                  {
                     "instance_id": "inv-1",
                     "level": "info",
                     "log_source": "hog_function",

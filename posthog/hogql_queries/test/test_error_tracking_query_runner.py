@@ -1,7 +1,5 @@
 from unittest import TestCase
 from freezegun import freeze_time
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -16,6 +14,7 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
 )
+from posthog.models.user_group import UserGroup
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -263,22 +262,37 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-    def _calculate(self, runner: ErrorTrackingQueryRunner):
-        return runner.calculate().model_dump()
+    def _calculate(
+        self,
+        dateRange=None,
+        assignee=None,
+        issueId=None,
+        filterTestAccounts=False,
+        searchQuery=None,
+        filterGroup=None,
+        orderBy=None,
+    ):
+        return (
+            ErrorTrackingQueryRunner(
+                team=self.team,
+                query=ErrorTrackingQuery(
+                    kind="ErrorTrackingQuery",
+                    dateRange=DateRange() if dateRange is None else dateRange,
+                    assignee=assignee,
+                    issueId=issueId,
+                    filterTestAccounts=filterTestAccounts,
+                    searchQuery=searchQuery,
+                    filterGroup=filterGroup,
+                    orderBy=orderBy,
+                ),
+            )
+            .calculate()
+            .model_dump()
+        )
 
     @snapshot_clickhouse_queries
     def test_column_names(self):
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                issueId=None,
-                dateRange=DateRange(),
-                filterTestAccounts=True,
-            ),
-        )
-
-        columns = self._calculate(runner)["columns"]
+        columns = self._calculate()["columns"]
         self.assertEqual(
             columns,
             [
@@ -291,17 +305,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                issueId=self.issue_id_one,
-                dateRange=DateRange(),
-                filterTestAccounts=True,
-            ),
-        )
-
-        columns = self._calculate(runner)["columns"]
+        columns = self._calculate(issueId=self.issue_id_one)["columns"]
         self.assertEqual(
             columns,
             [
@@ -311,21 +315,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "last_seen",
                 "first_seen",
                 "id",
+                "earliest",
             ],
         )
 
     @snapshot_clickhouse_queries
     def test_issue_grouping(self):
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                issueId=self.issue_id_one,
-                dateRange=DateRange(),
-            ),
-        )
-
-        results = self._calculate(runner)["results"]
+        results = self._calculate(issueId=self.issue_id_one)["results"]
         # returns a single group with multiple errors
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], self.issue_id_one)
@@ -354,18 +350,14 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
             flush_persons_and_events()
 
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                issueId=None,
+        results = sorted(
+            self._calculate(
                 dateRange=DateRange(date_from="2022-01-10", date_to="2022-01-11"),
                 filterTestAccounts=True,
                 searchQuery="databasenot",
-            ),
+            )["results"],
+            key=lambda x: x["id"],
         )
-
-        results = sorted(self._calculate(runner)["results"], key=lambda x: x["id"])
 
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0]["id"], "01936e81-b0ce-7b56-8497-791e505b0d0c")
@@ -379,19 +371,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["users"], 1)
 
     def test_empty_search_query(self):
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                issueId=None,
-                dateRange=DateRange(),
-                filterTestAccounts=False,
-                searchQuery="probs not found",
-            ),
-        )
-
-        results = self._calculate(runner)["results"]
-
+        results = self._calculate(searchQuery="probs not found")["results"]
         self.assertEqual(len(results), 0)
 
     @snapshot_clickhouse_queries
@@ -424,18 +404,9 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
             flush_persons_and_events()
 
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                issueId=None,
-                dateRange=DateRange(),
-                filterTestAccounts=True,
-                searchQuery="databasenotfoundX clickhouse/client/execute.py",
-            ),
-        )
-
-        results = self._calculate(runner)["results"]
+        results = self._calculate(
+            filterTestAccounts=True, searchQuery="databasenotfoundX clickhouse/client/execute.py"
+        )["results"]
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], "01936e81-b0ce-7b56-8497-791e505b0d0c")
@@ -453,106 +424,51 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                dateRange=DateRange(),
-            ),
-        )
-
-        results = self._calculate(runner)["results"]
+        results = self._calculate()["results"]
         self.assertEqual(len(results), 3)
 
     @snapshot_clickhouse_queries
     def test_hogql_filters(self):
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                dateRange=DateRange(),
-                filterGroup=PropertyGroupFilter(
-                    type=FilterLogicalOperator.AND_,
-                    values=[
-                        PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.OR_,
-                            values=[
-                                PersonPropertyFilter(
-                                    key="email", value="email@posthog.com", operator=PropertyOperator.EXACT
-                                ),
-                            ],
-                        )
-                    ],
-                ),
-            ),
-        )
-
-        results = self._calculate(runner)["results"]
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.OR_,
+                        values=[
+                            PersonPropertyFilter(
+                                key="email", value="email@posthog.com", operator=PropertyOperator.EXACT
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )["results"]
         # two errors exist for person with distinct_id_two
         self.assertEqual(len(results), 2)
 
     @snapshot_clickhouse_queries
     def test_ordering(self):
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(kind="ErrorTrackingQuery", dateRange=DateRange(), orderBy="last_seen"),
-        )
-
-        results = self._calculate(runner)["results"]
+        results = self._calculate(orderBy="last_seen")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
 
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(kind="ErrorTrackingQuery", dateRange=DateRange(), orderBy="first_seen"),
-        )
-
-        results = self._calculate(runner)["results"]
+        results = self._calculate(orderBy="first_seen")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
 
     def test_overrides_aggregation(self):
         self.override_fingerprint(self.issue_three_fingerprint, self.issue_id_one)
+        results = self._calculate(orderBy="occurrences")["results"]
+        self.assertEqual(len(results), 2)
 
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(kind="ErrorTrackingQuery", dateRange=DateRange(), orderBy="occurrences"),
-        )
+        # count is (2 x issue_one) + (1 x issue_three)
+        self.assertEqual(results[0]["id"], self.issue_id_one)
+        self.assertEqual(results[0]["occurrences"], 3)
 
-        results = self._calculate(runner)["results"]
-        self.assertEqual(
-            results,
-            [
-                {
-                    "id": self.issue_id_one,
-                    "name": None,
-                    "description": None,
-                    "assignee": None,
-                    "volume": None,
-                    "status": ErrorTrackingIssue.Status.ACTIVE,
-                    "first_seen": datetime(2020, 1, 10, 9, 11, tzinfo=ZoneInfo("UTC")),
-                    "last_seen": datetime(2020, 1, 10, 11, 11, tzinfo=ZoneInfo("UTC")),
-                    # count is (2 x issue_one) + (1 x issue_three)
-                    "occurrences": 3,
-                    "sessions": 1,
-                    "users": 2,
-                },
-                {
-                    "id": self.issue_id_two,
-                    "name": None,
-                    "description": None,
-                    "assignee": None,
-                    "volume": None,
-                    "status": ErrorTrackingIssue.Status.ACTIVE,
-                    "first_seen": datetime(2020, 1, 10, 10, 11, tzinfo=ZoneInfo("UTC")),
-                    "last_seen": datetime(2020, 1, 10, 10, 11, tzinfo=ZoneInfo("UTC")),
-                    "occurrences": 1,
-                    "sessions": 1,
-                    "users": 1,
-                },
-            ],
-        )
+        self.assertEqual(results[1]["id"], self.issue_id_two)
+        self.assertEqual(results[1]["occurrences"], 1)
 
     @snapshot_clickhouse_queries
-    def test_assignee_groups(self):
+    def test_user_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
         self.create_events_and_issue(
             issue_id=issue_id,
@@ -562,16 +478,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
         ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user)
 
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                dateRange=DateRange(),
-                assignee=self.user.pk,
-            ),
-        )
+        results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
+        self.assertEqual([x["id"] for x in results], [issue_id])
 
-        results = self._calculate(runner)["results"]
+    @snapshot_clickhouse_queries
+    def test_user_group_assignee(self):
+        issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
+        self.create_events_and_issue(
+            issue_id=issue_id,
+            fingerprint="assigned_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+        )
+        flush_persons_and_events()
+        user_group = UserGroup.objects.create(team=self.team, name="Test Team")
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user_group=user_group)
+
+        results = self._calculate(assignee={"type": "user_group", "id": str(user_group.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
 

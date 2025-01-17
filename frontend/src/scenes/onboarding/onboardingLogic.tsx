@@ -1,11 +1,11 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { replayLandingPageLogic } from 'scenes/session-recordings/replayLandingPageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -16,6 +16,7 @@ import {
     Breadcrumb,
     OnboardingProduct,
     ProductKey,
+    ReplayTabs,
 } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
@@ -108,12 +109,12 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
 
-export const getProductUri = (productKey: ProductKey): string => {
+export const getProductUri = (productKey: ProductKey, replayLandingPage: ReplayTabs): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
             return urls.insightNew()
         case ProductKey.SESSION_REPLAY:
-            return urls.replay()
+            return urls.replay(replayLandingPage)
         case ProductKey.FEATURE_FLAGS:
             return urls.featureFlag('new')
         case ProductKey.SURVEYS:
@@ -134,12 +135,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['billing'],
             teamLogic,
             ['currentTeam'],
-            featureFlagLogic,
-            ['featureFlags'],
             userLogic,
             ['user'],
             preflightLogic,
             ['isCloudOrDev'],
+            replayLandingPageLogic,
+            ['replayLandingPage'],
         ],
         actions: [
             billingLogic,
@@ -237,12 +238,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
-            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride) => {
+            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride, s.replayLandingPage],
+            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride, replayLandingPage) => {
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
-                return productKey ? getProductUri(productKey as ProductKey) : urls.default()
+                return productKey ? getProductUri(productKey as ProductKey, replayLandingPage) : urls.default()
             },
         ],
         totalOnboardingSteps: [

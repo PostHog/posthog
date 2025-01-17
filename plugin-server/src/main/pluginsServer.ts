@@ -15,6 +15,7 @@ import {
     CdpCyclotronWorker,
     CdpCyclotronWorkerFetch,
     CdpFunctionCallbackConsumer,
+    CdpInternalEventsConsumer,
     CdpProcessedEventsConsumer,
 } from '../cdp/cdp-consumers'
 import { defaultConfig } from '../config/config'
@@ -81,7 +82,7 @@ export async function startPluginsServer(
     }
 
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
-    status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
+    status.info('ℹ️', `${serverConfig.TASKS_PER_WORKER} tasks per worker`)
     runStartupProfiles(serverConfig)
 
     // Used to trigger reloads of plugin code/config
@@ -447,6 +448,13 @@ export async function startPluginsServer(
         if (capabilities.cdpProcessedEvents) {
             const hub = await setupHub()
             const consumer = new CdpProcessedEventsConsumer(hub)
+            await consumer.start()
+            services.push(consumer.service)
+        }
+
+        if (capabilities.cdpInternalEvents) {
+            const hub = await setupHub()
+            const consumer = new CdpInternalEventsConsumer(hub)
             await consumer.start()
             services.push(consumer.service)
         }

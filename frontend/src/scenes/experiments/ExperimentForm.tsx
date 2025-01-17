@@ -1,5 +1,3 @@
-import './Experiment.scss'
-
 import { IconMagicWand, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -17,11 +15,12 @@ import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { experimentLogic } from './experimentLogic'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, groupTypes, aggregationLabel, dynamicFeatureFlagKey } = useValues(experimentLogic)
+    const { experiment, groupTypes, aggregationLabel } = useValues(experimentLogic)
     const { addExperimentGroup, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
         useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const { takenKeys } = useValues(experimentsLogic)
 
     return (
         <div>
@@ -42,12 +41,14 @@ const ExperimentFormFields = (): JSX.Element => {
                                     type="secondary"
                                     size="xsmall"
                                     tooltip={
-                                        dynamicFeatureFlagKey
-                                            ? "Use '" + dynamicFeatureFlagKey + "' as the feature flag key."
+                                        experiment.name
+                                            ? 'Generate a key from the experiment name'
                                             : 'Fill out the experiment name first.'
                                     }
                                     onClick={() => {
-                                        setExperiment({ feature_flag_key: dynamicFeatureFlagKey })
+                                        setExperiment({
+                                            feature_flag_key: generateFeatureFlagKey(experiment.name, takenKeys),
+                                        })
                                     }}
                                 >
                                     <IconMagicWand className="mr-1" /> Generate
@@ -141,7 +142,9 @@ const ExperimentFormFields = (): JSX.Element => {
                 )}
                 <div className="mt-10">
                     <h3 className="mb-1">Variants</h3>
-                    <div className="text-xs text-muted">Add up to 9 variants to test against your control.</div>
+                    <div className="text-xs text-muted">
+                        Add up to {MAX_EXPERIMENT_VARIANTS - 1} variants to test against your control.
+                    </div>
                     <LemonDivider />
                     <div className="grid grid-cols-2 gap-4 max-w-160">
                         <div className="max-w-60">
@@ -289,4 +292,20 @@ export function ExperimentForm(): JSX.Element {
             </Form>
         </div>
     )
+}
+
+const generateFeatureFlagKey = (name: string, takenKeys: string[]): string => {
+    const baseKey = name
+        .toLowerCase()
+        .replace(/[^A-Za-z0-9-_]+/g, '-')
+        .replace(/-+$/, '')
+        .replace(/^-+/, '')
+
+    let key = baseKey
+    let counter = 1
+    while (takenKeys.includes(key)) {
+        key = `${baseKey}-${counter}`
+        counter++
+    }
+    return key
 }

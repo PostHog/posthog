@@ -22,7 +22,7 @@ from posthog.hogql.database.schema.channel_type import (
     ChannelTypeExprs,
     DEFAULT_CHANNEL_TYPES,
 )
-from posthog.hogql.database.schema.sessions_v1 import null_if_empty
+from posthog.hogql.database.schema.sessions_v1 import null_if_empty, DEFAULT_BOUNCE_RATE_DURATION_SECONDS
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -36,6 +36,7 @@ from posthog.schema import BounceRatePageViewMode, CustomChannelRule
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
@@ -77,8 +78,10 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$num_uniq_urls": IntegerDatabaseField(name="$num_uniq_urls"),
     "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
     "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
+    "$entry_hostname": StringDatabaseField(name="$entry_host"),
     "$end_current_url": StringDatabaseField(name="$end_current_url"),
     "$end_pathname": StringDatabaseField(name="$end_pathname"),
+    "$end_hostname": StringDatabaseField(name="$end_hostname"),
     "$entry_utm_source": StringDatabaseField(name="$entry_utm_source"),
     "$entry_utm_campaign": StringDatabaseField(name="$entry_utm_campaign"),
     "$entry_utm_medium": StringDatabaseField(name="$entry_utm_medium"),
@@ -234,8 +237,16 @@ def select_from_sessions_table_v2(
         name="path",
         args=[aggregate_fields["$entry_current_url"]],
     )
+    aggregate_fields["$entry_hostname"] = ast.Call(
+        name="domain",
+        args=[aggregate_fields["$entry_current_url"]],
+    )
     aggregate_fields["$end_pathname"] = ast.Call(
         name="path",
+        args=[aggregate_fields["$end_current_url"]],
+    )
+    aggregate_fields["$end_hostname"] = ast.Call(
+        name="domain",
         args=[aggregate_fields["$end_current_url"]],
     )
     aggregate_fields["$session_duration"] = ast.Call(
@@ -252,6 +263,11 @@ def select_from_sessions_table_v2(
         args=[aggregate_fields["$urls"]],
     )
 
+    bounce_rate_duration_seconds = (
+        context.modifiers.bounceRateDurationSeconds
+        if context.modifiers.bounceRateDurationSeconds is not None
+        else DEFAULT_BOUNCE_RATE_DURATION_SECONDS
+    )
     if context.modifiers.bounceRatePageViewMode == BounceRatePageViewMode.UNIQ_PAGE_SCREEN_AUTOCAPTURES:
         bounce_event_count = aggregate_fields["$page_screen_autocapture_count_up_to"]
         aggregate_fields["$is_bounce"] = ast.Call(
@@ -268,10 +284,13 @@ def select_from_sessions_table_v2(
                             args=[
                                 # if pageviews + autocaptures > 1, not a bounce
                                 ast.Call(name="greater", args=[bounce_event_count, ast.Constant(value=1)]),
-                                # if session duration >= 10 seconds, not a bounce
+                                # if session duration >= bounce_rate_duration_seconds, not a bounce
                                 ast.Call(
                                     name="greaterOrEquals",
-                                    args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
+                                    args=[
+                                        aggregate_fields["$session_duration"],
+                                        ast.Constant(value=bounce_rate_duration_seconds),
+                                    ],
                                 ),
                             ],
                         )
@@ -299,10 +318,13 @@ def select_from_sessions_table_v2(
                                 ast.Call(
                                     name="greater", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]
                                 ),
-                                # if session duration >= 10 seconds, not a bounce
+                                # if session duration >= bounce_rate_duration_seconds, not a bounce
                                 ast.Call(
                                     name="greaterOrEquals",
-                                    args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
+                                    args=[
+                                        aggregate_fields["$session_duration"],
+                                        ast.Constant(value=bounce_rate_duration_seconds),
+                                    ],
                                 ),
                             ],
                         )
@@ -316,6 +338,9 @@ def select_from_sessions_table_v2(
             campaign=aggregate_fields["$entry_utm_campaign"],
             medium=aggregate_fields["$entry_utm_medium"],
             source=aggregate_fields["$entry_utm_source"],
+            url=aggregate_fields["$entry_current_url"],
+            hostname=aggregate_fields["$entry_hostname"],
+            pathname=aggregate_fields["$entry_pathname"],
             referring_domain=aggregate_fields["$entry_referring_domain"],
             gclid=aggregate_fields["$entry_gclid"],
             gad_source=aggregate_fields["$entry_gad_source"],

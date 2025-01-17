@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
@@ -18,7 +18,14 @@ import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
-import { ActorsQuery, DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema'
+import {
+    ActorsQuery,
+    DataTableNode,
+    EventsNode,
+    EventsQuery,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQlIdentifier, hogql } from '~/queries/utils'
 import {
     AnyPersonScopeFilter,
@@ -29,12 +36,13 @@ import {
     EventType,
     FilterLogicalOperator,
     HogFunctionConfigurationType,
+    HogFunctionInputSchemaType,
     HogFunctionInputType,
     HogFunctionInvocationGlobals,
-    HogFunctionSubTemplateIdType,
-    HogFunctionSubTemplateType,
+    HogFunctionMappingType,
     HogFunctionTemplateType,
     HogFunctionType,
+    HogFunctionTypeType,
     PersonType,
     PropertyFilterType,
     PropertyGroupFilter,
@@ -46,7 +54,6 @@ import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurati
 
 export interface HogFunctionConfigurationLogicProps {
     templateId?: string | null
-    subTemplateId?: string | null
     id?: string | null
 }
 
@@ -63,39 +70,49 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     status: 'stable',
 }
 
+export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
+
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
-    const sanitizedInputs: Record<string, HogFunctionInputType> = {}
+    function sanitizeInputs(
+        data: HogFunctionConfigurationType | HogFunctionMappingType
+    ): Record<string, HogFunctionInputType> {
+        const sanitizedInputs: Record<string, HogFunctionInputType> = {}
+        data.inputs_schema?.forEach((input) => {
+            const secret = data.inputs?.[input.key]?.secret
+            let value = data.inputs?.[input.key]?.value
 
-    data.inputs_schema?.forEach((input) => {
-        const secret = data.inputs?.[input.key]?.secret
-        let value = data.inputs?.[input.key]?.value
+            if (secret) {
+                // If set this means we haven't changed the value
+                sanitizedInputs[input.key] = {
+                    value: '********', // Don't send the actual value
+                    secret: true,
+                }
+                return
+            }
 
-        if (secret) {
-            // If set this means we haven't changed the value
+            if (input.type === 'json' && typeof value === 'string') {
+                try {
+                    value = JSON.parse(value)
+                } catch (e) {
+                    // Ignore
+                }
+            }
+
             sanitizedInputs[input.key] = {
-                value: '********', // Don't send the actual value
-                secret: true,
+                value: value,
             }
-            return
-        }
-
-        if (input.type === 'json' && typeof value === 'string') {
-            try {
-                value = JSON.parse(value)
-            } catch (e) {
-                // Ignore
-            }
-        }
-
-        sanitizedInputs[input.key] = {
-            value: value,
-        }
-    })
+        })
+        return sanitizedInputs
+    }
 
     const payload: HogFunctionConfigurationType = {
         ...data,
         filters: data.filters,
-        inputs: sanitizedInputs,
+        mappings: data.mappings?.map((mapping) => ({
+            ...mapping,
+            inputs: sanitizeInputs(mapping),
+        })),
+        inputs: sanitizeInputs(data),
         masking: data.masking?.hash ? data.masking : null,
         icon_url: data.icon_url,
     }
@@ -103,29 +120,44 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
     return payload
 }
 
-const templateToConfiguration = (
-    template: HogFunctionTemplateType,
-    subTemplate?: HogFunctionSubTemplateType | null
-): HogFunctionConfigurationType => {
-    const inputs: Record<string, HogFunctionInputType> = {}
+const templateToConfiguration = (template: HogFunctionTemplateType): HogFunctionConfigurationType => {
+    function getInputs(inputs_schema?: HogFunctionInputSchemaType[] | null): Record<string, HogFunctionInputType> {
+        const inputs: Record<string, HogFunctionInputType> = {}
+        inputs_schema?.forEach((schema) => {
+            if (schema.default !== undefined) {
+                inputs[schema.key] = { value: schema.default }
+            }
+        })
+        return inputs
+    }
 
-    template.inputs_schema?.forEach((schema) => {
-        if (typeof subTemplate?.inputs?.[schema.key] !== 'undefined') {
-            inputs[schema.key] = { value: subTemplate.inputs[schema.key] }
-        } else if (schema.default !== undefined) {
-            inputs[schema.key] = { value: schema.default }
-        }
-    })
+    function getMappingInputs(
+        inputs_schema?: HogFunctionInputSchemaType[] | null
+    ): Record<string, HogFunctionInputType> {
+        const inputs: Record<string, HogFunctionInputType> = {}
+        inputs_schema?.forEach((schema) => {
+            if (schema.default !== undefined) {
+                inputs[schema.key] = { value: schema.default }
+            }
+        })
+        return inputs
+    }
 
     return {
         type: template.type ?? 'destination',
-        name: subTemplate?.name ?? template.name,
-        description: subTemplate?.name ?? template.description,
+        name: template.name,
+        description: template.description,
         inputs_schema: template.inputs_schema,
-        filters: subTemplate?.filters ?? template.filters,
+        filters: template.filters,
+        mappings: template.mappings?.map(
+            (mapping): HogFunctionMappingType => ({
+                ...mapping,
+                inputs: getMappingInputs(mapping.inputs_schema),
+            })
+        ),
         hog: template.hog,
         icon_url: template.icon_url,
-        inputs,
+        inputs: getInputs(template.inputs_schema),
         enabled: template.type !== 'broadcast',
     }
 }
@@ -139,7 +171,6 @@ export function convertToHogFunctionInvocationGlobals(
     return {
         project: {
             id: team?.id ?? 0,
-
             name: team?.name ?? 'Default project',
             url: projectUrl,
         },
@@ -191,13 +222,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
         personsCountQueryChanged: (personsCountQuery: ActorsQuery) =>
             ({ personsCountQuery } as { personsCountQuery: ActorsQuery }),
-        setSubTemplateId: (subTemplateId: HogFunctionSubTemplateIdType | null) => ({ subTemplateId }),
         loadSampleGlobals: true,
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
+        setSampleGlobals: (sampleGlobals: HogFunctionInvocationGlobals | null) => ({ sampleGlobals }),
     }),
     reducers(({ props }) => ({
+        sampleGlobals: [
+            null as HogFunctionInvocationGlobals | null,
+            {
+                setSampleGlobals: (_, { sampleGlobals }) => sampleGlobals,
+            },
+        ],
         showSource: [
             // Show source by default for blank templates when creating a new function
             !!(!props.id && props.templateId?.startsWith('template-blank-')),
@@ -210,12 +247,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             false,
             {
                 upsertHogFunctionFailure: () => true,
-            },
-        ],
-        subTemplateId: [
-            null as HogFunctionSubTemplateIdType | null,
-            {
-                setSubTemplateId: (_, { subTemplateId }) => subTemplateId,
             },
         ],
 
@@ -299,7 +330,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
-                    if (values.type !== 'destination') {
+                    if (values.type !== 'destination' && values.type !== 'site_destination') {
                         return null
                     }
                     if (values.sparkline === null) {
@@ -363,7 +394,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as HogFunctionInvocationGlobals | null,
             {
                 loadSampleGlobals: async (_, breakpoint) => {
-                    if (!values.lastEventQuery || values.type !== 'destination') {
+                    if (!values.lastEventQuery) {
                         return values.sampleGlobals
                     }
                     const errorMessage =
@@ -405,7 +436,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                         return globals
                     } catch (e: any) {
-                        actions.setSampleGlobalsError(e.message ?? errorMessage)
+                        if (!isBreakpoint(e)) {
+                            actions.setSampleGlobalsError(e.message ?? errorMessage)
+                        }
                         return values.exampleInvocationGlobals
                     }
                 },
@@ -419,14 +452,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : undefined,
+                    mappings:
+                        data.type === 'site_destination' && (!data.mappings || data.mappings.length === 0)
+                            ? 'You must add at least one mapping'
+                            : undefined,
+                    filters:
+                        data.type === 'internal_destination' && data.filters?.events?.length === 0
+                            ? 'You must choose a filter'
+                            : undefined,
                     ...(values.inputFormErrors as any),
                 }
             },
             submit: async (data) => {
-                const payload = sanitizeConfiguration(data)
-
+                const payload: Record<string, any> = sanitizeConfiguration(data)
                 // Only sent on create
-                ;(payload as any).template_id = props.templateId || values.hogFunction?.template?.id
+                payload.template_id = props.templateId || values.hogFunction?.template?.id
 
                 if (!values.hasAddon) {
                     // Remove the source field if the user doesn't have the addon
@@ -434,7 +474,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     delete payload.inputs_schema
                 }
 
-                await asyncActions.upsertHogFunction(payload)
+                await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
             },
         },
     })),
@@ -450,17 +490,27 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
             },
         ],
+        hasGroupsAddon: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => {
+                return hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)
+            },
+        ],
         showPaygate: [
             (s) => [s.template, s.hasAddon],
             (template, hasAddon) => {
                 return template && template.status !== 'free' && !hasAddon
             },
         ],
+        useMapping: [
+            (s) => [s.hogFunction, s.template],
+            (hogFunction, template) => (hogFunction ?? template)?.type === 'site_destination',
+        ],
         defaultFormState: [
-            (s) => [s.template, s.hogFunction, s.subTemplate],
-            (template, hogFunction, subTemplate): HogFunctionConfigurationType | null => {
+            (s) => [s.template, s.hogFunction],
+            (template, hogFunction): HogFunctionConfigurationType | null => {
                 if (template) {
-                    return templateToConfiguration(template, subTemplate)
+                    return templateToConfiguration(template)
                 }
                 return hogFunction ?? null
             },
@@ -604,8 +654,26 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         matchingFilters: [
-            (s) => [s.configuration],
-            (configuration): PropertyGroupFilter => {
+            (s) => [s.configuration, s.useMapping],
+            (configuration, useMapping): PropertyGroupFilter => {
+                // We're using mappings, but none are provided, so match zero events.
+                if (useMapping && !configuration.mappings?.length) {
+                    return {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.HogQL,
+                                        key: 'false',
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                }
+
                 const seriesProperties: PropertyGroupFilterValue = {
                     type: FilterLogicalOperator.Or,
                     values: [],
@@ -614,7 +682,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     type: FilterLogicalOperator.And,
                     values: [seriesProperties],
                 }
-                for (const event of configuration.filters?.events ?? []) {
+                const allPossibleEventFilters = configuration.filters?.events ?? []
+                const allPossibleActionFilters = configuration.filters?.actions ?? []
+
+                if (Array.isArray(configuration.mappings)) {
+                    for (const mapping of configuration.mappings) {
+                        if (mapping.filters?.events) {
+                            allPossibleEventFilters.push(...mapping.filters.events)
+                        }
+                        if (mapping.filters?.actions) {
+                            allPossibleActionFilters.push(...mapping.filters.actions)
+                        }
+                    }
+                }
+
+                for (const event of allPossibleEventFilters) {
                     const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
                     if (event.id) {
                         eventProperties.push({
@@ -633,7 +715,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         values: eventProperties,
                     })
                 }
-                for (const action of configuration.filters?.actions ?? []) {
+                for (const action of allPossibleActionFilters) {
                     const actionProperties: AnyPropertyFilter[] = [...(action.properties ?? [])]
                     if (action.id) {
                         actionProperties.push({
@@ -664,7 +746,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQuery: [
             (s) => [s.configuration, s.matchingFilters, s.type],
             (configuration, matchingFilters, type): TrendsQuery | null => {
-                if (type !== 'destination') {
+                if (type !== 'destination' && type !== 'site_destination') {
                     return null
                 }
                 return {
@@ -728,7 +810,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         lastEventQuery: [
             (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.type],
             (configuration, matchingFilters, groupTypes, type): EventsQuery | null => {
-                if (type !== 'destination') {
+                if (!TYPES_WITH_GLOBALS.includes(type)) {
                     return null
                 }
                 const query: EventsQuery = {
@@ -760,20 +842,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return hogFunction?.template?.hog && hogFunction.template.hog !== configuration.hog
             },
         ],
-
-        subTemplate: [
-            (s) => [s.template, s.subTemplateId],
-            (template, subTemplateId) => {
-                if (!template || !subTemplateId) {
-                    return null
-                }
-
-                const subTemplate = template.sub_templates?.find((st) => st.id === subTemplateId)
-                return subTemplate
-            },
+        mappingTemplates: [
+            (s) => [s.hogFunction, s.template],
+            (hogFunction, template) => template?.mapping_templates ?? hogFunction?.template?.mapping_templates ?? [],
         ],
 
-        forcedSubTemplateId: [() => [router.selectors.searchParams], ({ sub_template }) => !!sub_template],
+        usesGroups: [
+            (s) => [s.configuration],
+            (configuration) => {
+                // NOTE: Bit hacky but works good enough...
+                const configStr = JSON.stringify(configuration)
+                return configStr.includes('groups.') || configStr.includes('{groups}')
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -816,6 +897,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 ...(cache.configFromUrl ?? {}),
             }
 
+            if (values.template?.mapping_templates) {
+                config.mappings = [
+                    ...(config.mappings ?? []),
+                    ...values.template.mapping_templates
+                        .filter((t) => t.include_by_default)
+                        .map((template) => ({
+                            ...template,
+                            inputs: template.inputs_schema?.reduce((acc, input) => {
+                                acc[input.key] = { value: input.default }
+                                return acc
+                            }, {} as Record<string, HogFunctionInputType>),
+                        })),
+                ]
+            }
             const paramsFromUrl = cache.paramsFromUrl ?? {}
             const unsavedConfigurationToApply =
                 (values.unsavedConfiguration?.timestamp ?? 0) > Date.now() - UNSAVED_CONFIGURATION_TTL
@@ -867,7 +962,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         resetToTemplate: async () => {
             const template = values.hogFunction?.template ?? values.template
             if (template) {
-                const config = templateToConfiguration(template, values.subTemplate)
+                const config = templateToConfiguration(template)
 
                 const inputs = config.inputs ?? {}
 
@@ -915,10 +1010,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             router.actions.replace(hogFunctionUrl(type))
         },
 
-        setSubTemplateId: () => {
-            actions.resetToTemplate()
-        },
-
         persistForUnload: () => {
             actions.setUnsavedConfiguration(values.configuration)
         },
@@ -931,9 +1022,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         if (props.templateId) {
             cache.configFromUrl = router.values.hashParams.configuration
-            if (router.values.searchParams.sub_template) {
-                actions.setSubTemplateId(router.values.searchParams.sub_template)
-            }
             actions.loadTemplate() // comes with plugin info
         } else if (props.id && props.id !== 'new') {
             actions.loadHogFunction()

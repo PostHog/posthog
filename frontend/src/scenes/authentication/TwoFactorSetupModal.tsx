@@ -1,35 +1,25 @@
 import { useActions, useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { twoFactorLogic } from './twoFactorLogic'
 import { TwoFactorSetup } from './TwoFactorSetup'
 
-interface TwoFactorSetupModalProps {
-    onSuccess: () => void
-    closable?: boolean
-    required?: boolean
-    forceOpen?: boolean
-}
-
-export function TwoFactorSetupModal({
-    onSuccess,
-    closable = true,
-    required = false,
-    forceOpen = false,
-}: TwoFactorSetupModalProps): JSX.Element {
-    const { isTwoFactorSetupModalOpen } = useValues(twoFactorLogic)
-    const { toggleTwoFactorSetupModal } = useActions(twoFactorLogic)
+export function TwoFactorSetupModal(): JSX.Element {
+    const { isTwoFactorSetupModalOpen, forceOpenTwoFactorSetupModal } = useValues(twoFactorLogic)
+    const { closeTwoFactorSetupModal } = useActions(twoFactorLogic)
 
     return (
         <LemonModal
             title="Set up two-factor authentication"
-            isOpen={isTwoFactorSetupModalOpen || forceOpen}
-            onClose={closable ? () => toggleTwoFactorSetupModal(false) : undefined}
-            closable={closable}
+            isOpen={isTwoFactorSetupModalOpen || forceOpenTwoFactorSetupModal}
+            onClose={!forceOpenTwoFactorSetupModal ? () => closeTwoFactorSetupModal() : undefined}
+            closable={!forceOpenTwoFactorSetupModal}
         >
             <div className="max-w-md">
-                {required && (
+                {forceOpenTwoFactorSetupModal && (
                     <LemonBanner className="mb-4" type="warning">
                         Your organization requires you to set up 2FA.
                     </LemonBanner>
@@ -37,10 +27,9 @@ export function TwoFactorSetupModal({
                 <p>Use an authenticator app like Google Authenticator or 1Password to scan the QR code below.</p>
                 <TwoFactorSetup
                     onSuccess={() => {
-                        toggleTwoFactorSetupModal(false)
-                        if (onSuccess) {
-                            onSuccess()
-                        }
+                        closeTwoFactorSetupModal()
+                        userLogic.actions.loadUser()
+                        membersLogic.actions.loadAllMembers()
                     }}
                 />
             </div>

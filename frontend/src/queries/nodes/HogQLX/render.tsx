@@ -44,12 +44,14 @@ export function renderHogQLX(value: any): JSX.Element {
             return (
                 <ErrorBoundary>
                     <ViewRecordingButton
+                        inModal
                         sessionId={sessionId}
                         type="primary"
                         size="xsmall"
                         data-attr="hog-ql-view-recording-button"
                         className="inline-block"
                         {...props}
+                        disabledReason={sessionId ? undefined : 'No session id associated with this event'}
                     />
                 </ErrorBoundary>
             )

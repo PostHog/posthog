@@ -15,6 +15,8 @@ from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
@@ -45,6 +47,74 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             team=self.team,
             interval=None,
             now=datetime.now(),
+        )
+
+    @cached_property
+    def query_compare_to_date_range(self):
+        if self.query.compareFilter is not None:
+            if isinstance(self.query.compareFilter.compare_to, str):
+                return QueryCompareToDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=None,
+                    now=datetime.now(),
+                    compare_to=self.query.compareFilter.compare_to,
+                )
+            elif self.query.compareFilter.compare:
+                return QueryPreviousPeriodDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=None,
+                    now=datetime.now(),
+                )
+
+        return None
+
+    def _current_period_expression(self, field="start_timestamp"):
+        return ast.Call(
+            name="and",
+            args=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_date_range.date_from_as_hogql(),
+                    op=ast.CompareOperationOp.GtEq,
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_date_range.date_to_as_hogql(),
+                    op=ast.CompareOperationOp.Lt,
+                ),
+            ],
+        )
+
+    def _previous_period_expression(self, field="start_timestamp"):
+        # NOTE: Returning `ast.Constant(value=None)` is painfully slow, make sure we return a boolean
+        if not self.query_compare_to_date_range:
+            return ast.Constant(value=False)
+
+        return ast.Call(
+            name="and",
+            args=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_compare_to_date_range.date_from_as_hogql(),
+                    op=ast.CompareOperationOp.GtEq,
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_compare_to_date_range.date_to_as_hogql(),
+                    op=ast.CompareOperationOp.Lt,
+                ),
+            ],
+        )
+
+    def _periods_expression(self, field="timestamp"):
+        return ast.Call(
+            name="or",
+            args=[
+                self._current_period_expression(field),
+                self._previous_period_expression(field),
+            ],
         )
 
     @cached_property
@@ -102,8 +172,15 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def event_type_expr(self) -> ast.Expr:
-        pageview_expr = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
+        pageview_expr = ast.Or(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$screen")
+                ),
+            ]
         )
 
         if self.conversion_goal_expr:

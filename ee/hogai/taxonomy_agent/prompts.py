@@ -81,6 +81,15 @@ All operators take a single value except for `equals` and `doesn't equal which c
 </property_filters>
 """.strip()
 
+REACT_HUMAN_IN_THE_LOOP_PROMPT = """
+<human_in_the_loop>
+Ask the user for clarification if:
+- The user's question is ambiguous.
+- You can't find matching events or properties.
+- You're unable to build a plan that effectively answers the user's question.
+</human_in_the_loop>
+""".strip()
+
 REACT_FORMAT_REMINDER_PROMPT = """
 Begin! Reminder that you must ALWAYS respond with a valid JSON blob of a single action. Use tools if necessary. Respond directly if appropriate. Format is Action:```$JSON_BLOB``` then Observation.
 """.strip()
@@ -125,3 +134,7 @@ The action input you previously provided didn't pass the validation and raised a
 
 You must fix the exception and try again.
 """
+
+CORE_MEMORY_INSTRUCTIONS = """
+You have access to the core memory in the <core_memory> tag, which stores information about the user's company and product.
+""".strip()

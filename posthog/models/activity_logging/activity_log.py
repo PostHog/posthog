@@ -5,6 +5,9 @@ from decimal import Decimal
 from typing import Any, Literal, Optional, Union
 from uuid import UUID
 
+from django.db.models.signals import post_save
+from django.dispatch.dispatcher import receiver
+from sentry_sdk import capture_exception
 import structlog
 from django.core.paginator import Paginator
 from django.core.exceptions import ObjectDoesNotExist
@@ -498,3 +501,37 @@ def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int 
     )
 
     return get_activity_page(activity_query, limit, page)
+
+
+@receiver(post_save, sender=ActivityLog)
+def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
+    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
+    from posthog.api.activity_log import ActivityLogSerializer
+    from posthog.api.shared import UserBasicSerializer
+
+    try:
+        serialized_data = ActivityLogSerializer(instance).data
+        # TODO: Move this into the producer to support dataclasses
+        serialized_data["detail"] = dataclasses.asdict(serialized_data["detail"])
+        user_data = UserBasicSerializer(instance.user).data if instance.user else None
+
+        if created and instance.team_id is not None:
+            produce_internal_event(
+                team_id=instance.team_id,
+                event=InternalEventEvent(
+                    event="$activity_log_entry_created",
+                    distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
+                    properties=serialized_data,
+                ),
+                person=InternalEventPerson(
+                    id=user_data["id"],
+                    properties=user_data,
+                )
+                if user_data
+                else None,
+            )
+    except Exception as e:
+        # We don't want to hard fail here.
+        logger.exception("Failed to produce internal event", data=serialized_data, error=e)
+        capture_exception(e)
+        return

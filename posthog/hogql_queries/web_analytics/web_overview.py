@@ -1,13 +1,10 @@
 from typing import Optional, Union
 import math
 
-from django.utils.timezone import datetime
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr, get_property_type
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
@@ -16,7 +13,6 @@ from posthog.schema import (
     CachedWebOverviewQueryResponse,
     WebOverviewQueryResponse,
     WebOverviewQuery,
-    SessionTableVersion,
 )
 
 
@@ -56,10 +52,6 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 to_data("session duration", "duration_s", row[6], row[7]),
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
             ]
-            if self.query.includeLCPScore:
-                results.append(
-                    to_data("lcp score", "duration_ms", row[10], row[11], is_increase_bad=True),
-                )
 
         return WebOverviewQueryResponse(
             results=results,
@@ -67,15 +59,6 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
-        )
-
-    @cached_property
-    def query_date_range(self):
-        return QueryDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
         )
 
     def all_properties(self) -> ast.Expr:
@@ -100,10 +83,19 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             return ast.Call(
                 name="countIf",
                 args=[
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["event"]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value="$pageview"),
+                    ast.Or(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["event"]),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Constant(value="$pageview"),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["event"]),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Constant(value="$screen"),
+                            ),
+                        ]
                     )
                 ],
             )
@@ -112,10 +104,6 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
 
     @cached_property
     def inner_select(self) -> ast.SelectQuery:
-        start = self.query_date_range.previous_period_date_from_as_hogql()
-        mid = self.query_date_range.date_from_as_hogql()
-        end = self.query_date_range.date_to_as_hogql()
-
         parsed_select = parse_select(
             """
 SELECT
@@ -126,23 +114,19 @@ FROM events
 WHERE and(
     events.`$session_id` IS NOT NULL,
     {event_type_expr},
-    timestamp >= {date_range_start},
-    timestamp < {date_range_end},
+    {inside_timestamp_period},
     {event_properties},
     {session_properties}
 )
 GROUP BY session_id
-HAVING and(
-    start_timestamp >= {date_range_start},
-    start_timestamp < {date_range_end}
-)
+HAVING {inside_start_timestamp_period}
         """,
             placeholders={
-                "date_range_start": start if self.query.compareFilter and self.query.compareFilter.compare else mid,
-                "date_range_end": end,
                 "event_properties": self.event_properties(),
                 "session_properties": self.session_properties(),
                 "event_type_expr": self.event_type_expr,
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "inside_start_timestamp_period": self._periods_expression("start_timestamp"),
             },
         )
         assert isinstance(parsed_select, ast.SelectQuery)
@@ -165,33 +149,36 @@ HAVING and(
                     alias="is_bounce", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$is_bounce"])])
                 )
             )
-            if self.query.includeLCPScore:
-                lcp = (
-                    ast.Call(name="toFloat", args=[ast.Constant(value=None)])
-                    if self.modifiers.sessionTableVersion == SessionTableVersion.V1
-                    else ast.Call(name="any", args=[ast.Field(chain=["session", "$vitals_lcp"])])
-                )
-                parsed_select.select.append(ast.Alias(alias="lcp", expr=lcp))
 
         return parsed_select
 
     @cached_property
     def outer_select(self) -> ast.SelectQuery:
-        start = self.query_date_range.previous_period_date_from_as_hogql()
-        mid = self.query_date_range.date_from_as_hogql()
-        end = self.query_date_range.date_to_as_hogql()
-
         def current_period_aggregate(function_name, column_name, alias, params=None):
-            if not self.query.compareFilter or not self.query.compareFilter.compare:
+            if not self.query_compare_to_date_range:
                 return ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
 
-            return self.period_aggregate(function_name, column_name, mid, end, alias=alias, params=params)
+            return self.period_aggregate(
+                function_name,
+                column_name,
+                self.query_date_range.date_from_as_hogql(),
+                self.query_date_range.date_to_as_hogql(),
+                alias=alias,
+                params=params,
+            )
 
         def previous_period_aggregate(function_name, column_name, alias, params=None):
-            if not self.query.compareFilter or not self.query.compareFilter.compare:
+            if not self.query_compare_to_date_range:
                 return ast.Alias(alias=alias, expr=ast.Constant(value=None))
 
-            return self.period_aggregate(function_name, column_name, start, mid, alias=alias, params=params)
+            return self.period_aggregate(
+                function_name,
+                column_name,
+                self.query_compare_to_date_range.date_from_as_hogql(),
+                self.query_compare_to_date_range.date_to_as_hogql(),
+                alias=alias,
+                params=params,
+            )
 
         if self.query.conversionGoal:
             select = [
@@ -231,15 +218,6 @@ HAVING and(
                 current_period_aggregate("avg", "is_bounce", "bounce_rate"),
                 previous_period_aggregate("avg", "is_bounce", "prev_bounce_rate"),
             ]
-            if self.query.includeLCPScore:
-                select.extend(
-                    [
-                        current_period_aggregate("quantiles", "lcp", "lcp_p75", params=[ast.Constant(value=0.75)]),
-                        previous_period_aggregate(
-                            "quantiles", "lcp", "prev_lcp_p75", params=[ast.Constant(value=0.75)]
-                        ),
-                    ]
-                )
 
         query = ast.SelectQuery(
             select=select,

@@ -5,8 +5,10 @@ import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } fro
 import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -16,7 +18,9 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useState } from 'react'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { urls } from 'scenes/urls'
 
+import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
 import { isInsightVizNode } from '~/queries/utils'
 import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
 
@@ -65,8 +69,12 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, togglePreview } = useActions(sharingLogic(logicProps))
+    const { setIsEnabled, togglePreview, setEmbedConfigValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
+
+    const { push } = useActions(router)
+
+    const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
@@ -85,6 +93,17 @@ export function SharingModalContent({
                 </>
             ) : undefined}
 
+            {insightShortId && newAccessControl ? (
+                <>
+                    <AccessControlPopoutCTA
+                        callback={() => {
+                            push(urls.insightView(insightShortId))
+                        }}
+                    />
+                    <LemonDivider />
+                </>
+            ) : undefined}
+
             <div className="space-y-2">
                 {!sharingConfiguration && sharingConfigurationLoading ? (
                     <LemonSkeleton.Row repeat={3} />
@@ -92,6 +111,7 @@ export function SharingModalContent({
                     <p>Something went wrong...</p>
                 ) : (
                     <>
+                        <h3>Sharing</h3>
                         <LemonSwitch
                             id="sharing-switch"
                             label={`Share ${resource} publicly`}
@@ -158,7 +178,7 @@ export function SharingModalContent({
                                             </LemonField>
                                         )}
                                         <LemonField name="whitelabel">
-                                            {({ value, onChange }) => (
+                                            {({ value }) => (
                                                 <LemonSwitch
                                                     fullWidth
                                                     bordered
@@ -173,9 +193,10 @@ export function SharingModalContent({
                                                         </div>
                                                     }
                                                     onChange={() =>
-                                                        guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
-                                                            onChange(!value)
-                                                        )
+                                                        guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () => {
+                                                            // setEmbedConfigValue is used to update the form state and report the event
+                                                            setEmbedConfigValue('whitelabel', !value)
+                                                        })
                                                     }
                                                     checked={!value}
                                                 />

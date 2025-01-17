@@ -1,5 +1,5 @@
+/env
 venv
-env
 .venv
 *.pyc
 __pycache__/
@@ -12,7 +12,6 @@ debug.log
 *.swo
 node_modules/
 *.code-workspace
-node_modules
 .mypy_cache
 frontend/.cache/
 frontend/dist/
@@ -77,3 +76,6 @@ pyrightconfig.json
 temp_test_run_data.json
 .temp-deepeval-cache.json
 .eslintcache
+
+# ignore all dagster tmp directories that may be created
+tmp*/
