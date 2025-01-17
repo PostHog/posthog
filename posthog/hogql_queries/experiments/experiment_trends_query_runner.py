@@ -270,7 +270,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
         if self.stats_version == 2:
-            if self.query.count_query.series[0].math:
+            if self.query.count_query.series[0].math == PropertyMathType.SUM:
                 probabilities = calculate_probabilities_v2_continuous(control_variant, test_variants)
                 significance_code, p_value = are_results_significant_v2_continuous(
                     control_variant, test_variants, probabilities
