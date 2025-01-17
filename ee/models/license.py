@@ -78,6 +78,7 @@ class License(models.Model):
         AvailableFeature.SAML,
         AvailableFeature.SSO_ENFORCEMENT,
         AvailableFeature.ROLE_BASED_ACCESS,
+        AvailableFeature.DATA_COLOR_THEMES,
     ]
     PLANS = {SCALE_PLAN: SCALE_FEATURES, ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
     # The higher the plan, the higher its sorting value - sync with front-end licenseLogic
