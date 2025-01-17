@@ -3,7 +3,7 @@
     "name": "posthog-django",
     "root": ".",
     "projectType": "application",
-    "implicitDependencies": ["ee", "frontend", "plugin-transpiler", "hogvm-py"],
+    "implicitDependencies": ["ee", "frontend", "plugin-transpiler", "hogvm-py", "hogql_parser"],
     "targets": {
         "serve": {
             "executor": "nx:run-commands",
