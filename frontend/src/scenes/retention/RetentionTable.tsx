@@ -4,26 +4,30 @@ import clsx from 'clsx'
 import { mean } from 'd3'
 import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { BRAND_BLUE_HSL, gradateColor, PURPLE, range } from 'lib/utils'
+import { gradateColor, range } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
 
 export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { tableHeaders, tableRows, isLatestPeriod, hideSizeColumn, retentionVizOptions } = useValues(
-        retentionTableLogic(insightProps)
-    )
+    const { tableHeaders, tableRows, isLatestPeriod, hideSizeColumn, retentionVizOptions, theme, retentionFilter } =
+        useValues(retentionTableLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
-    const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
+    const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
+    const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
     const showMean = retentionFilter?.showMean || false
 
     return (
         <table
             className={clsx('RetentionTable', { 'RetentionTable--small-layout': retentionVizOptions?.useSmallLayout })}
             data-attr="retention-table"
+            style={
+                {
+                    '--retention-table-color': backgroundColor,
+                } as React.CSSProperties
+            }
         >
             <tbody>
                 <tr>
@@ -58,7 +62,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                         }
                                         latest={isLatestPeriod && columnIndex == tableRows[0].length - 1}
                                         clickable={false}
-                                        backgroundColor={PURPLE}
+                                        backgroundColor={backgroundColorMean}
                                     />
                                 )}
                             </td>
@@ -84,6 +88,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                         percentage={column.percentage}
                                         clickable={true}
                                         latest={isLatestPeriod && columnIndex === row.length - 1}
+                                        backgroundColor={backgroundColor}
                                     />
                                 )}
                             </td>
@@ -104,10 +109,10 @@ function CohortDay({
     percentage: number
     latest: boolean
     clickable: boolean
-    backgroundColor?: [number, number, number]
+    backgroundColor: string
 }): JSX.Element {
     const backgroundColorSaturation = percentage / 100
-    const saturatedBackgroundColor = gradateColor(backgroundColor || BRAND_BLUE_HSL, backgroundColorSaturation, 0.1)
+    const saturatedBackgroundColor = gradateColor(backgroundColor, backgroundColorSaturation, 0.1)
     const textColor = backgroundColorSaturation > 0.4 ? '#fff' : 'var(--text-3000)' // Ensure text contrast
 
     const numberCell = (
