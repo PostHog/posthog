@@ -1086,7 +1086,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         metrics = [...metrics, ...sharedMetrics]
                     }
 
-                    return await Promise.all(
+                    return (await Promise.all(
                         metrics.map(async (metric, index) => {
                             try {
                                 const queryWithExperimentId = {
@@ -1113,7 +1113,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 return null
                             }
                         })
-                    )
+                    )) as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]
                 },
             },
         ],
@@ -1131,7 +1131,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         metrics = [...metrics, ...sharedMetrics]
                     }
 
-                    return await Promise.all(
+                    return (await Promise.all(
                         metrics.map(async (metric, index) => {
                             try {
                                 const queryWithExperimentId = {
@@ -1158,7 +1158,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 return null
                             }
                         })
-                    )
+                    )) as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]
                 },
             },
         ],
