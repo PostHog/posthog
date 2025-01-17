@@ -341,7 +341,9 @@ def create_snapshot_dictionary(table: PersonOverridesSnapshotTable) -> PersonOve
 
 
 @dagster.op
-def load_snapshot_dictionary(dictionary: PersonOverridesSnapshotDictionary) -> PersonOverridesSnapshotDictionary:
+def load_and_verify_snapshot_dictionary(
+    dictionary: PersonOverridesSnapshotDictionary,
+) -> PersonOverridesSnapshotDictionary:
     cluster = get_cluster()
     cluster.map_all_hosts(dictionary.load).result()
     assert len(set(cluster.map_all_hosts(dictionary.get_checksum).result().values())) == 1
@@ -441,7 +443,7 @@ def drop_snapshot_table(table: PersonOverridesSnapshotTable) -> None:
 @dagster.job
 def squash_person_overrides():
     prepared_snapshot_table = wait_for_snapshot_table_replication(populate_snapshot_table(create_snapshot_table()))
-    prepared_dictionary = load_snapshot_dictionary(create_snapshot_dictionary(prepared_snapshot_table))
+    prepared_dictionary = load_and_verify_snapshot_dictionary(create_snapshot_dictionary(prepared_snapshot_table))
     dictionary_after_person_id_update_mutations = wait_for_person_id_update_mutations(
         start_person_id_update_mutations(prepared_dictionary)
     )
