@@ -14,7 +14,7 @@ def migrate_action_webhooks_backward(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0541_usergroup_usergroupmembership_usergroup_members_and_more"),
+        ("posthog", "0545_insight_filters_to_query"),
     ]
 
     operations = [
