@@ -1,10 +1,9 @@
-import { ErrorTrackingSparklineConfig } from 'lib/components/Errors/types'
-
 import {
     DataTableNode,
     DateRange,
     ErrorTrackingIssue,
     ErrorTrackingQuery,
+    ErrorTrackingSparklineConfig,
     EventsQuery,
     InsightVizNode,
     NodeKind,
@@ -24,7 +23,7 @@ export const errorTrackingQuery = ({
 }: Pick<ErrorTrackingQuery, 'orderBy' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery'> & {
     filterGroup: UniversalFiltersGroup
     customVolume?: ErrorTrackingSparklineConfig | null
-    columns: ('error' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
+    columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
 }): DataTableNode => {
     return {
         kind: NodeKind.DataTableNode,

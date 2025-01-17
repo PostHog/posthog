@@ -98,44 +98,31 @@ const ErrorTrackingActions = (): JSX.Element => {
 }
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
-    const { sparklineSelectedPeriod, customVolume } = useValues(errorTrackingLogic)
+    const { sparklineSelectedPeriod, customSparklineConfig } = useValues(errorTrackingLogic)
     const record = props.record as ErrorTrackingIssue
-
-    if (!customVolume) {
-        return null
-    }
-
-    const { value, interval, offsetHours } = customVolume
 
     const [data, labels] =
         sparklineSelectedPeriod === '24h'
             ? [record.volumeDay, sparklineLabels({ value: 24, interval: 'hour' })]
             : sparklineSelectedPeriod === '1m'
             ? [record.volumeMonth, sparklineLabels({ value: 31, interval: 'day' })]
-            : [record.customVolume, sparklineLabels({ value, interval, offsetHours })]
+            : customSparklineConfig
+            ? [record.customVolume, sparklineLabels(customSparklineConfig)]
+            : [null, null]
 
-    return data ? <Sparkline data={data} labels={labels} /> : null
+    return data ? <Sparkline className="h-8" data={data} labels={labels} /> : null
 }
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
-    const { sparklineSelectedPeriod, sparklineOptions: options } = useValues(errorTrackingLogic)
-    const { setSparklineSelectedPeriod } = useActions(errorTrackingLogic)
+    const { sparklineSelectedPeriod: period, sparklineOptions: options } = useValues(errorTrackingLogic)
+    const { setSparklineSelectedPeriod: setPeriod } = useActions(errorTrackingLogic)
 
-    if (!options || !sparklineSelectedPeriod) {
-        return null
-    }
-
-    return (
+    return period ? (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
-            <LemonSegmentedButton
-                size="xsmall"
-                value={sparklineSelectedPeriod}
-                options={options}
-                onChange={(value) => setSparklineSelectedPeriod(value)}
-            />
+            <LemonSegmentedButton size="xsmall" value={period} options={options} onChange={(p) => setPeriod(p)} />
         </div>
-    )
+    ) : null
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {

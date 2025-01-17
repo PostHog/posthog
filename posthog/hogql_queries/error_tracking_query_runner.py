@@ -9,6 +9,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     HogQLFilters,
     ErrorTrackingQuery,
+    ErrorTrackingSparklineConfig,
     ErrorTrackingQueryResponse,
     CachedErrorTrackingQueryResponse,
 )
@@ -64,20 +65,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(alias="volumeDay", expr=self.volume(24, "hour", 0)),
-            ast.Alias(alias="volumeMonth", expr=self.volume(31, "day", 0)),
+            ast.Alias(alias="volumeDay", expr=self.volume(ErrorTrackingSparklineConfig(interval="hour", value=24))),
+            ast.Alias(alias="volumeMonth", expr=self.volume(ErrorTrackingSparklineConfig(interval="day", value=31))),
         ]
 
         if self.query.customVolume:
-            value = self.query.customVolume.get("value")
-            offset = self.query.customVolume.get("offset")
-            interval = self.query.customVolume.get("interval")
-            exprs.append(
-                ast.Alias(
-                    alias="customVolume",
-                    expr=self.volume(value, interval, offset),
-                )
-            )
+            exprs.append(ast.Alias(alias="customVolume", expr=self.volume(self.query.customVolume)))
 
         if self.query.issueId:
             exprs.append(
@@ -213,10 +206,10 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         return results
 
-    def volume(self, value, interval, offset):
-        toStartOfInterval = INTERVAL_FUNCTIONS.get(interval)
+    def volume(self, config: ErrorTrackingSparklineConfig):
+        toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
         return parse_expr(
-            f"reverse(arrayMap(x -> countEqual(groupArray(dateDiff('{interval}', {toStartOfInterval}(timestamp), {toStartOfInterval}(subtractHours(now(), {offset})))), x), range({value})))"
+            f"reverse(arrayMap(x -> countEqual(groupArray(dateDiff('{config.interval}', {toStartOfInterval}(timestamp), {toStartOfInterval}(now()))), x), range({config.value})))"
         )
 
     @property

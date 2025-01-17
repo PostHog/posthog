@@ -1,8 +1,8 @@
-import { ErrorTrackingException, ErrorTrackingSparklineConfig } from 'lib/components/Errors/types'
+import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue, ErrorTrackingSparklineConfig } from '~/queries/schema'
 
 export const mergeIssues = (
     primaryIssue: ErrorTrackingIssue,
@@ -110,9 +110,8 @@ export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): bool
     return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
 }
 
-export function sparklineLabels({ value, interval, offsetHours }: ErrorTrackingSparklineConfig): string[] {
-    const offset = offsetHours ?? 0
-    const now = dayjs().subtract(offset, 'hours').startOf(interval)
+export function sparklineLabels({ value, interval }: ErrorTrackingSparklineConfig): string[] {
+    const now = dayjs().startOf(interval)
     const dates = range(value).map((idx) => now.subtract(value - (idx + 1), interval))
     return dates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
 }

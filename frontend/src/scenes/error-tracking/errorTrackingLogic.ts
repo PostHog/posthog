@@ -1,9 +1,14 @@
 import type { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { ErrorTrackingSparklineConfig } from 'lib/components/Errors/types'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { DateRange, ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema'
+import {
+    DateRange,
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignee,
+    ErrorTrackingSparklineConfig,
+} from '~/queries/schema'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
@@ -41,26 +46,16 @@ const SPARKLINE_CONFIGURATIONS: Record<string, ErrorTrackingSparklineConfig> = {
     yStart: { value: 52, interval: 'week' },
 }
 
-function constructSparklineConfig(selectedPeriod: string | null): ErrorTrackingSparklineConfig | null {
-    if (!selectedPeriod) {
-        return null
-    }
-
+function constructSparklineConfig(selectedPeriod: string): ErrorTrackingSparklineConfig | null {
     if (selectedPeriod in SPARKLINE_CONFIGURATIONS) {
         return SPARKLINE_CONFIGURATIONS[selectedPeriod]
     }
 
-    const result = selectedPeriod.match(/\d+|\D+/g)
-
-    if (result) {
-        const [value, unit] = result
-
-        return {
-            value: Number(value) * (unit === 'y' ? 12 : 1),
-            interval: unit === 'h' ? 'hour' : unit === 'd' ? 'day' : unit === 'w' ? 'week' : 'month',
-        }
+    const [value, unit] = selectedPeriod.match(/\d+|\D+/g) as RegExpMatchArray
+    return {
+        value: Number(value) * (unit === 'y' ? 12 : 1),
+        interval: unit === 'h' ? 'hour' : unit === 'd' ? 'day' : unit === 'w' ? 'week' : 'month',
     }
-    return { value: 24, interval: 'hour' }
 }
 
 export const errorTrackingLogic = kea<errorTrackingLogicType>([
@@ -77,7 +72,6 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         setSparklineSelectedPeriod: (period: string | null) => ({ period }),
-        _setSparklineOptions: (options: [SparklineOption, SparklineOption] | null) => ({ options }),
     }),
     reducers({
         dateRange: [
@@ -120,47 +114,45 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
                 setSparklineSelectedPeriod: (_, { period }) => period,
             },
         ],
-        sparklineOptions: [
-            [lastDay, lastHour] as [SparklineOption, SparklineOption] | null,
-            { persist: true },
-            {
-                _setSparklineOptions: (_, { options }) => options,
-            },
-        ],
     }),
     selectors({
-        customVolume: [
-            (s) => [s.sparklineSelectedPeriod],
-            (selectedPeriod): ErrorTrackingSparklineConfig | null => {
-                return constructSparklineConfig(selectedPeriod)
+        sparklineOptions: [
+            (s) => [s.dateRange],
+            ({ date_from }): SparklineOption[] => {
+                if (!date_from) {
+                    return []
+                }
+
+                const isRelative = date_from.match(/-\d+[hdmy]/)
+                let options: [SparklineOption, SparklineOption] | null = null
+                if (date_from in customOptions) {
+                    options = customOptions[date_from]
+                } else if (isRelative) {
+                    const value = date_from?.replace('-', '')
+                    options = [{ value: value, label: value }, lastDay]
+                } else {
+                    return []
+                }
+
+                return options
             },
         ],
+        customSparklineConfig: [
+            (s) => [s.sparklineSelectedPeriod],
+            (sparklineSelectedPeriod): ErrorTrackingSparklineConfig | null =>
+                sparklineSelectedPeriod ? constructSparklineConfig(sparklineSelectedPeriod) : null,
+        ],
     }),
-    listeners(({ values, actions }) => ({
-        setDateRange: ({ dateRange: { date_from } }) => {
-            if (!date_from) {
-                actions._setSparklineOptions(null)
-                return
+    subscriptions(({ values, actions }) => ({
+        sparklineOptions: (sparklineOptions: SparklineOption[]) => {
+            const options = sparklineOptions.map((o) => o.value)
+            const validOption = values.sparklineSelectedPeriod && options.includes(values.sparklineSelectedPeriod)
+
+            if (options.length === 0) {
+                actions.setSparklineSelectedPeriod(null)
+            } else if (!validOption) {
+                actions.setSparklineSelectedPeriod(options[0])
             }
-
-            const isRelative = date_from.match(/-\d+[hdmy]/)
-            let options: [SparklineOption, SparklineOption] | null = null
-            if (date_from in customOptions) {
-                options = customOptions[date_from]
-            } else if (isRelative) {
-                const value = date_from?.replace('-', '')
-                options = [{ value: value, label: value }, lastDay]
-            } else {
-                return
-            }
-
-            const possibleValues = options.map((o) => o.value)
-
-            if (!values.sparklineSelectedPeriod || !possibleValues.includes(values.sparklineSelectedPeriod)) {
-                actions.setSparklineSelectedPeriod(possibleValues[0])
-            }
-
-            actions._setSparklineOptions(options)
         },
     })),
 ])

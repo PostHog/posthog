@@ -666,15 +666,6 @@ class Interval(StrEnum):
     MONTH = "month"
 
 
-class ErrorTrackingSparklineConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    interval: Interval
-    offsetHours: Optional[float] = None
-    value: float
-
-
 class EventDefinition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2079,6 +2070,14 @@ class ErrorTrackingIssueAssignee(BaseModel):
     )
     id: Union[str, int]
     type: Type1
+
+
+class ErrorTrackingSparklineConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    interval: Interval
+    value: int
 
 
 class EventOddsRatioSerialized(BaseModel):

@@ -6164,11 +6164,8 @@
                     "enum": ["minute", "hour", "day", "week", "month"],
                     "type": "string"
                 },
-                "offsetHours": {
-                    "type": "number"
-                },
                 "value": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 }
             },
             "required": ["value", "interval"],

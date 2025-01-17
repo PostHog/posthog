@@ -57,9 +57,3 @@ export interface ErrorTrackingSymbolSet {
     storage_ptr: string | null
     failure_reason: string | null
 }
-
-export type ErrorTrackingSparklineConfig = {
-    value: number
-    interval: 'minute' | 'hour' | 'day' | 'week' | 'month'
-    offsetHours?: number
-}
