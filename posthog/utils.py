@@ -51,6 +51,7 @@ from posthog.exceptions import (
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
+from posthog.taxonomy.taxonomy import FRONTEND_TAXONOMY
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
@@ -387,6 +388,7 @@ def render_template(
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
         "year_in_hog_url": year_in_hog_url,
+        "posthog_taxonomy": FRONTEND_TAXONOMY,
     }
 
     posthog_bootstrap: dict[str, Any] = {}
