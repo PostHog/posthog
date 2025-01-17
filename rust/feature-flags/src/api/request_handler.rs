@@ -1,12 +1,13 @@
 use crate::{
-    api::errors::FlagError,
-    api::types::FlagsResponse,
-    client::database::Client,
-    client::geoip::GeoIpClient,
+    api::{errors::FlagError, types::FlagsResponse},
+    client::{database::Client, geoip::GeoIpClient},
     cohort::cohort_cache_manager::CohortCacheManager,
-    flags::flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
-    flags::flag_models::FeatureFlagList,
-    flags::flag_request::FlagRequest,
+    flags::{
+        flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
+        flag_models::FeatureFlagList,
+        flag_request::FlagRequest,
+        flag_service::FlagService,
+    },
     router,
 };
 use axum::{extract::State, http::HeaderMap};
@@ -24,7 +25,6 @@ use std::{io::Read, sync::Arc};
 pub enum Compression {
     #[serde(rename = "gzip", alias = "gzip-js")]
     Gzip,
-    Base64, // TODO do we need this? Or can we explicitly drop B64 support for the new service?
     #[default]
     #[serde(other)]
     Unsupported,
@@ -34,7 +34,6 @@ impl Compression {
     pub fn as_str(&self) -> &'static str {
         match self {
             Compression::Gzip => "gzip",
-            Compression::Base64 => "base64",
             Compression::Unsupported => "unsupported",
         }
     }
@@ -95,6 +94,7 @@ pub struct FeatureFlagEvaluationContext {
 /// - Maintains error context through the FlagError enum
 /// - Individual flag evaluation failures don't fail the entire request
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
+    // Destructure context
     let RequestContext {
         state,
         ip,
@@ -102,17 +102,23 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         body,
     } = context;
 
+    // Initialize services
+    let flag_service = FlagService::new(state.redis.clone(), state.reader.clone());
+
+    // Process request and authentication
     let request = decode_request(&headers, body)?;
-    let token = request
-        .extract_and_verify_token(state.redis.clone(), state.reader.clone())
-        .await?;
-
-    let team = request
-        .get_team_from_cache_or_pg(&token, state.redis.clone(), state.reader.clone())
-        .await?;
-
     let distinct_id = request.extract_distinct_id()?;
+    // NB: this method will fail before hitting any of the services if the token is not correctly set in the request,
+    // saving us from hitting the services with an invalid token
+    let token = request.extract_token()?;
+
+    let verified_token = flag_service.verify_token(&token).await?;
+    let team = flag_service
+        .get_team_from_cache_or_pg(&verified_token)
+        .await?;
     let team_id = team.id;
+
+    // Process properties and overrides
     let person_property_overrides = get_person_property_overrides(
         !request.geoip_disable.unwrap_or(false),
         request.person_properties.clone(),
@@ -123,10 +129,10 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let groups = request.groups.clone();
     let group_property_overrides =
         process_group_property_overrides(groups.clone(), request.group_properties.clone());
-
     let hash_key_override = request.anon_distinct_id.clone();
 
-    let feature_flags_from_cache_or_pg = request
+    // Get and evaluate flags
+    let feature_flags_from_cache_or_pg = flag_service
         .get_flags_from_cache_or_pg(team_id, &state.redis, &state.reader)
         .await?;
 

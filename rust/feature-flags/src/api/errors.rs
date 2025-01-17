@@ -13,6 +13,8 @@ pub enum ClientFacingError {
     Unauthorized(String),
     #[error("Rate limited")]
     RateLimited,
+    #[error("billing limit reached")]
+    BillingLimit,
     #[error("Service unavailable")]
     ServiceUnavailable,
 }
@@ -67,6 +69,7 @@ impl IntoResponse for FlagError {
             FlagError::ClientFacing(err) => match err {
                 ClientFacingError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
                 ClientFacingError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
+                ClientFacingError::BillingLimit => (StatusCode::PAYMENT_REQUIRED, "Billing limit reached. Please upgrade your plan.".to_string()),
                 ClientFacingError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded. Please reduce your request frequency and try again later.".to_string()),
                 ClientFacingError::ServiceUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "Service is currently unavailable. Please try again later.".to_string()),
             },

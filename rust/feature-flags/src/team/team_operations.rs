@@ -124,7 +124,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_corrupted_data_in_redis_is_handled() {
-        // TODO: Extend this test with fallback to pg
         let id = rand::thread_rng().gen_range(1..10_000_000);
         let token = random_string("phc_", 12);
         let team = Team {

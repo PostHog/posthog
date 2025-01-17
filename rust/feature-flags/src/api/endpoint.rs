@@ -2,7 +2,7 @@ use std::net::IpAddr;
 
 use crate::{
     api::errors::FlagError,
-    api::handler::{process_request, FlagsQueryParams, RequestContext},
+    api::request_handler::{process_request, FlagsQueryParams, RequestContext},
     api::types::{FlagsOptionsResponse, FlagsResponse, FlagsResponseCode},
     router,
 };

@@ -10,7 +10,7 @@ use tracing::error;
 
 use crate::api::{
     errors::FlagError,
-    handler::{decode_request, FlagsQueryParams},
+    request_handler::{decode_request, FlagsQueryParams},
     types::FlagsResponse,
 };
 
