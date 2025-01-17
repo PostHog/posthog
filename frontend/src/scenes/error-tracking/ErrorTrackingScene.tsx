@@ -1,6 +1,6 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonMenuItems, LemonSegmentedButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
@@ -104,7 +104,7 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
     }
 
     return (
-        <div className="flex justify-between items-center min-w-64">
+        <div className="flex items-center justify-between min-w-64">
             <div>{columnName}</div>
             <LemonSegmentedButton
                 size="xsmall"
@@ -143,9 +143,9 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     <div className="space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
                         <div className="space-x-1">
-                            <TZLabel time={record.first_seen} className="border-dotted border-b" />
+                            <TZLabel time={record.first_seen} className="border-b border-dotted" />
                             <span>|</span>
-                            <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                            <TZLabel time={record.last_seen} className="border-b border-dotted" />
                         </div>
                     </div>
                 }
@@ -180,6 +180,17 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
 const Header = (): JSX.Element => {
     const { user } = useValues(userLogic)
 
+    const items: LemonMenuItems = [{ label: 'Manage symbol sets', to: urls.errorTrackingSymbolSets() }]
+
+    if (user?.is_staff) {
+        items.push({
+            label: 'Send an exception',
+            onClick: () => {
+                throw Error('Oh my!')
+            },
+        })
+    }
+
     return (
         <PageHeader
             buttons={
@@ -195,6 +206,9 @@ const Header = (): JSX.Element => {
                     ) : null}
                     <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
                         Documentation
+                    </LemonButton>
+                    <LemonButton to={urls.errorTrackingAlerts()} type="secondary" icon={<IconGear />}>
+                        Configure alerts
                     </LemonButton>
                     <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
                         Configure
