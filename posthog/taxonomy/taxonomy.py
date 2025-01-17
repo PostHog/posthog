@@ -12,6 +12,7 @@ class CoreFilterDefinition(TypedDict):
     ignored_in_assistant: NotRequired[bool]
 
 
+# changes here might need to be sync'd to taxonomy.tsx
 CAMPAIGN_PROPERTIES: list[str] = [
     "utm_source",
     "utm_medium",
@@ -36,6 +37,7 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "_kx",
 ]
 
+# copy from https://github.com/PostHog/posthog/blob/29ac8d6b2ba5de4b65a148136b681b8e52e20429/plugin-server/src/utils/db/utils.ts#L44
 PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
     "$app_build",
     "$app_name",
@@ -53,6 +55,7 @@ PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
     *CAMPAIGN_PROPERTIES,
 }
 
+# changes here might need to be sync'd to taxonomy.tsx
 SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
     "$referring_domain",
     "utm_source",
@@ -78,7 +81,7 @@ SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
     "_kx",
 }
 
-# synced with frontend/src/lib/taxonomy.tsx
+# the front end depends on this as well
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         # in front end this key is the empty string
@@ -1504,6 +1507,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     },
 }
 
+CORE_FILTER_DEFINITIONS_BY_GROUP["numerical_event_properties"] = CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]
+# add distinct_id to event properties before copying to person properties so it exists in person properties as well
+CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["distinct_id"] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][
+    "distinct_id"
+]
+
 for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
     if key in PERSON_PROPERTIES_ADAPTED_FROM_EVENT or key.startswith("$geoip_"):
         CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"][key] = {
@@ -1544,3 +1553,10 @@ PROPERTY_NAME_ALIASES = {
     for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
     if "label" in value and "deprecated" not in value["label"]
 }
+
+# sent to front end in POSTHOG_APP_CONTEXT
+FRONTEND_TAXONOMY = {}
+for group, definitions in CORE_FILTER_DEFINITIONS_BY_GROUP.items():
+    FRONTEND_TAXONOMY[group] = {
+        key: {k: v for k, v in value.items() if k != "ignored_in_assistant"} for key, value in definitions.items()
+    }
