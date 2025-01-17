@@ -4,12 +4,12 @@ import { CoreWebVitalsThreshold } from 'scenes/web-analytics/webAnalyticsLogic'
 import { getMetricBand, getThresholdColor } from './definitions'
 
 interface CoreWebVitalsProgressBarProps {
-    value: number
+    value?: number
     threshold: CoreWebVitalsThreshold
 }
 
 export function CoreWebVitalsProgressBar({ value, threshold }: CoreWebVitalsProgressBarProps): JSX.Element {
-    const indicatorPercentage = Math.min((value / threshold.end) * 100, 100)
+    const indicatorPercentage = Math.min((value ?? 0 / threshold.end) * 100, 100)
 
     const thresholdColor = getThresholdColor(value, threshold)
     const band = getMetricBand(value, threshold)
@@ -42,14 +42,16 @@ export function CoreWebVitalsProgressBar({ value, threshold }: CoreWebVitalsProg
             />
 
             {/* Indicator line */}
-            <div
-                className={clsx('absolute w-0.5 h-3 -top-1', `bg-${thresholdColor}`)}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    left: `${indicatorPercentage}%`,
-                    transform: 'translateX(-50%)',
-                }}
-            />
+            {value != null && (
+                <div
+                    className={clsx('absolute w-0.5 h-3 -top-1', `bg-${thresholdColor}`)}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        left: `${indicatorPercentage}%`,
+                        transform: 'translateX(-50%)',
+                    }}
+                />
+            )}
         </div>
     )
 }
