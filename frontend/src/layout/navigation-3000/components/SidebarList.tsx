@@ -1,3 +1,6 @@
+import { DndContext, DragEndEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { Link, TZLabel } from '@posthog/apps-common'
 import { IconCheckCircle, IconEllipsis, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag, lemonToast } from '@posthog/lemon-ui'
@@ -9,10 +12,12 @@ import { IconChevronRight } from 'lib/lemon-ui/icons/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { capitalizeFirstLetter } from 'lib/utils'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
 import { List, ListProps } from 'react-virtualized/dist/es/List'
+
+import { editorSidebarLogic } from '~/scenes/data-warehouse/editor/editorSidebarLogic'
 
 import { ITEM_KEY_PART_SEPARATOR, navigation3000Logic } from '../navigationLogic'
 import {
@@ -50,6 +55,62 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
     } = useValues(navigation3000Logic)
     const { cancelNewItem } = useActions(navigation3000Logic)
     const { saveNewItem } = useAsyncActions(navigation3000Logic)
+    const { folders, isFolder } = useValues(editorSidebarLogic)
+    const { moveViewToFolder } = useActions(editorSidebarLogic)
+    const [activeId, setActiveId] = useState<string | null>(null)
+
+    const sensors = useSensors(
+        useSensor(MouseSensor, {
+            activationConstraint: {
+                delay: 100,
+                tolerance: 5,
+            },
+        }),
+        useSensor(TouchSensor, {
+            activationConstraint: {
+                delay: 100,
+                tolerance: 5,
+            },
+        })
+    )
+
+    const handleDragEnd = (event: DragEndEvent): void => {
+        const { active, over } = event
+
+        // Get the last item in the chain of item separator
+        const getLastItemInChain = (key: string): string => {
+            const parts = key.split(ITEM_KEY_PART_SEPARATOR)
+            return parts[parts.length - 1]
+        }
+
+        if (over && active.id !== over.id) {
+            const activeId = active.id.toString()
+            const overId = over.id.toString()
+
+            const overItemKey = getLastItemInChain(overId)
+            const activeItemKey = getLastItemInChain(activeId)
+
+            // If dropping onto a folder, move to that folder
+            if (isFolder(overItemKey)) {
+                moveViewToFolder({ viewId: activeItemKey, toFolderId: overItemKey })
+            } else {
+                const currentFolder = folders.find((folder) => folder.items.includes(activeItemKey))
+                if (currentFolder) {
+                    moveViewToFolder({ viewId: activeItemKey, toFolderId: '' }) // Empty string as folderId removes it from folders
+                }
+            }
+        } else {
+            const activeId = active.id.toString()
+            const activeItemKey = getLastItemInChain(activeId)
+            // If dropping outside folders, remove from current folder
+            moveViewToFolder({ viewId: activeItemKey, toFolderId: '' })
+        }
+        setActiveId(null)
+    }
+
+    const handleDragStart = (event: DragEndEvent): void => {
+        setActiveId(event.active.id.toString())
+    }
 
     const emptyStateSkeletonCount = useMemo(() => 4 + Math.floor(Math.random() * 4), [])
 
@@ -59,36 +120,27 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
         const allItems: (BasicListItem | ExtendedListItem | ListItemAccordion)[] = []
 
         const flatten = (
-            items: BasicListItem[] | ExtendedListItem[] | ListItemAccordion[],
+            items: (BasicListItem | ExtendedListItem | ListItemAccordion)[],
             depth: number = 1,
-            parentKey: string | number | string[] | null = null
+            parentKey: string | number | null = null
         ): void => {
             items.forEach((item) => {
+                const itemKey = parentKey ? `${parentKey}${ITEM_KEY_PART_SEPARATOR}${item.key}` : item.key.toString()
+
                 allItems.push({
                     ...item,
                     depth: depth,
-                    key: parentKey
-                        ? [
-                              Array.isArray(parentKey) ? parentKey.join(ITEM_KEY_PART_SEPARATOR) : parentKey,
-                              item.key,
-                          ].join(ITEM_KEY_PART_SEPARATOR)
-                        : item.key.toString(),
+                    key: itemKey,
                 })
                 if (isListItemAccordion(item)) {
-                    flatten(
-                        item.items,
-                        depth + 1,
-                        parentKey ? `${parentKey}${ITEM_KEY_PART_SEPARATOR}${item.key}` : item.key
-                    )
+                    flatten(item.items, depth + 1, itemKey)
                 }
             })
         }
 
-        flatten(_items, 1, category.key)
+        flatten(_items, 1, category.key.toString())
 
-        return allItems.filter((item) =>
-            isListItemVisible(Array.isArray(item.key) ? item.key.join(ITEM_KEY_PART_SEPARATOR) : item.key.toString())
-        )
+        return allItems.filter((item) => isListItemVisible(item.key.toString()))
     }, [_items, isListItemVisible])
 
     useEffect(() => {
@@ -135,60 +187,61 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
                 return <SidebarListItemSkeleton key={index} style={style} />
             }
 
-            const normalizedItemKey = Array.isArray(item.key)
-                ? item.key.map((keyPart) => `${category.key}${ITEM_KEY_PART_SEPARATOR}${keyPart}`)
-                : `${category.key}${ITEM_KEY_PART_SEPARATOR}${item.key}`
+            const normalizedItemKey = `${category.key}${ITEM_KEY_PART_SEPARATOR}${item.key}`
+            const active = normalizedItemKey === normalizedActiveListItemKey
 
-            let active: boolean
-            if (Array.isArray(normalizedItemKey)) {
-                active =
-                    typeof normalizedActiveListItemKey === 'string' &&
-                    normalizedItemKey.includes(normalizedActiveListItemKey)
-            } else {
-                active = normalizedItemKey === normalizedActiveListItemKey
-            }
             return <SidebarListItem key={index} item={item} validateName={validateName} active={active} style={style} />
         },
         overscanRowCount: 20,
         tabIndex: null,
     } as ListProps
     return (
-        // The div is for AutoSizer to work
-        <div className="flex-1" aria-busy={loading}>
-            <AutoSizer disableWidth>
-                {({ height }) =>
-                    'loading' in category && category.items.length === 0 ? (
-                        Array(emptyStateSkeletonCount)
-                            .fill(null)
-                            .map((_, index) => <SidebarListItemSkeleton key={index} style={{ height: 32 }} />)
-                    ) : remote ? (
-                        <InfiniteLoader
-                            isRowLoaded={({ index }) => remote.isItemLoaded(index)}
-                            loadMoreRows={({ startIndex, stopIndex }) => remote.loadMoreItems(startIndex, stopIndex)}
-                            rowCount={remote.itemCount}
-                            minimumBatchSize={remote.minimumBatchSize || 100} // Sync default with the REST_FRAMEWORK PAGE_SIZE setting
-                        >
-                            {({ onRowsRendered, registerChild }) => (
-                                <List
-                                    {...listProps}
-                                    ref={registerChild}
-                                    height={height}
-                                    rowCount={remote.itemCount + Number(addingNewItem)}
-                                    onRowsRendered={onRowsRendered}
-                                />
-                            )}
-                        </InfiniteLoader>
-                    ) : (
-                        <List
-                            ref={listRef}
-                            {...listProps}
-                            height={height}
-                            rowCount={listItems.length + Number(addingNewItem)}
-                        />
-                    )
-                }
-            </AutoSizer>
-        </div>
+        <DndContext sensors={sensors} onDragEnd={handleDragEnd} onDragStart={handleDragStart}>
+            <div className="flex-1" aria-busy={loading}>
+                <AutoSizer disableWidth>
+                    {({ height }) =>
+                        'loading' in category && category.items.length === 0 ? (
+                            Array(emptyStateSkeletonCount)
+                                .fill(null)
+                                .map((_, index) => <SidebarListItemSkeleton key={index} style={{ height: 32 }} />)
+                        ) : remote ? (
+                            <InfiniteLoader
+                                isRowLoaded={({ index }) => remote.isItemLoaded(index)}
+                                loadMoreRows={({ startIndex, stopIndex }) =>
+                                    remote.loadMoreItems(startIndex, stopIndex)
+                                }
+                                rowCount={remote.itemCount}
+                                minimumBatchSize={remote.minimumBatchSize || 100}
+                            >
+                                {({ onRowsRendered, registerChild }) => (
+                                    <List
+                                        {...listProps}
+                                        ref={registerChild}
+                                        height={height}
+                                        rowCount={remote.itemCount + Number(addingNewItem)}
+                                        onRowsRendered={onRowsRendered}
+                                    />
+                                )}
+                            </InfiniteLoader>
+                        ) : (
+                            <List
+                                ref={listRef}
+                                {...listProps}
+                                height={height}
+                                rowCount={listItems.length + Number(addingNewItem)}
+                            />
+                        )
+                    }
+                </AutoSizer>
+            </div>
+            <DragOverlay>
+                {activeId ? (
+                    <div className="SidebarListItem SidebarListItem__button SidebarListItem--overlay">
+                        {listItems.find((item) => item.key.toString() === activeId)?.name}
+                    </div>
+                ) : null}
+            </DragOverlay>
+        </DndContext>
     )
 }
 
@@ -207,22 +260,34 @@ function isItemClickable(item: SidebarListItemProps['item']): item is ButtonList
     return 'onClick' in item
 }
 
-function SidebarListItem({ item, validateName, active, style }: SidebarListItemProps): JSX.Element {
+function SidebarListItem({ item, validateName, active, style: styleFromProps }: SidebarListItemProps): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
     const [newName, setNewName] = useState<null | string>(null)
     const [newNameValidationError, setNewNameValidationError] = useState<null | string>(null)
     const [isSavingName, setIsSavingName] = useState(false)
+    const [menuItemsVisible, setMenuItemsVisible] = useState(true)
 
     const ref = useRef<HTMLElement | null>(null)
     item.ref = ref // Inject ref for keyboard navigation
 
     const isSaving = isItemTentative(item) ? item.loading : isSavingName
 
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+        id: item.key.toString(),
+        disabled: isItemTentative(item) || isListItemAccordion(item) || newName !== null,
+    })
+
+    const combinedStyle = {
+        ...styleFromProps,
+        transform: CSS.Transform.toString(transform),
+        transition,
+    }
+
     const menuItems = useMemo(() => {
-        if (isItemTentative(item) || isListItemAccordion(item)) {
+        if (isItemTentative(item)) {
             return undefined
         }
-        if (item.onRename) {
+        if (item.onRename && !isListItemAccordion(item)) {
             if (typeof item.menuItems !== 'function') {
                 throw new Error('menuItems must be a function for renamable items so that the "Rename" item is shown')
             }
@@ -248,33 +313,37 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
         }
         return true
     }
-    const save = isItemTentative(item)
-        ? async (name: string): Promise<void> => {
-              if (!validate(name)) {
-                  return
-              }
-              await item.onSave(name)
-          }
-        : !isListItemAccordion(item) && item.onRename
-        ? async (newName: string): Promise<void> => {
-              if (!newName || newName === item.name) {
-                  return cancel() // No change to be saved
-              }
-              if (!validate(newName)) {
-                  return
-              }
-              setIsSavingName(true)
-              try {
-                  await item.onRename?.(newName)
-              } catch (error) {
-                  captureException(error)
-                  lemonToast.error('Could not rename item')
-              } finally {
-                  setIsSavingName(false)
-                  cancel()
-              }
-          }
-        : null
+    const save = useMemo(
+        () =>
+            isItemTentative(item)
+                ? async (name: string): Promise<void> => {
+                      if (!validate(name)) {
+                          return
+                      }
+                      await item.onSave(name)
+                  }
+                : !isListItemAccordion(item) && item.onRename
+                ? async (newName: string): Promise<void> => {
+                      if (!newName || newName === item.name) {
+                          return cancel() // No change to be saved
+                      }
+                      if (!validate(newName)) {
+                          return
+                      }
+                      setIsSavingName(true)
+                      try {
+                          await item.onRename?.(newName)
+                      } catch (error) {
+                          captureException(error)
+                          lemonToast.error('Could not rename item')
+                      } finally {
+                          setIsSavingName(false)
+                          cancel()
+                      }
+                  }
+                : null,
+        [item, validate, cancel]
+    )
 
     useEffect(() => {
         // Add double-click handler for renaming
@@ -290,11 +359,13 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                 }
             }
         }
-    }) // Intentionally run on every render so that ref value changes are picked up
+    }, [item, save, newName])
 
     let content: JSX.Element
     if (isListItemAccordion(item)) {
-        content = <SidebarListItemAccordion category={item} />
+        content = (
+            <SidebarListItemAccordion category={item} onEditing={(isEditing) => setMenuItemsVisible(!isEditing)} />
+        )
     } else if (isItemClickable(item)) {
         content = (
             <li
@@ -443,12 +514,17 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                 (isItemTentative(item) || newName !== null) && 'SidebarListItem--is-renaming',
                 'marker' in item && !!item.marker && `SidebarListItem--marker-${item.marker.type}`,
                 'marker' in item && !!item.marker?.status && `SidebarListItem--marker-status-${item.marker.status}`,
-                'summary' in item && 'SidebarListItem--extended'
+                'summary' in item && 'SidebarListItem--extended',
+                isDragging && 'SidebarListItem--is-dragging'
             )}
-            aria-disabled={!isItemTentative(item) && !isListItemAccordion(item) && !item.url}
-            aria-current={active ? 'page' : undefined}
-            aria-invalid={!!newNameValidationError}
-            style={style} // eslint-disable-line react/forbid-dom-props
+            // eslint-disable-next-line react/forbid-dom-props
+            style={combinedStyle}
+            ref={setNodeRef}
+            {...attributes}
+            {...listeners}
+            {...(isItemTentative(item) || isListItemAccordion(item) || !item.url ? { 'aria-disabled': true } : {})}
+            {...(active ? { 'aria-current': 'page' } : {})}
+            {...(newNameValidationError ? { 'aria-invalid': true } : {})}
         >
             {content}
             {isItemTentative(item) || newName !== null ? (
@@ -482,7 +558,8 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                     />
                 </div>
             ) : (
-                !!menuItems?.length && (
+                !!menuItems?.length &&
+                menuItemsVisible && (
                     <LemonMenu items={menuItems} onVisibilityChange={setIsMenuOpen}>
                         <div className="SidebarListItem__actions">
                             <LemonButton size="small" noPadding icon={<IconEllipsis />} />
@@ -537,22 +614,80 @@ function SidebarListItemSkeleton({ style }: { style: React.CSSProperties }): JSX
     return (
         <li
             className="SidebarListItem SidebarListItem__link"
-            style={style} // eslint-disable-line react/forbid-dom-props
+            // eslint-disable-next-line react/forbid-dom-props
+            style={style}
         >
             <LemonSkeleton />
         </li>
     )
 }
 
-function SidebarListItemAccordion({ category }: { category: ListItemAccordion }): JSX.Element {
+function SidebarListItemAccordion({
+    category,
+    onEditing,
+}: {
+    category: ListItemAccordion
+    onEditing: (isEditing: boolean) => void
+}): JSX.Element {
     const { listItemAccordionCollapseMapping } = useValues(navigation3000Logic)
     const { toggleListItemAccordion } = useActions(navigation3000Logic)
+    const [isRenaming, setIsRenaming] = useState(false)
+    const [newName, setNewName] = useState(category.name || capitalizeFirstLetter(pluralizeCategory(category.noun)))
+    const [isSaving, setIsSaving] = useState(false)
 
-    const { key, items } = category
+    const ref = useRef<HTMLDivElement>(null)
 
-    const isEmpty = items.length === 0
+    const { key } = category
+
     const keyString = Array.isArray(key) ? key.join(ITEM_KEY_PART_SEPARATOR) : key.toString()
     const isExpanded = !(keyString in listItemAccordionCollapseMapping) || !listItemAccordionCollapseMapping[keyString]
+
+    const startRenaming = useCallback((): void => {
+        if (category.onRename) {
+            setIsRenaming(true)
+        }
+    }, [category.onRename])
+
+    const cancelRenaming = (): void => {
+        setIsRenaming(false)
+        setNewName(category.name || capitalizeFirstLetter(pluralizeCategory(category.noun)))
+    }
+
+    const saveNewName = async (): Promise<void> => {
+        if (category.onRename && newName !== category.name) {
+            setIsSaving(true)
+            try {
+                await category.onRename(newName)
+            } catch (error) {
+                captureException(error)
+                lemonToast.error('Could not rename item')
+            } finally {
+                setIsSaving(false)
+                setIsRenaming(false)
+            }
+        } else {
+            cancelRenaming()
+        }
+    }
+
+    useEffect(() => {
+        if (category.onRename && !isRenaming) {
+            const onDoubleClick = (): void => {
+                startRenaming()
+            }
+            const element = ref.current
+            if (element) {
+                element.addEventListener('dblclick', onDoubleClick)
+                return () => {
+                    element.removeEventListener('dblclick', onDoubleClick)
+                }
+            }
+        }
+    }, [isRenaming, category.onRename, startRenaming])
+
+    useEffect(() => {
+        onEditing(isRenaming)
+    }, [isRenaming, onEditing])
 
     return (
         <li className="SidebarListItemAccordion" role="region" aria-expanded={isExpanded}>
@@ -563,18 +698,39 @@ function SidebarListItemAccordion({ category }: { category: ListItemAccordion })
                 aria-expanded={isExpanded}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ '--depth': category.depth } as React.CSSProperties}
-                onClick={isExpanded || items.length > 0 ? () => toggleListItemAccordion(keyString) : undefined}
+                onClick={!isRenaming ? () => toggleListItemAccordion(keyString) : undefined}
+                ref={ref}
             >
                 <IconChevronRight />
-                <h4>
-                    {capitalizeFirstLetter(pluralizeCategory(category.noun))}
-                    {isEmpty && (
-                        <>
-                            {' '}
-                            <i>(empty)</i>
-                        </>
-                    )}
-                </h4>
+                {isRenaming ? (
+                    <div className="SidebarListItem__rename">
+                        <input
+                            value={newName}
+                            onChange={(e) => setNewName(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    void saveNewName()
+                                    e.preventDefault()
+                                } else if (e.key === 'Escape') {
+                                    cancelRenaming()
+                                    e.preventDefault()
+                                }
+                            }}
+                            onBlur={(e) => {
+                                if (e.relatedTarget?.ariaLabel === 'Save name') {
+                                    void saveNewName()
+                                } else {
+                                    cancelRenaming()
+                                }
+                            }}
+                            placeholder="Renaming..."
+                            disabled={isSaving}
+                            autoFocus
+                        />
+                    </div>
+                ) : (
+                    <h4>{category.name || capitalizeFirstLetter(pluralizeCategory(category.noun))}</h4>
+                )}
             </div>
         </li>
     )

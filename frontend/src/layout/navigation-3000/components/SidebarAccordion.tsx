@@ -1,3 +1,6 @@
+import { IconEllipsis } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -16,7 +19,7 @@ export function SidebarAccordion({ category }: SidebarAccordionProps): JSX.Eleme
     const { accordionCollapseMapping } = useValues(navigation3000Logic)
     const { toggleAccordion } = useActions(navigation3000Logic)
 
-    const { key, items, loading } = category
+    const { key, items, loading, menuItems } = category
 
     const isEmpty = items.length === 0
     const isEmptyDefinitively = !loading && isEmpty
@@ -39,6 +42,16 @@ export function SidebarAccordion({ category }: SidebarAccordionProps): JSX.Eleme
                     )}
                 </h4>
                 <NewItemButton category={category} />
+                {!!menuItems?.length && (
+                    <LemonMenu items={menuItems}>
+                        <LemonButton
+                            size="small"
+                            noPadding
+                            icon={<IconEllipsis />}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    </LemonMenu>
+                )}
             </div>
             {isExpanded && <SidebarList category={category} />}
         </section>
