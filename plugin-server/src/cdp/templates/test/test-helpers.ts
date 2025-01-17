@@ -1,8 +1,9 @@
-import { City, Reader } from '@maxmind/geoip2-node'
+import { City, Reader, ReaderModel } from '@maxmind/geoip2-node'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
+import { Hub } from '../../../types'
 import { buildGlobalsWithInputs, HogExecutor } from '../../hog-executor'
 import {
     HogFunctionInputType,
@@ -35,10 +36,10 @@ export class TemplateTester {
             bytecode: [],
         }
 
-        const mockHub = {} as any
+        this.mockHub = {} as any
         const mockHogFunctionManager = {} as any
 
-        this.executor = new HogExecutor(mockHub, mockHogFunctionManager)
+        this.executor = new HogExecutor(this.mockHub, mockHogFunctionManager)
     }
 
     /*
@@ -62,12 +63,12 @@ export class TemplateTester {
                 const mmdb = Reader.openBuffer(mmdbBuffer)
 
                 this.mockHub.mmdb = transformResult
-                    ? {
+                    ? ({
                           city: (ipAddress: string) => {
                               const res = mmdb.city(ipAddress)
                               return transformResult(res)
                           },
-                      }
+                      } as unknown as ReaderModel)
                     : mmdb
             } catch (error) {
                 throw new Error(`Failed to load MMDB file: ${error}`)
