@@ -16,10 +16,10 @@ jobs:
     reload:
         runs-on: ubuntu-24.04
         steps:
-            - name: Check for changes that affect dagster code locations
-              id: check_changes_dagster_code_location
-              run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^dags/.*$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+            # - name: Check for changes that affect dagster code locations
+            #   id: check_changes_dagster_code_location
+            #   run: |
+            #       echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^dags/' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Dagster Code Location Reload
               if: steps.check_changes_dagster_code_location.outputs.changed == 'true'
