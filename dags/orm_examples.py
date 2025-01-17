@@ -5,7 +5,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 
 
 @asset
-def get_pending_deletions() -> list[AsyncDeletion]:
+def pending_deletions() -> list[AsyncDeletion]:
     """
     Asset that fetches pending async deletions from Django ORM.
     """
@@ -16,7 +16,7 @@ def get_pending_deletions() -> list[AsyncDeletion]:
     return list(pending_deletions)
 
 
-@asset(deps=[get_pending_deletions])
+@asset(deps=[pending_deletions])
 def process_pending_deletions(pending_deletions: list[AsyncDeletion]) -> None:
     """
     Asset that prints out pending deletions.
