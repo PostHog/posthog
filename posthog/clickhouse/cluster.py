@@ -4,12 +4,13 @@ import logging
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
 from typing import Literal, NamedTuple, TypeVar
+from collections.abc import Mapping
 
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 from django.conf import settings
 
-from posthog.clickhouse.client.connection import make_ch_pool
+from posthog.clickhouse.client.connection import _make_ch_pool
 
 
 K = TypeVar("K")
@@ -56,8 +57,8 @@ class FuturesMap(dict[K, Future[V]]):
 class ConnectionInfo(NamedTuple):
     address: str
 
-    def make_pool(self) -> ChPool:
-        return make_ch_pool(host=self.address)
+    def make_pool(self, client_settings: Mapping[str, str] | None = None) -> ChPool:
+        return _make_ch_pool(host=self.address, settings=client_settings)
 
 
 class HostInfo(NamedTuple):
@@ -75,6 +76,7 @@ class ClickhouseCluster:
         bootstrap_client: Client,
         extra_hosts: Sequence[ConnectionInfo] | None = None,
         logger: logging.Logger | None = None,
+        client_settings: Mapping[str, str] | None = None,
     ) -> None:
         if logger is None:
             logger = logging.getLogger(__name__)
@@ -97,11 +99,12 @@ class ClickhouseCluster:
             )
         self.__pools: dict[HostInfo, ChPool] = {}
         self.__logger = logger
+        self.__client_settings = client_settings
 
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
         if pool is None:
-            pool = self.__pools[host] = host.connection_info.make_pool()
+            pool = self.__pools[host] = host.connection_info.make_pool(self.__client_settings)
 
         def task():
             with pool.get_client() as client:

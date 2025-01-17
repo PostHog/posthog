@@ -7,6 +7,7 @@ from copy import copy
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, Literal, TypeVar, cast
+from collections.abc import Mapping
 
 from clickhouse_driver import Client
 from django.utils.timezone import now
@@ -148,12 +149,14 @@ def get_enabled_materialized_columns(
     return {k: column for k, column in get_materialized_columns(table).items() if not column.details.is_disabled}
 
 
-def get_cluster(logger: logging.Logger | None = None) -> ClickhouseCluster:
+def get_cluster(
+    logger: logging.Logger | None = None, client_settings: Mapping[str, str] | None = None
+) -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
         extra_hosts.append(ConnectionInfo(host_config.pop("host")))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
-    return ClickhouseCluster(default_client(), extra_hosts=extra_hosts, logger=logger)
+    return ClickhouseCluster(default_client(), extra_hosts=extra_hosts, logger=logger, client_settings=client_settings)
 
 
 @dataclass

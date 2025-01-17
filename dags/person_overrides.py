@@ -14,9 +14,10 @@ from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
+    client_settings: dict[str, str] | None = None
+
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
-        # TODO: inject settings
-        return get_cluster(context.log)
+        return get_cluster(context.log, client_settings=self.client_settings)
 
 
 @dataclass

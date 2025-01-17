@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from enum import Enum
 from functools import cache
+from collections.abc import Mapping
 
 from clickhouse_connect import get_client
 from clickhouse_connect.driver import Client as HttpClient, httputil
@@ -156,8 +157,7 @@ def default_client(host=settings.CLICKHOUSE_HOST):
     )
 
 
-@cache
-def make_ch_pool(**overrides) -> ChPool:
+def _make_ch_pool(*, client_settings: Mapping[str, str] | None = None, **overrides) -> ChPool:
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
@@ -168,13 +168,16 @@ def make_ch_pool(**overrides) -> ChPool:
         "verify": settings.CLICKHOUSE_VERIFY,
         "connections_min": settings.CLICKHOUSE_CONN_POOL_MIN,
         "connections_max": settings.CLICKHOUSE_CONN_POOL_MAX,
-        "settings": {"mutations_sync": "1"} if settings.TEST else {},
+        "settings": ({"mutations_sync": "1"} if settings.TEST else {}) | (client_settings or {}),
         # Without this, OPTIMIZE table and other queries will regularly run into timeouts
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,
         **overrides,
     }
 
     return ChPool(**kwargs)
+
+
+make_ch_pool = cache(_make_ch_pool)
 
 
 @contextmanager
