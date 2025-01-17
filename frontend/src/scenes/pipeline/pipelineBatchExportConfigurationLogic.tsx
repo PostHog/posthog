@@ -27,6 +27,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         paused: batchExportConfig.paused,
         interval: batchExportConfig.interval,
         model: batchExportConfig.model,
+        hogql_query: batchExportConfig.hogql_query,
         ...batchExportConfig.destination.config,
     }
 }
@@ -37,6 +38,7 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
         destination: service,
         model: 'events',
         paused: true,
+        hogql_query: null,
     }
 }
 
@@ -214,6 +216,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
+        setShowEditor: (showEditor: boolean) => ({ showEditor }),
     }),
     loaders(({ props, actions }) => ({
         batchExportConfig: [
@@ -294,6 +297,12 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     }
                     return batchExportConfig.model
                 },
+            },
+        ],
+        showEditor: [
+            false,
+            {
+                setShowEditor: (_, { showEditor }) => showEditor,
             },
         ],
         configuration: [

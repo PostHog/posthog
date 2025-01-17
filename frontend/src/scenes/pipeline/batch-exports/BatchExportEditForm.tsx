@@ -13,9 +13,8 @@ import {
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
-
+import { QueryPane } from 'scenes/data-warehouse/editor/QueryPane'
 import { BatchExportConfigurationForm } from './types'
 
 export function BatchExportGeneralEditFields({
@@ -146,8 +145,12 @@ export function BatchExportsEditModel({
             )}
 
             {showEditor ? (
-                <LemonField name="model_query">
-                    <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
+                <LemonField name="hogql_query">
+                    <QueryPane queryInput={batchExportConfigForm.hogql_query.query} sourceQuery={batchExportConfigForm.hogql_query} promptError={null} codeEditorProps={{
+                        onChange: (v) => {
+                            setQueryInput(v ?? '')
+                        },
+                    }} />
                 </LemonField>
             ) : null}
         </>

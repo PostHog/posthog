@@ -4368,6 +4368,7 @@ export type BatchExportConfiguration = {
     end_at: string | null
     paused: boolean
     model: string
+    hogql_query: HogQLQuery | null
     latest_runs?: BatchExportRun[]
 }
 
