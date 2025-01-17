@@ -28,7 +28,7 @@ class PersonOverridesSnapshotTable:
     def create(self, client: Client) -> None:
         client.execute(
             f"""
-            CREATE TABLE {self.qualified_name} (team_id Int64, distinct_id String, person_id UUID, version Int64)
+            CREATE TABLE IF NOT EXISTS {self.qualified_name} (team_id Int64, distinct_id String, person_id UUID, version Int64)
             ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{self.qualified_name}', '{{replica}}-{{shard}}', version)
             ORDER BY (team_id, distinct_id)
             """
@@ -43,7 +43,7 @@ class PersonOverridesSnapshotTable:
         return count > 0
 
     def drop(self, client: Client) -> None:
-        client.execute(f"DROP TABLE {self.qualified_name} SYNC")
+        client.execute(f"DROP TABLE IF EXISTS {self.qualified_name} SYNC")
 
     def populate(self, client: Client) -> None:
         client.execute(
@@ -60,12 +60,13 @@ class PersonOverridesSnapshotTable:
     def sync(self, client: Client) -> None:
         client.execute(f"SYSTEM SYNC REPLICA {self.qualified_name} STRICT")
 
-    def get_queue_size(self, client: Client) -> int:
+        # this is probably excessive (and doesn't guarantee that anybody else won't mess with the table later) but it
+        # probably doesn't hurt to be careful
         [[queue_size]] = client.execute(
             "SELECT queue_size FROM system.replicas WHERE database = %(database)s AND table = %(table)s",
             {"database": settings.CLICKHOUSE_DATABASE, "table": self.name},
         )
-        return queue_size
+        assert queue_size == 0
 
 
 @dataclass
@@ -101,7 +102,7 @@ class PersonOverridesSnapshotDictionary:
     def create(self, client: Client) -> None:
         client.execute(
             f"""
-            CREATE DICTIONARY {self.qualified_name} (
+            CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
                 team_id Int64,
                 distinct_id String,
                 person_id UUID,
@@ -129,7 +130,7 @@ class PersonOverridesSnapshotDictionary:
         return count > 0
 
     def drop(self, client: Client) -> None:
-        client.execute(f"DROP DICTIONARY {self.qualified_name} SYNC")
+        client.execute(f"DROP DICTIONARY IF EXISTS {self.qualified_name} SYNC")
 
     def __is_loaded(self, client: Client) -> bool:
         results = client.execute(
@@ -251,20 +252,14 @@ def create_snapshot_table(context: dagster.OpExecutionContext, config: SnapshotC
 
 @dagster.op
 def populate_snapshot_table(table: PersonOverridesSnapshotTable) -> PersonOverridesSnapshotTable:
+    # NOTE: this needs to be careful with retries
     get_cluster().any_host(table.populate).result()
     return table
 
 
 @dagster.op
 def wait_for_snapshot_table_replication(table: PersonOverridesSnapshotTable) -> PersonOverridesSnapshotTable:
-    cluster = get_cluster()
-    cluster.map_all_hosts(table.sync).result()
-
-    hosts_with_nonempty_queues = {
-        host for host, queue_size in cluster.map_all_hosts(table.get_queue_size).result().items() if queue_size > 0
-    }
-    assert not hosts_with_nonempty_queues
-
+    get_cluster().map_all_hosts(table.sync).result()
     return table
 
 
@@ -283,6 +278,7 @@ def load_and_verify_snapshot_dictionary(
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotDictionary:
     cluster = get_cluster()
+    # TODO: it might make sense to merge these two methods together, so that loading returns the checksum
     cluster.map_all_hosts(dictionary.load).result()
     assert len(set(cluster.map_all_hosts(dictionary.get_checksum).result().values())) == 1
     return dictionary
@@ -297,6 +293,7 @@ ShardMutations = dict[int, Mutation]
 def start_person_id_update_mutations(
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> tuple[PersonOverridesSnapshotDictionary, ShardMutations]:
+    # TODO: this needs to be careful with retries to avoid kicking off mutations that may have already started
     cluster = get_cluster()
     shard_mutations = {
         host.shard_num: mutation
@@ -319,12 +316,13 @@ def wait_for_person_id_update_mutations(
     while True:
         waiting_on_hosts = set()
 
-        # TODO: mutation may not have been replicated yet
-        shard_mutation_statuses = {
+        # TODO: mutation may not have been replicated to other hosts in the shard yet when we get here
+        # TODO: need to check to see if is_done and is_killed can be set at the same time
+        shard_host_mutation_statuses = {
             shard: cluster.map_all_hosts_in_shard(shard, mutation.is_done)
             for shard, mutation in shard_mutations.items()
         }
-        for host_mutation_statuses in shard_mutation_statuses.values():
+        for host_mutation_statuses in shard_host_mutation_statuses.values():
             waiting_on_hosts.update(host for host, is_done in host_mutation_statuses.result().items() if not is_done)
 
         if waiting_on_hosts:
@@ -340,6 +338,7 @@ def wait_for_person_id_update_mutations(
 def start_overrides_delete_mutations(
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> tuple[PersonOverridesSnapshotDictionary, Mutation]:
+    # TODO: this needs to be careful with retries to avoid kicking off mutations that may have already started
     mutation = get_cluster().any_host(dictionary.enqueue_overrides_delete_mutation).result()
     return (dictionary, mutation)
 
