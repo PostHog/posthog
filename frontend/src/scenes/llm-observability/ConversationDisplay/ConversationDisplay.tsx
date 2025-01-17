@@ -3,7 +3,7 @@ import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconExclamation } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { lowercaseFirstLetter } from 'lib/utils'
 import React, { useState } from 'react'
@@ -103,7 +103,11 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                         <MessageDisplay key={i} role={role} additionalKwargs={additional_kwargs} content={content} />
                         {i < input.length - 1 && <div className="border-l ml-2 h-2" /> /* Spacer connecting messages */}
                     </>
-                )) || <div className="rounded border text-default p-2 italic bg-[var(--red-50)]">Missing input</div>}
+                )) || (
+                    <div className="rounded border text-default p-2 italic bg-[var(--background-danger-subtle)]">
+                        Missing input
+                    </div>
+                )}
                 <h4 className="flex items-center gap-x-1.5 text-xs font-semibold my-2">
                     <IconArrowDown className="text-base" />
                     Output{output && output.choices.length > 1 ? ' (multiple choices)' : ''}
@@ -122,7 +126,8 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                         )}
                     </>
                 )) || (
-                    <div className="rounded border text-default p-2 italic bg-[var(--red-50)]">
+                    <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--background-danger-subtle)]">
+                        <IconExclamation className="text-base" />
                         {httpStatus ? `Generation failed with HTTP status ${httpStatus}` : 'Missing output'}
                     </div>
                 )}
@@ -174,35 +179,42 @@ function MessageDisplay({
             className={clsx(
                 'rounded border text-default',
                 isOutput
-                    ? 'bg-[var(--green-50)]'
+                    ? 'bg-[var(--background-success-subtle)]'
                     : role === 'system'
-                    ? 'bg-[var(--neutral-50)]'
+                    ? 'bg-[var(--background-secondary)]'
                     : role === 'user'
                     ? 'bg-bg-light'
-                    : 'bg-[var(--blue-50)]'
+                    : 'bg-[var(--blue-50)] dark:bg-[var(--blue-800)]' // We don't have a semantic color using blue
             )}
         >
-            <div className="flex items-center gap-2 w-full px-2 h-6 text-xs font-medium border-b">
+            <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
                 <span className="grow">{role}</span>
                 {content && (
                     <LemonButton
                         size="small"
                         noPadding
                         icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                        tooltip="Toggle Markdown rendering"
                         onClick={() => setIsRenderingMarkdown(!isRenderingMarkdown)}
                     />
                 )}
                 <CopyToClipboardInline iconSize="small" description="message content" explicitValue={content} />
             </div>
             {!!content && (
-                <div className={clsx('p-2 whitespace-pre-wrap', !isRenderingMarkdown && 'font-mono text-xs')}>
+                <div className={clsx('p-2 whitespace-pre-wrap border-t', !isRenderingMarkdown && 'font-mono text-xs')}>
                     {isRenderingMarkdown ? <LemonMarkdown>{content}</LemonMarkdown> : content}
                 </div>
             )}
             {!!additionalKwargsEntries && additionalKwargsEntries.length > 0 && (
-                <div className={clsx('p-2 text-xs', !!content && 'border-t')}>
+                <div className="p-2 text-xs border-t">
                     {additionalKwargsEntries.map(([key, value]) => (
-                        <JSONViewer key={key} src={value} name={key} />
+                        <JSONViewer
+                            key={key}
+                            name={key}
+                            src={value}
+                            collapseStringsAfterLength={200}
+                            displayDataTypes={false}
+                        />
                     ))}
                 </div>
             )}
