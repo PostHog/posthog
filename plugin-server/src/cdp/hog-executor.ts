@@ -134,9 +134,11 @@ export const buildGlobalsWithInputs = (
 
 export class HogExecutor {
     private telemetryMatcher: ValueMatcher<number>
+    private server: Hub
 
     constructor(private hub: Hub, private hogFunctionManager: HogFunctionManager) {
         this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
+        this.server = this.hub
     }
 
     findHogFunctionInvocations(triggerGlobals: HogFunctionInvocationGlobals) {
@@ -465,39 +467,6 @@ export class HogExecutor {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
                     },
-                    // importBytecode: (module) => {
-                    //     // TODO: more than one hardcoded module
-                    //     if (module === 'provider/email') {
-                    //         const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
-                    //         if (!provider) {
-                    //             throw new Error('No email provider configured')
-                    //         }
-                    //         try {
-                    //             const providerGlobals = this.buildHogFunctionGlobals({
-                    //                 id: '',
-                    //                 teamId: invocation.teamId,
-                    //                 hogFunction: provider,
-                    //                 globals: {} as any,
-                    //                 queue: 'hog',
-                    //                 timings: [],
-                    //                 priority: 0,
-                    //             } satisfies HogFunctionInvocation)
-
-                    //             return {
-                    //                 bytecode: provider.bytecode,
-                    //                 globals: providerGlobals,
-                    //             }
-                    //         } catch (e) {
-                    //             result.logs.push({
-                    //                 level: 'error',
-                    //                 timestamp: DateTime.now(),
-                    //                 message: `Error building inputs: ${e}`,
-                    //             })
-                    //             throw e
-                    //         }
-                    //     }
-                    //     throw new Error(`Can't import unknown module: ${module}`)
-                    // },
                     functions: {
                         print: (...args) => {
                             hogLogs++
@@ -551,6 +520,31 @@ export class HogExecutor {
                                     $hog_function_execution_count: executionCount + 1,
                                 },
                             })
+                        },
+                        geoipLookup: (ipAddress: string) => {
+                            if (!this.server.mmdb) {
+                                result.logs.push({
+                                    level: 'error',
+                                    timestamp: DateTime.now(),
+                                    message: 'geoip database is not ready',
+                                })
+                                return null
+                            }
+
+                            try {
+                                const result = this.server.mmdb.city(ipAddress)
+                                console.log('GeoIP Result:', result)
+                                return result
+                            } catch (e) {
+                                if (e.name !== 'AddressNotFoundError') {
+                                    result.logs.push({
+                                        level: 'warn',
+                                        timestamp: DateTime.now(),
+                                        message: `geoip lookup failed for IP ${ipAddress}: ${e.message}`,
+                                    })
+                                }
+                                return null
+                            }
                         },
                     },
                 })

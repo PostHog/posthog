@@ -1,3 +1,6 @@
+import { Reader } from '@maxmind/geoip2-node'
+import { join } from 'path'
+
 import { buildGlobalsWithInputs, HogExecutor } from '../../hog-executor'
 import {
     HogFunctionInputType,
@@ -41,7 +44,16 @@ export class TemplateTester {
             bytecode: await compileHog(this._template.hog),
         }
 
-        const mockHub = {} as any
+        let mmdb
+        try {
+            mmdb = await Reader.open(join(__dirname, '../_transformations/geoip/GeoLite2-City-Test.mmdb'))
+        } catch (error) {
+            throw new Error(`Failed to load MMDB file: ${error}`)
+        }
+
+        const mockHub = {
+            mmdb,
+        } as any
         const mockHogFunctionManager = {} as any
 
         this.executor = new HogExecutor(mockHub, mockHogFunctionManager)

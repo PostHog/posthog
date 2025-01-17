@@ -34,7 +34,7 @@ if (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {
 }
 let ip := event.properties.$ip
 if (ip == '127.0.0.1') {
-    ip := '13.106.122.3' // Spoofing an Australian IP address for local development
+    ip := '89.160.20.129' // Spoofing an IP address for local development
 }
 let response := geoipLookup(ip)
 print(response)
