@@ -1,10 +1,9 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { LLMObservabilityTab, urls } from 'scenes/urls'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
@@ -36,20 +35,15 @@ export interface QueryTile {
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     path(['scenes', 'llm-observability', 'llmObservabilityLogic']),
 
+    connect({ values: [sceneLogic, ['sceneKey']] }),
+
     actions({
-        setActiveTab: (activeTab: LLMObservabilityTab) => ({ activeTab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
     }),
 
     reducers({
-        activeTab: [
-            'dashboard' as LLMObservabilityTab,
-            {
-                setActiveTab: (_, { activeTab }) => activeTab,
-            },
-        ],
         dateFilter: [
             {
                 dateFrom: INITIAL_DATE_FROM,
@@ -94,6 +88,17 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     }),
 
     selectors({
+        activeTab: [
+            (s) => [s.sceneKey],
+            (sceneKey) => {
+                if (sceneKey === 'llmObservabilityGenerations') {
+                    return 'generations'
+                } else if (sceneKey === 'llmObservabilityTraces') {
+                    return 'traces'
+                }
+                return 'dashboard'
+            },
+        ],
         tiles: [
             (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
             (dateFilter, shouldFilterTestAccounts, propertyFilters): QueryTile[] => [
@@ -360,24 +365,6 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             }),
         ],
     }),
-
-    urlToAction(({ actions, values }) => ({
-        [urls.llmObservability('dashboard')]: () => {
-            if (values.activeTab !== 'dashboard') {
-                actions.setActiveTab('dashboard')
-            }
-        },
-        [urls.llmObservability('traces')]: () => {
-            if (values.activeTab !== 'traces') {
-                actions.setActiveTab('traces')
-            }
-        },
-        [urls.llmObservability('generations')]: () => {
-            if (values.activeTab !== 'generations') {
-                actions.setActiveTab('generations')
-            }
-        },
-    })),
 
     afterMount(({ actions }) => {
         actions.loadAIEventDefinition()
