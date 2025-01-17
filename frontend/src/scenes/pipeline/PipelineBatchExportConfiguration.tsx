@@ -38,6 +38,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
         batchExportConfig,
         selectedModel,
         showEditor,
+        batchExportHogQLQueryLoading,
     } = useValues(logic)
     const { resetConfiguration, submitConfiguration, setSelectedModel, setShowEditor } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -47,7 +48,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
         return <NotFound object={`batch export service ${service}`} />
     }
 
-    if (!batchExportConfig && batchExportConfigLoading) {
+    if ((!batchExportConfig && batchExportConfigLoading) || (!batchExportConfig?.hogql_query && batchExportHogQLQueryLoading)) {
         return <SpinnerOverlay />
     }
 
@@ -205,7 +206,7 @@ function BatchExportConfigurationFields({
 
             <div className="border bg-bg-light p-3 rounded flex-2 min-w-100">
 
-                <BatchExportsEditModel isNew={isNew} batchExportConfigForm={formValues} selectedModel={selectedModel} tables={tables} setSelectedModel={setSelectedModel} showEditor={showEditor} setShowEditor={setShowEditor}/>
+                <BatchExportsEditModel isNew={isNew} batchExportConfigForm={formValues} selectedModel={selectedModel} tables={tables} setSelectedModel={setSelectedModel} query={formValues.hogql_query} setQuery={(newQuery) => {formValues.hogql_query = newQuery}} showEditor={showEditor} setShowEditor={setShowEditor}/>
             </div>
             </div>
         </>

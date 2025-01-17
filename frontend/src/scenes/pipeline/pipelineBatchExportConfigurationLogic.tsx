@@ -217,14 +217,22 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
         setShowEditor: (showEditor: boolean) => ({ showEditor }),
+        setQuery: (query: string) => ({ query })
     }),
-    loaders(({ props, actions }) => ({
+    loaders(({ props, actions, values }) => ({
         batchExportConfig: [
             null as BatchExportConfiguration | null,
             {
                 loadBatchExportConfig: async () => {
                     if (props.id) {
-                        return await api.batchExports.get(props.id)
+                        let config = await api.batchExports.get(props.id) as BatchExportConfiguration;
+                        if (config.id) {
+                            config.hogql_query = await api.batchExports.query(props.id)
+                        } else {
+                            config.hogql_query = await api.batchExports.newQuery(props.service, values.selectedModel)
+                        }
+
+                        return config
                     }
                     return null
                 },
@@ -259,6 +267,18 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                 },
             },
         ],
+        batchExportHogQLQuery: [
+            null as HogQLQuery | null,
+            {
+                loadBatchExportHogQLQuery: async () => {
+                    if (props.id) {
+                        return await api.batchExports.query(props.id)
+                    } else {
+                        return await api.batchExports.newQuery(props.service, values.selectedModel)
+                    }
+                }
+            }
+        ]
     })),
     reducers(({ props }) => ({
         tables: [
@@ -322,6 +342,14 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
 
                     return getConfigurationFromBatchExportConfig(batchExportConfig)
                 },
+                loadBatchExportHogQLQuerySuccess: (state, { batchExportHogQLQuery }) => {
+                    if (!batchExportHogQLQuery) {
+                        return state
+                    }
+
+                    state.hogql_query = batchExportHogQLQuery
+                    return state
+                }
             },
         ],
         savedConfiguration: [
@@ -472,5 +500,6 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
 
     afterMount(({ actions }) => {
         actions.loadBatchExportConfig()
+        actions.loadBatchExportHogQLQuery()
     }),
 ])

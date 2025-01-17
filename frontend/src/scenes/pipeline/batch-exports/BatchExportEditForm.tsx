@@ -16,7 +16,11 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { QueryPane } from 'scenes/data-warehouse/editor/QueryPane'
 import { BatchExportConfigurationForm } from './types'
-
+import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
+import { HogQLQuery } from '~/queries/schema'
 export function BatchExportGeneralEditFields({
     isNew,
     isPipeline = false,
@@ -86,73 +90,80 @@ export function BatchExportsEditModel({
     selectedModel,
     setSelectedModel,
     tables,
+    setQuery,
+    query,
 }: {
     isNew: boolean
     batchExportConfigForm: BatchExportConfigurationForm
+    query: HogQLQuery
 }): JSX.Element {
     return (
         <>
             {!showEditor ? (
                 <>
-                <div className="space-y-2">
-
-                <div className="flex items-center justify-end gap-2">
-                    <div className="flex-1 space-y-2">
-                        <h2 className="mb-0">Model</h2>
-                        <p>
-                            A model defines the data that will be exported by quering a PostHog table. Select the
-                            PostHog table to query from the dropdown below and optionally edit the query used to select
-                            data from it.
-                        </p>
-                    </div>
-
-                    <LemonButton type="secondary" onClick={() => setShowEditor(true)}>
-                        Edit query
-                    </LemonButton>
-
-                </div>
-                    <LemonField name="model">
-                        <LemonSelect
-                            options={tables.map((table) => ({
-                                value: table.name,
-                                label: table.id,
-                            }))}
-                            value={selectedModel}
-                            onSelect={(newValue) => {
-                                setSelectedModel(newValue)
-                            }}
-                        />
-                    </LemonField>
-
-                    <DatabaseTable
-                        table={selectedModel ? selectedModel : 'events'}
-                        tables={tables}
-                        inEditSchemaMode={false}
-                    />
-                </div>
-                    </>
-            ) : (
-                <div className="items-center justify-end gap-2">
                     <div className="space-y-2">
-                        <h2 className="mb-0">Model</h2>
-                        <p>A model defines the data that will be exported</p>
+
+                        <div className="flex items-center justify-end gap-2">
+                            <div className="flex-1 space-y-2">
+                                <h2 className="mb-0">Model</h2>
+                                <p>
+                                    A model defines the data that will be exported by quering a PostHog table. Select the
+                                    PostHog table to query from the dropdown below and optionally edit the query used to select
+                                    data from it.
+                                </p>
+                            </div>
+
+                            <LemonButton type="secondary" onClick={() => setShowEditor(true)}>
+                                Edit query
+                            </LemonButton>
+
+                        </div>
+                        <LemonField name="model">
+                            <LemonSelect
+                                options={tables.map((table) => ({
+                                    value: table.name,
+                                    label: table.id,
+                                }))}
+                                value={selectedModel}
+                                onSelect={(newValue) => {
+                                    setSelectedModel(newValue)
+                                }}
+                            />
+                        </LemonField>
+
+                        <DatabaseTable
+                            table={selectedModel ? selectedModel : 'events'}
+                            tables={tables}
+                            inEditSchemaMode={false}
+                        />
                     </div>
+                </>
+            ) : (
+                <>
+                    <div className="flex items-center justify-end gap-2">
+                        <div className="flex-1 space-y-2">
+                            <h2 className="mb-0">Model</h2>
+                            <p>
+                                A model defines the data that will be exported by quering a PostHog table. Select the
+                                PostHog table to query from the dropdown below and optionally edit the query used to select
+                                data from it.
+                            </p>
+                        </div>
 
-                    <LemonButton size="xsmall" type="secondary" onClick={() => setShowEditor(false)}>
-                        Hide query editor
-                    </LemonButton>
-                </div>
+                        <LemonButton size="xsmall" type="secondary" onClick={() => setShowEditor(false)}>
+                            Hide query editor
+                        </LemonButton>
+
+                    </div>
+                    <div className="relative w-full flex flex-col gap-4 h-full">
+                        <HogQLQueryEditor
+                            query={query}
+                            embedded
+                        />
+
+                    </div>
+                </>
             )}
-
-            {showEditor ? (
-                <LemonField name="hogql_query">
-                    <QueryPane queryInput={batchExportConfigForm.hogql_query.query} sourceQuery={batchExportConfigForm.hogql_query} promptError={null} codeEditorProps={{
-                        onChange: (v) => {
-                            setQueryInput(v ?? '')
-                        },
-                    }} />
-                </LemonField>
-            ) : null}
         </>
     )
 }

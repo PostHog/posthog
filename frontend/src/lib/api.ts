@@ -2185,6 +2185,12 @@ const api = {
         async get(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).get()
         },
+        async query(id: BatchExportConfiguration['id']): Promise<HogQLQuery> {
+            return await new ApiRequest().batchExport(id).withAction('query').get()
+        },
+        async newQuery(destination: string, model: string): Promise<HogQLQuery> {
+            return await new ApiRequest().batchExports().withAction('new_query').create({data: { destination: destination, model: model }})
+        },
         async update(
             id: BatchExportConfiguration['id'],
             data: Partial<BatchExportConfiguration>
