@@ -1,7 +1,7 @@
 import time
 import uuid
 from dataclasses import dataclass
-from functools import reduce
+from functools import partial, reduce
 
 import dagster
 from clickhouse_driver import Client
@@ -116,7 +116,7 @@ class PersonOverridesSnapshotDictionary:
     def qualified_name(self):
         return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
 
-    def create(self, client: Client) -> None:
+    def create(self, client: Client, shards: int) -> None:
         client.execute(
             f"""
             CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
@@ -286,7 +286,7 @@ class PersonOverridesSnapshotDictionary:
 # Snapshot Table Management
 
 
-class SnapshotConfig(dagster.Config):
+class SnapshotTableConfig(dagster.Config):
     timestamp: str
 
 
@@ -294,7 +294,7 @@ class SnapshotConfig(dagster.Config):
 def create_snapshot_table(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    config: SnapshotConfig,
+    config: SnapshotTableConfig,
 ) -> PersonOverridesSnapshotTable:
     table = PersonOverridesSnapshotTable(
         id=uuid.UUID(context.run.run_id).hex,
@@ -325,13 +325,18 @@ def wait_for_snapshot_table_replication(
 # Snapshot Dictionary Management
 
 
+class SnapshotDictionaryConfig(dagster.Config):
+    shards: int = 16
+
+
 @dagster.op
 def create_snapshot_dictionary(
     cluster: dagster.ResourceParam[ClickhouseCluster],
+    config: SnapshotDictionaryConfig,
     table: PersonOverridesSnapshotTable,
 ) -> PersonOverridesSnapshotDictionary:
     dictionary = PersonOverridesSnapshotDictionary(table)
-    cluster.map_all_hosts(dictionary.create).result()
+    cluster.map_all_hosts(partial(dictionary.create, shards=config.shards)).result()
     return dictionary
 
 
