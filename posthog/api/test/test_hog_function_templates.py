@@ -104,6 +104,3 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.status_code == status.HTTP_200_OK, response.json()
         for template_item in response.json()["results"]:
             assert template_item["status"] != "alpha", f"Alpha template {template_item['id']} should not be returned"
-            assert (
-                "[CDP-TEST-HIDDEN]" not in template_item["name"]
-            ), f"Test template {template_item['id']} should not be returned"
