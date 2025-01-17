@@ -1,16 +1,8 @@
-import os
-import django
-
 from dagster import (
     Config,
     MaterializeResult,
     asset,
 )
-
-# setup PostHog Django Project
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-django.setup()
 
 from posthog.clickhouse.client import sync_execute  # noqa
 
