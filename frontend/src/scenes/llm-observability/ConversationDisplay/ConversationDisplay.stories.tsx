@@ -105,19 +105,17 @@ Tools.args = {
                 {
                     role: 'assistant',
                     content: '',
-                    additional_kwargs: {
-                        tool_calls: [
-                            {
-                                function: {
-                                    arguments: 'Bar!',
-                                    name: 'foo',
-                                },
-                                id: 'call_81KeSSme8dNjnyK3xK59uNzu',
-                                index: 0,
-                                type: 'function',
+                    tool_calls: [
+                        {
+                            function: {
+                                arguments: '{"thing":"Bar!"}',
+                                name: 'foo',
                             },
-                        ],
-                    },
+                            id: 'call_81KeSSme8dNjnyK3xK59uNzu',
+                            index: 0,
+                            type: 'function',
+                        },
+                    ],
                 },
             ],
         },
