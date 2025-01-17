@@ -46,7 +46,7 @@ export function WebOverview(props: {
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
 
-    const numSkeletons = props.query.conversionGoal ? 4 : 6
+    const numSkeletons = props.query.conversionGoal ? 4 : 5
 
     return (
         <>
