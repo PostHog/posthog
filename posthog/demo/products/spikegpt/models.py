@@ -150,7 +150,8 @@ class SpikeGPTPerson(SimPerson):
             else:
                 generation_time = len(message["content"]) / 25
                 self.advance_timer(1 + generation_time)
-                self.active_client.capture_ai_generation(
+                self.cluster.matrix.server_client.capture_ai_generation(
+                    distinct_id=self.active_client.active_distinct_id,
                     input=conversation_so_far,
                     output_content=message["content"],
                     latency=generation_time,
