@@ -1082,7 +1082,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {
                     "table": table_name,
                     "should_sync": False,
-                    "estimated_rows": estimated_rows.get(table_name, 0),
+                    "estimated_rows": estimated_rows.get(table_name, None),
                     "incremental_fields": [
                         {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                         for column_name, column_type in columns
