@@ -116,7 +116,7 @@ class PersonOverridesSnapshotDictionary:
     def qualified_name(self):
         return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
 
-    def create(self, client: Client, shards: int) -> None:
+    def create(self, client: Client, shards: int, max_execution_time: int) -> None:
         client.execute(
             f"""
             CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
@@ -127,9 +127,9 @@ class PersonOverridesSnapshotDictionary:
             )
             PRIMARY KEY team_id, distinct_id
             SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s PASSWORD %(password)s))
-            LAYOUT(COMPLEX_KEY_HASHED(SHARDS 16))
+            LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
             LIFETIME(0)
-            SETTINGS(max_execution_time=900)
+            SETTINGS(max_execution_time={max_execution_time})
             """,
             {
                 "database": settings.CLICKHOUSE_DATABASE,
@@ -327,6 +327,7 @@ def wait_for_snapshot_table_replication(
 
 class SnapshotDictionaryConfig(dagster.Config):
     shards: int = 16
+    max_execution_time: int = 15 * 60
 
 
 @dagster.op
@@ -336,7 +337,13 @@ def create_snapshot_dictionary(
     table: PersonOverridesSnapshotTable,
 ) -> PersonOverridesSnapshotDictionary:
     dictionary = PersonOverridesSnapshotDictionary(table)
-    cluster.map_all_hosts(partial(dictionary.create, shards=config.shards)).result()
+    cluster.map_all_hosts(
+        partial(
+            dictionary.create,
+            shards=config.shards,
+            max_execution_time=config.max_execution_time,
+        )
+    ).result()
     return dictionary
 
 
