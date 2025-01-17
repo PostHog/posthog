@@ -4,6 +4,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.warehouse.models import DataWarehouseFolder
 from rest_framework import serializers
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from typing import cast, Any
 
 
 class DataWarehouseFolderSerializer(serializers.ModelSerializer):
@@ -26,6 +27,7 @@ class DataWarehouseFolderSerializer(serializers.ModelSerializer):
         return obj.created_by.first_name if obj.created_by else None
 
     def validate(self, attrs):
+        instance = cast(DataWarehouseFolder, self.instance)
         # Ensure folder name is unique within the same parent and team
         name = attrs.get("name")
         parent = attrs.get("parent")
@@ -33,8 +35,8 @@ class DataWarehouseFolderSerializer(serializers.ModelSerializer):
 
         existing_query = DataWarehouseFolder.objects.filter(team_id=team_id, name=name, parent=parent)
 
-        if self.instance:
-            existing_query = existing_query.exclude(id=self.instance.id)
+        if instance:
+            existing_query = existing_query.exclude(id=instance.id)
 
         if existing_query.exists():
             raise ValidationError("A folder with this name already exists in this location")
@@ -51,7 +53,7 @@ class DataWarehouseFolderViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = DataWarehouseFolderSerializer
     queryset = DataWarehouseFolder.objects.all()
 
-    def get_serializer_context(self) -> dict[str, any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["team_id"] = self.team_id
         return context
