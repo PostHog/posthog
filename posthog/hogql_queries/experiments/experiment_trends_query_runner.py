@@ -222,6 +222,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                         type="event",
                     ),
                 ],
+                filterTestAccounts=self.query.count_query.filterTestAccounts,
             )
 
         return prepared_exposure_query
