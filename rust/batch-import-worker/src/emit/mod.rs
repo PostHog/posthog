@@ -5,8 +5,16 @@ use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 #[async_trait]
-pub trait Emitter {
+pub trait Emitter: Send + Sync {
+    async fn begin_write(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error>;
+
+    async fn commit_write(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 pub struct StdoutEmitter {

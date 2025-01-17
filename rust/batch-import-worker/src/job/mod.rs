@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use anyhow::Error;
-use common_types::InternallyCapturedEvent;
-use model::{JobModel, JobState, PartState};
-use tracing::info;
 
-use crate::{context::AppContext, emit::Emitter, parse::Parsed, source::DataSource};
+use model::{JobModel, JobState, PartState};
+use tracing::{debug, info, warn};
+
+use crate::{context::AppContext, emit::Emitter, parse::format::ParserFn, source::DataSource};
 
 pub mod config;
 pub mod model;
@@ -16,7 +16,7 @@ pub struct Job {
     pub state: JobState,
 
     pub source: Box<dyn DataSource>,
-    pub transform: Box<dyn Fn(Vec<u8>) -> Result<Parsed<Vec<InternallyCapturedEvent>>, Error>>,
+    pub transform: ParserFn,
     pub sink: Box<dyn Emitter>,
 }
 
@@ -25,7 +25,7 @@ impl Job {
         let source = model
             .import_config
             .source
-            .construct(context.clone())
+            .construct(&model.secrets, context.clone())
             .await?;
 
         let transform = Box::new(
@@ -52,6 +52,7 @@ impl Job {
             let keys = source.keys().await?;
             for key in keys {
                 let size = source.size(&key).await?;
+                debug!("Got size for part {}: {}", key, size);
                 parts.push(PartState {
                     key,
                     current_offset: 0,
@@ -59,7 +60,7 @@ impl Job {
                 });
             }
             state.parts = parts;
-            info!("Initialized parts list");
+            info!("Initialized parts list: {:?}", state.parts);
         }
 
         Ok(Self {
@@ -90,6 +91,7 @@ impl Job {
             Ok(c) => c,
             Err(e) => {
                 // Failure to fetch - pause, and let some manual intervention resume the job
+                warn!("Failed to fetch part {}: {}, pausing job", next_part.key, e);
                 self.model.pause(self.context, e.to_string()).await?;
                 return Ok(None);
             }
@@ -99,13 +101,17 @@ impl Job {
 
         let chunk_bytes = next_chunk.len();
 
-        // TODO - spawn blocking?
+        // TODO - spawn blocking? Probably not, we only let a worker run one job at a time anyway
         let parsed = match (self.transform)(next_chunk) {
             Ok(p) => p,
             Err(e) => {
                 // If we hit data we can't parse, we should fail the job (rather than pausing),
                 // under the assumption it can't simply be restarted (although in practice we may
-                // restart failed jobs)
+                // restart failed jobs), but might need actual code changes
+                warn!(
+                    "Failed to parse part {} at offset {}: {}, failing job",
+                    next_part.key, next_part.current_offset, e
+                );
                 self.model.fail(&self.context.db, e.to_string()).await?;
                 return Ok(None);
             }
@@ -118,36 +124,59 @@ impl Job {
                 "Failed to parse any data from part {} at offset {}",
                 next_part.key, next_part.current_offset
             );
+            warn!("{}", msg);
             self.model.pause(self.context, msg).await?;
             return Ok(None);
         }
 
-        // TODO - proper error handling, although maybe on emit errors we really do just
-        // want to bail out, and let another worker pick up the job later, once the leased_until
-        // has expired (with some special case error handling maybe?)... this depends a bit on
-        // the emitter implementation (and whether non-transient errors are possible)
+        // We do a bit of a dance here to get a two stage commit, preemptively pausing the job such that if the commit to
+        // kafka fails, we
+        // If this fails, we just bail out, and then eventually someone else will pick up the job again and re-process this chunk
+        self.sink.begin_write().await?;
+        // If this fails, as above
         self.sink.emit(&parsed.data).await?;
-
-        self.commit_chunk(next_part, parsed.consumed).await?;
+        // This is where things get tricky - if we fail to commit the chunk to the sink in the next step, and we've told PG we've
+        // committed the chunk, we'll bail out, and whoever comes next will end up skipping this chunk. To prevent this, we do a two
+        // stage commit, where we pause the job before committing the chunk to the sink, and then only unpause it after the sink commit,
+        // such that if we get interrupted between the two, the job will be paused, and manual intervention will be required to resume it.
+        // This operator can then confirm whether the sink commit succeeded or not (by looking at the last event written, or by
+        // looking at logs, or both). The jobs status message is set to enable this kind of debugging.
+        self.begin_part_commit(next_part, parsed.consumed).await?;
+        self.sink.commit_write().await?;
+        self.complete_commit().await?;
 
         // This wasn't the last part/chunk, so we return the job to let it be processed again
         Ok(Some(self))
     }
 
-    pub async fn successfully_complete(self) -> Result<(), Error> {
+    pub async fn successfully_complete(mut self) -> Result<(), Error> {
         self.model.complete(&self.context.db).await
     }
 
-    pub async fn commit_chunk(&mut self, part: PartState, consumed: usize) -> Result<(), Error> {
+    // Writes the new partstate to the DB, and sets the job status to paused, such that if there's an issue with the sink commit, the job
+    // will be paused, and manual intervention will be required to resume it
+    pub async fn begin_part_commit(
+        &mut self,
+        part: PartState,
+        consumed: usize,
+    ) -> Result<(), Error> {
         self.state.parts.iter_mut().for_each(|p| {
             if p.key == part.key {
                 p.current_offset += consumed;
             }
         });
 
-        self.model
-            .flush_state_update(&self.context.db, self.state.clone())
-            .await
+        self.model.state = Some(self.state.clone());
+        let status_message = format!(
+            "Starting commit of part {} at offset {}, consumed {} bytes",
+            part.key, part.current_offset, consumed
+        );
+        self.model.pause(self.context.clone(), status_message).await
+    }
+
+    // Unpauses the job
+    pub async fn complete_commit(&mut self) -> Result<(), Error> {
+        self.model.unpause(self.context.clone()).await
     }
 
     pub fn get_next_unfinished_part(&self) -> Option<PartState> {

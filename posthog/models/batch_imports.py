@@ -38,21 +38,39 @@ class BatchImport(UUIDModel):
     secrets = EncryptedJSONStringField()
 
 
-# Create a test job, configured to read from the workers local filesystem and
-# write to either stdout in json format
-def create_test_job(team: Team, path: str) -> BatchImport:
+def create_url_job(team: Team, url_list: list, content_type: str) -> BatchImport:
+    source_config = {
+        "type": "url_list",
+        "urls_key": "urls",
+    }
+
+    secrets = {
+        "urls": url_list,
+    }
+
+    return create_test_job(team, source_config, content_type, secrets)
+
+
+def create_path_job(team: Team, path: str, content_type: str) -> BatchImport:
     source_config = {
         "type": "folder",
         "path": path,
     }
 
-    data_format = {"type": "jsonlines", "skip_blanks": False, "content": {"type": "mixpanel"}}
+    return create_test_job(team, source_config, content_type)
 
-    sink_config = {"type": "stdout", "as_json": True}
+
+# Create a test job, configured to read from the workers local filesystem and
+# write to either stdout in json format
+def create_test_job(team: Team, source_config, content_type: str, secrets=None) -> BatchImport:
+    data_format = {"type": "jsonlines", "skip_blanks": False, "content": {"type": content_type}}
+
+    sink_config = {"type": "noop", "as_json": True}
 
     import_config = {"source": source_config, "data_format": data_format, "sink": sink_config}
 
-    secrets = {"test": "test"}
+    if secrets is None:
+        secrets = {}
 
     return BatchImport.objects.create(
         team=team,

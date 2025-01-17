@@ -5,14 +5,22 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+use crate::job::config::JobSecrets;
+
 use super::DataSource;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct UrlListConfig {
-    urls: Vec<String>,
+    urls_key: String,
+    #[serde(default)]
     allow_internal_ips: bool,
+    #[serde(default = "default_timeout_seconds")]
     timeout_seconds: u64,
+}
+
+fn default_timeout_seconds() -> u64 {
+    30
 }
 
 pub struct UrlList {
@@ -86,9 +94,16 @@ impl UrlList {
 }
 
 impl UrlListConfig {
-    pub async fn create_source(&self) -> Result<UrlList, Error> {
+    pub async fn create_source(&self, secrets: &JobSecrets) -> Result<UrlList, Error> {
+        let urls = secrets
+            .secrets
+            .get(&self.urls_key)
+            .ok_or(Error::msg(format!("Missing urls as key {}", self.urls_key)))?;
+
+        let urls: Vec<String> = serde_json::from_value(urls.clone())?;
+
         UrlList::new(
-            self.urls.clone(),
+            urls,
             self.allow_internal_ips,
             Duration::from_secs(self.timeout_seconds),
         )
@@ -108,16 +123,27 @@ impl DataSource for UrlList {
             return Err(Error::msg("Key not found"));
         }
 
+        // For some reason calling `content_length()` doesn't work properly here, so we don't do that
         self.client
             .head(key)
             .send()
             .await?
-            .content_length()
+            .headers()
+            .get("content-length")
             .ok_or(Error::msg(format!(
                 "Could not get content length for {}",
                 key
             )))
-            .map(|size| size as usize)
+            .and_then(|header| {
+                header
+                    .to_str()
+                    .map_err(|e| Error::msg(format!("Failed to parse content length: {}", e)))
+            })
+            .and_then(|length| {
+                length.parse::<usize>().map_err(|e| {
+                    Error::msg(format!("Failed to parse content length as usize: {}", e))
+                })
+            })
     }
 
     async fn get_chunk(&self, key: &str, offset: usize, size: usize) -> Result<Vec<u8>, Error> {

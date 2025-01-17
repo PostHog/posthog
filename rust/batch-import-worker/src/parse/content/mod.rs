@@ -1,12 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+pub mod captured;
 pub mod mixpanel;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ContentType {
-    Mixpanel,  // From a mixpanel export
-    AsCapture, // Each json object structured as if it was going to be sent to the capture endpoint
+    Mixpanel, // From a mixpanel export
+    Captured, // Each json object structured as if it was going to be sent to the capture endpoint
 }
 
 // All /extra/ information needed to go from any input format to an InternallyCapturedEvent,
