@@ -8,7 +8,6 @@ class DashboardTileInline(admin.TabularInline):
     extra = 0
     model = DashboardTile
     autocomplete_fields = ("insight", "text")
-    readonly_fields = ("filters_hash",)
 
 
 class DashboardAdmin(admin.ModelAdmin):

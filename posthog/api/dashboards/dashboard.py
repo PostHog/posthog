@@ -65,7 +65,6 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         exclude = [
             "dashboard",
             "deleted",
-            "filters_hash",
             "last_refresh",
             "refreshing",
             "refresh_attempt",

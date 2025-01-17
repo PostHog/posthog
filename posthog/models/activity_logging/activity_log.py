@@ -193,7 +193,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "is_user",
     ],
     "Insight": [
-        "filters_hash",
         "refreshing",
         "dive_dashboard",
         "type",
@@ -523,12 +522,14 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
                     distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
                     properties=serialized_data,
                 ),
-                person=InternalEventPerson(
-                    id=user_data["id"],
-                    properties=user_data,
-                )
-                if user_data
-                else None,
+                person=(
+                    InternalEventPerson(
+                        id=user_data["id"],
+                        properties=user_data,
+                    )
+                    if user_data
+                    else None
+                ),
             )
     except Exception as e:
         # We don't want to hard fail here.

@@ -70,7 +70,6 @@ def sync_dashboard_tile(sender, instance: DashboardTile, **kwargs):
 def sync_dashboard_updated(sender, instance: Dashboard, **kwargs):
     update_fields = kwargs.get("update_fields")
     if update_fields in [
-        frozenset({"filters_hash"}),
         frozenset({"last_refresh"}),
         frozenset({"last_accessed_at"}),
     ]:

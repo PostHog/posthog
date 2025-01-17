@@ -15,7 +15,6 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.models.insight import generate_insight_filters_hash
 from posthog.schema import CacheMissResponse, DashboardFilter
 
 if TYPE_CHECKING:
@@ -38,9 +37,6 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
                 if dashboard is not None and dashboard.filters:
                     query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
                 return query_runner.get_cache_key()
-
-            if insight.filters:
-                return generate_insight_filters_hash(insight, dashboard)
 
     return None
 
