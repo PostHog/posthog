@@ -17,20 +17,26 @@ export function CoreWebVitals(props: {
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
+    const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `CoreWebVitals.${uniqueNode++}`)
+
     const logic = dataNodeLogic({
         query: props.query,
         key,
         cachedResults: props.cachedResults,
-        loadPriority: 0,
-        onData: () => {},
-        dataNodeCollectionId: key,
+        loadPriority,
+        onData,
+        dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
 
     const { coreWebVitalsPercentile, coreWebVitalsTab, coreWebVitalsMetricQuery } = useValues(webAnalyticsLogic)
     const { setCoreWebVitalsTab } = useActions(webAnalyticsLogic)
-    const { response } = useValues(logic)
-    const coreWebVitalsQueryResponse = response as CoreWebVitalsQueryResponse | undefined
+    const { response, responseLoading } = useValues(logic)
+
+    // Manually handle loading state when loading to avoid showing stale data while refreshing
+    const coreWebVitalsQueryResponse = responseLoading
+        ? undefined
+        : (response as CoreWebVitalsQueryResponse | undefined)
 
     const INP = useMemo(
         () => getMetric(coreWebVitalsQueryResponse?.results, 'INP', coreWebVitalsPercentile),
