@@ -121,7 +121,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         ],
         sidebarWidth: [
             DEFAULT_SIDEBAR_WIDTH_PX,
-            { persist: true },
             {
                 setSidebarWidth: (_, { width }) => width,
             },
