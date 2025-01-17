@@ -1,8 +1,23 @@
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
 
 import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 describe('summarizePlaylistFilters()', () => {
+    // CORE_FILTER_DEFINITIONS_BY_GROUP are populated from the backend in the actual application
+    CORE_FILTER_DEFINITIONS_BY_GROUP.events['$pageview'] = {
+        label: 'Pageview',
+    }
+    CORE_FILTER_DEFINITIONS_BY_GROUP.events['$rageclick'] = {
+        label: 'Rageclick',
+    }
+    CORE_FILTER_DEFINITIONS_BY_GROUP.events['$autocapture'] = {
+        label: 'Autocapture',
+    }
+    CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties['$initial_browser'] = {
+        label: 'Initial Browser',
+    }
+
     const cohortIdsMapped: Partial<Record<CohortType['id'], CohortType>> = {
         1: {
             id: 1,
