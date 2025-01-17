@@ -96,7 +96,7 @@ export function SummaryTable({
                     <Tooltip
                         title={
                             <div>
-                                The number of people who were exposed to this variant. By default, this is measured by
+                                The number of users who were exposed to this variant. By default, this is measured by
                                 the count of <LemonTag type="option">$feature_flag_called</LemonTag> events per unique
                                 user. Check your metric settings to confirm how this is measured.
                             </div>
