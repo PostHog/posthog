@@ -599,9 +599,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
             )
 
-            const insight = values.queryFromInsight
-
-            const experimentMetric = getExperimentMetricFromInsight(insight)
+            const experimentMetric = values.metricFromInsight
 
             if (hasFormErrors(values.experimentErrors)) {
                 return
@@ -1049,11 +1047,27 @@ export const experimentLogic = kea<experimentLogicType>([
                 return response
             },
         },
-        queryFromInsight: [
-            null as QueryBasedInsightModel | null,
+        metricFromInsight: [
+            null as ExperimentTrendsQuery | ExperimentFunnelsQuery | null,
             {
-                loadQueryFromInsight: async (shortId: InsightShortId): Promise<QueryBasedInsightModel | null> => {
-                    const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
+                loadMetricFromInsight: async (
+                    shortId: InsightShortId
+                ): Promise<ExperimentTrendsQuery | ExperimentFunnelsQuery | null> => {
+                    const insight = await insightsApi
+                        .getByShortId(shortId, undefined, 'async')
+                        .then((insight) => {
+                            const metric = getExperimentMetricFromInsight(insight) ?? null
+
+                            if (!metric) {
+                                lemonToast.error('Failed to generate experiment from insight')
+                            }
+
+                            return metric
+                        })
+                        .catch(() => {
+                            lemonToast.error('Failed to generate experiment from insight')
+                            return null
+                        })
                     return insight
                 },
             },
@@ -1854,7 +1868,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
 
                 if (query.insight) {
-                    actions.loadQueryFromInsight(query.insight as InsightShortId)
+                    actions.loadMetricFromInsight(query.insight as InsightShortId)
                 }
             }
         },
