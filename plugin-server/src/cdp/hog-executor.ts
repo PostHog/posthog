@@ -134,11 +134,9 @@ export const buildGlobalsWithInputs = (
 
 export class HogExecutor {
     private telemetryMatcher: ValueMatcher<number>
-    private server: Hub
 
     constructor(private hub: Hub, private hogFunctionManager: HogFunctionManager) {
         this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
-        this.server = this.hub
     }
 
     findHogFunctionInvocations(triggerGlobals: HogFunctionInvocationGlobals) {
@@ -522,7 +520,7 @@ export class HogExecutor {
                             })
                         },
                         geoipLookup: (ipAddress: string) => {
-                            if (!this.server.mmdb) {
+                            if (!this.hub.mmdb) {
                                 result.logs.push({
                                     level: 'error',
                                     timestamp: DateTime.now(),
@@ -532,16 +530,8 @@ export class HogExecutor {
                             }
 
                             try {
-                                const result = this.server.mmdb.city(ipAddress)
-                                return result
-                            } catch (e) {
-                                if (e.name !== 'AddressNotFoundError') {
-                                    result.logs.push({
-                                        level: 'warn',
-                                        timestamp: DateTime.now(),
-                                        message: `geoip lookup failed for IP ${ipAddress}: ${e.message}`,
-                                    })
-                                }
+                                return this.hub.mmdb.city(ipAddress)
+                            } catch {
                                 return null
                             }
                         },

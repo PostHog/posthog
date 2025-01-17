@@ -34,18 +34,18 @@ if (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {
 }
 let ip := event.properties.$ip
 if (ip == '127.0.0.1') {
-    ip := '89.160.20.129' // Spoofing an IP address for local development
+    print('spoofing ip for local development', ip)
+    ip := '89.160.20.129'
 }
 let response := geoipLookup(ip)
-print(response)
 if (not response) {
+    print('geoip lookup failed for ip', ip)
     return event
 }
 let location := {}
 if (response.city) {
     location['city_name'] := response.city.names?.en
 }
-print(location)
 if (response.country) {
     location['country_name'] := response.country.names?.en
     location['country_code'] := response.country.isoCode
@@ -69,6 +69,7 @@ if (response.subdivisions) {
         location[f'subdivision_{index + 1}_name'] := subdivision.names?.en
     }
 }
+print('geoip location data for ip:', location) 
 let returnEvent := event
 returnEvent.properties := returnEvent.properties ?? {}
 returnEvent.properties.$set := returnEvent.properties.$set ?? {}

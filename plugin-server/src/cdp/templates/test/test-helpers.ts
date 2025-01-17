@@ -1,5 +1,7 @@
 import { Reader } from '@maxmind/geoip2-node'
+import { readFileSync } from 'fs'
 import { join } from 'path'
+import { brotliDecompressSync } from 'zlib'
 
 import { buildGlobalsWithInputs, HogExecutor } from '../../hog-executor'
 import {
@@ -50,7 +52,11 @@ export class TemplateTester {
 
         let mmdb
         try {
-            mmdb = await Reader.open(join(__dirname, '../_transformations/geoip/GeoLite2-City-Test.mmdb'))
+            const mmdbBrotliContents = readFileSync(
+                join(__dirname, '../../../../tests/assets/GeoLite2-City-Test.mmdb.br')
+            )
+            const mmdbBuffer = brotliDecompressSync(mmdbBrotliContents)
+            mmdb = Reader.openBuffer(mmdbBuffer)
         } catch (error) {
             throw new Error(`Failed to load MMDB file: ${error}`)
         }
