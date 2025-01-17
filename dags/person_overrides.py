@@ -1,7 +1,8 @@
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
-import uuid
+from functools import reduce
 
 import dagster
 from clickhouse_driver import Client
@@ -85,6 +86,10 @@ class Mutation:
             {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_id": self.mutation_id},
         )
         return is_done
+
+    def wait(self, client: Client) -> None:
+        while not self.is_done(client):
+            time.sleep(15.0)
 
 
 @dataclass
@@ -307,29 +312,16 @@ def start_person_id_update_mutations(
 
 @dagster.op
 def wait_for_person_id_update_mutations(
-    context: dagster.OpExecutionContext, inputs: tuple[PersonOverridesSnapshotDictionary, ShardMutations]
+    inputs: tuple[PersonOverridesSnapshotDictionary, ShardMutations],
 ) -> PersonOverridesSnapshotDictionary:
     [dictionary, shard_mutations] = inputs
 
     cluster = get_cluster()
 
-    while True:
-        waiting_on_hosts = set()
-
-        # TODO: mutation may not have been replicated to other hosts in the shard yet when we get here
-        # TODO: need to check to see if is_done and is_killed can be set at the same time
-        shard_host_mutation_statuses = {
-            shard: cluster.map_all_hosts_in_shard(shard, mutation.is_done)
-            for shard, mutation in shard_mutations.items()
-        }
-        for host_mutation_statuses in shard_host_mutation_statuses.values():
-            waiting_on_hosts.update(host for host, is_done in host_mutation_statuses.result().items() if not is_done)
-
-        if waiting_on_hosts:
-            context.log.info("Still waiting on %r to finish mutation...", waiting_on_hosts)
-            time.sleep(15.0)
-        else:
-            break
+    reduce(
+        lambda x, y: x | y,
+        [cluster.map_all_hosts_in_shard(shard, mutation.wait) for shard, mutation in shard_mutations.items()],
+    ).result()
 
     return dictionary
 
@@ -345,23 +337,11 @@ def start_overrides_delete_mutations(
 
 @dagster.op
 def wait_for_overrides_delete_mutations(
-    context: dagster.OpExecutionContext,
     inputs: tuple[PersonOverridesSnapshotDictionary, Mutation],
 ) -> PersonOverridesSnapshotDictionary:
     [dictionary, mutation] = inputs
 
-    cluster = get_cluster()
-
-    while True:
-        # TODO: mutation may not have been replicated yet
-        waiting_on_hosts = {
-            host for host, is_done in cluster.map_all_hosts(mutation.is_done).result().items() if not is_done
-        }
-        if waiting_on_hosts:
-            context.log.info("Still waiting on %r to finish mutation...", waiting_on_hosts)
-            time.sleep(15.0)
-        else:
-            break
+    get_cluster().map_all_hosts(mutation.wait).result()
 
     return dictionary
 

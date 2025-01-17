@@ -20,6 +20,12 @@ V = TypeVar("V")
 
 
 class FuturesMap(dict[K, Future[V]]):
+    def __or__(self, other: FuturesMap[K, V]) -> FuturesMap[K, V]:
+        # this method is needed as __or__ otherwise returns a plain dict
+        if not isinstance(other, FuturesMap):
+            return NotImplemented
+        return FuturesMap(self | other)
+
     def as_completed(self, timeout: float | int | None = None) -> Iterator[tuple[K, Future[V]]]:
         reverse_map = {v: k for k, v in self.items()}
         assert len(reverse_map) == len(self)
