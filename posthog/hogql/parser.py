@@ -808,6 +808,39 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         return ast.Call(name=name, args=[self.visit(ctx.columnExpr())])
 
+    def visitColumnExprIntervalString(self, ctx: HogQLParser.ColumnExprIntervalStringContext):
+        if ctx.STRING_LITERAL():
+            text = parse_string_literal_ctx(ctx.STRING_LITERAL())
+        else:
+            raise NotImplementedError(f"Unsupported interval type: {ctx.STRING_LITERAL()}")
+
+        count, unit = text.split(" ")
+        if count.isdigit():
+            count = int(count)
+        else:
+            raise NotImplementedError(f"Unsupported interval count: {count}")
+
+        if unit == "second" or unit == "seconds":
+            name = "toIntervalSecond"
+        elif unit == "minute" or unit == "minutes":
+            name = "toIntervalMinute"
+        elif unit == "hour" or unit == "hours":
+            name = "toIntervalHour"
+        elif unit == "day" or unit == "days":
+            name = "toIntervalDay"
+        elif unit == "week" or unit == "weeks":
+            name = "toIntervalWeek"
+        elif unit == "month" or unit == "months":
+            name = "toIntervalMonth"
+        elif unit == "quarter" or unit == "quarters":
+            name = "toIntervalQuarter"
+        elif unit == "year" or unit == "years":
+            name = "toIntervalYear"
+        else:
+            raise NotImplementedError(f"Unsupported interval unit: {unit}")
+
+        return ast.Call(name=name, args=[ast.Constant(value=count)])
+
     def visitColumnExprIsNull(self, ctx: HogQLParser.ColumnExprIsNullContext):
         return ast.CompareOperation(
             left=self.visit(ctx.columnExpr()),
