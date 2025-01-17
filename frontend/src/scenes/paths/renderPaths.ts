@@ -127,7 +127,7 @@ const appendPathLinks = (
             const pathCardsToShow: number[] = []
             while (nodesToColor.length > 0) {
                 const _node = nodesToColor.pop()
-                _node._node?.targetLinks.forEach((_link: PathTargetLink) => {
+                _node?.targetLinks.forEach((_link: PathTargetLink) => {
                     svg.select(`#path-${_link.index}`).attr('stroke', 'var(--paths-link-hover)')
                     nodesToColor.push(_link.source)
                     pathCardsToShow.push(_link.source.index)
