@@ -1,4 +1,4 @@
-import { City, Reader, ReaderModel } from '@maxmind/geoip2-node'
+import { City, Reader } from '@maxmind/geoip2-node'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
@@ -44,35 +44,36 @@ export class TemplateTester {
     we need transformResult to be able to test the geoip template
     the same way we did it here https://github.com/PostHog/posthog-plugin-geoip/blob/a5e9370422752eb7ea486f16c5cc8acf916b67b0/index.test.ts#L79
     */
-    async beforeEach(transformResult?: (res: City) => any) {
+    async beforeEach(transformResult?: (res: City) => any, skipMMDB?: boolean) {
         this.template = {
             ...this._template,
             bytecode: await compileHog(this._template.hog),
         }
 
-        let mmdb: ReaderModel
-        try {
-            const mmdbBrotliContents = readFileSync(
-                join(__dirname, '../../../../tests/assets/GeoLite2-City-Test.mmdb.br')
-            )
-            const mmdbBuffer = brotliDecompressSync(mmdbBrotliContents)
-            mmdb = Reader.openBuffer(mmdbBuffer)
-        } catch (error) {
-            throw new Error(`Failed to load MMDB file: ${error}`)
+        const mockHub = { mmdb: undefined } as any
+
+        if (!skipMMDB) {
+            try {
+                const mmdbBrotliContents = readFileSync(
+                    join(__dirname, '../../../../tests/assets/GeoLite2-City-Test.mmdb.br')
+                )
+                const mmdbBuffer = brotliDecompressSync(mmdbBrotliContents)
+                const mmdb = Reader.openBuffer(mmdbBuffer)
+
+                mockHub.mmdb = transformResult
+                    ? {
+                          city: (ipAddress: string) => {
+                              const res = mmdb.city(ipAddress)
+                              return transformResult(res)
+                          },
+                      }
+                    : mmdb
+            } catch (error) {
+                throw new Error(`Failed to load MMDB file: ${error}`)
+            }
         }
 
-        const mockHub = {
-            mmdb: transformResult
-                ? {
-                      city: (ipAddress: string) => {
-                          const res = mmdb.city(ipAddress)
-                          return transformResult(res)
-                      },
-                  }
-                : mmdb,
-        } as any
         const mockHogFunctionManager = {} as any
-
         this.executor = new HogExecutor(mockHub, mockHogFunctionManager)
     }
 

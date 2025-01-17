@@ -212,8 +212,4 @@ describe('geoip.template', () => {
             $geoip_disable: true,
         })
     })
-    xit('should throw error if GeoIP capabilities are not available', async () => {
-        // TODO: Is this still needed for self hosted?
-        // TODO: Probably catch that in the template instead, do we have the posthog version there?
-    })
 })

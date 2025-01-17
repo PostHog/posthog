@@ -521,14 +521,8 @@ export class HogExecutor {
                         },
                         geoipLookup: (ipAddress: string) => {
                             if (!this.hub.mmdb) {
-                                result.logs.push({
-                                    level: 'error',
-                                    timestamp: DateTime.now(),
-                                    message: 'geoip database is not ready',
-                                })
                                 return null
                             }
-
                             try {
                                 return this.hub.mmdb.city(ipAddress)
                             } catch {
