@@ -129,7 +129,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         google_ads = GoogleAdsIntegration(instance)
 
-        key = f"google_ads/{google_ads.integration.team.id}/accessible_accounts"
+        key = f"google_ads/{google_ads.integration.integration_id}/accessible_accounts"
         data = cache.get(key)
 
         if data is not None:
