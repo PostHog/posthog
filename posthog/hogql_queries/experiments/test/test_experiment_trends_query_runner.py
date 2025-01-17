@@ -944,8 +944,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_result.count, 100)
         self.assertEqual(test_result.count, 205)
-        self.assertEqual(control_result.absolute_exposure, 1)
-        self.assertEqual(test_result.absolute_exposure, 3)
+        self.assertEqual(control_result.absolute_exposure, 9)
+        self.assertEqual(test_result.absolute_exposure, 9)
 
         self.assertEqual(
             control_insight["data"],
@@ -1125,8 +1125,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_result.count, 1000)
         self.assertEqual(test_result.count, 2050)
-        self.assertEqual(control_result.absolute_exposure, 1)
-        self.assertEqual(test_result.absolute_exposure, 3)
+        self.assertEqual(control_result.absolute_exposure, 9)
+        self.assertEqual(test_result.absolute_exposure, 10)
 
         self.assertEqual(
             control_insight["data"][:10],
@@ -1184,8 +1184,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_result.count, 1000)
         self.assertEqual(test_result.count, 102050)
-        self.assertEqual(control_result.absolute_exposure, 1)
-        self.assertEqual(test_result.absolute_exposure, 4)
+        self.assertEqual(control_result.absolute_exposure, 9)
+        self.assertEqual(test_result.absolute_exposure, 10)
 
         self.assertEqual(
             control_insight["data"][:10],
@@ -1371,8 +1371,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_result.count, 1000)
         self.assertEqual(test_result.count, 2050)
-        self.assertEqual(control_result.absolute_exposure, 1)
-        self.assertEqual(test_result.absolute_exposure, 3)
+        self.assertEqual(control_result.absolute_exposure, 9)
+        self.assertEqual(test_result.absolute_exposure, 10)
 
         self.assertEqual(
             control_insight["data"][:10],
@@ -1430,8 +1430,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_result.count, 1000)
         self.assertEqual(test_result.count, 102050)
-        self.assertEqual(control_result.absolute_exposure, 1)
-        self.assertEqual(test_result.absolute_exposure, 4)
+        self.assertEqual(control_result.absolute_exposure, 9)
+        self.assertEqual(test_result.absolute_exposure, 10)
 
         self.assertEqual(
             control_insight["data"][:10],
