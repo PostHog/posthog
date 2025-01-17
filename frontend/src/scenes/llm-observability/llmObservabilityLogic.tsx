@@ -3,8 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { STALE_EVENT_SECONDS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { isDefinitionStale } from 'lib/utils/definitions'
 import { LLMObservabilityTab, urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -13,7 +12,6 @@ import {
     AnyPropertyFilter,
     BaseMathType,
     ChartDisplayType,
-    EventDefinition,
     EventDefinitionType,
     HogQLMathType,
     PropertyMathType,
@@ -33,11 +31,6 @@ export interface QueryTile {
     layout?: {
         className?: string
     }
-}
-
-const isDefinitionStale = (definition: EventDefinition): boolean => {
-    const parsedLastSeen = definition.last_seen_at ? dayjs(definition.last_seen_at) : null
-    return !!parsedLastSeen && dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
 }
 
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
