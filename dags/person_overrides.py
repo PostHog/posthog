@@ -1,7 +1,6 @@
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
 from functools import reduce
 
 import dagster
@@ -16,7 +15,7 @@ from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 @dataclass
 class PersonOverridesSnapshotTable:
     id: str
-    timestamp: datetime
+    timestamp: str
 
     @property
     def name(self) -> str:
@@ -238,18 +237,14 @@ class PersonOverridesSnapshotDictionary:
 
 
 class SnapshotConfig(dagster.Config):
-    timestamp: int
-
-    @property
-    def datetime(self) -> datetime:
-        return datetime.fromtimestamp(self.timestamp)
+    timestamp: str
 
 
 @dagster.op
 def create_snapshot_table(context: dagster.OpExecutionContext, config: SnapshotConfig) -> PersonOverridesSnapshotTable:
     table = PersonOverridesSnapshotTable(
         id=uuid.UUID(context.run.run_id).hex,
-        timestamp=config.datetime,
+        timestamp=config.timestamp,
     )
     get_cluster(context.log).map_all_hosts(table.create).result()
     return table
