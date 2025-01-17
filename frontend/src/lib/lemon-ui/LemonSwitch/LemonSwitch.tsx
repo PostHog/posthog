@@ -12,7 +12,7 @@ export interface LemonSwitchProps {
     labelClassName?: string
     id?: string
     fullWidth?: boolean
-    size?: 'small' | 'medium'
+    size?: 'xsmall' | 'small' | 'medium'
     bordered?: boolean
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */

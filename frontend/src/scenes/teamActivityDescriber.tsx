@@ -389,6 +389,7 @@ const teamActionsMapping: Record<
     slack_incoming_webhook: () => null,
     timezone: () => null,
     surveys_opt_in: () => null,
+    flags_persistence_default: () => null,
     week_start_day: () => null,
     default_modifiers: () => null,
     has_completed_onboarding_for: () => null,

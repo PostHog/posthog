@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
 
+import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
 import {
@@ -41,6 +42,8 @@ export function SessionRecordingsPlaylist({
         otherRecordings,
         activeSessionRecordingId,
         hasNext,
+        allowFlagsFilters,
+        allowHogQLFilters,
     } = useValues(logic)
     const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters } = useActions(logic)
 
@@ -108,6 +111,17 @@ export function SessionRecordingsPlaylist({
                     sections={sections}
                     headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
                     footerActions={<SessionRecordingPlaylistBottomSettings />}
+                    filterActions={
+                        notebookNode ? null : (
+                            <RecordingsUniversalFilters
+                                filters={filters}
+                                setFilters={setFilters}
+                                className="border-b"
+                                allowReplayHogQLFilters={allowHogQLFilters}
+                                allowReplayFlagsFilters={allowFlagsFilters}
+                            />
+                        )
+                    }
                     loading={sessionRecordingsResponseLoading}
                     onScrollListEdge={(edge) => {
                         if (edge === 'top') {

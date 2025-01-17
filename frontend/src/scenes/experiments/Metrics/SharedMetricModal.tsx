@@ -33,7 +33,7 @@ export function SharedMetricModal({
         closeSecondarySharedMetricModal,
         addSharedMetricsToExperiment,
         removeSharedMetricFromExperiment,
-        loadExperiment,
+        restoreUnmodifiedExperiment,
     } = useActions(experimentLogic({ experimentId }))
 
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
@@ -52,9 +52,8 @@ export function SharedMetricModal({
     }
 
     const isOpen = isSecondary ? isSecondarySharedMetricModalOpen : isPrimarySharedMetricModalOpen
-    const closeModal = (): void => {
-        // :KLUDGE: Removes any local changes and resets the experiment to the server state
-        loadExperiment()
+    const onClose = (): void => {
+        restoreUnmodifiedExperiment()
         isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
     }
 
@@ -78,7 +77,7 @@ export function SharedMetricModal({
     return (
         <LemonModal
             isOpen={isOpen}
-            onClose={closeModal}
+            onClose={onClose}
             width={500}
             title={mode === 'create' ? 'Select one or more shared metrics' : 'Shared metric'}
             footer={
@@ -87,7 +86,10 @@ export function SharedMetricModal({
                         {editingSharedMetricId && (
                             <LemonButton
                                 status="danger"
-                                onClick={() => removeSharedMetricFromExperiment(editingSharedMetricId)}
+                                onClick={() => {
+                                    removeSharedMetricFromExperiment(editingSharedMetricId)
+                                    isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
+                                }}
                                 type="secondary"
                             >
                                 Remove from experiment
@@ -95,7 +97,7 @@ export function SharedMetricModal({
                         )}
                     </div>
                     <div className="flex gap-2">
-                        <LemonButton onClick={closeModal} type="secondary">
+                        <LemonButton onClick={onClose} type="secondary">
                             Cancel
                         </LemonButton>
                         {/* Changing the existing metric is a pain because saved metrics are stored separately */}
@@ -106,6 +108,7 @@ export function SharedMetricModal({
                                     addSharedMetricsToExperiment(selectedMetricIds, {
                                         type: isSecondary ? 'secondary' : 'primary',
                                     })
+                                    isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
                                 }}
                                 type="primary"
                                 disabledReason={addSharedMetricDisabledReason()}

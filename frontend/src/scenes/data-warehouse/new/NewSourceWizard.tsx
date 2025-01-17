@@ -138,17 +138,13 @@ function FirstStep(): JSX.Element {
         onNext()
     }
 
-    const onManualLinkClick = (manulLinkSource: ManualLinkSourceType): void => {
+    const onManualLinkClick = (manualLinkSource: ManualLinkSourceType): void => {
         toggleManualLinkFormVisible(true)
-        setManualLinkingProvider(manulLinkSource)
+        setManualLinkingProvider(manualLinkSource)
     }
 
     const filteredConnectors = connectors.filter((n) => {
-        if (n.name === 'BigQuery' && !featureFlags[FEATURE_FLAGS.BIGQUERY_DWH]) {
-            return false
-        }
-
-        return true
+        return !(n.name === 'BigQuery' && !featureFlags[FEATURE_FLAGS.BIGQUERY_DWH])
     })
 
     return (

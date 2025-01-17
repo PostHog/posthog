@@ -106,6 +106,10 @@ class S3BatchExportInputs:
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
+    def __post_init__(self):
+        if self.max_file_size_mb:
+            self.max_file_size_mb = int(self.max_file_size_mb)
+
 
 @dataclass
 class SnowflakeBatchExportInputs:
@@ -154,6 +158,14 @@ class PostgresBatchExportInputs:
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
+    def __post_init__(self):
+        if self.has_self_signed_cert == "True":  # type: ignore
+            self.has_self_signed_cert = True
+        elif self.has_self_signed_cert == "False":  # type: ignore
+            self.has_self_signed_cert = False
+
+        self.port = int(self.port)
+
 
 @dataclass
 class RedshiftBatchExportInputs(PostgresBatchExportInputs):
@@ -185,6 +197,12 @@ class BigQueryBatchExportInputs:
 
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+
+    def __post_init__(self):
+        if self.use_json_type == "True":  # type: ignore
+            self.use_json_type = True
+        elif self.use_json_type == "False":  # type: ignore
+            self.use_json_type = False
 
 
 @dataclass

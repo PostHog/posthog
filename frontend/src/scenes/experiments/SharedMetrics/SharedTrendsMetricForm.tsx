@@ -66,7 +66,7 @@ export function SharedTrendsMetricForm(): JSX.Element {
                                     showSeriesIndicator={true}
                                     entitiesLimit={1}
                                     showNumericalPropsOnly={true}
-                                    onlyPropertyMathDefinitions={[PropertyMathType.Average]}
+                                    onlyPropertyMathDefinitions={[PropertyMathType.Sum]}
                                     {...commonActionFilterProps}
                                 />
                                 <div className="mt-4 space-y-4">

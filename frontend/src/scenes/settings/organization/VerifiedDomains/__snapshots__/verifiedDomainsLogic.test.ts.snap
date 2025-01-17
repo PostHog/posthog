@@ -73,6 +73,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "data-attr",
         ],
         "effective_membership_level": 8,
+        "flags_persistence_default": false,
         "has_group_types": true,
         "heatmaps_opt_in": true,
         "human_friendly_comparison_periods": false,

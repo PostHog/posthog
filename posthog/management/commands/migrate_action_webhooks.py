@@ -200,34 +200,53 @@ def migrate_all_teams_action_webhooks(dry_run=False, inert=False):
     """Migrate actions for all teams in the system."""
     print("Starting migration of actions for all teams")  # noqa: T201
 
+    # Get the query without evaluating it
     query = Action.objects.select_related("team").filter(post_to_slack=True, deleted=False).order_by("id")
 
-    paginator = Paginator(query.all(), 100)
-    for page_number in paginator.page_range:
-        page = paginator.page(page_number)
-        hog_functions: list[HogFunction] = []
-        actions_to_update: list[Action] = []
+    batch_size = 100
+    hog_functions: list[HogFunction] = []
+    actions_to_update: list[Action] = []
+    processed_count = 0
 
-        for action in page.object_list:
-            if len(action.steps) == 0:
-                continue
+    # Use iterator() to fetch records in batches (instead of paginator)
+    for action in query.iterator(chunk_size=batch_size):
+        if len(action.steps) == 0:
+            continue
 
-            try:
-                hog_function = convert_to_hog_function(action, inert)
-                if hog_function:
-                    hog_functions.append(hog_function)
-                    if not inert:
-                        action.post_to_slack = False
-                        actions_to_update.append(action)
-            except Exception as e:
-                print(f"Failed to migrate action {action.id}: {e}")  # noqa: T201
+        try:
+            hog_function = convert_to_hog_function(action, inert)
+            if hog_function:
+                hog_functions.append(hog_function)
+                if not inert:
+                    action.post_to_slack = False
+                    actions_to_update.append(action)
+        except Exception as e:
+            print(f"Failed to migrate action {action.id}: {e}")  # noqa: T201
 
+        processed_count += 1
+
+        # Bulk create/update when we reach batch_size
+        if len(hog_functions) >= batch_size:
+            if not dry_run:
+                HogFunction.objects.bulk_create(hog_functions)
+                if actions_to_update:
+                    Action.objects.bulk_update(actions_to_update, ["post_to_slack"])
+            else:
+                print(f"Would have created {len(hog_functions)} HogFunctions")  # noqa: T201
+
+            hog_functions = []
+            actions_to_update = []
+
+    # Handle any remaining items
+    if hog_functions:
         if not dry_run:
             HogFunction.objects.bulk_create(hog_functions)
             if actions_to_update:
                 Action.objects.bulk_update(actions_to_update, ["post_to_slack"])
         else:
             print(f"Would have created {len(hog_functions)} HogFunctions")  # noqa: T201
+
+    print(f"Processed {processed_count} actions in total")  # noqa: T201
 
     if not dry_run:
         reload_all_hog_functions_on_workers()

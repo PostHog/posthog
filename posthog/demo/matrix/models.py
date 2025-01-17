@@ -276,7 +276,7 @@ class SimBrowserClient(SimClient):
         input: list[dict],
         output_content: str,
         latency: float,
-        request_url: str = "https://api.openai.com/v1/chat/completions",
+        base_url: str = "https://api.openai.com/v1",
         provider: str = "openai",
         model: str = "gpt-4o",
         trace_id: Optional[str] = None,
@@ -290,7 +290,7 @@ class SimBrowserClient(SimClient):
         self.capture(
             "$ai_generation",
             {
-                "$ai_request_url": request_url,
+                "$ai_base_url": base_url,
                 "$ai_provider": provider,
                 "$ai_model": model,
                 "$ai_http_status": http_status,

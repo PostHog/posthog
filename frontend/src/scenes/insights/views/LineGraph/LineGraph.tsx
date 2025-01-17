@@ -2,7 +2,7 @@ import 'chartjs-adapter-dayjs-3'
 
 import { LegendOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
-import annotationPlugin, { AnnotationOptions } from 'chartjs-plugin-annotation'
+import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
@@ -240,7 +240,7 @@ export interface LineGraphProps {
     hideYAxis?: boolean
     legend?: DeepPartial<LegendOptions<ChartType>>
     yAxisScaleType?: string | null
-    alertLines?: GoalLine[]
+    goalLines?: GoalLine[]
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -252,7 +252,7 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
 }
 
 /**
- * Chart.js in log scale refuses to render points that are 0 – as log(0) is undefined – hence a special value for that case.
+ * Chart.js in log scale refuses to render points that are 0 - as log(0) is undefined - hence a special value for that case.
  */
 const LOG_ZERO = 1e-10
 
@@ -278,9 +278,9 @@ export function LineGraph_({
     hideAnnotations,
     hideXAxis,
     hideYAxis,
-    legend = { display: false },
     yAxisScaleType,
-    alertLines,
+    legend = { display: false },
+    goalLines = [],
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -400,24 +400,14 @@ export function LineGraph_({
             }
         }
 
-        const annotations = (alertLines || []).reduce((acc, { value }, idx) => {
-            acc[idx] = {
-                type: 'line',
-                yMin: value,
-                yMax: value,
-                borderColor: 'rgb(255, 99, 132)',
-                borderWidth: 1,
-                borderDash: [5, 8],
-            }
-
-            return acc
-        }, {} as Record<string, AnnotationOptions>)
-
         datasets = datasets.map(processDataset)
 
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const precision = seriesNonZeroMax < 5 ? 1 : seriesNonZeroMax < 2 ? 2 : 0
+        const goalLinesY = goalLines.map((a) => a.value)
+        const goalLinesWithColor = goalLines.filter((goalLine) => Boolean(goalLine.borderColor))
+
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
             font: {
@@ -427,8 +417,20 @@ export function LineGraph_({
             },
         }
         const gridOptions: Partial<GridLineOptions> = {
-            color: colors.axisLine as Color,
-            tickColor: colors.axisLine as Color,
+            color: (context) => {
+                if (goalLinesY.includes(context.tick?.value)) {
+                    return 'transparent'
+                }
+
+                return colors.axisLine as Color
+            },
+            tickColor: (context) => {
+                if (goalLinesY.includes(context.tick?.value)) {
+                    return 'transparent'
+                }
+
+                return colors.axisLine as Color
+            },
             tickBorderDash: [4, 2],
         }
 
@@ -489,7 +491,25 @@ export function LineGraph_({
                     borderColor: 'white',
                 },
                 legend: legend,
-                annotation: { annotations },
+                annotation: {
+                    annotations: goalLines.reduce((acc, annotation, idx) => {
+                        acc[`line-${idx}`] = {
+                            type: 'line',
+                            yMin: annotation.value,
+                            yMax: annotation.value,
+                            borderColor: annotation.borderColor || 'rgb(255, 99, 132)',
+                            label: {
+                                content: annotation.label,
+                                display: annotation.displayLabel ?? true,
+                                position: 'end',
+                            },
+                            borderWidth: 1,
+                            borderDash: [5, 8],
+                        }
+
+                        return acc
+                    }, {}),
+                },
                 tooltip: {
                     ...tooltipOptions,
                     external({ tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
@@ -709,9 +729,32 @@ export function LineGraph_({
                         ...tickOptions,
                         display: !hideYAxis,
                         ...(yAxisScaleType !== 'log10' && { precision }), // Precision is not supported for the log scale
-                        callback: (value) => {
-                            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+                        callback: (value) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView),
+                        color: (context) => {
+                            if (context.tick) {
+                                for (const annotation of goalLinesWithColor) {
+                                    if (context.tick.value === annotation.value) {
+                                        return annotation.borderColor
+                                    }
+                                }
+                            }
+
+                            return colors.axisLabel as Color
                         },
+                    },
+                    afterTickToLabelConversion: (axis) => {
+                        if (axis.id !== 'y') {
+                            return
+                        }
+
+                        const nonAnnotationTicks = axis.ticks.filter(({ value }) => !goalLinesY.includes(value))
+                        const annotationTicks = goalLinesY.map((value) => ({
+                            value,
+                            label: `⬤ ${formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)}`,
+                        }))
+
+                        // Guarantee that all annotations exist as ticks
+                        axis.ticks = [...nonAnnotationTicks, ...annotationTicks]
                     },
                     grid: gridOptions,
                 },
@@ -811,7 +854,7 @@ export function LineGraph_({
         formula,
         showValuesOnSeries,
         showPercentStackView,
-        alertLines,
+        goalLines,
         theme,
     ])
 

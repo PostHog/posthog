@@ -22,11 +22,14 @@ import {
     ActionsNode,
     AnyEntityNode,
     CompareFilter,
+    CoreWebVitalsMetric,
     CustomEventConversionGoal,
     EventsNode,
+    InsightVizNode,
     NodeKind,
     QuerySchema,
     TrendsFilter,
+    TrendsQuery,
     WebAnalyticsConversionGoal,
     WebAnalyticsPropertyFilter,
     WebAnalyticsPropertyFilters,
@@ -85,6 +88,8 @@ export enum ProductTab {
     ANALYTICS = 'analytics',
     CORE_WEB_VITALS = 'core-web-vitals',
 }
+
+export type CoreWebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
 
 const loadPriorityMap: Record<TileId, number> = {
     [TileId.OVERVIEW]: 1,
@@ -214,9 +219,18 @@ export enum ConversionGoalWarning {
 }
 
 export interface WebAnalyticsStatusCheck {
+    isSendingWebVitals: boolean
     isSendingPageViews: boolean
     isSendingPageLeaves: boolean
     isSendingPageLeavesScroll: boolean
+}
+
+export type CoreWebVitalsThreshold = { good: number; poor: number; end: number }
+export const CORE_WEB_VITALS_THRESHOLDS: Record<CoreWebVitalsMetric, CoreWebVitalsThreshold> = {
+    INP: { good: 200, poor: 500, end: 550 },
+    LCP: { good: 2500, poor: 4000, end: 4400 },
+    CLS: { good: 0.1, poor: 0.25, end: 0.3 },
+    FCP: { good: 1800, poor: 3000, end: 3300 },
 }
 
 const GEOIP_PLUGIN_URLS = [
@@ -279,6 +293,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setProductTab: (tab: ProductTab) => ({ tab }),
+        setCoreWebVitalsPercentile: (percentile: CoreWebVitalsPercentile) => ({ percentile }),
+        setCoreWebVitalsTab: (tab: CoreWebVitalsMetric) => ({ tab }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -482,6 +498,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ProductTab.ANALYTICS as ProductTab,
             {
                 setProductTab: (_, { tab }) => tab,
+            },
+        ],
+        coreWebVitalsPercentile: [
+            PropertyMathType.P90 as CoreWebVitalsPercentile,
+            persistConfig,
+            {
+                setCoreWebVitalsPercentile: (_, { percentile }) => percentile,
+            },
+        ],
+        coreWebVitalsTab: [
+            'INP' as CoreWebVitalsMetric,
+            {
+                setCoreWebVitalsTab: (_, { tab }) => tab,
             },
         ],
     }),
@@ -709,74 +738,52 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
-                // TODO: Use actual web vitals tab, this is just a placeholder
                 if (featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && productTab === ProductTab.CORE_WEB_VITALS) {
+                    const createSeries = (name: CoreWebVitalsMetric, math: PropertyMathType): AnyEntityNode => ({
+                        kind: NodeKind.EventsNode,
+                        event: '$web_vitals',
+                        name: '$web_vitals',
+                        custom_name: name,
+                        math: math,
+                        math_property: `$web_vitals_${name}_value`,
+                    })
+
                     return [
                         {
                             kind: 'query',
                             tileId: TileId.WEB_VITALS,
-
-                            // TODO: Do we need title and docs? Likely not
-                            title: 'Core Web Vitals',
-                            docs: {
-                                title: 'Core Web Vitals',
-                                description: 'TODO',
-                                url: 'https://posthog.com/docs/web-analytics/web-vitals',
-                            },
                             layout: {
                                 colSpanClassName: 'md:col-span-full',
                                 orderWhenLargeClassName: 'xxl:order-0',
                             },
                             query: {
-                                kind: NodeKind.InsightVizNode,
+                                kind: NodeKind.CoreWebVitalsQuery,
+                                properties: webAnalyticsFilters,
                                 source: {
                                     kind: NodeKind.TrendsQuery,
                                     dateRange,
                                     interval,
                                     series: [
-                                        {
-                                            kind: NodeKind.EventsNode,
-                                            event: '$web_vitals',
-                                            name: '$web_vitals',
-                                            custom_name: 'INP P90',
-                                            math: PropertyMathType.P90,
-                                            math_property: '$web_vitals_INP_value',
-                                        },
-                                        {
-                                            kind: NodeKind.EventsNode,
-                                            event: '$web_vitals',
-                                            name: '$web_vitals',
-                                            custom_name: 'LCP P90',
-                                            math: PropertyMathType.P90,
-                                            math_property: '$web_vitals_LCP_value',
-                                        },
-                                        {
-                                            kind: NodeKind.EventsNode,
-                                            event: '$web_vitals',
-                                            name: '$web_vitals',
-                                            custom_name: 'CLS P90',
-                                            math: PropertyMathType.P90,
-                                            math_property: '$web_vitals_CLS_value',
-                                        },
-                                        {
-                                            kind: NodeKind.EventsNode,
-                                            event: '$web_vitals',
-                                            name: '$web_vitals',
-                                            custom_name: 'FCP P90',
-                                            math: PropertyMathType.P90,
-                                            math_property: '$web_vitals_FCP_value',
-                                        },
+                                        createSeries('INP', PropertyMathType.P75),
+                                        createSeries('INP', PropertyMathType.P90),
+                                        createSeries('INP', PropertyMathType.P99),
+                                        createSeries('LCP', PropertyMathType.P75),
+                                        createSeries('LCP', PropertyMathType.P90),
+                                        createSeries('LCP', PropertyMathType.P99),
+                                        createSeries('CLS', PropertyMathType.P75),
+                                        createSeries('CLS', PropertyMathType.P90),
+                                        createSeries('CLS', PropertyMathType.P99),
+                                        createSeries('FCP', PropertyMathType.P75),
+                                        createSeries('FCP', PropertyMathType.P90),
+                                        createSeries('FCP', PropertyMathType.P99),
                                     ],
                                     trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
                                     compareFilter,
                                     filterTestAccounts,
-                                    conversionGoal: undefined, // TODO: Should we support conversion goals for core web vitals?
                                     properties: webAnalyticsFilters,
                                 },
-                                hidePersonsModal: true,
-                                embedded: true,
                             },
-                            insightProps: createInsightProps(TileId.OVERVIEW),
+                            insightProps: {},
                             canOpenInsight: false,
                             canOpenModal: false,
                             showIntervalSelect: true,
@@ -1685,6 +1692,63 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
             },
         ],
+        coreWebVitalsMetricQuery: [
+            (s) => [
+                s.coreWebVitalsPercentile,
+                s.coreWebVitalsTab,
+                s.dateFilter,
+                s.webAnalyticsFilters,
+                s.shouldFilterTestAccounts,
+            ],
+            (
+                coreWebVitalsPercentile,
+                coreWebVitalsTab,
+                { dateFrom, dateTo, interval },
+                webAnalyticsFilters,
+                filterTestAccounts
+            ): InsightVizNode<TrendsQuery> => ({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    dateRange: {
+                        date_from: dateFrom,
+                        date_to: dateTo,
+                    },
+                    interval,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$web_vitals',
+                            name: '$web_vitals',
+                            custom_name: coreWebVitalsTab,
+                            math: coreWebVitalsPercentile,
+                            math_property: `$web_vitals_${coreWebVitalsTab}_value`,
+                        },
+                    ],
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsLineGraph,
+                        aggregationAxisFormat: coreWebVitalsTab === 'CLS' ? 'numeric' : 'duration_ms',
+                        goalLines: [
+                            {
+                                label: 'Good',
+                                value: CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab].good,
+                                displayLabel: false,
+                                borderColor: 'rgb(45, 200, 100)',
+                            },
+                            {
+                                label: 'Poor',
+                                value: CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab].poor,
+                                displayLabel: false,
+                                borderColor: 'rgb(255, 160, 0)',
+                            },
+                        ],
+                    } as TrendsFilter,
+                    filterTestAccounts,
+                    properties: webAnalyticsFilters,
+                },
+                embedded: false,
+            }),
+        ],
         getNewInsightUrl: [
             (s) => [s.tiles],
             (tiles) => {
@@ -1726,7 +1790,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         statusCheck: {
             __default: null as WebAnalyticsStatusCheck | null,
             loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
-                const [pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
+                const [webVitalsResult, pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
+                    api.eventDefinitions.list({
+                        event_type: EventDefinitionType.Event,
+                        search: '$web_vitals',
+                    }),
                     api.eventDefinitions.list({
                         event_type: EventDefinitionType.Event,
                         search: '$pageview',
@@ -1743,6 +1811,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
                 // going to add enough reserved event names that match this search term to cause problems
+                const webVitalsEntry =
+                    webVitalsResult.status === 'fulfilled'
+                        ? webVitalsResult.value.results.find((r) => r.name === '$web_vitals')
+                        : undefined
+
                 const pageviewEntry =
                     pageviewResult.status === 'fulfilled'
                         ? pageviewResult.value.results.find((r) => r.name === '$pageview')
@@ -1758,11 +1831,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ? pageleaveScroll.value.results.find((r) => r.name === '$prev_pageview_max_content_percentage')
                         : undefined
 
+                const isSendingWebVitals = !!webVitalsEntry && !isDefinitionStale(webVitalsEntry)
                 const isSendingPageViews = !!pageviewEntry && !isDefinitionStale(pageviewEntry)
                 const isSendingPageLeaves = !!pageleaveEntry && !isDefinitionStale(pageleaveEntry)
                 const isSendingPageLeavesScroll = !!pageleaveScrollEntry && !isDefinitionStale(pageleaveScrollEntry)
 
                 return {
+                    isSendingWebVitals,
                     isSendingPageViews,
                     isSendingPageLeaves,
                     isSendingPageLeavesScroll,
@@ -1830,6 +1905,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 shouldFilterTestAccounts,
                 compareFilter,
                 productTab,
+                coreWebVitalsPercentile,
             } = values
 
             const urlParams = new URLSearchParams()
@@ -1875,6 +1951,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (productTab !== ProductTab.ANALYTICS) {
                 urlParams.set('product_tab', productTab)
             }
+            if (productTab === ProductTab.CORE_WEB_VITALS) {
+                urlParams.set('percentile', coreWebVitalsPercentile)
+            }
 
             const basePath = productTab === ProductTab.CORE_WEB_VITALS ? '/web/core-web-vitals' : '/web'
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
@@ -1893,6 +1972,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setGeographyTab: stateToUrl,
             setCompareFilter: stateToUrl,
             setProductTab: stateToUrl,
+            setCoreWebVitalsPercentile: stateToUrl,
         }
     }),
 
@@ -1914,6 +1994,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 path_cleaning,
                 filter_test_accounts,
                 compare_filter,
+                percentile,
             }: Record<string, any>
         ): void => {
             const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
@@ -1965,6 +2046,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (productTab && productTab !== values.productTab) {
                 actions.setProductTab(productTab)
+            }
+            if (percentile && percentile !== values.coreWebVitalsPercentile) {
+                actions.setCoreWebVitalsPercentile(percentile as CoreWebVitalsPercentile)
             }
         }
 

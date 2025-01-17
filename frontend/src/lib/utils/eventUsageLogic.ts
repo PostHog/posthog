@@ -501,6 +501,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId,
             sharedMetric,
         }),
+        reportExperimentDashboardCreated: (experiment: Experiment, dashboardId: number) => ({
+            experiment,
+            dashboardId,
+        }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -1116,6 +1120,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 shared_metric_name: sharedMetric.name,
                 shared_metric_id: sharedMetric.id,
                 shared_metric_kind: sharedMetric.query.kind,
+            })
+        },
+        reportExperimentDashboardCreated: ({ experiment, dashboardId }) => {
+            posthog.capture('experiment dashboard created', {
+                experiment_name: experiment.name,
+                experiment_id: experiment.id,
+                dashboard_id: dashboardId,
             })
         },
         reportPropertyGroupFilterAdded: () => {

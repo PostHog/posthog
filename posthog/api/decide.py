@@ -144,6 +144,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     response["surveys"] = True if team.surveys_opt_in else False
     response["heatmaps"] = True if team.heatmaps_opt_in else False
+    response["flagsPersistenceDefault"] = True if team.flags_persistence_default else False
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 
     site_apps = []
@@ -253,8 +254,7 @@ def get_decide(request: HttpRequest):
                 request,
                 generate_exception_response(
                     "decide",
-                    f"Team with ID {team.id} cannot access the /decide endpoint."
-                    f"Please contact us at hey@posthog.com",
+                    f"Team with ID {team.id} cannot access the /decide endpoint.Please contact us at hey@posthog.com",
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 ),
             )

@@ -177,9 +177,8 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
         trendMetricInsightLoading,
         funnelMetricInsightLoading,
     } = useValues(experimentLogic({ experimentId }))
-    const { closeExperimentCollectionGoalModal, updateExperimentCollectionGoal } = useActions(
-        experimentLogic({ experimentId })
-    )
+    const { closeExperimentCollectionGoalModal, updateExperimentCollectionGoal, restoreUnmodifiedExperiment } =
+        useActions(experimentLogic({ experimentId }))
 
     const isInsightLoading =
         _getMetricType(experiment.metrics[0]) === InsightType.TRENDS
@@ -197,13 +196,19 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
                     <LemonButton
                         form="edit-experiment-exposure-form"
                         type="secondary"
-                        onClick={closeExperimentCollectionGoalModal}
+                        onClick={() => {
+                            restoreUnmodifiedExperiment()
+                            closeExperimentCollectionGoalModal()
+                        }}
                     >
                         Cancel
                     </LemonButton>
                     <LemonButton
                         form="edit-experiment-exposure-form"
-                        onClick={() => updateExperimentCollectionGoal()}
+                        onClick={() => {
+                            updateExperimentCollectionGoal()
+                            closeExperimentCollectionGoalModal()
+                        }}
                         type="primary"
                         data-attr="create-annotation-submit"
                     >

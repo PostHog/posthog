@@ -99,6 +99,7 @@ function insightModelWith(properties: Record<string, any>): QueryBasedInsightMod
         effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
         layouts: {},
         color: null,
+        user_access_level: 'editor',
         ...properties,
     } as QueryBasedInsightModel
 }

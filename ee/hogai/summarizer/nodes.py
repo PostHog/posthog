@@ -97,7 +97,9 @@ class SummarizerNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.5, streaming=True)  # Slightly higher temp than earlier steps
+        return ChatOpenAI(
+            model="gpt-4o", temperature=0.5, streaming=True, stream_usage=True
+        )  # Slightly higher temp than earlier steps
 
     def _construct_messages(self, state: AssistantState) -> list[tuple[str, str]]:
         conversation: list[tuple[str, str]] = [("system", SUMMARIZER_SYSTEM_PROMPT)]

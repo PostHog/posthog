@@ -22,7 +22,7 @@ export enum SurveysTabs {
     Settings = 'settings',
 }
 
-export function getSurveyStatus(survey: Survey): ProgressStatus {
+export function getSurveyStatus(survey: Pick<Survey, 'start_date' | 'end_date'>): ProgressStatus {
     if (!survey.start_date) {
         return ProgressStatus.Draft
     } else if (!survey.end_date) {
