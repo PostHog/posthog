@@ -687,7 +687,7 @@ def initialize_upload(inputs: S3InsertInputs, file_number: int) -> S3MultiPartUp
 
 async def upload_manifest_file(inputs: S3InsertInputs, files_uploaded: list[str], manifest_key: str):
     session = aioboto3.Session()
-    async with session.client(  # type: ignore
+    async with session.client(
         "s3",
         region_name=inputs.region,
         aws_access_key_id=inputs.aws_access_key_id,
