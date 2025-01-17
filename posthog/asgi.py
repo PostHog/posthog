@@ -21,8 +21,22 @@ from django.urls import path  # noqa
 def lifetime_wrapper(func):
     async def inner(scope, receive, send):
         if scope["type"] != "http":
-            return HttpResponse(status=501)
+            return await send({"type": "http.response.start", "status": 501, "headers": []})
         return await func(scope, receive, send)
+
+    return inner
+
+
+def websocket_lifetime_wrapper(app):
+    async def inner(scope, receive, send):
+        if scope["type"] != "websocket":
+            return await send({"type": "websocket.close", "code": 1001})
+        try:
+            return await app(scope, receive, send)
+        except Exception:
+            # Close the websocket connection gracefully on error
+            await send({"type": "websocket.close", "code": 1011})
+            raise
 
     return inner
 
@@ -34,6 +48,6 @@ websocket_urlpatterns = [
 application = ProtocolTypeRouter(
     {
         "http": lifetime_wrapper(django_asgi_app),
-        "websocket": AuthMiddlewareStack(URLRouter(websocket_urlpatterns)),
+        "websocket": websocket_lifetime_wrapper(AuthMiddlewareStack(URLRouter(websocket_urlpatterns))),
     }
 )
