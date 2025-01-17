@@ -3,8 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { STALE_EVENT_SECONDS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { isDefinitionStale } from 'lib/utils/definitions'
 import { LLMObservabilityTab, urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -13,7 +12,6 @@ import {
     AnyPropertyFilter,
     BaseMathType,
     ChartDisplayType,
-    EventDefinition,
     EventDefinitionType,
     HogQLMathType,
     PropertyMathType,
@@ -33,11 +31,6 @@ export interface QueryTile {
     layout?: {
         className?: string
     }
-}
-
-const isDefinitionStale = (definition: EventDefinition): boolean => {
-    const parsedLastSeen = definition.last_seen_at ? dayjs(definition.last_seen_at) : null
-    return !!parsedLastSeen && dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
 }
 
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
@@ -287,6 +280,40 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 },
             ],
         ],
+        tracesQuery: [
+            (s) => [
+                s.dateFilter,
+                s.shouldFilterTestAccounts,
+                s.propertyFilters,
+                groupsModel.selectors.groupsTaxonomicTypes,
+            ],
+            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes): DataTableNode => ({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.TracesQuery,
+                    dateRange: {
+                        date_from: dateFilter.dateFrom || undefined,
+                        date_to: dateFilter.dateTo || undefined,
+                    },
+                    filterTestAccounts: shouldFilterTestAccounts ?? false,
+                    properties: propertyFilters,
+                },
+                columns: ['id', 'person', 'totalLatency', 'usage', 'totalCost', 'timestamp'],
+                showDateRange: true,
+                showReload: true,
+                showSearch: true,
+                showTestAccountFilters: true,
+                showExport: true,
+                showOpenEditorButton: false,
+                showPropertyFilter: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ],
+            }),
+        ],
         generationsQuery: [
             (s) => [
                 s.dateFilter,
@@ -338,6 +365,11 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         [urls.llmObservability('dashboard')]: () => {
             if (values.activeTab !== 'dashboard') {
                 actions.setActiveTab('dashboard')
+            }
+        },
+        [urls.llmObservability('traces')]: () => {
+            if (values.activeTab !== 'traces') {
+                actions.setActiveTab('traces')
             }
         },
         [urls.llmObservability('generations')]: () => {
