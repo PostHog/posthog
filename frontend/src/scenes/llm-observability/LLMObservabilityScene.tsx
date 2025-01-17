@@ -15,6 +15,7 @@ import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 
 import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from './llmObservabilityLogic'
+import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
 
 export const scene: SceneExport = {
     component: LLMObservabilityScene,
@@ -138,6 +139,12 @@ export function LLMObservabilityScene(): JSX.Element {
                         label: 'Dashboard',
                         content: <LLMObservabilityDashboard />,
                         link: urls.llmObservability('dashboard'),
+                    },
+                    {
+                        key: 'traces',
+                        label: 'Traces',
+                        content: <LLMObservabilityTraces />,
+                        link: urls.llmObservability('traces'),
                     },
                     {
                         key: 'generations',

@@ -75,7 +75,11 @@ export const getMetric = (
         ?.data.slice(-1)[0]
 }
 
-export const getMetricBand = (value: number, threshold: CoreWebVitalsThreshold): MetricBand => {
+export const getMetricBand = (value: number | undefined, threshold: CoreWebVitalsThreshold): MetricBand | 'none' => {
+    if (value === undefined) {
+        return 'none'
+    }
+
     if (value <= threshold.good) {
         return 'good'
     }
