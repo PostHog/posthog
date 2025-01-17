@@ -1555,7 +1555,7 @@ email@example.org,
 
         self.assertEqual(len(AsyncDeletion.objects.all()), 1)
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_3")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at, None)
 
@@ -1563,7 +1563,7 @@ email@example.org,
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_3")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at, None)
 
@@ -1581,7 +1581,7 @@ email@example.org,
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_3")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 
