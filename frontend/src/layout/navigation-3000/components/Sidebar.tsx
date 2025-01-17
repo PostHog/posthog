@@ -1,5 +1,4 @@
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { LogicWrapper, useActions, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -8,7 +7,6 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { SidebarLogic, SidebarNavbarItem } from '../types'
-import { KeyboardShortcut } from './KeyboardShortcut'
 import { SidebarAccordion } from './SidebarAccordion'
 import { SidebarList } from './SidebarList'
 
@@ -34,7 +32,6 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
         isSidebarShown: isShown,
         isResizeInProgress,
         sidebarOverslideDirection: overslideDirection,
-        isSidebarKeyboardShortcutAcknowledged,
         isSearchShown,
     } = useValues(navigation3000Logic({ inputElement: inputElementRef.current }))
     const { beginResize } = useActions(navigation3000Logic({ inputElement: inputElementRef.current }))
@@ -51,7 +48,7 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
-                    '--sidebar-width': `${isShown ? width : 0}px`,
+                    '--sidebar-width': `${width}px`,
                 } as React.CSSProperties
             }
         >
@@ -62,7 +59,6 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
                 <div className="Sidebar3000__lists">
                     {navbarItem?.logic && <SidebarContent activeSidebarLogic={navbarItem.logic} />}
                 </div>
-                {!isSidebarKeyboardShortcutAcknowledged && <SidebarKeyboardShortcut />}
                 {contents
                     .filter(({ modalContent }) => modalContent)
                     .map((category) => (
@@ -154,19 +150,6 @@ function SidebarContent({
         </>
     ) : (
         <SidebarList category={contents[0]} />
-    )
-}
-
-function SidebarKeyboardShortcut(): JSX.Element {
-    const { acknowledgeSidebarKeyboardShortcut } = useActions(navigation3000Logic)
-
-    return (
-        <div className="Sidebar3000__hint">
-            <span className="truncate">
-                <i>Tip:</i> Press <KeyboardShortcut command b /> to toggle this sidebar
-            </span>
-            <LemonButton icon={<IconX />} size="small" onClick={() => acknowledgeSidebarKeyboardShortcut()} noPadding />
-        </div>
     )
 }
 

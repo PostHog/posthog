@@ -3,8 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { STALE_EVENT_SECONDS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { isDefinitionStale } from 'lib/utils/definitions'
 import { LLMObservabilityTab, urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -13,7 +12,6 @@ import {
     AnyPropertyFilter,
     BaseMathType,
     ChartDisplayType,
-    EventDefinition,
     EventDefinitionType,
     HogQLMathType,
     PropertyMathType,
@@ -23,7 +21,7 @@ import type { llmObservabilityLogicType } from './llmObservabilityLogicType'
 
 export const LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'llm-observability-data'
 
-const INITIAL_DATE_FROM = '-30d' as string | null
+const INITIAL_DATE_FROM = '-7d' as string | null
 const INITIAL_DATE_TO = null as string | null
 
 export interface QueryTile {
@@ -33,11 +31,6 @@ export interface QueryTile {
     layout?: {
         className?: string
     }
-}
-
-const isDefinitionStale = (definition: EventDefinition): boolean => {
-    const parsedLastSeen = definition.last_seen_at ? dayjs(definition.last_seen_at) : null
-    return !!parsedLastSeen && dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
 }
 
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
@@ -105,15 +98,16 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
             (dateFilter, shouldFilterTestAccounts, propertyFilters): QueryTile[] => [
                 {
-                    title: 'Generative AI users',
-                    description: 'To count users, set `distinct_id` in LLM tracking.',
+                    title: 'Traces',
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 kind: NodeKind.EventsNode,
-                                math: BaseMathType.UniqueUsers,
+                                math: HogQLMathType.HogQL,
+                                math_hogql: 'COUNT(DISTINCT properties.$ai_trace_id)',
                             },
                         ],
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
@@ -122,15 +116,16 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     },
                 },
                 {
-                    title: 'Traces',
+                    title: 'Generative AI users',
+                    description: 'To count users, set `distinct_id` in LLM tracking.',
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 kind: NodeKind.EventsNode,
-                                math: HogQLMathType.HogQL,
-                                math_hogql: 'COUNT(DISTINCT properties.$ai_trace_id)',
+                                math: BaseMathType.UniqueUsers,
                             },
                         ],
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
@@ -145,6 +140,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 math: PropertyMathType.Sum,
                                 kind: NodeKind.EventsNode,
                                 math_property: '$ai_total_cost_usd',
@@ -168,12 +164,14 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 math: PropertyMathType.Sum,
                                 kind: NodeKind.EventsNode,
                                 math_property: '$ai_total_cost_usd',
                             },
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 kind: NodeKind.EventsNode,
                                 math: BaseMathType.UniqueUsers,
                             },
@@ -195,6 +193,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 math: PropertyMathType.Sum,
                                 kind: NodeKind.EventsNode,
                                 math_property: '$ai_total_cost_usd',
@@ -222,6 +221,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 kind: NodeKind.EventsNode,
                             },
                         ],
@@ -237,6 +237,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 math: PropertyMathType.Median,
                                 kind: NodeKind.EventsNode,
                                 math_property: '$ai_latency',
@@ -262,6 +263,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         series: [
                             {
                                 event: '$ai_generation',
+                                name: '$ai_generation',
                                 kind: NodeKind.EventsNode,
                             },
                         ],
@@ -278,6 +280,40 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 },
             ],
         ],
+        tracesQuery: [
+            (s) => [
+                s.dateFilter,
+                s.shouldFilterTestAccounts,
+                s.propertyFilters,
+                groupsModel.selectors.groupsTaxonomicTypes,
+            ],
+            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes): DataTableNode => ({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.TracesQuery,
+                    dateRange: {
+                        date_from: dateFilter.dateFrom || undefined,
+                        date_to: dateFilter.dateTo || undefined,
+                    },
+                    filterTestAccounts: shouldFilterTestAccounts ?? false,
+                    properties: propertyFilters,
+                },
+                columns: ['id', 'person', 'totalLatency', 'usage', 'totalCost', 'timestamp'],
+                showDateRange: true,
+                showReload: true,
+                showSearch: true,
+                showTestAccountFilters: true,
+                showExport: true,
+                showOpenEditorButton: false,
+                showPropertyFilter: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ],
+            }),
+        ],
         generationsQuery: [
             (s) => [
                 s.dateFilter,
@@ -291,10 +327,12 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     kind: NodeKind.EventsQuery,
                     select: [
                         '*',
-                        'uuid',
                         'person',
-                        'properties.$ai_trace_id -- Trace ID',
-                        "f'${round(toFloat(properties.$ai_total_cost_usd), 4)}' -- Total cost",
+                        // The f-string wrapping below seems pointless, but it actually disables special rendering
+                        // of the property keys, which would otherwise show property names overly verbose here
+                        "f'{properties.$ai_trace_id}' -- Trace ID",
+                        "f'{properties.$ai_model}' -- Model",
+                        "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
                         "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {properties.$ai_input_tokens + properties.$ai_output_tokens})' -- Token usage",
                         "f'{properties.$ai_latency} s' -- Latency",
                         'timestamp',
@@ -310,6 +348,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 showReload: true,
                 showSearch: true,
                 showTestAccountFilters: true,
+                showColumnConfigurator: true,
                 showPropertyFilter: [
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.PersonProperties,
@@ -326,6 +365,11 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         [urls.llmObservability('dashboard')]: () => {
             if (values.activeTab !== 'dashboard') {
                 actions.setActiveTab('dashboard')
+            }
+        },
+        [urls.llmObservability('traces')]: () => {
+            if (values.activeTab !== 'traces') {
+                actions.setActiveTab('traces')
             }
         },
         [urls.llmObservability('generations')]: () => {
