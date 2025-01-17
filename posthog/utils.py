@@ -364,7 +364,7 @@ def render_template(
         context["js_posthog_ui_host"] = "'https://us.posthog.com'"
 
     elif settings.SELF_CAPTURE:
-        api_token = get_self_capture_api_token(request)
+        api_token = get_self_capture_api_token(request.user)
 
         if api_token:
             context["js_posthog_api_key"] = f"'{api_token}'"
@@ -497,13 +497,13 @@ def render_template(
     return response
 
 
-def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
+def get_self_capture_api_token(user: Optional["User"]) -> Optional[str]:
     from posthog.models import Team
 
     # Get the current user's team (or first team in the instance) to set self capture configs
     team: Optional[Team] = None
-    if request and getattr(request, "user", None) and getattr(request.user, "team", None):
-        team = request.user.team  # type: ignore
+    if user and getattr(user, "team", None):
+        team = user.team  # type: ignore
     else:
         try:
             team = Team.objects.only("api_token").first()
