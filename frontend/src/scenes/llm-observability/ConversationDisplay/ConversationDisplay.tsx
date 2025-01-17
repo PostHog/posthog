@@ -14,8 +14,8 @@ interface CompletionMessage {
     /** Almost certainly one of: `user`, `assistant`, `system` */
     role: string
     content: string
-    /** E.g. tool calls. */
-    additional_kwargs?: Record<string, any> | null
+    // E.g. tool calls
+    [additionalKey: string]: any
 }
 
 type AIInput = CompletionMessage[]
@@ -98,9 +98,9 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                     <IconArrowUp className="text-base" />
                     Input
                 </h4>
-                {input?.map(({ role, content, additional_kwargs }, i) => (
+                {input?.map((message, i) => (
                     <>
-                        <MessageDisplay key={i} role={role} additionalKwargs={additional_kwargs} content={content} />
+                        <MessageDisplay key={i} message={message} />
                         {i < input.length - 1 && <div className="border-l ml-2 h-2" /> /* Spacer connecting messages */}
                     </>
                 )) || (
@@ -112,15 +112,9 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                     <IconArrowDown className="text-base" />
                     Output{output && output.choices.length > 1 ? ' (multiple choices)' : ''}
                 </h4>
-                {output?.choices.map(({ role, content, additional_kwargs }, i) => (
+                {output?.choices.map((message, i) => (
                     <>
-                        <MessageDisplay
-                            key={i}
-                            role={role}
-                            content={content}
-                            additionalKwargs={additional_kwargs}
-                            isOutput
-                        />
+                        <MessageDisplay key={i} message={message} isOutput />
                         {i < output.choices.length - 1 && (
                             <div className="border-l ml-4 h-2" /> /* Spacer connecting messages visually */
                         )}
@@ -159,20 +153,11 @@ function MetadataTag({
     return <LemonTag className="bg-bg-light cursor-default">{wrappedChildren}</LemonTag>
 }
 
-function MessageDisplay({
-    role,
-    content,
-    additionalKwargs,
-    isOutput,
-}: {
-    role: CompletionMessage['role']
-    content: CompletionMessage['content']
-    additionalKwargs: CompletionMessage['additional_kwargs']
-    isOutput?: boolean
-}): JSX.Element {
-    const [isRenderingMarkdown, setIsRenderingMarkdown] = useState(!!content)
+function MessageDisplay({ message, isOutput }: { message: CompletionMessage; isOutput?: boolean }): JSX.Element {
+    const [isRenderingMarkdown, setIsRenderingMarkdown] = useState(!!message.content)
 
-    const additionalKwargsEntries = additionalKwargs && Object.entries(additionalKwargs)
+    const { role, content, ...additionalKwargs } = message
+    const additionalKwargsEntries = Object.entries(additionalKwargs)
 
     return (
         <div
