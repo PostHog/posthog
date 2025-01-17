@@ -145,26 +145,31 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             content: (
                 <>
                     <div className="flex gap-4 flex-wrap">
-                        <div className="w-full">
-                            <FeatureFlagRollout readOnly />
-                            {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
-                            {featureFlag.filters.super_groups && (
-                                <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
-                            )}
-                            <div className="flex gap-x-8">
-                                <div className="grow">
-                                    <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                        {!featureFlag.is_remote_configuration && (
+                            <div className="w-full">
+                                <FeatureFlagRollout readOnly />
+                                {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
+                                {featureFlag.filters.super_groups && (
+                                    <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
+                                )}
+
+                                <div className="flex gap-x-8">
+                                    <div className="grow">
+                                        <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                                    </div>
+
+                                    <div className="max-w-120 w-full">
+                                        <h3 className="l3">Insights that use this feature flag</h3>
+                                        <RecentFeatureFlagInsights />
+                                        <div className="my-4" />
+                                    </div>
                                 </div>
-                                <div className="max-w-120 w-full">
-                                    <h3 className="l3">Insights that use this feature flag</h3>
-                                    <RecentFeatureFlagInsights />
-                                    <div className="my-4" />
-                                </div>
+
+                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
+                                    <FeatureFlagAutoRollback readOnly />
+                                )}
                             </div>
-                            {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
-                                <FeatureFlagAutoRollback readOnly />
-                            )}
-                        </div>
+                        )}
                     </div>
                     <LemonDivider className="mb-4" />
                     <FeatureFlagCodeExample featureFlag={featureFlag} />
@@ -360,41 +365,46 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </div>
                                     )}
                                 </LemonField>
-                                <LemonField name="ensure_experience_continuity">
-                                    {({ value, onChange }) => (
-                                        <div className="border rounded p-4">
-                                            <LemonCheckbox
-                                                id="continuity-checkbox"
-                                                label="Persist flag across authentication steps"
-                                                onChange={() => onChange(!value)}
-                                                fullWidth
-                                                checked={value}
-                                            />
-                                            <div className="text-muted text-sm pl-7">
-                                                If your feature flag is applied before identifying the user, use this to
-                                                ensure that the flag value remains consistent for the same user.
-                                                Depending on your setup, this option might not always be suitable. This
-                                                feature requires creating profiles for anonymous users.{' '}
-                                                <Link
-                                                    to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                    target="_blank"
-                                                >
-                                                    Learn more
-                                                </Link>
+                                {!featureFlag.is_remote_configuration && (
+                                    <LemonField name="ensure_experience_continuity">
+                                        {({ value, onChange }) => (
+                                            <div className="border rounded p-4">
+                                                <LemonCheckbox
+                                                    id="continuity-checkbox"
+                                                    label="Persist flag across authentication steps"
+                                                    onChange={() => onChange(!value)}
+                                                    fullWidth
+                                                    checked={value}
+                                                />
+                                                <div className="text-muted text-sm pl-7">
+                                                    If your feature flag is applied before identifying the user, use
+                                                    this to ensure that the flag value remains consistent for the same
+                                                    user. Depending on your setup, this option might not always be
+                                                    suitable. This feature requires creating profiles for anonymous
+                                                    users.{' '}
+                                                    <Link
+                                                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                        target="_blank"
+                                                    >
+                                                        Learn more
+                                                    </Link>
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
-                                </LemonField>
+                                        )}
+                                    </LemonField>
+                                )}
                             </div>
                         </div>
                         <LemonDivider />
                         <FeatureFlagRollout />
                         <LemonDivider />
-                        <FeatureFlagReleaseConditions
-                            id={`${featureFlag.id}`}
-                            filters={featureFlag.filters}
-                            onChange={setFeatureFlagFilters}
-                        />
+                        {!featureFlag.is_remote_configuration && (
+                            <FeatureFlagReleaseConditions
+                                id={`${featureFlag.id}`}
+                                filters={featureFlag.filters}
+                                onChange={setFeatureFlagFilters}
+                            />
+                        )}
                         <LemonDivider />
                         <FeatureFlagCodeExample featureFlag={featureFlag} />
                         <LemonDivider />
@@ -714,6 +724,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         featureFlag,
         recordingFilterForFlag,
         flagStatus,
+        flagType,
     } = useValues(featureFlagLogic)
     const {
         distributeVariantsEqually,
@@ -722,6 +733,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         setMultivariateEnabled,
         setFeatureFlag,
         saveFeatureFlag,
+        setRemoteConfigEnabled,
     } = useActions(featureFlagLogic)
 
     const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
@@ -801,7 +813,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             }
                                             checked={featureFlag.active}
                                         />
-                                        <FeatureFlagStatusIndicator flagStatus={flagStatus} />
+                                        {!featureFlag.is_remote_configuration && (
+                                            <FeatureFlagStatusIndicator flagStatus={flagStatus} />
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -916,16 +930,25 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     label: <span>Multiple variants with rollout percentages (A/B/n test)</span>,
                                     value: 'multivariate',
                                 },
+                                {
+                                    label: <span>Remote config (single payload)</span>,
+                                    value: 'config',
+                                    disabledReason:
+                                        featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
+                                            ? 'This feature flag is associated with an experiment.'
+                                            : undefined,
+                                },
                             ]}
                             onChange={(value) => {
-                                if (value === 'boolean' && nonEmptyVariants.length) {
+                                if (['boolean', 'config'].includes(value) && nonEmptyVariants.length) {
                                     confirmRevertMultivariateEnabled()
                                 } else {
                                     setMultivariateEnabled(value === 'multivariate')
+                                    setRemoteConfigEnabled(value === 'config')
                                     focusVariantKeyField(0)
                                 }
                             }}
-                            value={multivariateEnabled ? 'multivariate' : 'boolean'}
+                            value={flagType}
                         />
                     </div>
                     <div className="text-muted mb-4">
@@ -956,10 +979,16 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                         ) : (
                             <div className="w-1/2">
                                 <div className="text-muted mb-4">
-                                    Specify a valid JSON payload to be returned when the served value is{' '}
-                                    <strong>
-                                        <code>true</code>
-                                    </strong>
+                                    {featureFlag.is_remote_configuration ? (
+                                        <>Specify a valid JSON payload to be returned for the config flag</>
+                                    ) : (
+                                        <>
+                                            Specify a valid JSON payload to be returned when the served value is{' '}
+                                            <strong>
+                                                <code>true</code>
+                                            </strong>
+                                        </>
+                                    )}
                                 </div>
                                 <Group name={['filters', 'payloads']}>
                                     <LemonField name="true">
@@ -972,7 +1001,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </div>
                         )}
                     </div>
-                    {readOnly && (
+                    {readOnly && !featureFlag.is_remote_configuration && (
                         <div>
                             <h3 className="l3">Recordings</h3>
                             <p>Watch recordings of people who have been exposed to the feature flag.</p>

@@ -154,6 +154,7 @@ class FeatureFlagSerializer(
             "has_enriched_analytics",
             "user_access_level",
             "creation_context",
+            "is_remote_configuration",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
