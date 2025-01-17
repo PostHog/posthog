@@ -2,7 +2,7 @@ import os
 
 import posthoganalytics
 import structlog
-from django.apps import AppConfig
+from django.apps import AppConfig, apps
 from django.conf import settings
 from posthoganalytics.client import Client
 from posthoganalytics.exception_capture import Integrations
@@ -32,7 +32,7 @@ class PostHogConfig(AppConfig):
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True
         elif settings.DEBUG:
-            from posthog.models.user import User
+            User = apps.get_model("posthog", "User")
 
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
