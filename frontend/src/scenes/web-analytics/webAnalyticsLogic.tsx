@@ -233,6 +233,12 @@ export const CORE_WEB_VITALS_THRESHOLDS: Record<CoreWebVitalsMetric, CoreWebVita
     FCP: { good: 1800, poor: 3000, end: 3300 },
 }
 
+export const CORE_WEB_VITALS_COLORS = {
+    good: 'rgb(45, 200, 100)',
+    needs_improvements: 'rgb(255, 160, 0)',
+    poor: 'rgb(220, 53, 69)',
+} as const
+
 const GEOIP_PLUGIN_URLS = [
     'https://github.com/PostHog/posthog-plugin-geoip',
     'https://www.npmjs.com/package/@posthog/geoip-plugin',
@@ -1775,13 +1781,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 label: 'Good',
                                 value: CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab].good,
                                 displayLabel: false,
-                                borderColor: 'rgb(45, 200, 100)',
+                                borderColor: CORE_WEB_VITALS_COLORS.good,
                             },
                             {
                                 label: 'Poor',
                                 value: CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab].poor,
                                 displayLabel: false,
-                                borderColor: 'rgb(255, 160, 0)',
+                                borderColor: CORE_WEB_VITALS_COLORS.needs_improvements,
                             },
                         ],
                     } as TrendsFilter,
