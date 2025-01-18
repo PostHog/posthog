@@ -359,6 +359,9 @@
                     "$ref": "#/definitions/CoreWebVitalsQuery"
                 },
                 {
+                    "$ref": "#/definitions/CoreWebVitalsPathBreakdownQuery"
+                },
+                {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
                 },
                 {
