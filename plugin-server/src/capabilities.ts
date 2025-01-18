@@ -12,6 +12,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestion: true,
+                ingestionV2: true, // TODO: remove
                 ingestionOverflow: true,
                 ingestionHistorical: true,
                 eventsIngestionPipelines: true, // with null PluginServerMode we run all of them
@@ -28,6 +29,14 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpFunctionCallbacks: true,
                 cdpCyclotronWorker: true,
                 syncInlinePlugins: true,
+                ...sharedCapabilities,
+            }
+        case PluginServerMode.ingestion_v2:
+            // NOTE: this mode will be removed in the future and replaced with
+            // `analytics-ingestion` and `recordings-ingestion` modes.
+            return {
+                mmdb: true,
+                ingestionV2: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.ingestion:

@@ -53,6 +53,7 @@ import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { expressApp, setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
+import { EventsIngestionConsumer } from '../ingestion/ingestion-consumer'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
@@ -266,6 +267,13 @@ export async function startPluginsServer(
             }
         }
 
+        if (capabilities.ingestionV2) {
+            const hub = await setupHub()
+            const consumer = new EventsIngestionConsumer(hub)
+            await consumer.start()
+            services.push(consumer.service)
+        }
+
         if (capabilities.ingestion) {
             const hub = await setupHub()
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
@@ -274,7 +282,7 @@ export async function startPluginsServer(
                     hub: hub,
                 })
             )
-        }
+        
 
         if (capabilities.ingestionHistorical) {
             const hub = await setupHub()
