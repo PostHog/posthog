@@ -94,23 +94,6 @@ abstract class IngestionConsumer {
         return results
     }
 
-    // protected async produceQueuedMessages() {
-    //     const messages = [...this.messagesToProduce]
-    //     this.messagesToProduce = []
-    //     await Promise.all(
-    //         messages.map((x) =>
-    //             this.kafkaProducer!.produce({
-    //                 topic: x.topic,
-    //                 value: Buffer.from(safeClickhouseString(JSON.stringify(x.value))),
-    //                 key: x.key,
-    //                 waitForAck: true,
-    //             }).catch((reason) => {
-    //                 status.error('⚠️', `failed to produce message: ${reason}`)
-    //             })
-    //         )
-    //     )
-    // }
-
     protected async startKafkaConsumer(options: {
         topic: string
         groupId: string
@@ -215,6 +198,8 @@ export class EventsIngestionConsumer extends IngestionConsumer {
         this.dlqTopic = hub.INGESTION_CONSUMER_DLQ_TOPIC
         this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',')
         this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',')
+
+        this.name = `ingestion-consumer-${this.topic}`
     }
 
     public async processBatch(groupedIncomingEvents: GroupedIncomingEvents): Promise<void> {

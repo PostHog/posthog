@@ -358,6 +358,7 @@ export interface PluginServerCapabilities {
     ingestionOverflow?: boolean
     ingestionHistorical?: boolean
     eventsIngestionPipelines?: boolean
+    ingestionV2Combined?: boolean
     ingestionV2?: boolean
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean

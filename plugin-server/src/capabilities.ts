@@ -11,8 +11,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case null:
             return {
                 mmdb: true,
-                ingestion: true,
-                ingestionV2: true, // TODO: remove
+                ingestionV2Combined: true,
                 ingestionOverflow: true,
                 ingestionHistorical: true,
                 eventsIngestionPipelines: true, // with null PluginServerMode we run all of them
