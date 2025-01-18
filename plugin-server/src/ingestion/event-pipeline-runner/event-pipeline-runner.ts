@@ -15,7 +15,7 @@ import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from '../../worker/ingesti
 import { PersonState } from '../../worker/ingestion/person-state'
 import { upsertGroup } from '../../worker/ingestion/properties-updater'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
-import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../../worker/ingestion/utils'
+import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { runProcessEvent } from '../../worker/plugins/run'
 import { getElementsChain } from './utils/event-utils'
 import { extractHeatmapData } from './utils/heatmaps'
