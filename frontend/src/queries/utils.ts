@@ -8,6 +8,7 @@ import {
     ActorsQuery,
     BreakdownFilter,
     CompareFilter,
+    CoreWebVitalsPathBreakdownQuery,
     CoreWebVitalsQuery,
     DatabaseSchemaQuery,
     DataTableNode,
@@ -142,6 +143,12 @@ export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebG
 
 export function isCoreWebVitalsQuery(node?: Record<string, any> | null): node is CoreWebVitalsQuery {
     return node?.kind === NodeKind.CoreWebVitalsQuery
+}
+
+export function isCoreWebVitalsPathBreakdownQuery(
+    node?: Record<string, any> | null
+): node is CoreWebVitalsPathBreakdownQuery {
+    return node?.kind === NodeKind.CoreWebVitalsPathBreakdownQuery
 }
 
 export function isSessionAttributionExplorerQuery(

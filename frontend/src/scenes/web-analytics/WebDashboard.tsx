@@ -239,7 +239,7 @@ export const WebTabs = ({
         title: string
         linkText: string
         content: React.ReactNode
-        canOpenModal: boolean
+        canOpenModal?: boolean
         canOpenInsight: boolean
         query: QuerySchema
         docs:

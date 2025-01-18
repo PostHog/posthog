@@ -394,6 +394,22 @@ WHERE
             right=ast.Constant(value=sample_rate.denominator) if sample_rate.denominator else None,
         )
 
+    def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
+        if not self.query.doPathCleaning or not self.team.path_cleaning_filters:
+            return path_expr
+
+        for replacement in self.team.path_cleaning_filter_models():
+            path_expr = ast.Call(
+                name="replaceRegexpAll",
+                args=[
+                    path_expr,
+                    ast.Constant(value=replacement.regex),
+                    ast.Constant(value=replacement.alias),
+                ],
+            )
+
+        return path_expr
+
     def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
         if n is None:
             return None
