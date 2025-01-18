@@ -129,6 +129,7 @@ export type AnyDataNode =
     | WebExternalClicksTableQuery
     | WebGoalsQuery
     | CoreWebVitalsQuery
+    | CoreWebVitalsPathBreakdownQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
