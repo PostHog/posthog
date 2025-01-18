@@ -20,6 +20,7 @@ import { GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyti
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
 import {
+    CoreWebVitalsPathBreakdownQuery,
     DataTableNode,
     InsightVizNode,
     NodeKind,
@@ -604,6 +605,24 @@ export const WebExternalClicksTile = ({
     )
 }
 
+export const CoreWebVitalsPathBreakdownTile = ({
+    query,
+    insightProps,
+    control,
+}: QueryWithInsightProps<CoreWebVitalsPathBreakdownQuery> & {
+    control?: JSX.Element
+}): JSX.Element => {
+    return (
+        <div>
+            <div className="flex flex-row items-center justify-between m-2 mr-4">
+                <h3 className="text-lg font-semibold">Path Breakdown</h3>
+                {control}
+            </div>
+            <Query query={query} readOnly context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
+        </div>
+    )
+}
+
 export const WebQuery = ({
     query,
     showIntervalSelect,
@@ -634,6 +653,10 @@ export const WebQuery = ({
 
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebGoalsQuery) {
         return <WebGoalsTile query={query} insightProps={insightProps} />
+    }
+
+    if (query.kind === NodeKind.CoreWebVitalsPathBreakdownQuery) {
+        return <CoreWebVitalsPathBreakdownTile query={query} insightProps={insightProps} control={control} />
     }
 
     return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
