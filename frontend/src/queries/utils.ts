@@ -8,6 +8,7 @@ import {
     ActorsQuery,
     BreakdownFilter,
     CompareFilter,
+    CoreWebVitalsPathBreakdownQuery,
     CoreWebVitalsQuery,
     DatabaseSchemaQuery,
     DataTableNode,
@@ -147,6 +148,12 @@ export function isTracesQuery(node?: Record<string, any> | null): node is Traces
 
 export function isCoreWebVitalsQuery(node?: Record<string, any> | null): node is CoreWebVitalsQuery {
     return node?.kind === NodeKind.CoreWebVitalsQuery
+}
+
+export function isCoreWebVitalsPathBreakdownQuery(
+    node?: Record<string, any> | null
+): node is CoreWebVitalsPathBreakdownQuery {
+    return node?.kind === NodeKind.CoreWebVitalsPathBreakdownQuery
 }
 
 export function isSessionAttributionExplorerQuery(

@@ -88,12 +88,13 @@ export enum NodeKind {
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
     FunnelCorrelationQuery = 'FunnelCorrelationQuery',
 
-    // Web analytics queries
+    // Web analytics + Core Web Vitals queries
     WebOverviewQuery = 'WebOverviewQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
     CoreWebVitalsQuery = 'CoreWebVitalsQuery',
+    CoreWebVitalsPathBreakdownQuery = 'CoreWebVitalsPathBreakdownQuery',
 
     // Experiment queries
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
@@ -153,15 +154,18 @@ export type QuerySchema =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | SessionAttributionExplorerQuery
+    | ErrorTrackingQuery
+    | ExperimentFunnelsQuery
+    | ExperimentTrendsQuery
+
+    // Web Analytics + Core Web Vitals
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
     | CoreWebVitalsQuery
-    | SessionAttributionExplorerQuery
-    | ErrorTrackingQuery
-    | ExperimentFunnelsQuery
-    | ExperimentTrendsQuery
+    | CoreWebVitalsPathBreakdownQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -634,6 +638,7 @@ export interface DataTableNode
                     | WebExternalClicksTableQuery
                     | WebGoalsQuery
                     | CoreWebVitalsQuery
+                    | CoreWebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
@@ -656,6 +661,7 @@ export interface DataTableNode
         | WebExternalClicksTableQuery
         | WebGoalsQuery
         | CoreWebVitalsQuery
+        | CoreWebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
@@ -1432,6 +1438,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     properties: WebAnalyticsPropertyFilters
     conversionGoal?: WebAnalyticsConversionGoal | null
     compareFilter?: CompareFilter
+    doPathCleaning?: boolean
     sampling?: {
         enabled?: boolean
         forceSamplingRate?: SamplingRate
@@ -1497,7 +1504,6 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
-    doPathCleaning?: boolean
     limit?: integer
 }
 export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
@@ -1544,6 +1550,8 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase<unknow
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
 export type CoreWebVitalsMetric = 'INP' | 'LCP' | 'CLS' | 'FCP'
+export type CoreWebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
+export type CoreWebVitalsMetricBand = 'good' | 'needs_improvements' | 'poor'
 
 export interface CoreWebVitalsQuery<T = InsightQueryNode> extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.CoreWebVitalsQuery
@@ -1552,7 +1560,7 @@ export interface CoreWebVitalsQuery<T = InsightQueryNode> extends WebAnalyticsQu
 
 export interface CoreWebVitalsItemAction {
     custom_name: CoreWebVitalsMetric
-    math: PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
+    math: CoreWebVitalsPercentile
 }
 export interface CoreWebVitalsItem {
     data: number[]
@@ -1562,6 +1570,26 @@ export interface CoreWebVitalsItem {
 
 export type CoreWebVitalsQueryResponse = AnalyticsQueryResponseBase<CoreWebVitalsItem[]>
 export type CachedCoreWebVitalsQueryResponse = CachedQueryResponse<CoreWebVitalsQueryResponse>
+
+export interface CoreWebVitalsPathBreakdownQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
+    kind: NodeKind.CoreWebVitalsPathBreakdownQuery
+    percentile: CoreWebVitalsPercentile
+    metric: CoreWebVitalsMetric
+
+    // Threshold for this specific metric, these are stored in the frontend only
+    // so let's send them back to the backend to be used in the query
+    // This tuple represents a [good, poor] threshold, where values below good are good and values above poor are poor
+    // Values in between the two values are the threshold for needs_improvements
+    thresholds: [number, number]
+}
+
+export type CoreWebVitalsPathBreakdownResultItem = { path: string; value: number }
+export type CoreWebVitalsPathBreakdownResult = Record<CoreWebVitalsMetricBand, CoreWebVitalsPathBreakdownResultItem[]>
+
+// NOTE: The response is an array of results because pydantic requires it, but this will always have a single entry
+// hence the tuple type rather than a single object.
+export type CoreWebVitalsPathBreakdownQueryResponse = AnalyticsQueryResponseBase<[CoreWebVitalsPathBreakdownResult]>
+export type CachedCoreWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<CoreWebVitalsPathBreakdownQueryResponse>
 
 export enum SessionAttributionGroupBy {
     ChannelType = 'ChannelType',

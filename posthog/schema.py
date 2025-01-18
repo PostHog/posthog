@@ -428,17 +428,31 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
-class Math(StrEnum):
-    P75 = "p75"
-    P90 = "p90"
-    P99 = "p99"
-
-
 class CoreWebVitalsMetric(StrEnum):
     INP = "INP"
     LCP = "LCP"
     CLS = "CLS"
     FCP = "FCP"
+
+
+class CoreWebVitalsMetricBand(StrEnum):
+    GOOD = "good"
+    NEEDS_IMPROVEMENTS = "needs_improvements"
+    POOR = "poor"
+
+
+class CoreWebVitalsPathBreakdownResultItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    path: str
+    value: float
+
+
+class CoreWebVitalsPercentile(StrEnum):
+    P75 = "p75"
+    P90 = "p90"
+    P99 = "p99"
 
 
 class CountPerActorMathType(StrEnum):
@@ -1056,6 +1070,7 @@ class NodeKind(StrEnum):
     WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
     WEB_GOALS_QUERY = "WebGoalsQuery"
     CORE_WEB_VITALS_QUERY = "CoreWebVitalsQuery"
+    CORE_WEB_VITALS_PATH_BREAKDOWN_QUERY = "CoreWebVitalsPathBreakdownQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
@@ -1963,7 +1978,16 @@ class CoreWebVitalsItemAction(BaseModel):
         extra="forbid",
     )
     custom_name: CoreWebVitalsMetric
-    math: Math
+    math: CoreWebVitalsPercentile
+
+
+class CoreWebVitalsPathBreakdownResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    good: list[CoreWebVitalsPathBreakdownResultItem]
+    needs_improvements: list[CoreWebVitalsPathBreakdownResultItem]
+    poor: list[CoreWebVitalsPathBreakdownResultItem]
 
 
 class CustomChannelCondition(BaseModel):
@@ -3359,6 +3383,36 @@ class CachedActorsQueryResponse(BaseModel):
     types: list[str]
 
 
+class CachedCoreWebVitalsPathBreakdownQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[CoreWebVitalsPathBreakdownResult] = Field(..., max_length=1, min_length=1)
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedEventTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3908,6 +3962,49 @@ class CoreWebVitalsItem(BaseModel):
     action: CoreWebVitalsItemAction
     data: list[float]
     days: list[str]
+
+
+class CoreWebVitalsPathBreakdownQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    kind: Literal["CoreWebVitalsPathBreakdownQuery"] = "CoreWebVitalsPathBreakdownQuery"
+    metric: CoreWebVitalsMetric
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    percentile: CoreWebVitalsPercentile
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebGoalsQueryResponse] = None
+    sampling: Optional[Sampling] = None
+    thresholds: list[float] = Field(..., max_length=2, min_length=2)
+    useSessionsTable: Optional[bool] = None
+
+
+class CoreWebVitalsPathBreakdownQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[CoreWebVitalsPathBreakdownResult] = Field(..., max_length=1, min_length=1)
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class CoreWebVitalsQueryResponse(BaseModel):
@@ -4968,6 +5065,57 @@ class QueryResponseAlternative9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+
+
+class QueryResponseAlternative10(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[ErrorTrackingIssue]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative13(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     dateFrom: Optional[str] = None
     dateTo: Optional[str] = None
     error: Optional[str] = Field(
@@ -4988,7 +5136,7 @@ class QueryResponseAlternative9(BaseModel):
     )
 
 
-class QueryResponseAlternative10(BaseModel):
+class QueryResponseAlternative14(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5013,57 +5161,6 @@ class QueryResponseAlternative10(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
-
-
-class QueryResponseAlternative13(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[list] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = None
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: Any
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-    types: Optional[list] = None
-
-
-class QueryResponseAlternative14(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[list[str]] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = None
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list[ErrorTrackingIssue]
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
 
 
 class QueryResponseAlternative17(BaseModel):
@@ -5579,6 +5676,7 @@ class WebExternalClicksTableQuery(BaseModel):
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
     kind: Literal["WebExternalClicksTableQuery"] = "WebExternalClicksTableQuery"
     limit: Optional[int] = None
@@ -5599,6 +5697,7 @@ class WebGoalsQuery(BaseModel):
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
     kind: Literal["WebGoalsQuery"] = "WebGoalsQuery"
     limit: Optional[int] = None
@@ -5618,6 +5717,7 @@ class WebOverviewQuery(BaseModel):
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -6770,7 +6870,7 @@ class LifecycleQuery(BaseModel):
     )
 
 
-class QueryResponseAlternative15(BaseModel):
+class QueryResponseAlternative11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6786,7 +6886,7 @@ class QueryResponseAlternative15(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
-class QueryResponseAlternative16(BaseModel):
+class QueryResponseAlternative12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7073,10 +7173,10 @@ class QueryResponseAlternative(
             QueryResponseAlternative8,
             QueryResponseAlternative9,
             QueryResponseAlternative10,
+            QueryResponseAlternative11,
+            QueryResponseAlternative12,
             QueryResponseAlternative13,
             QueryResponseAlternative14,
-            QueryResponseAlternative15,
-            QueryResponseAlternative16,
             Any,
             QueryResponseAlternative17,
             QueryResponseAlternative18,
@@ -7114,10 +7214,10 @@ class QueryResponseAlternative(
         QueryResponseAlternative8,
         QueryResponseAlternative9,
         QueryResponseAlternative10,
+        QueryResponseAlternative11,
+        QueryResponseAlternative12,
         QueryResponseAlternative13,
         QueryResponseAlternative14,
-        QueryResponseAlternative15,
-        QueryResponseAlternative16,
         Any,
         QueryResponseAlternative17,
         QueryResponseAlternative18,
@@ -7219,6 +7319,7 @@ class CoreWebVitalsQuery(BaseModel):
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
     kind: Literal["CoreWebVitalsQuery"] = "CoreWebVitalsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -7417,6 +7518,7 @@ class DataTableNode(BaseModel):
         WebExternalClicksTableQuery,
         WebGoalsQuery,
         CoreWebVitalsQuery,
+        CoreWebVitalsPathBreakdownQuery,
         SessionAttributionExplorerQuery,
         ErrorTrackingQuery,
         ExperimentFunnelsQuery,
@@ -7543,15 +7645,16 @@ class QueryRequest(BaseModel):
         HogQLQuery,
         HogQLMetadata,
         HogQLAutocomplete,
+        SessionAttributionExplorerQuery,
+        ErrorTrackingQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebExternalClicksTableQuery,
         WebGoalsQuery,
         CoreWebVitalsQuery,
-        SessionAttributionExplorerQuery,
-        ErrorTrackingQuery,
-        ExperimentFunnelsQuery,
-        ExperimentTrendsQuery,
+        CoreWebVitalsPathBreakdownQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
@@ -7612,15 +7715,16 @@ class QuerySchemaRoot(
             HogQLQuery,
             HogQLMetadata,
             HogQLAutocomplete,
+            SessionAttributionExplorerQuery,
+            ErrorTrackingQuery,
+            ExperimentFunnelsQuery,
+            ExperimentTrendsQuery,
             WebOverviewQuery,
             WebStatsTableQuery,
             WebExternalClicksTableQuery,
             WebGoalsQuery,
             CoreWebVitalsQuery,
-            SessionAttributionExplorerQuery,
-            ErrorTrackingQuery,
-            ExperimentFunnelsQuery,
-            ExperimentTrendsQuery,
+            CoreWebVitalsPathBreakdownQuery,
             DataVisualizationNode,
             DataTableNode,
             SavedInsightNode,
@@ -7655,15 +7759,16 @@ class QuerySchemaRoot(
         HogQLQuery,
         HogQLMetadata,
         HogQLAutocomplete,
+        SessionAttributionExplorerQuery,
+        ErrorTrackingQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebExternalClicksTableQuery,
         WebGoalsQuery,
         CoreWebVitalsQuery,
-        SessionAttributionExplorerQuery,
-        ErrorTrackingQuery,
-        ExperimentFunnelsQuery,
-        ExperimentTrendsQuery,
+        CoreWebVitalsPathBreakdownQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,

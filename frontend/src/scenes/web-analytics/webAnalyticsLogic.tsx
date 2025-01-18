@@ -80,6 +80,7 @@ export enum TileId {
     ERROR_TRACKING = 'ERROR_TRACKING',
     GOALS = 'GOALS',
     WEB_VITALS = 'WEB_VITALS',
+    WEB_VITALS_PATH_BREAKDOWN = 'WEB_VITALS_PATH_BREAKDOWN',
 }
 
 export enum ProductTab {
@@ -101,6 +102,7 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.ERROR_TRACKING]: 9,
     [TileId.GOALS]: 10,
     [TileId.WEB_VITALS]: 11,
+    [TileId.WEB_VITALS_PATH_BREAKDOWN]: 12,
 }
 
 export interface BaseTile {
@@ -122,7 +124,7 @@ export interface QueryTile extends BaseTile {
     showIntervalSelect?: boolean
     control?: JSX.Element
     insightProps: InsightLogicProps
-    canOpenModal: boolean
+    canOpenModal?: boolean
     canOpenInsight?: boolean
 }
 
@@ -567,12 +569,30 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }),
         ],
         filters: [
-            (s) => [s.webAnalyticsFilters, s.replayFilters, s.dateFilter, s.compareFilter, () => values.conversionGoal],
-            (webAnalyticsFilters, replayFilters, dateFilter, compareFilter, conversionGoal) => ({
+            (s) => [
+                s.webAnalyticsFilters,
+                s.replayFilters,
+                s.dateFilter,
+                s.compareFilter,
+                s.coreWebVitalsTab,
+                s.coreWebVitalsPercentile,
+                () => values.conversionGoal,
+            ],
+            (
                 webAnalyticsFilters,
                 replayFilters,
                 dateFilter,
                 compareFilter,
+                coreWebVitalsTab,
+                coreWebVitalsPercentile,
+                conversionGoal
+            ) => ({
+                webAnalyticsFilters,
+                replayFilters,
+                dateFilter,
+                compareFilter,
+                coreWebVitalsTab,
+                coreWebVitalsPercentile,
                 conversionGoal,
             }),
         ],
@@ -595,6 +615,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     dateFilter: { dateFrom, dateTo, interval },
                     conversionGoal,
                     compareFilter,
+                    coreWebVitalsPercentile,
+                    coreWebVitalsTab,
                 },
                 featureFlags,
                 isGreaterThanMd
@@ -736,63 +758,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
-                if (featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && productTab === ProductTab.CORE_WEB_VITALS) {
-                    const createSeries = (name: CoreWebVitalsMetric, math: PropertyMathType): AnyEntityNode => ({
-                        kind: NodeKind.EventsNode,
-                        event: '$web_vitals',
-                        name: '$web_vitals',
-                        custom_name: name,
-                        math: math,
-                        math_property: `$web_vitals_${name}_value`,
-                    })
-
-                    return [
-                        {
-                            kind: 'query',
-                            tileId: TileId.WEB_VITALS,
-                            layout: {
-                                colSpanClassName: 'md:col-span-full',
-                                orderWhenLargeClassName: 'xxl:order-0',
-                            },
-                            query: {
-                                kind: NodeKind.CoreWebVitalsQuery,
-                                properties: webAnalyticsFilters,
-                                source: {
-                                    kind: NodeKind.TrendsQuery,
-                                    dateRange,
-                                    interval,
-                                    series: [
-                                        createSeries('INP', PropertyMathType.P75),
-                                        createSeries('INP', PropertyMathType.P90),
-                                        createSeries('INP', PropertyMathType.P99),
-                                        createSeries('LCP', PropertyMathType.P75),
-                                        createSeries('LCP', PropertyMathType.P90),
-                                        createSeries('LCP', PropertyMathType.P99),
-                                        createSeries('CLS', PropertyMathType.P75),
-                                        createSeries('CLS', PropertyMathType.P90),
-                                        createSeries('CLS', PropertyMathType.P99),
-                                        createSeries('FCP', PropertyMathType.P75),
-                                        createSeries('FCP', PropertyMathType.P90),
-                                        createSeries('FCP', PropertyMathType.P99),
-                                    ],
-                                    trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-                                    compareFilter,
-                                    filterTestAccounts,
-                                    properties: webAnalyticsFilters,
-                                },
-                            },
-                            insightProps: {
-                                dashboardItemId: getDashboardItemId(TileId.WEB_VITALS, 'web-vitals-overview', false),
-                                loadPriority: 0,
-                                dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                            },
-                            canOpenInsight: false,
-                            canOpenModal: false,
-                            showIntervalSelect: true,
-                        },
-                    ]
-                }
-
                 const pathCleaningControl = (
                     <LemonSwitch
                         label={
@@ -828,6 +793,83 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     />
                 )
 
+                if (featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && productTab === ProductTab.CORE_WEB_VITALS) {
+                    const createSeries = (name: CoreWebVitalsMetric, math: PropertyMathType): AnyEntityNode => ({
+                        kind: NodeKind.EventsNode,
+                        event: '$web_vitals',
+                        name: '$web_vitals',
+                        custom_name: name,
+                        math: math,
+                        math_property: `$web_vitals_${name}_value`,
+                    })
+
+                    return [
+                        {
+                            kind: 'query',
+                            tileId: TileId.WEB_VITALS,
+                            layout: {
+                                colSpanClassName: 'md:col-span-full',
+                                orderWhenLargeClassName: 'xxl:order-0',
+                            },
+                            query: {
+                                kind: NodeKind.CoreWebVitalsQuery,
+                                properties: webAnalyticsFilters,
+                                source: {
+                                    kind: NodeKind.TrendsQuery,
+                                    dateRange,
+                                    interval,
+                                    series: (['INP', 'LCP', 'CLS', 'FCP'] as CoreWebVitalsMetric[]).flatMap((metric) =>
+                                        [PropertyMathType.P75, PropertyMathType.P90, PropertyMathType.P99].map((math) =>
+                                            createSeries(metric, math)
+                                        )
+                                    ),
+                                    trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+                                    compareFilter,
+                                    filterTestAccounts,
+                                    properties: webAnalyticsFilters,
+                                },
+                            },
+                            insightProps: {
+                                dashboardItemId: getDashboardItemId(TileId.WEB_VITALS, 'web-vitals-overview', false),
+                                loadPriority: loadPriorityMap[TileId.WEB_VITALS],
+                                dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                            },
+                            showIntervalSelect: true,
+                        },
+                        {
+                            kind: 'query',
+                            tileId: TileId.WEB_VITALS_PATH_BREAKDOWN,
+                            layout: {
+                                colSpanClassName: 'md:col-span-full',
+                                orderWhenLargeClassName: 'xxl:order-0',
+                            },
+                            query: {
+                                kind: NodeKind.CoreWebVitalsPathBreakdownQuery,
+                                dateRange,
+                                filterTestAccounts,
+                                properties: webAnalyticsFilters,
+                                percentile: coreWebVitalsPercentile,
+                                metric: coreWebVitalsTab,
+                                doPathCleaning: !!isPathCleaningEnabled,
+                                thresholds: [
+                                    CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab].good,
+                                    CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab].poor,
+                                ],
+                            },
+                            insightProps: {
+                                dashboardItemId: getDashboardItemId(
+                                    TileId.WEB_VITALS_PATH_BREAKDOWN,
+                                    'web-vitals-path-breakdown',
+                                    false
+                                ),
+                                loadPriority: loadPriorityMap[TileId.WEB_VITALS_PATH_BREAKDOWN],
+                                dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                            },
+                            control: pathCleaningControl,
+                        },
+                    ]
+                }
+
                 const allTiles: (WebDashboardTile | null)[] = [
                     {
                         kind: 'query',
@@ -846,7 +888,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             conversionGoal,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
-                        canOpenModal: false,
                     },
                     {
                         kind: 'tabs',
@@ -1474,7 +1515,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                               insightProps: createInsightProps(TileId.GOALS),
                               canOpenInsight: false,
-                              canOpenModal: false,
                               docs: {
                                   url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
                                   title: 'Goals',

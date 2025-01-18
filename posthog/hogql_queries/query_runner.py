@@ -339,6 +339,14 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "CoreWebVitalsPathBreakdownQuery":
+        from .web_analytics.core_web_vitals_path_breakdown import CoreWebVitalsPathBreakdownQueryRunner
+
+        return CoreWebVitalsPathBreakdownQueryRunner(
+            query=query,
+            team=team,
+        )
+
     if kind == "SessionAttributionExplorerQuery":
         from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
 
