@@ -17,5 +17,5 @@ export function liveEventsHostOrigin(): string | null {
     } else if (appOrigin === 'https://app.dev.posthog.dev') {
         return 'https://live.dev.posthog.dev'
     }
-    return 'http://localhost:8666'
+    return process.env.LIVESTREAM_HOST || 'http://localhost:8666'
 }
