@@ -17,10 +17,11 @@ clickhouse-driver==0.2.7
 clickhouse-pool==0.5.3
 conditional-cache==1.2
 cryptography==39.0.2
-dagster==1.9.8
-dagster-webserver==1.9.8
-dagster-postgres==0.25.8
-dagster-celery==0.25.8
+dagster==1.9.9
+dagster-aws==0.25.9
+dagster-webserver==1.9.9
+dagster-postgres==0.25.9
+dagster-celery==0.25.9
 # dagster-cloud==1.9.8
 deltalake==0.23.2
 dj-database-url==0.5.0
