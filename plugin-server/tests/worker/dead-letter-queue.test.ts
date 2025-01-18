@@ -60,9 +60,7 @@ describe('events dead letter queue', () => {
 
     test('events get sent to dead letter queue on error', async () => {
         const event = createEvent()
-        const ingestResponse1 = await new EventPipelineRunner(hub, event, new EventsProcessor(hub)).runEventPipeline(
-            event
-        )
+        const ingestResponse1 = await new EventPipelineRunner(hub, event).runEventPipeline(event)
         expect(ingestResponse1).toEqual({
             lastStep: 'prepareEventStep',
             error: 'database unavailable',

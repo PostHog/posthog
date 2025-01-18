@@ -2,12 +2,14 @@ import * as Sentry from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
-import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_PLUGIN_INGESTION_DLQ } from '../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
+import { IngestionOverflowMode } from '../main/ingestion-queues/batch-processing/each-batch-ingestion'
+import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import {
     eventDroppedCounter,
+    ingestionPartitionKeyOverflowed,
     latestOffsetTimestampGauge,
     setUsageInNonPersonEventsCounter,
 } from '../main/ingestion-queues/metrics'
@@ -18,6 +20,7 @@ import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { normalizeEvent } from '../utils/event'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
+import { ConfiguredLimiter, LoggingLimiter } from '../utils/token-bucket'
 import { EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -194,8 +197,10 @@ abstract class IngestionConsumer {
  */
 export class EventsIngestionConsumer extends IngestionConsumer {
     protected name = 'EventsIngestionConsumer'
-    protected topic = KAFKA_EVENTS_PLUGIN_INGESTION
-    protected groupId = 'events-ingestion-consumer' // TODO: Make this configurable
+    protected groupId: string
+    protected topic: string
+    protected dlqTopic: string
+    protected overflowTopic?: string
 
     private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
@@ -203,14 +208,17 @@ export class EventsIngestionConsumer extends IngestionConsumer {
     constructor(hub: Hub) {
         super(hub)
 
-        // TODO: Allow overriding the topic and groupId - this way we don't need all the weird duplicated stuff.
-
+        // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
+        this.groupId = hub.INGESTION_CONSUMER_GROUP_ID
+        this.topic = hub.INGESTION_CONSUMER_CONSUME_TOPIC
+        this.overflowTopic = hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
+        this.dlqTopic = hub.INGESTION_CONSUMER_DLQ_TOPIC
         this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',')
         this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',')
     }
 
     public async processBatch(groupedIncomingEvents: GroupedIncomingEvents): Promise<void> {
-        await this.runManyWithHeartbeat(Object.entries(groupedIncomingEvents), async ([key, eventsForDistinctId]) => {
+        await this.runManyWithHeartbeat(Object.values(groupedIncomingEvents), async (eventsForDistinctId) => {
             // Process every message sequentially, stash promises to await on later
             for (const { message, event } of eventsForDistinctId) {
                 // Track $set usage in events that aren't known to use it, before ingestion adds anything there
@@ -268,7 +276,7 @@ export class EventsIngestionConsumer extends IngestionConsumer {
             headers.push({ ['event-id']: event.uuid })
             try {
                 await this.kafkaProducer!.produce({
-                    topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+                    topic: this.dlqTopic,
                     value: message.value,
                     key: message.key ?? null, // avoid undefined, just to be safe
                     headers: headers,
@@ -313,6 +321,40 @@ export class EventsIngestionConsumer extends IngestionConsumer {
         )
     }
 
+    private overflowEnabled() {
+        return !!this.hub.INGESTION_OVERFLOW_ENABLED
+    }
+
+    private async emitToOverflow(kafkaMessages: Message[]) {
+        const overflowTopic = this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
+        if (!overflowTopic) {
+            throw new Error('No overflow topic configured')
+        }
+
+        ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
+
+        const overflowMode = this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
+            ? IngestionOverflowMode.Reroute
+            : IngestionOverflowMode.RerouteRandomly
+
+        const useRandomPartitioning = overflowMode === IngestionOverflowMode.RerouteRandomly
+
+        await Promise.all(
+            kafkaMessages.map((message) =>
+                this.kafkaProducer!.produce({
+                    topic: this.overflowTopic!,
+                    value: message.value,
+                    // ``message.key`` should not be undefined here, but in the
+                    // (extremely) unlikely event that it is, set it to ``null``
+                    // instead as that behavior is safer.
+                    key: useRandomPartitioning ? null : message.key ?? null,
+                    headers: message.headers,
+                    waitForAck: true,
+                })
+            )
+        )
+    }
+
     // This consumer always parses from kafka
     public _parseKafkaBatch(messages: Message[]): Promise<GroupedIncomingEvents> {
         return runInstrumentedFunction({
@@ -340,7 +382,6 @@ export class EventsIngestionConsumer extends IngestionConsumer {
                         continue
                     }
 
-                    // TODO: Comment about this weird structure
                     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
                     const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
                     const event: PipelineEvent = normalizeEvent({
@@ -354,6 +395,17 @@ export class EventsIngestionConsumer extends IngestionConsumer {
                     }
 
                     const eventKey = `${event.token}:${event.distinct_id}`
+
+                    if (this.overflowEnabled() && !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)) {
+                        // Local overflow detection triggering, reroute to overflow topic too
+                        ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
+                        if (LoggingLimiter.consume(eventKey, 1)) {
+                            status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
+                        }
+
+                        void this.scheduleWork(this.emitToOverflow([message]))
+                        continue
+                    }
 
                     // TODO: Add back in overflow detection logic
 

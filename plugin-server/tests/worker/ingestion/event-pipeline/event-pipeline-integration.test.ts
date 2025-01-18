@@ -30,7 +30,7 @@ describe('Event Pipeline integration test', () => {
     let hookCannon: HookCommander
 
     const ingestEvent = async (event: PluginEvent) => {
-        const runner = new EventPipelineRunner(hub, event, new EventsProcessor(hub))
+        const runner = new EventPipelineRunner(hub, event)
         const result = await runner.runEventPipeline(event)
         const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
         return Promise.all([
@@ -255,13 +255,13 @@ describe('Event Pipeline integration test', () => {
             uuid: new UUIDT().toString(),
         }
 
-        await new EventPipelineRunner(hub, event, new EventsProcessor(hub)).runEventPipeline(event)
+        await new EventPipelineRunner(hub, event).runEventPipeline(event)
 
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
         expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
 
         // second time single fetch
-        await new EventPipelineRunner(hub, event, new EventsProcessor(hub)).runEventPipeline(event)
+        await new EventPipelineRunner(hub, event).runEventPipeline(event)
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 })

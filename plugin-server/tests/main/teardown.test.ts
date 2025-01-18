@@ -37,7 +37,7 @@ async function getLogEntriesForPluginConfig(hub: Hub, pluginConfigId: number) {
 
 describe('teardown', () => {
     const processEvent = async (hub: Hub, event: PluginEvent) => {
-        const result = await new EventPipelineRunner(hub, event, new EventsProcessor(hub)).runEventPipeline(event)
+        const result = await new EventPipelineRunner(hub, event).runEventPipeline(event)
         const resultEvent = result.args[0]
         return resultEvent
     }

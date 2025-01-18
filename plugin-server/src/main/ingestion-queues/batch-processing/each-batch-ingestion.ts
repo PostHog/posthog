@@ -9,9 +9,8 @@ import { status } from '../../../utils/status'
 import { ConfiguredLimiter, LoggingLimiter } from '../../../utils/token-bucket'
 import { EventPipelineRunner } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
-import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
-import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
+import { eventDroppedCounter, ingestionPartitionKeyOverflowed, latestOffsetTimestampGauge } from '../metrics'
 import {
     ingestEventBatchingBatchCountSummary,
     ingestEventBatchingDistinctIdBatchLengthSummary,
@@ -170,11 +169,7 @@ export async function eachBatchParallelIngestion(
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
                         const result = (await retryIfRetriable(async () => {
-                            const runner = new EventPipelineRunner(
-                                queue.pluginsServer,
-                                pluginEvent,
-                                queue.eventsProcessor
-                            )
+                            const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent)
                             return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 
