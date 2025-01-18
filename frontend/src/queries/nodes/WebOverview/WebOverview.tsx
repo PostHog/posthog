@@ -155,6 +155,8 @@ const formatItem = (value: number | undefined, kind: WebOverviewItemKind, option
         return formatPercentage(value, options)
     } else if (kind === 'duration_s') {
         return humanFriendlyDuration(value, { secondsPrecision: 3 })
+    } else if (kind === 'currency') {
+        return '$' + formatUnit(value)
     }
     return formatUnit(value, options)
 }

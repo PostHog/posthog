@@ -1456,9 +1456,10 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
+    includeRevenue?: boolean
 }
 
-export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage'
+export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
 export interface WebOverviewItem {
     key: string
     value?: number
@@ -2285,3 +2286,12 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
 }
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
+
+export interface RevenueTrackingEventItem {
+    eventName: string
+    revenueProperty: string
+}
+
+export interface RevenueTrackingConfig {
+    events: RevenueTrackingEventItem[]
+}

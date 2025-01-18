@@ -921,6 +921,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
+                            includeRevenue,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                     },

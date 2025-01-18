@@ -1256,6 +1256,14 @@ class RetentionType(StrEnum):
     RETENTION_FIRST_TIME = "retention_first_time"
 
 
+class RevenueTrackingEventItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    eventName: str
+    revenueProperty: str
+
+
 class RouterMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1438,6 +1446,7 @@ class WebOverviewItemKind(StrEnum):
     UNIT = "unit"
     DURATION_S = "duration_s"
     PERCENTAGE = "percentage"
+    CURRENCY = "currency"
 
 
 class WebStatsBreakdown(StrEnum):
@@ -2412,6 +2421,13 @@ class RetentionValue(BaseModel):
         extra="forbid",
     )
     count: int
+
+
+class RevenueTrackingConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: list[RevenueTrackingEventItem]
 
 
 class SavedInsightNode(BaseModel):
@@ -5647,6 +5663,7 @@ class WebOverviewQuery(BaseModel):
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"

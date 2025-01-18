@@ -31,6 +31,7 @@ from posthog.schema import (
     WebGoalsQuery,
     WebExternalClicksTableQuery,
     WebVitalsPathBreakdownQuery,
+    RevenueTrackingConfig,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -174,17 +175,110 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             return None
 
     @cached_property
-    def event_type_expr(self) -> ast.Expr:
-        pageview_expr = ast.Or(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$screen")
-                ),
-            ]
+    def conversion_revenue_expr(self) -> ast.Expr:
+        config = (
+            RevenueTrackingConfig.model_validate(self.team.revenue_tracking_config)
+            if self.team.revenue_tracking_config
+            else None
         )
+        if not config:
+            return ast.Constant(value=None)
+        if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
+            event_name = self.query.conversionGoal.customEventName
+            revenue_property = next((event_item.revenueProperty for event_item in config.events), None)
+
+            if not revenue_property:
+                return ast.Constant(value=None)
+
+            return ast.Call(
+                name="sumIf",
+                args=[
+                    ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Call(
+                                name="toFloat", args=[ast.Field(chain=["events", "properties", revenue_property])]
+                            ),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=event_name),
+                    ),
+                ],
+            )
+        else:
+            # for now, don't support conversion revenue for actions
+            return ast.Constant(value=None)
+
+    @cached_property
+    def revenue_sum_expression(self) -> ast.Expr:
+        config = (
+            RevenueTrackingConfig.model_validate(self.team.revenue_tracking_config)
+            if self.team.revenue_tracking_config
+            else None
+        )
+        exprs: list[ast.Expr] = []
+        if config:
+            for event in config.events:
+                exprs.append(
+                    ast.Call(
+                        name="sumIf",
+                        args=[
+                            ast.Call(
+                                name="ifNull",
+                                args=[
+                                    ast.Call(
+                                        name="toFloat",
+                                        args=[ast.Field(chain=["events", "properties", event.revenueProperty])],
+                                    ),
+                                    ast.Constant(value=0),
+                                ],
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["event"]),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Constant(value=event.eventName),
+                            ),
+                        ],
+                    )
+                )
+        if not exprs:
+            return ast.Constant(value=None)
+        if len(exprs) == 1:
+            return exprs[0]
+        return ast.Call(name="plus", args=exprs)
+
+    @cached_property
+    def event_type_expr(self) -> ast.Expr:
+        config = (
+            RevenueTrackingConfig.model_validate(self.team.revenue_tracking_config)
+            if self.team.revenue_tracking_config
+            else None
+        )
+
+        exprs = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$screen")
+            ),
+        ]
+
+        if config:
+            for eventItem in config.events:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=eventItem.eventName),
+                    )
+                )
+
+        pageview_expr = ast.Or(exprs=exprs)
 
         if self.conversion_goal_expr:
             return ast.Call(name="or", args=[pageview_expr, self.conversion_goal_expr])

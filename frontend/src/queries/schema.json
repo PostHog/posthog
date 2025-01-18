@@ -12605,6 +12605,32 @@
             "required": ["count"],
             "type": "object"
         },
+        "RevenueTrackingConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/RevenueTrackingEventItem"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["events"],
+            "type": "object"
+        },
+        "RevenueTrackingEventItem": {
+            "additionalProperties": false,
+            "properties": {
+                "eventName": {
+                    "type": "string"
+                },
+                "revenueProperty": {
+                    "type": "string"
+                }
+            },
+            "required": ["eventName", "revenueProperty"],
+            "type": "object"
+        },
         "RootAssistantMessage": {
             "anyOf": [
                 {
@@ -14370,7 +14396,7 @@
             "type": "object"
         },
         "WebOverviewItemKind": {
-            "enum": ["unit", "duration_s", "percentage"],
+            "enum": ["unit", "duration_s", "percentage", "currency"],
             "type": "string"
         },
         "WebOverviewQuery": {
@@ -14396,6 +14422,9 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeRevenue": {
                     "type": "boolean"
                 },
                 "kind": {
