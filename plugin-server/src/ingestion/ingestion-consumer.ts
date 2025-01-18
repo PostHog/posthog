@@ -264,14 +264,12 @@ export class EventsIngestionConsumer extends IngestionConsumer {
     }
 
     private async handleProcessingError(error: any, message: Message, event: PipelineEvent) {
+        // TODO: Carefully re-evaluate this logic. Are we sure we don't want to just throw properly?
+        // In theory anything that could go wrong we should have handled. Isn't it better if we crash out
+        // and are forced to fix than just writing to the DLQ 🧐
+
         // If the error is a non-retriable error, push to the dlq and commit the offset. Else raise the
         // error.
-        //
-        // NOTE: there is behavior to push to a DLQ at the moment within EventPipelineRunner. This
-        // doesn't work so well with e.g. messages that when sent to the DLQ is it's self too large.
-        // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
-        // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
-        //
         // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
         // fact that node-rdkafka adheres to the `isRetriable` interface.
 
