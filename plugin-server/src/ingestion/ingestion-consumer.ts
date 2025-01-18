@@ -334,7 +334,7 @@ export class EventsIngestionConsumer extends IngestionConsumer {
     }
 
     private overflowEnabled() {
-        return !!this.hub.INGESTION_OVERFLOW_ENABLED
+        return !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC && this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
     }
 
     private async emitToOverflow(kafkaMessages: Message[]) {
