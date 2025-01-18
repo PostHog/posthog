@@ -2236,11 +2236,11 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    @patch("posthog.api.capture.TOKEN_DISTINCT_ID_PAIRS_TO_DROP")
+    @patch("posthog.api.capture.get_tokens_to_drop")
     def test_capture_drops_events_for_dropped_tokens(
-        self, token_distinct_id_pairs_to_drop: MagicMock, kafka_produce: MagicMock
+        self, get_tokens_to_drop: MagicMock, kafka_produce: MagicMock
     ) -> None:
-        token_distinct_id_pairs_to_drop.return_value = {"token1:id1", "token2:id2"}
+        get_tokens_to_drop.return_value = {"token1:id1", "token2:id2"}
 
         options = [
             ("token1", "id1", 0),

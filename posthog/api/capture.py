@@ -157,14 +157,19 @@ LIKELY_ANONYMOUS_IDS = {
 
 OVERFLOWING_REDIS_KEY = "@posthog/capture-overflow/"
 
-TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set()
+TOKEN_DISTINCT_ID_PAIRS_TO_DROP: Optional[set[tuple[str, str]]] = None
 
-if settings.DROPPED_KEYS:
-    # DROPPED_KEYS is a semicolon separated list of <team_id:distinct_id> pairs
-    strings = set(settings.DROPPED_KEYS.split(";"))
-    for string in strings:
-        team_id, distinct_id = string.split(":")
-        TOKEN_DISTINCT_ID_PAIRS_TO_DROP.add((team_id, distinct_id))
+
+def get_tokens_to_drop() -> set[tuple[str, str]]:
+    global TOKEN_DISTINCT_ID_PAIRS_TO_DROP
+
+    if TOKEN_DISTINCT_ID_PAIRS_TO_DROP is None:
+        TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set()
+        if settings.DROPPED_KEYS:
+            # DROPPED_KEYS is a semicolon separated list of <team_id:distinct_id> pairs
+            TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set(settings.DROPPED_KEYS.split(";"))
+
+    return TOKEN_DISTINCT_ID_PAIRS_TO_DROP
 
 
 class InputType(Enum):
@@ -530,8 +535,8 @@ def get_event(request):
     with start_span(op="kafka.produce") as span:
         span.set_tag("event.count", len(processed_events))
         for event, event_uuid, distinct_id in processed_events:
-            print("Processing", token, distinct_id, TOKEN_DISTINCT_ID_PAIRS_TO_DROP)  # noqa: T203
-            if (token, distinct_id) in TOKEN_DISTINCT_ID_PAIRS_TO_DROP:
+            if f"{token}:{distinct_id}" in get_tokens_to_drop():
+                logger.warning("Dropping event", token=token, distinct_id=distinct_id)
                 continue
 
             try:
