@@ -18,10 +18,9 @@ import { Hub, PipelineEvent, PluginServerService } from '../types'
 import { createKafkaProducerWrapper } from '../utils/db/hub'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { normalizeEvent } from '../utils/event'
-import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { ConfiguredLimiter, LoggingLimiter } from '../utils/token-bucket'
-import { EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
+import { EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -229,12 +228,15 @@ export class EventsIngestionConsumer extends IngestionConsumer {
                         continue
                     }
 
-                    const result = await retryIfRetriable(async () => {
-                        const runner = new EventPipelineRunner(this.hub, event)
-                        return await runner.runEventPipeline(event)
-                    })
+                    // Modified this to not use retries - if we do retries we should wrap the specific steps in a retryIfRetriable
+                    // const result = await retryIfRetriable(async () => {
+                    //     return await runner.run()
+                    // })
 
-                    result.ackPromises?.forEach((promise) => {
+                    const runner = new EventPipelineRunnerV2(this.hub, event)
+                    await runner.run()
+
+                    runner.getPromises().forEach((promise) => {
                         void this.scheduleWork(
                             promise.catch(async (error) => {
                                 await this.handleProcessingError(error, message, event)
