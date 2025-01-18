@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::properties::property_models::{OperatorType, PropertyFilter};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use regex::Regex;
 use serde_json::Value;
 
@@ -98,12 +99,11 @@ pub fn match_property(
         }
         OperatorType::Icontains | OperatorType::NotIcontains => {
             if let Some(match_value) = match_value {
-                // TODO: Check eq_ignore_ascii_case and to_ascii_lowercase
-                // see https://doc.rust-lang.org/std/string/struct.String.html#method.to_lowercase
-                // do we want to lowercase non-ascii stuff?
+                // Using to_ascii_lowercase() since we only care about ASCII case insensitivity
+                // This is more performant than to_lowercase() which handles full Unicode
                 let is_contained = to_string_representation(match_value)
-                    .to_lowercase()
-                    .contains(&to_string_representation(value).to_lowercase());
+                    .to_ascii_lowercase()
+                    .contains(&to_string_representation(value).to_ascii_lowercase());
 
                 if operator == OperatorType::Icontains {
                     Ok(is_contained)
@@ -170,35 +170,36 @@ pub fn match_property(
             }
         }
         OperatorType::IsDateExact | OperatorType::IsDateAfter | OperatorType::IsDateBefore => {
-            // TODO: Handle date operators
-            Ok(false)
-            // let parsed_date = determine_parsed_date_for_property_matching(match_value);
+            let parsed_date = determine_parsed_date_for_property_matching(match_value);
 
-            // if parsed_date.is_none() {
-            //     return Ok(false);
-            // }
+            if parsed_date.is_none() {
+                return Ok(false);
+            }
 
-            // if let Some(override_value) = value.as_str() {
-            //     let override_date = match parser::parse(override_value) {
-            //         Ok(override_date) => override_date,
-            //         Err(_) => return Ok(false),
-            //     };
+            if let Some(override_value) = value.as_str() {
+                let override_date = match parse_date_string(override_value) {
+                    Some(date) => date,
+                    None => {
+                        return Ok(false);
+                    }
+                };
 
-            //     match operator {
-            //         OperatorType::IsDateBefore => Ok(override_date < parsed_date.unwrap()),
-            //         OperatorType::IsDateAfter => Ok(override_date > parsed_date.unwrap()),
-            //         _ => Ok(false),
-            //     }
-            // } else {
-            //     Ok(false)
-            // }
+                match operator {
+                    OperatorType::IsDateBefore => Ok(parsed_date.unwrap() < override_date),
+                    OperatorType::IsDateAfter => Ok(parsed_date.unwrap() > override_date),
+                    OperatorType::IsDateExact => Ok(parsed_date.unwrap() == override_date),
+                    _ => Ok(false),
+                }
+            } else {
+                Ok(false)
+            }
         }
-        OperatorType::In | OperatorType::NotIn => {
-            // TODO: we handle these in cohort matching, so we can just return false here
-            // because by the time we match properties, we've already decomposed the cohort
-            // filter into multiple property filters
-            Ok(false)
-        }
+        // NB: In/NotIn operators should be handled by cohort matching
+        // because by the time we match properties, we've already decomposed the cohort
+        // filter into multiple property filters
+        OperatorType::In | OperatorType::NotIn => Err(FlagMatchingError::ValidationError(
+            "In/NotIn operators should be handled by cohort matching".to_string(),
+        )),
     }
 }
 
@@ -248,6 +249,62 @@ fn is_truthy_property_value(value: &Value) -> bool {
     }
 
     false
+}
+
+fn parse_date_string(date_str: &str) -> Option<DateTime<Utc>> {
+    // Try parsing common date formats
+    let formats = [
+        "%Y-%m-%d",               // 2024-03-21
+        "%Y-%m-%dT%H:%M:%S",      // 2024-03-21T13:45:30
+        "%Y-%m-%dT%H:%M:%S%.3f",  // 2024-03-21T13:45:30.123
+        "%Y-%m-%dT%H:%M:%S%.3fZ", // 2024-03-21T13:45:30.123Z
+        "%Y-%m-%dT%H:%M:%SZ",     // 2024-03-21T13:45:30Z
+    ];
+
+    for format in formats {
+        if let Ok(naive) = NaiveDateTime::parse_from_str(date_str, format) {
+            return Some(DateTime::from_naive_utc_and_offset(naive, Utc));
+        }
+    }
+
+    // If only date is provided, parse it and set time to midnight UTC
+    if let Ok(naive_date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+        return Some(DateTime::from_naive_utc_and_offset(
+            naive_date.and_hms_opt(0, 0, 0).unwrap(),
+            Utc,
+        ));
+    }
+
+    None
+}
+
+fn determine_parsed_date_for_property_matching(value: Option<&Value>) -> Option<DateTime<Utc>> {
+    let value = value?;
+
+    if let Some(date_str) = value.as_str() {
+        return parse_date_string(date_str);
+    }
+
+    if let Some(num) = value.as_number() {
+        // Convert to f64 first to handle both integer and float timestamps
+        let ms = num.as_f64()?;
+        // Guard against negative timestamps
+        if ms < 0.0 {
+            return None;
+        }
+
+        let seconds = (ms / 1000.0).floor() as i64;
+        let nanos = ((ms % 1000.0) * 1_000_000.0).round() as u32; // Add .round() for more precise conversion
+
+        // Guard against overflow
+        if seconds > i64::MAX || seconds < 0 {
+            return None;
+        }
+
+        return DateTime::from_timestamp(seconds, nanos);
+    }
+
+    None
 }
 
 /// Copy of https://github.com/PostHog/posthog/blob/master/posthog/queries/test/test_base.py#L35
@@ -970,6 +1027,7 @@ mod test_match_properties {
         // # depending on the type of override, we adjust type comparison
         // This is wonky, do we want to continue this behavior? :/
         // TODO: Come back to this
+        // TODO: Fix
         // assert_eq!(
         //     match_property(
         //         &property_e,
@@ -1373,5 +1431,93 @@ mod test_match_properties {
             false
         )
         .expect("Expected no errors with full props mode"));
+    }
+
+    #[test]
+    fn test_match_properties_date_operators() {
+        let property_before = PropertyFilter {
+            key: "date".to_string(),
+            value: json!("2024-03-21"),
+            operator: Some(OperatorType::IsDateBefore),
+            prop_type: "person".to_string(),
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_before,
+            &HashMap::from([("date".to_string(), json!("2024-03-20"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_before,
+            &HashMap::from([("date".to_string(), json!("2024-03-22"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        let property_after = PropertyFilter {
+            key: "date".to_string(),
+            value: json!("2024-03-21T00:00:00Z"),
+            operator: Some(OperatorType::IsDateAfter),
+            prop_type: "person".to_string(),
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_after,
+            &HashMap::from([("date".to_string(), json!("2024-03-22"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_after,
+            &HashMap::from([("date".to_string(), json!("2024-03-20"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        let property_exact = PropertyFilter {
+            key: "date".to_string(),
+            value: json!("2024-03-21"),
+            operator: Some(OperatorType::IsDateExact),
+            prop_type: "person".to_string(),
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_exact,
+            &HashMap::from([("date".to_string(), json!("2024-03-21"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_exact,
+            &HashMap::from([("date".to_string(), json!("2024-03-22"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test with invalid date format
+        assert!(!match_property(
+            &property_exact,
+            &HashMap::from([("date".to_string(), json!("invalid-date"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test with timestamp
+        assert!(match_property(
+            &property_exact,
+            &HashMap::from([("date".to_string(), json!(1710979200000.0))]), // 2024-03-21 00:00:00 UTC
+            true
+        )
+        .expect("expected match to exist"));
     }
 }
