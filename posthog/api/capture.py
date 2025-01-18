@@ -157,10 +157,10 @@ LIKELY_ANONYMOUS_IDS = {
 
 OVERFLOWING_REDIS_KEY = "@posthog/capture-overflow/"
 
-TOKEN_DISTINCT_ID_PAIRS_TO_DROP: Optional[set[tuple[str, str]]] = None
+TOKEN_DISTINCT_ID_PAIRS_TO_DROP: Optional[set[str]] = None
 
 
-def get_tokens_to_drop() -> set[tuple[str, str]]:
+def get_tokens_to_drop() -> set[str]:
     global TOKEN_DISTINCT_ID_PAIRS_TO_DROP
 
     if TOKEN_DISTINCT_ID_PAIRS_TO_DROP is None:
