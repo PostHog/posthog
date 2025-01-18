@@ -527,7 +527,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const breadcrumbs: Breadcrumb[] = [
                     {
                         key: Scene.WebAnalytics,
-                        name: `Web Analytics`,
+                        name: `Web analytics`,
                         path: urls.webAnalytics(),
                     },
                 ]
@@ -535,7 +535,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 if (productTab === ProductTab.CORE_WEB_VITALS) {
                     breadcrumbs.push({
                         key: Scene.WebAnalyticsCoreWebVitals,
-                        name: `Core Web Vitals`,
+                        name: `Core web vitals`,
                         path: urls.webAnalyticsCoreWebVitals(),
                     })
                 }

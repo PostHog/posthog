@@ -388,8 +388,8 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                                 dropdownMatchSelectWidth={false}
                                 onChange={setProductTab}
                                 options={[
-                                    { value: ProductTab.ANALYTICS, label: 'Web Analytics' },
-                                    { value: ProductTab.CORE_WEB_VITALS, label: 'Core Web Vitals' },
+                                    { value: ProductTab.ANALYTICS, label: 'Web analytics' },
+                                    { value: ProductTab.CORE_WEB_VITALS, label: 'Core web vitals' },
                                 ]}
                             />
                         )}
