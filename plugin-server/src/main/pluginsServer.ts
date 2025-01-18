@@ -19,6 +19,7 @@ import {
     CdpProcessedEventsConsumer,
 } from '../cdp/cdp-consumers'
 import { defaultConfig } from '../config/config'
+import { EventsIngestionConsumer } from '../ingestion/ingestion-consumer'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
 import { closeHub, createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -53,7 +54,6 @@ import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { expressApp, setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
-import { EventsIngestionConsumer } from '../ingestion/ingestion-consumer'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
@@ -282,7 +282,7 @@ export async function startPluginsServer(
                     hub: hub,
                 })
             )
-        
+        }
 
         if (capabilities.ingestionHistorical) {
             const hub = await setupHub()
