@@ -61,6 +61,16 @@ LOG_RATE_LIMITER = Limiter(
     storage=MemoryStorage(),
 )
 
+TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set()
+
+if settings.DROPPED_KEYS:
+    # DROPPED_KEYS is a semicolon separated list of <team_id:distinct_id> pairs
+    strings = set(settings.DROPPED_KEYS.split(";"))
+    for string in strings:
+        team_id, distinct_id = string.split(":")
+        TOKEN_DISTINCT_ID_PAIRS_TO_DROP.add((team_id, distinct_id))
+
+
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
 # fewer restrictions on e.g. the order they need to be processed in.
@@ -800,6 +810,9 @@ def preprocess_events(events: list[dict[str, Any]]) -> Iterator[tuple[dict[str, 
 
         event = parse_event(event)
         if not event:
+            continue
+
+        if (event["team_id"], distinct_id) in TOKEN_DISTINCT_ID_PAIRS_TO_DROP:
             continue
 
         yield event, event_uuid, distinct_id
