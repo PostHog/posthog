@@ -447,46 +447,4 @@ export class EventPipelineRunnerV2 {
                 })
         )
     }
-
-    private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
-        Sentry.captureException(err, {
-            tags: { team_id: teamId, pipeline_step: currentStepName },
-            extra: { currentArgs, originalEvent: this.originalEvent },
-        })
-
-        // pipelineStepErrorCounter.labels(currentStepName).inc()
-
-        if (err instanceof DependencyUnavailableError) {
-            // If this is an error with a dependency that we control, we want to
-            // ensure that the caller knows that the event was not processed,
-            // for a reason that we control and that is transient.
-            throw err
-        }
-
-        // // Should we throw or should we drop and send the event to DLQ.
-        // if (this.shouldRetry(err)) {
-        //     pipelineStepThrowCounter.labels(currentStepName).inc()
-        //     throw err
-        // }
-
-        // pipelineStepDLQCounter.labels(currentStepName).inc()
-        try {
-            const message = generateEventDeadLetterQueueMessage(
-                this.originalEvent,
-                err,
-                teamId,
-                `plugin_server_ingest_event:${currentStepName}`
-            )
-            await this.hub.db.kafkaProducer!.queueMessage({ kafkaMessage: message, waitForAck: true })
-        } catch (dlqError) {
-            status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
-            Sentry.captureException(dlqError, {
-                tags: { team_id: teamId },
-                extra: { currentStepName, currentArgs, originalEvent: this.originalEvent, err },
-            })
-        }
-
-        // These errors are dropped rather than retried
-        throw new StepErrorNoRetry(currentStepName, currentArgs, err.message)
-    }
 }
