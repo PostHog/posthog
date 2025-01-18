@@ -7,7 +7,6 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../src/worker/ingestion/event-pipeline/runner'
-import { EventsProcessor } from '../../../src/worker/ingestion/process-event'
 import { createOrganization, createTeam, POSTGRES_DELETE_TABLES_QUERY } from '../../helpers/sql'
 
 describe('workerTasks.runEventPipeline()', () => {

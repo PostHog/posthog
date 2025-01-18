@@ -15,7 +15,6 @@ import {
 } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
-import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
 import { commonUserId } from '../../../helpers/plugins'
