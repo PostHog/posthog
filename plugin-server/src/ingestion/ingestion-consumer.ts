@@ -232,6 +232,18 @@ export class EventsIngestionConsumer extends IngestionConsumer {
                 }
 
                 try {
+                    const eventKey = `${event.token}:${event.distinct_id}`
+                    // Check the rate limiter and emit to overflow if necessary
+                    if (this.overflowEnabled() && !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)) {
+                        ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
+                        if (LoggingLimiter.consume(eventKey, 1)) {
+                            status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
+                        }
+
+                        void this.scheduleWork(this.emitToOverflow([message]))
+                        continue
+                    }
+
                     const result = await retryIfRetriable(async () => {
                         const runner = new EventPipelineRunner(this.hub, event)
                         return await runner.runEventPipeline(event)
@@ -360,14 +372,13 @@ export class EventsIngestionConsumer extends IngestionConsumer {
         return runInstrumentedFunction({
             statsKey: `ingestionConsumer.handleEachBatch.parseKafkaMessages`,
             func: () => {
-                // 1. Parse the messages filtering out the ones that should be dropped
-
                 const batches: GroupedIncomingEvents = {}
 
                 for (const message of messages) {
                     let distinctId: string | undefined
                     let token: string | undefined
 
+                    // Parse the headers so we can early exit if found and should be dropped
                     message.headers?.forEach((header) => {
                         if (header.key === 'distinct_id') {
                             distinctId = header.value.toString()
@@ -382,6 +393,7 @@ export class EventsIngestionConsumer extends IngestionConsumer {
                         continue
                     }
 
+                    // Parse the message payload into the event object
                     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
                     const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
                     const event: PipelineEvent = normalizeEvent({
@@ -396,19 +408,6 @@ export class EventsIngestionConsumer extends IngestionConsumer {
 
                     const eventKey = `${event.token}:${event.distinct_id}`
 
-                    if (this.overflowEnabled() && !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)) {
-                        // Local overflow detection triggering, reroute to overflow topic too
-                        ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
-                        if (LoggingLimiter.consume(eventKey, 1)) {
-                            status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
-                        }
-
-                        void this.scheduleWork(this.emitToOverflow([message]))
-                        continue
-                    }
-
-                    // TODO: Add back in overflow detection logic
-
                     // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
                     // for a given distinct_id
                     if (!batches[eventKey]) {
@@ -417,8 +416,6 @@ export class EventsIngestionConsumer extends IngestionConsumer {
 
                     batches[eventKey].push({ message, event })
                 }
-
-                // 2. Overflow the ones that are supposed to be overflowed
 
                 return Promise.resolve(batches)
             },
