@@ -288,18 +288,8 @@ fn determine_parsed_date_for_property_matching(value: Option<&Value>) -> Option<
     if let Some(num) = value.as_number() {
         // Convert to f64 first to handle both integer and float timestamps
         let ms = num.as_f64()?;
-        // Guard against negative timestamps
-        if ms < 0.0 {
-            return None;
-        }
-
         let seconds = (ms / 1000.0).floor() as i64;
-        let nanos = ((ms % 1000.0) * 1_000_000.0).round() as u32; // Add .round() for more precise conversion
-
-        // Guard against overflow
-        if seconds > i64::MAX || seconds < 0 {
-            return None;
-        }
+        let nanos = ((ms % 1000.0) * 1_000_000.0) as u32;
 
         return DateTime::from_timestamp(seconds, nanos);
     }
