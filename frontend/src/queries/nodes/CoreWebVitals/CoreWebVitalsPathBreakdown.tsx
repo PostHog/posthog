@@ -160,9 +160,9 @@ const Content = ({
                             >
                                 <div
                                     className="absolute top-0 left-0 h-full"
+                                    // eslint-disable-next-line react/forbid-dom-props
                                     style={{ width, backgroundColor: 'var(--neutral-250)', opacity: 0.5 }}
-                                />{' '}
-                                {/* eslint-disable-line react/forbid-dom-props */}
+                                />
                                 <span className="relative z-10">{path}</span>
                                 <span className="relative z-10">{value}</span>
                             </div>

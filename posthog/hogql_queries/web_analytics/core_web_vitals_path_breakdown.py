@@ -140,7 +140,7 @@ SELECT band, path, value FROM (
 
     def _get_results_for_band(
         self, results: list[tuple[str, str, float]], band: CoreWebVitalsMetricBand
-    ) -> list[CoreWebVitalsPathBreakdownResult]:
+    ) -> list[CoreWebVitalsPathBreakdownResultItem]:
         return [
             CoreWebVitalsPathBreakdownResultItem(path=row[1], value=row[2]) for row in results if row[0] == band.value
         ]
