@@ -1,6 +1,7 @@
 import { LemonDivider, LemonFileInput, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 import { Form, Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import React from 'react'
 
 import { SourceConfig, SourceFieldConfig } from '~/types'
 
@@ -21,8 +22,8 @@ const CONNECTION_STRING_DEFAULT_PORT = {
 const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConfig, lastValue?: any): JSX.Element => {
     if (field.type === 'text' && field.name === 'connection_string') {
         return (
-            <>
-                <LemonField key={field.name} name={field.name} label={field.label}>
+            <React.Fragment key={field.name}>
+                <LemonField name={field.name} label={field.label}>
                     {({ onChange }) => (
                         <LemonInput
                             key={field.name}
@@ -36,22 +37,33 @@ const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConf
                                     parseConnectionString(updatedConnectionString)
 
                                 if (isValid) {
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValues({
-                                        payload: {
-                                            dbname: database || '',
-                                            host: host || '',
-                                            user: user || '',
-                                            port: port || CONNECTION_STRING_DEFAULT_PORT[sourceConfig.name],
-                                            password: password || '',
-                                        },
-                                    })
+                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
+                                        ['payload', 'dbname'],
+                                        database || ''
+                                    )
+                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
+                                        ['payload', 'host'],
+                                        host || ''
+                                    )
+                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
+                                        ['payload', 'user'],
+                                        user || ''
+                                    )
+                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
+                                        ['payload', 'port'],
+                                        port || CONNECTION_STRING_DEFAULT_PORT[sourceConfig.name]
+                                    )
+                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
+                                        ['payload', 'password'],
+                                        password || ''
+                                    )
                                 }
                             }}
                         />
                     )}
                 </LemonField>
                 <LemonDivider />
-            </>
+            </React.Fragment>
         )
     }
 

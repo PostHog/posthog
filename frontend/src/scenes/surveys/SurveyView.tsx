@@ -630,6 +630,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                         ],
                         trendsFilter: {
                             formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
+                            display: 'ActionsBar',
                         },
                     },
                 }}
