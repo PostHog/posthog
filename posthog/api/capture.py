@@ -61,15 +61,6 @@ LOG_RATE_LIMITER = Limiter(
     storage=MemoryStorage(),
 )
 
-TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set()
-
-if settings.DROPPED_KEYS:
-    # DROPPED_KEYS is a semicolon separated list of <team_id:distinct_id> pairs
-    strings = set(settings.DROPPED_KEYS.split(";"))
-    for string in strings:
-        team_id, distinct_id = string.split(":")
-        TOKEN_DISTINCT_ID_PAIRS_TO_DROP.add((team_id, distinct_id))
-
 
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
@@ -165,6 +156,15 @@ LIKELY_ANONYMOUS_IDS = {
 }
 
 OVERFLOWING_REDIS_KEY = "@posthog/capture-overflow/"
+
+TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set()
+
+if settings.DROPPED_KEYS:
+    # DROPPED_KEYS is a semicolon separated list of <team_id:distinct_id> pairs
+    strings = set(settings.DROPPED_KEYS.split(";"))
+    for string in strings:
+        team_id, distinct_id = string.split(":")
+        TOKEN_DISTINCT_ID_PAIRS_TO_DROP.add((team_id, distinct_id))
 
 
 class InputType(Enum):
@@ -518,6 +518,7 @@ def get_event(request):
 
         try:
             processed_events = list(preprocess_events(events))
+
         except ValueError as e:
             return cors_response(
                 request,
@@ -529,6 +530,10 @@ def get_event(request):
     with start_span(op="kafka.produce") as span:
         span.set_tag("event.count", len(processed_events))
         for event, event_uuid, distinct_id in processed_events:
+            print("Processing", token, distinct_id, TOKEN_DISTINCT_ID_PAIRS_TO_DROP)  # noqa: T203
+            if (token, distinct_id) in TOKEN_DISTINCT_ID_PAIRS_TO_DROP:
+                continue
+
             try:
                 futures.append(
                     capture_internal(
@@ -810,9 +815,6 @@ def preprocess_events(events: list[dict[str, Any]]) -> Iterator[tuple[dict[str, 
 
         event = parse_event(event)
         if not event:
-            continue
-
-        if (event["team_id"], distinct_id) in TOKEN_DISTINCT_ID_PAIRS_TO_DROP:
             continue
 
         yield event, event_uuid, distinct_id
