@@ -401,6 +401,7 @@ mod tests {
             kafka_client_id: "".to_string(),
             kafka_metadata_max_age_ms: 60000,
             kafka_producer_max_retries: 2,
+            kafka_producer_acks: "all".to_string(),
         };
         let sink = KafkaSink::new(config, handle, limiter, None).expect("failed to create sink");
         (cluster, sink)
