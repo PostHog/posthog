@@ -31,12 +31,12 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
 
 @dataclass
 class PersonOverridesSnapshotTable:
-    id: str
+    id: uuid.UUID
     timestamp: str
 
     @property
     def name(self) -> str:
-        return f"person_distinct_id_overrides_snapshot_{self.id}"
+        return f"person_distinct_id_overrides_snapshot_{self.id.hex}"
 
     @property
     def qualified_name(self):
@@ -53,7 +53,7 @@ class PersonOverridesSnapshotTable:
 
     def exists(self, client: Client) -> None:
         results = client.execute(
-            f"SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)",
+            f"SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s",
             {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
         )
         [[count]] = results
@@ -317,7 +317,7 @@ def create_snapshot_table(
 ) -> PersonOverridesSnapshotTable:
     """Create the snapshot table on all hosts in the cluster."""
     table = PersonOverridesSnapshotTable(
-        id=uuid.UUID(context.run.run_id).hex,
+        id=uuid.UUID(context.run.run_id),
         timestamp=config.timestamp,
     )
     cluster.map_all_hosts(table.create).result()
