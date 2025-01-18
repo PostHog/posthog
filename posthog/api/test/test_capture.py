@@ -2262,7 +2262,6 @@ class TestCapture(BaseTest):
             )
 
             self.assertEqual(response.status_code, 200)
-            print("Testing", token, distinct_id, expected_result)  # noqa: T203
             self.assertEqual(kafka_produce.call_count, expected_result)
 
     def test_capture_replay_to_bucket_when_random_number_is_less_than_sample_rate(self):
