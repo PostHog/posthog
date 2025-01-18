@@ -30,11 +30,10 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         self.recreate_database()
         super().tearDown()
 
-    def recreate_database(self, create_tables=True):
+    def recreate_database(self):
         sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
-        if create_tables:
-            create_clickhouse_tables(0)
+        create_clickhouse_tables()
 
     def test_person_backfill(self):
         self.recreate_database()

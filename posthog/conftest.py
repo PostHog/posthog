@@ -7,7 +7,7 @@ from posthog.models.raw_sessions.sql import TRUNCATE_RAW_SESSIONS_TABLE_SQL
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
 
-def create_clickhouse_tables(num_tables: int):
+def create_clickhouse_tables():
     # Create clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from posthog.clickhouse.schema import (
@@ -21,7 +21,7 @@ def create_clickhouse_tables(num_tables: int):
         build_query,
     )
 
-    total_tables = (
+    num_expected_tables = (
         len(CREATE_MERGETREE_TABLE_QUERIES)
         + len(CREATE_DISTRIBUTED_TABLE_QUERIES)
         + len(CREATE_MV_TABLE_QUERIES)
@@ -31,10 +31,15 @@ def create_clickhouse_tables(num_tables: int):
 
     # Evaluation tests use Kafka for faster data ingestion.
     if settings.IN_EVAL_TESTING:
-        total_tables += len(CREATE_KAFKA_TABLE_QUERIES)
+        num_expected_tables += len(CREATE_KAFKA_TABLE_QUERIES)
+
+    [[num_tables]] = sync_execute(
+        "SELECT count() FROM system.tables WHERE database = %(database)s",
+        {"database": settings.CLICKHOUSE_DATABASE},
+    )
 
     # Check if all the tables have already been created. Views, materialized views, and dictionaries also count
-    if num_tables == total_tables:
+    if num_tables == num_expected_tables:
         return
 
     if settings.IN_EVAL_TESTING:
@@ -149,11 +154,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
             pass
 
     database.create_database()  # Create database if it doesn't exist
-    table_count = sync_execute(
-        "SELECT count() FROM system.tables WHERE database = %(database)s",
-        {"database": settings.CLICKHOUSE_DATABASE},
-    )[0][0]
-    create_clickhouse_tables(table_count)
+    create_clickhouse_tables()
 
     yield
 
