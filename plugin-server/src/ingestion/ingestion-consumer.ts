@@ -202,20 +202,21 @@ export class EventsIngestionConsumer extends IngestionConsumer {
     }
 
     public async processBatch(groupedIncomingEvents: GroupedIncomingEvents): Promise<void> {
-        await this.runManyWithHeartbeat(Object.values(groupedIncomingEvents), async (eventsForDistinctId) => {
-            // Process every message sequentially, stash promises to await on later
-            for (const { message, event } of eventsForDistinctId) {
-                // Track $set usage in events that aren't known to use it, before ingestion adds anything there
-                if (
-                    event.properties &&
-                    !PERSON_EVENTS.has(event.event) &&
-                    !KNOWN_SET_EVENTS.has(event.event) &&
-                    ('$set' in event.properties || '$set_once' in event.properties || '$unset' in event.properties)
-                ) {
-                    setUsageInNonPersonEventsCounter.inc()
-                }
+        // TODO: Investigate if we can process batches in parallel
+        try {
+            await this.runManyWithHeartbeat(Object.values(groupedIncomingEvents), async (eventsForDistinctId) => {
+                // Process every message sequentially, stash promises to await on later
+                for (const { message, event } of eventsForDistinctId) {
+                    // Track $set usage in events that aren't known to use it, before ingestion adds anything there
+                    if (
+                        event.properties &&
+                        !PERSON_EVENTS.has(event.event) &&
+                        !KNOWN_SET_EVENTS.has(event.event) &&
+                        ('$set' in event.properties || '$set_once' in event.properties || '$unset' in event.properties)
+                    ) {
+                        setUsageInNonPersonEventsCounter.inc()
+                    }
 
-                try {
                     const eventKey = `${event.token}:${event.distinct_id}`
                     // Check the rate limiter and emit to overflow if necessary
                     if (this.overflowEnabled() && !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)) {
@@ -234,30 +235,35 @@ export class EventsIngestionConsumer extends IngestionConsumer {
                     // })
 
                     const runner = new EventPipelineRunnerV2(this.hub, event)
-                    await runner.run()
+                    try {
+                        await runner.run()
+                    } catch (error) {
+                        await this.handleProcessingError(error, message, event)
+                    }
 
-                    runner.getPromises().forEach((promise) => {
-                        void this.scheduleWork(
-                            promise.catch(async (error) => {
-                                await this.handleProcessingError(error, message, event)
-                            })
-                        )
+                    // TRICKY: We want to later catch anything that goes wrong with flushing
+                    // the promises so we can send the event to the DLQ
+
+                    this.scheduleWork(Promise.all(runner.getPromises())).catch((error) => {
+                        return this.handleProcessingError(error, message, event)
                     })
-                } catch (error) {
-                    await this.handleProcessingError(error, message, event)
                 }
-            }
-        })
+            })
 
-        await Promise.all(this.promises)
+            await Promise.all(this.promises)
+        } catch (error) {
+            status.error('🔥', `Error processing batch`, {
+                stack: error.stack,
+                error: error,
+            })
+
+            throw error
+        } finally {
+            this.promises.clear()
+        }
     }
 
     private async handleProcessingError(error: any, message: Message, event: PipelineEvent) {
-        status.error('🔥', `Error processing message`, {
-            stack: error.stack,
-            error: error,
-        })
-
         // If the error is a non-retriable error, push to the dlq and commit the offset. Else raise the
         // error.
         //
@@ -268,6 +274,7 @@ export class EventsIngestionConsumer extends IngestionConsumer {
         //
         // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
         // fact that node-rdkafka adheres to the `isRetriable` interface.
+
         if (error?.isRetriable === false) {
             const sentryEventId = Sentry.captureException(error)
             const headers: MessageHeader[] = message.headers ?? []

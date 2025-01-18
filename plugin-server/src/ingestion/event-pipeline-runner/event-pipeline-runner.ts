@@ -6,7 +6,7 @@ import { Counter } from 'prom-client'
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
-import { MessageSizeTooLarge } from '../../utils/db/error'
+import { DependencyUnavailableError, MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, sanitizeString } from '../../utils/db/utils'
 import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
 import { status } from '../../utils/status'
@@ -15,7 +15,7 @@ import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from '../../worker/ingesti
 import { PersonState } from '../../worker/ingestion/person-state'
 import { upsertGroup } from '../../worker/ingestion/properties-updater'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
+import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../../worker/ingestion/utils'
 import { runProcessEvent } from '../../worker/plugins/run'
 import { getElementsChain } from './utils/event-utils'
 import { extractHeatmapData } from './utils/heatmaps'
@@ -84,12 +84,26 @@ export class EventPipelineRunnerV2 {
                 // Handled errors mean we know that it was invalid and are purposefully moving on - everything else is unhandled
                 return this.captureIngestionWarning(error.ingestion_warning)
             }
-            // Otherwise rethrow, which leads to Kafka offsets not getting committed and retries
+
             Sentry.captureException(error, {
-                tags: { pipeline_step: 'outside' },
+                tags: { team_id: this.team!.id },
                 extra: { originalEvent: this.originalEvent },
             })
-            throw error
+
+            // pipelineStepErrorCounter.labels(currentStepName).inc()
+
+            if (error instanceof DependencyUnavailableError) {
+                // This kind of error indicates that the there was something unavailable like a DB connection
+                // so we want to retry the event
+
+                // TODO: Add this back in
+                // pipelineStepThrowCounter.labels(currentStepName).inc()
+
+                throw error
+            }
+
+            // TODO: The old pipeline runner sent a message to the DLQ but
+            // there is also a DLQ with the raw message which is just fine so we should only use that.
         }
     }
 
@@ -118,11 +132,11 @@ export class EventPipelineRunnerV2 {
         if (this.event.event === '$$heatmap') {
             // Heatmaps are not typical events so we bypass alot of the usual processing
             this.normalizeEvent()
-            this.extractHeatmapData()
+            this.processHeatmaps()
             return
         }
 
-        const pluginProcessed = await this.runPluginProcessing()
+        const pluginProcessed = await this.processPlugins()
         if (!pluginProcessed) {
             droppedEventFromPluginServerCounter.inc()
             // NOTE: In this case we just return as it is expected, not an ingestion error
@@ -134,7 +148,7 @@ export class EventPipelineRunnerV2 {
         await this.processGroups()
 
         this.trackFirstEventIngestion()
-        this.extractHeatmapData()
+        this.processHeatmaps()
 
         const kafkaEvent = this.createKafkaEvent()
 
@@ -202,7 +216,7 @@ export class EventPipelineRunnerV2 {
         }
     }
 
-    private async runPluginProcessing(): Promise<boolean> {
+    private async processPlugins(): Promise<boolean> {
         const processedEvent = await runInstrumentedFunction({
             timeoutContext: () => ({ event: JSON.stringify(this.event) }),
             func: () => runProcessEvent(this.hub, this.event),
@@ -302,7 +316,7 @@ export class EventPipelineRunnerV2 {
         }
     }
 
-    private extractHeatmapData() {
+    private processHeatmaps() {
         try {
             if (this.team?.heatmaps_opt_in !== false) {
                 const heatmapEvents = extractHeatmapData(this.event) ?? []
@@ -434,40 +448,45 @@ export class EventPipelineRunnerV2 {
         )
     }
 
-    // private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
-    //     Sentry.captureException(err, {
-    //         tags: { team_id: teamId, pipeline_step: currentStepName },
-    //         extra: { currentArgs, originalEvent: this.originalEvent },
-    //     })
+    private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
+        Sentry.captureException(err, {
+            tags: { team_id: teamId, pipeline_step: currentStepName },
+            extra: { currentArgs, originalEvent: this.originalEvent },
+        })
 
-    //     pipelineStepErrorCounter.labels(currentStepName).inc()
+        // pipelineStepErrorCounter.labels(currentStepName).inc()
 
-    //     // Should we throw or should we drop and send the event to DLQ.
-    //     if (this.shouldRetry(err)) {
-    //         pipelineStepThrowCounter.labels(currentStepName).inc()
-    //         throw err
-    //     }
+        if (err instanceof DependencyUnavailableError) {
+            // If this is an error with a dependency that we control, we want to
+            // ensure that the caller knows that the event was not processed,
+            // for a reason that we control and that is transient.
+            throw err
+        }
 
-    //     if (sentToDql) {
-    //         pipelineStepDLQCounter.labels(currentStepName).inc()
-    //         try {
-    //             const message = generateEventDeadLetterQueueMessage(
-    //                 this.originalEvent,
-    //                 err,
-    //                 teamId,
-    //                 `plugin_server_ingest_event:${currentStepName}`
-    //             )
-    //             await this.hub.db.kafkaProducer!.queueMessage({ kafkaMessage: message, waitForAck: true })
-    //         } catch (dlqError) {
-    //             status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
-    //             Sentry.captureException(dlqError, {
-    //                 tags: { team_id: teamId },
-    //                 extra: { currentStepName, currentArgs, originalEvent: this.originalEvent, err },
-    //             })
-    //         }
-    //     }
+        // // Should we throw or should we drop and send the event to DLQ.
+        // if (this.shouldRetry(err)) {
+        //     pipelineStepThrowCounter.labels(currentStepName).inc()
+        //     throw err
+        // }
 
-    //     // These errors are dropped rather than retried
-    //     throw new StepErrorNoRetry(currentStepName, currentArgs, err.message)
-    // }
+        // pipelineStepDLQCounter.labels(currentStepName).inc()
+        try {
+            const message = generateEventDeadLetterQueueMessage(
+                this.originalEvent,
+                err,
+                teamId,
+                `plugin_server_ingest_event:${currentStepName}`
+            )
+            await this.hub.db.kafkaProducer!.queueMessage({ kafkaMessage: message, waitForAck: true })
+        } catch (dlqError) {
+            status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
+            Sentry.captureException(dlqError, {
+                tags: { team_id: teamId },
+                extra: { currentStepName, currentArgs, originalEvent: this.originalEvent, err },
+            })
+        }
+
+        // These errors are dropped rather than retried
+        throw new StepErrorNoRetry(currentStepName, currentArgs, err.message)
+    }
 }
