@@ -27,7 +27,7 @@ class CoreWebVitalsPathBreakdownQueryRunner(WebAnalyticsQueryRunner):
     response: CoreWebVitalsPathBreakdownQueryResponse
     cached_response: CachedWebStatsTableQueryResponse
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self):
         return parse_select(
             "SELECT * FROM {good_query} UNION ALL {needs_improvements_query} UNION ALL {poor_query}",
             timings=self.timings,
@@ -43,7 +43,7 @@ class CoreWebVitalsPathBreakdownQueryRunner(WebAnalyticsQueryRunner):
     # `Scalar subquery returned empty result of type Tuple(String, Nullable(String), Nullable(Float64)) which cannot be Nullable.`
     #
     # NOTE: Hardcoded to return at most 20 results per band, but we can change that if needed
-    def _select_by_band(self, band: CoreWebVitalsMetricBand) -> ast.SelectQuery:
+    def _select_by_band(self, band: CoreWebVitalsMetricBand):
         return parse_select(
             """
 SELECT band, path, value FROM (
@@ -72,7 +72,7 @@ SELECT band, path, value FROM (
             },
         )
 
-    def _thresholds_for_band(self, band: CoreWebVitalsMetricBand) -> tuple[float, float]:
+    def _thresholds_for_band(self, band: CoreWebVitalsMetricBand) -> ast.Expr:
         thresholds = {
             CoreWebVitalsMetricBand.GOOD: (-1, self.query.thresholds[0]),
             CoreWebVitalsMetricBand.NEEDS_IMPROVEMENTS: (self.query.thresholds[0], self.query.thresholds[1]),

@@ -39,9 +39,9 @@ class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest
         date_from,
         date_to,
         thresholds: tuple[float, float],
-        properties=None,
         metric: CoreWebVitalsMetric = CoreWebVitalsMetric.INP,
         percentile: PropertyMathType = PropertyMathType.P75,
+        properties=None,
     ):
         query = CoreWebVitalsPathBreakdownQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
