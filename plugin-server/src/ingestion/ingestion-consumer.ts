@@ -225,7 +225,7 @@ export class EventsIngestionConsumer extends IngestionConsumer {
 
                 try {
                     const result = await retryIfRetriable(async () => {
-                        const runner = new EventPipelineRunner(this.hub, event, this.hub.eventsProcessor)
+                        const runner = new EventPipelineRunner(this.hub, event)
                         return await runner.runEventPipeline(event)
                     })
 
