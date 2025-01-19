@@ -273,7 +273,6 @@ export class EventsIngestionConsumer extends IngestionConsumer {
                     value: message.value,
                     key: message.key ?? null, // avoid undefined, just to be safe
                     headers: headers,
-                    waitForAck: true,
                 })
             } catch (error) {
                 // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
@@ -342,7 +341,6 @@ export class EventsIngestionConsumer extends IngestionConsumer {
                     // instead as that behavior is safer.
                     key: useRandomPartitioning ? null : message.key ?? null,
                     headers: message.headers,
-                    waitForAck: true,
                 })
             )
         )
