@@ -11,7 +11,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { createTeam, createUserTeamAndOrganization, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { IngestionConsumer } from './ingestion-consumer'
 
 const mockConsumer = {
