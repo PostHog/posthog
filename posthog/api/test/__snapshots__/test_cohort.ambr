@@ -75,7 +75,7 @@
   FROM cohortpeople
   WHERE (team_id = 99999
          AND cohort_id = '2'
-         AND version < '3')
+         AND version < '4')
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.11
@@ -85,7 +85,7 @@
   FROM cohortpeople
   WHERE (team_id = 99999
          AND cohort_id = '2'
-         AND version < '3')
+         AND version < '4')
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.12
@@ -103,7 +103,7 @@
   FROM cohortpeople
   WHERE (team_id = 99999
          AND cohort_id = '2'
-         AND version < '3')
+         AND version < '4')
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.2
@@ -174,7 +174,7 @@
                                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                     GROUP BY person_distinct_id_overrides.distinct_id
                                     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2025-01-09 23:59:59.999999', 6, 'UTC')), equals(e.event, '$pageview')))
+                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2025-01-19 23:59:59.999999', 6, 'UTC')), equals(e.event, '$pageview')))
                               GROUP BY actor_id) AS source
                            ORDER BY source.id ASC
                            LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
@@ -200,7 +200,7 @@
          99999 as cohort_id,
          99999 as team_id,
          1 AS sign,
-         3 AS version
+         4 AS version
   FROM
     (SELECT id
      FROM person
@@ -222,7 +222,7 @@
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version < 3
+    AND version < 4
     AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
                           join_algorithm = 'auto'
   '''
@@ -234,7 +234,7 @@
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = 3
+    AND version = 4
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.8
@@ -245,7 +245,7 @@
   FROM cohortpeople
   WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
     AND cohort_id = 99999
-    AND version < 3
+    AND version < 4
   GROUP BY team_id
   HAVING stale_people_count > 0
   '''
@@ -258,7 +258,7 @@
          99999 as cohort_id,
          99999 as team_id,
          -1 AS sign,
-         2 AS version
+         3 AS version
   FROM (
           (SELECT persons.id AS id
            FROM
