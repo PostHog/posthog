@@ -129,6 +129,60 @@ describe('IngestionConsumer', () => {
         it('should process events', async () => {
             const messages = createKafkaMessages([createEvent()])
             await ingester.handleKafkaBatch(messages)
+
+            expect(decodeAllKafkaMessages()).toMatchInlineSnapshot(`
+                [
+                  {
+                    "key": null,
+                    "topic": "clickhouse_person_test",
+                    "value": {
+                      "created_at": "2025-01-19 11:42:38",
+                      "id": "1e7731c8-945c-520d-96b9-e7f088242010",
+                      "is_deleted": 0,
+                      "is_identified": 0,
+                      "properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"01947e5f-3be8-0000-0507-06a17ba519e0","$initial_current_url":"http://localhost:8000"}",
+                      "team_id": 2,
+                      "version": 0,
+                    },
+                  },
+                  {
+                    "key": null,
+                    "topic": "clickhouse_person_distinct_id_test",
+                    "value": {
+                      "distinct_id": "user-1",
+                      "is_deleted": 0,
+                      "person_id": "1e7731c8-945c-520d-96b9-e7f088242010",
+                      "team_id": 2,
+                      "version": 0,
+                    },
+                  },
+                  {
+                    "key": null,
+                    "topic": "events_dead_letter_queue_test",
+                    "value": {
+                      "distinct_id": "user-1",
+                      "error": "Event ingestion failed. Error: Cannot read properties of undefined (reading 'catch')",
+                      "error_location": "plugin_server_ingest_event:emitEventStep",
+                      "error_timestamp": "2025-01-19 11:42:38",
+                      "event": "$pageview",
+                      "event_uuid": "01947e5f-3be8-0000-0507-06a17ba519e0",
+                      "id": "01947e5f-3c08-0000-2bf7-132f2d57fae8",
+                      "ip": "",
+                      "now": "2025-01-19 11:42:38",
+                      "properties": "{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}",
+                      "raw_payload": "{"distinct_id":"user-1","uuid":"01947e5f-3be8-0000-0507-06a17ba519e0","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":null,"site_url":"us.posthog.com","now":"2025-01-19T12:42:38.056+01:00","event":"$pageview","properties":{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}}",
+                      "site_url": "us.posthog.com",
+                      "tags": [
+                        "plugin_server",
+                        "ingest_event",
+                      ],
+                      "team_id": 2,
+                      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+                      "uuid": "01947e5f-3be8-0000-0507-06a17ba519e0",
+                    },
+                  },
+                ]
+            `)
         })
     })
 })
