@@ -4,8 +4,9 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
 [
   [
     "populateTeamDataStep",
-    [
-      {
+    Array [
+      "__this__",
+      Object {
         "distinct_id": "my_id",
         "event": "default event",
         "ip": "127.0.0.1",
@@ -21,8 +22,9 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
   ],
   [
     "pluginsProcessEventStep",
-    [
-      {
+    Array [
+      "__this__",
+      Object {
         "distinct_id": "my_id",
         "event": "default event",
         "ip": "127.0.0.1",
@@ -37,14 +39,26 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
   ],
   [
     "normalizeEventStep",
-    [
+    Array [
+      Object {
+        "distinct_id": "my_id",
+        "event": "default event",
+        "ip": "127.0.0.1",
+        "now": "2020-02-23T02:15:00.000Z",
+        "properties": Object {},
+        "site_url": "http://localhost",
+        "team_id": 2,
+        "timestamp": "2020-02-23T02:15:00.000Z",
+        "uuid": "uuid1",
+      },
       true,
     ],
   ],
   [
     "processPersonsStep",
-    [
-      {
+    Array [
+      "__this__",
+      Object {
         "distinct_id": "my_id",
         "event": "default event",
         "ip": null,
@@ -63,8 +77,9 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
   ],
   [
     "prepareEventStep",
-    [
-      {
+    Array [
+      "__this__",
+      Object {
         "distinct_id": "my_id",
         "event": "default event",
         "ip": null,
@@ -82,8 +97,9 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
   ],
   [
     "extractHeatmapDataStep",
-    [
-      {
+    Array [
+      "__this__",
+      Object {
         "distinctId": "my_id",
         "elementsList": [],
         "event": "$pageview",
@@ -98,8 +114,9 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
   ],
   [
     "createEventStep",
-    [
-      {
+    Array [
+      "__this__",
+      Object {
         "distinctId": "my_id",
         "elementsList": [],
         "event": "$pageview",
@@ -110,28 +127,26 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
         "teamId": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
       },
-      {
-        "person": {
-          "created_at": "2020-02-23T02:15:00.000Z",
-          "id": 123,
-          "is_identified": true,
-          "is_user_id": 0,
-          "properties": {},
-          "properties_last_operation": {},
-          "properties_last_updated_at": {},
-          "team_id": 2,
-          "uuid": "uuid",
-          "version": 0,
-        },
-        "personUpdateProperties": {},
+      Object {
+        "created_at": "2020-02-23T02:15:00.000Z",
+        "id": 123,
+        "is_identified": true,
+        "is_user_id": 0,
+        "properties": Object {},
+        "properties_last_operation": Object {},
+        "properties_last_updated_at": Object {},
+        "team_id": 2,
+        "uuid": "uuid",
+        "version": 0,
       },
       true,
     ],
   ],
   [
     "emitEventStep",
-    [
-      {
+    Array [
+      "__this__",
+      Object {
         "created_at": "2024-11-18 14:54:33.606",
         "distinct_id": "my_id",
         "elements_chain": "",

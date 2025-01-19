@@ -4,13 +4,13 @@ import { PreIngestionEvent } from 'types'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
 import { invalidTimestampCounter } from './metrics'
-import { EventPipelineRunner } from './runner'
+import { EventPipelineRunner, StepResult } from './runner'
 
 export async function prepareEventStep(
     runner: EventPipelineRunner,
     event: PluginEvent,
     processPerson: boolean
-): Promise<PreIngestionEvent> {
+): Promise<StepResult<PreIngestionEvent>> {
     const { team_id, uuid } = event
     const tsParsingIngestionWarnings: Promise<void>[] = []
     const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
@@ -29,5 +29,5 @@ export async function prepareEventStep(
     )
     await Promise.all(tsParsingIngestionWarnings)
 
-    return preIngestionEvent
+    return { result: preIngestionEvent }
 }

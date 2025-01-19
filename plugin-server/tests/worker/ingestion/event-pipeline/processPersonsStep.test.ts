@@ -11,7 +11,7 @@ import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { createOrganization, createTeam, fetchPostgresPersons, resetTestDatabase } from '../../../helpers/sql'
 
 describe('processPersonsStep()', () => {
-    let runner: Pick<EventPipelineRunner, 'hub' | 'eventsProcessor'>
+    let runner: EventPipelineRunner
     let hub: Hub
 
     let uuid: string
@@ -25,7 +25,7 @@ describe('processPersonsStep()', () => {
         runner = {
             hub: hub,
             eventsProcessor: new EventsProcessor(hub),
-        }
+        } as unknown as EventPipelineRunner
         const organizationId = await createOrganization(runner.hub.db.postgres)
         teamId = await createTeam(runner.hub.db.postgres, organizationId)
         uuid = new UUIDT().toString()
@@ -53,10 +53,10 @@ describe('processPersonsStep()', () => {
 
     it('creates person', async () => {
         const processPerson = true
-        const [resEvent, resPerson] = await processPersonsStep(runner, pluginEvent, timestamp, processPerson)
+        const { result } = await processPersonsStep(runner, pluginEvent, timestamp, processPerson)
 
-        expect(resEvent).toEqual(pluginEvent)
-        expect(resPerson).toEqual(
+        expect(result.event).toEqual(pluginEvent)
+        expect(result.person).toEqual(
             expect.objectContaining({
                 id: expect.any(Number),
                 uuid: expect.any(String),
@@ -69,7 +69,7 @@ describe('processPersonsStep()', () => {
 
         // Check PG state
         const persons = await fetchPostgresPersons(runner.hub.db, teamId)
-        expect(persons).toEqual([resPerson])
+        expect(persons).toEqual([result.person])
     })
 
     it('creates event with normalized properties set by plugins', async () => {
@@ -84,10 +84,15 @@ describe('processPersonsStep()', () => {
         }
 
         const processPerson = true
-        const [normalizedEvent, timestamp] = await normalizeEventStep(event, processPerson)
-        const [resEvent, resPerson] = await processPersonsStep(runner, normalizedEvent, timestamp, processPerson)
+        const { result: normalizedEvent } = await normalizeEventStep(event, processPerson)
+        const { result: resEvent } = await processPersonsStep(
+            runner,
+            normalizedEvent.event,
+            normalizedEvent.timestamp,
+            processPerson
+        )
 
-        expect(resEvent).toEqual({
+        expect(resEvent.event).toEqual({
             ...event,
             properties: {
                 $browser: 'Chrome',
@@ -100,7 +105,7 @@ describe('processPersonsStep()', () => {
                 },
             },
         })
-        expect(resPerson).toEqual(
+        expect(resEvent.person).toEqual(
             expect.objectContaining({
                 id: expect.any(Number),
                 uuid: expect.any(String),
@@ -117,6 +122,6 @@ describe('processPersonsStep()', () => {
 
         // Check PG state
         const persons = await fetchPostgresPersons(runner.hub.db, teamId)
-        expect(persons).toEqual([resPerson])
+        expect(persons).toEqual([resEvent.person])
     })
 })
