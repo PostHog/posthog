@@ -24,7 +24,7 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
-import { EventsIngestionConsumer } from '../ingestion/ingestion-consumer'
+import { IngestionConsumer } from '../ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
 import { closeHub, createHub, createKafkaClient } from '../utils/db/hub'
@@ -299,14 +299,14 @@ export async function startPluginsServer(
                     INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                     INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
                 }
-                const consumer = new EventsIngestionConsumer(modifiedHub)
+                const consumer = new IngestionConsumer(modifiedHub)
                 await consumer.start()
                 services.push(consumer.service)
             }
         } else {
             if (capabilities.ingestionV2) {
                 const hub = await setupHub()
-                const consumer = new EventsIngestionConsumer(hub)
+                const consumer = new IngestionConsumer(hub)
                 await consumer.start()
                 services.push(consumer.service)
             }
