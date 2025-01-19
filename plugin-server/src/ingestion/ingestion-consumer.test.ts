@@ -12,6 +12,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { status } from '../utils/status'
 import { IngestionConsumer } from './ingestion-consumer'
 
 const mockConsumer = {
@@ -153,17 +154,36 @@ describe('IngestionConsumer', () => {
                 }
             }
 
+            beforeEach(() => {
+                jest.spyOn(status, 'debug')
+            })
+
+            const expectDropLogs = (pairs: [string, string | undefined][]) => {
+                expect(jest.mocked(status.debug)).toHaveBeenCalledTimes(pairs.length)
+                for (const [token, distinctId] of pairs) {
+                    expect(jest.mocked(status.debug)).toHaveBeenCalledWith('🔁', 'Dropped event', {
+                        distinctId,
+                        token,
+                    })
+                }
+            }
+
             describe('with DROP_EVENTS_BY_TOKEN', () => {
                 beforeEach(async () => {
                     hub.DROP_EVENTS_BY_TOKEN = `${team.api_token},phc_other`
                     ingester = new IngestionConsumer(hub)
                     await ingester.start()
                 })
+
                 it('should drop events with matching token', async () => {
                     const messages = createKafkaMessages([createEvent({}), createEvent({})])
                     addMessageHeaders(messages[0], team.api_token)
                     await ingester.handleKafkaBatch(messages)
                     expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                    expectDropLogs([
+                        [team.api_token, 'user-1'],
+                        [team.api_token, 'user-1'],
+                    ])
                 })
 
                 it('should not drop events for a different team token', async () => {
@@ -171,6 +191,7 @@ describe('IngestionConsumer', () => {
                     addMessageHeaders(messages[0], team2.api_token)
                     await ingester.handleKafkaBatch(messages)
                     expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
+                    expectDropLogs([])
                 })
 
                 it('should only drop events in batch matching', async () => {
@@ -189,6 +210,10 @@ describe('IngestionConsumer', () => {
                         team_id: team2.id,
                         distinct_id: 'team2-distinct-id',
                     })
+                    expectDropLogs([
+                        [team.api_token, kind === 'headers' ? undefined : 'user-1'],
+                        [team.api_token, kind === 'headers' ? undefined : 'user-1'],
+                    ])
                 })
             })
 
@@ -207,6 +232,7 @@ describe('IngestionConsumer', () => {
                     addMessageHeaders(messages[0], team.api_token, 'distinct-id-to-ignore')
                     await ingester.handleKafkaBatch(messages)
                     expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                    expectDropLogs([[team.api_token, 'distinct-id-to-ignore']])
                 })
 
                 it('should not drop events for a different team token', async () => {
@@ -219,6 +245,7 @@ describe('IngestionConsumer', () => {
                     addMessageHeaders(messages[0], team2.api_token, 'distinct-id-to-ignore')
                     await ingester.handleKafkaBatch(messages)
                     expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
+                    expectDropLogs([])
                 })
 
                 it('should not drop events for a different distinct_id', async () => {
@@ -230,6 +257,7 @@ describe('IngestionConsumer', () => {
                     addMessageHeaders(messages[0], team.api_token, 'not-ignored')
                     await ingester.handleKafkaBatch(messages)
                     expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
+                    expectDropLogs([])
                 })
             })
         })
