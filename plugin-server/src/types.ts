@@ -72,7 +72,7 @@ export enum KafkaSaslMechanism {
 }
 
 export enum PluginServerMode {
-    single_process_v2 = 'single-process-v2',
+    all_v2 = 'all-v2',
     ingestion = 'ingestion',
     ingestion_v2 = 'ingestion-v2',
     ingestion_overflow = 'ingestion-overflow',

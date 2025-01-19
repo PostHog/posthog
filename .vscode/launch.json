@@ -145,7 +145,7 @@
                 "HOG_HOOK_URL": "http://localhost:3300/hoghook",
                 "CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS": "",
                 "CDP_CYCLOTRON_ENABLED_TEAMS": "*",
-                "PLUGIN_SERVER_MODE": "single-process-v2"
+                "PLUGIN_SERVER_MODE": "all-v2"
             },
             "presentation": {
                 "group": "main"
