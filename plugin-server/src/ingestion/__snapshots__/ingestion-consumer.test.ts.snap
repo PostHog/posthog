@@ -1,0 +1,30 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`IngestionConsumer general should process events 1`] = `
+[
+  {
+    "key": null,
+    "topic": "clickhouse_person_test",
+    "value": {
+      "created_at": "2025-01-19 12:01:36",
+      "id": "<REPLACED-UUID-0>",
+      "is_deleted": 0,
+      "is_identified": 0,
+      "properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-1>","$initial_current_url":"http://localhost:8000"}",
+      "team_id": 2,
+      "version": 0,
+    },
+  },
+  {
+    "key": null,
+    "topic": "clickhouse_person_distinct_id_test",
+    "value": {
+      "distinct_id": "user-1",
+      "is_deleted": 0,
+      "person_id": "<REPLACED-UUID-2>",
+      "team_id": 2,
+      "version": 0,
+    },
+  },
+]
+`;

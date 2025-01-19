@@ -60,6 +60,24 @@ const decodeAllKafkaMessages = (): DecodedKafkaMessage[] => {
     return result
 }
 
+const UUID_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+const forSnapshot = (obj: any, idMap?: Record<string, string>) => {
+    idMap = idMap ?? {}
+
+    // To make snapshot testing way simpler this matches on UUIDs and replaces them with an incrementing ID
+
+    let strData = JSON.stringify(obj)
+
+    const matches = strData.match(UUID_REGEX)
+
+    for (const match of matches ?? []) {
+        idMap[match] = `<REPLACED-UUID-${Object.keys(idMap).length}>`
+        strData = strData.replace(match, idMap[match])
+    }
+
+    return JSON.parse(strData)
+}
+
 let offsetIncrementer = 0
 
 const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => {
@@ -133,34 +151,7 @@ describe('IngestionConsumer', () => {
             const messages = createKafkaMessages([createEvent()])
             await ingester.handleKafkaBatch(messages)
 
-            expect(decodeAllKafkaMessages()).toMatchInlineSnapshot(`
-                [
-                  {
-                    "key": null,
-                    "topic": "clickhouse_person_test",
-                    "value": {
-                      "created_at": "2025-01-19 11:52:53",
-                      "id": "1e7731c8-945c-520d-96b9-e7f088242010",
-                      "is_deleted": 0,
-                      "is_identified": 0,
-                      "properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"01947e68-a1de-0000-a431-3b487e66a0c8","$initial_current_url":"http://localhost:8000"}",
-                      "team_id": 2,
-                      "version": 0,
-                    },
-                  },
-                  {
-                    "key": null,
-                    "topic": "clickhouse_person_distinct_id_test",
-                    "value": {
-                      "distinct_id": "user-1",
-                      "is_deleted": 0,
-                      "person_id": "1e7731c8-945c-520d-96b9-e7f088242010",
-                      "team_id": 2,
-                      "version": 0,
-                    },
-                  },
-                ]
-            `)
+            expect(forSnapshot(decodeAllKafkaMessages())).toMatchSnapshot()
         })
     })
 })
