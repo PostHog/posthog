@@ -34,15 +34,15 @@ export async function extractHeatmapDataStep(
         if (team?.heatmaps_opt_in !== false) {
             const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []
 
-            // eslint-disable-next-line @typescript-eslint/no-floating-promises
-            acks = heatmapEvents.map((rawEvent) => {
-                return runner.hub.kafkaProducer.produce({
+            acks.push(
+                runner.hub.kafkaProducer.queueMessages({
                     topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                    key: eventUuid,
-                    value: Buffer.from(JSON.stringify(rawEvent)),
-                    waitForAck: true,
+                    messages: heatmapEvents.map((rawEvent) => ({
+                        key: eventUuid,
+                        value: JSON.stringify(rawEvent),
+                    })),
                 })
-            })
+            )
         }
     } catch (e) {
         acks.push(

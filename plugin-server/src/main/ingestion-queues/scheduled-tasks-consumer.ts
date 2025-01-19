@@ -1,7 +1,7 @@
 import { Batch, EachBatchHandler, Kafka } from 'kafkajs'
-import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_SCHEDULED_TASKS, KAFKA_SCHEDULED_TASKS_DLQ } from '../../config/kafka-topics'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PluginServerService, PluginsServerConfig } from '../../types'
 import { DependencyUnavailableError } from '../../utils/db/error'
 import { status } from '../../utils/status'
@@ -164,12 +164,9 @@ const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) =
             status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                 value: message.value,
             })
-            await producer.queueMessage({
-                kafkaMessage: {
-                    topic: KAFKA_SCHEDULED_TASKS_DLQ,
-                    messages: [{ value: message.value, key: message.key }],
-                },
-                waitForAck: true,
+            await producer.queueMessages({
+                topic: KAFKA_SCHEDULED_TASKS_DLQ,
+                messages: [{ value: message.value, key: message.key }],
             })
             continue
         }
@@ -185,24 +182,18 @@ const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) =
             status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                 error: error.stack ?? error,
             })
-            await producer.queueMessage({
-                kafkaMessage: {
-                    topic: KAFKA_SCHEDULED_TASKS_DLQ,
-                    messages: [{ value: message.value, key: message.key }],
-                },
-                waitForAck: true,
+            await producer.queueMessages({
+                topic: KAFKA_SCHEDULED_TASKS_DLQ,
+                messages: [{ value: message.value, key: message.key }],
             })
             continue
         }
 
         if (!taskTypes.includes(task.taskType) || isNaN(task.pluginConfigId)) {
             status.warn('⚠️', `Invalid schema for partition ${batch.partition} offset ${message.offset}.`, task)
-            await producer.queueMessage({
-                kafkaMessage: {
-                    topic: KAFKA_SCHEDULED_TASKS_DLQ,
-                    messages: [{ value: message.value, key: message.key }],
-                },
-                waitForAck: true,
+            await producer.queueMessages({
+                topic: KAFKA_SCHEDULED_TASKS_DLQ,
+                messages: [{ value: message.value, key: message.key }],
             })
             continue
         }
