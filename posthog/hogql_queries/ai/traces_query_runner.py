@@ -158,8 +158,8 @@ class TracesQueryRunner(QueryRunner):
             "$ai_total_cost_usd": "totalCost",
             "$ai_http_status": "httpStatus",
             "$ai_base_url": "baseUrl",
+            "$ai_model_parameters": "modelParameters",
         }
-        GENERATION_JSON_FIELDS = {"$ai_input", "$ai_output"}
 
         generation: dict[str, Any] = {
             "id": str(event_uuid),
@@ -168,12 +168,8 @@ class TracesQueryRunner(QueryRunner):
 
         for event_prop, model_prop in GENERATION_MAPPING.items():
             if event_prop in properties:
-                if event_prop in GENERATION_JSON_FIELDS:
-                    try:
-                        generation[model_prop] = orjson.loads(properties[event_prop])
-                    except orjson.JSONDecodeError:
-                        if event_prop == "$ai_input":
-                            generation[model_prop] = []
+                if event_prop == "$ai_input" and not properties[event_prop]:
+                    generation[model_prop] = []
                 else:
                     generation[model_prop] = properties[event_prop]
 

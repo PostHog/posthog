@@ -8908,6 +8908,9 @@
                 "model": {
                     "type": "string"
                 },
+                "modelParameters": {
+                    "type": "object"
+                },
                 "output": {},
                 "outputCost": {
                     "type": "number"
