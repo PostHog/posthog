@@ -1,6 +1,7 @@
 import './SavedInsights.scss'
 
 import {
+    IconAI,
     IconBrackets,
     IconCorrelationAnalysis,
     IconCursor,
@@ -256,6 +257,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.CoreWebVitalsQuery]: {
+        name: 'Core Web Vitals',
+        description: 'View Core Web Vitals.',
+        icon: IconPieChart,
+        inMenu: true,
+    },
     [NodeKind.HogQuery]: {
         name: 'Hog',
         description: 'Hog query.',
@@ -311,6 +318,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Actor Property Taxonomy',
         description: 'View the taxonomy of the actor’s property.',
         icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.TracesQuery]: {
+        name: 'LLM Observability Traces',
+        icon: IconAI,
         inMenu: false,
     },
 }

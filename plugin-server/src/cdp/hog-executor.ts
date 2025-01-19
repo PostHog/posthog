@@ -107,7 +107,7 @@ const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => 
     return message
 }
 
-const buildGlobalsWithInputs = (
+export const buildGlobalsWithInputs = (
     globals: HogFunctionInvocationGlobals,
     inputs: HogFunctionType['inputs']
 ): HogFunctionInvocationGlobalsWithInputs => {
@@ -241,12 +241,22 @@ export class HogExecutor {
             }
         }
 
-        const _buildGlobalsWithInputs = (
+        const _buildInvocation = (
             hogFunction: HogFunctionType,
             inputs: HogFunctionType['inputs']
-        ): HogFunctionInvocationGlobalsWithInputs | null => {
+        ): HogFunctionInvocation | null => {
             try {
-                return buildGlobalsWithInputs(triggerGlobals, inputs)
+                const globalsWithSource = {
+                    ...triggerGlobals,
+                    source: {
+                        name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+                        url: `${triggerGlobals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+                    },
+                }
+
+                const globalsWithInputs = buildGlobalsWithInputs(globalsWithSource, inputs)
+
+                return createInvocation(globalsWithInputs, hogFunction)
             } catch (error) {
                 logs.push({
                     team_id: hogFunction.team_id,
@@ -255,7 +265,15 @@ export class HogExecutor {
                     instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
                     timestamp: DateTime.now(),
                     level: 'error',
-                    message: `Error filtering event ${triggerGlobals.event.uuid}: ${error.message}`,
+                    message: `Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`,
+                })
+
+                metrics.push({
+                    team_id: hogFunction.team_id,
+                    app_source_id: hogFunction.id,
+                    metric_kind: 'failure',
+                    metric_name: 'inputs_failed',
+                    count: 1,
                 })
 
                 return null
@@ -268,15 +286,15 @@ export class HogExecutor {
                 if (!_filterHogFunction(hogFunction, hogFunction.filters, filterGlobals)) {
                     return
                 }
-                const globals = _buildGlobalsWithInputs(hogFunction, {
+                const invocation = _buildInvocation(hogFunction, {
                     ...(hogFunction.inputs ?? {}),
                     ...(hogFunction.encrypted_inputs ?? {}),
                 })
-                if (!globals) {
+                if (!invocation) {
                     return
                 }
 
-                invocations.push(createInvocation(globals, hogFunction))
+                invocations.push(invocation)
                 return
             }
 
@@ -289,16 +307,16 @@ export class HogExecutor {
                     return
                 }
 
-                const globals = _buildGlobalsWithInputs(hogFunction, {
+                const invocation = _buildInvocation(hogFunction, {
                     ...(hogFunction.inputs ?? {}),
                     ...(hogFunction.encrypted_inputs ?? {}),
                     ...(mapping.inputs ?? {}),
                 })
-                if (!globals) {
+                if (!invocation) {
                     return
                 }
 
-                invocations.push(createInvocation(globals, hogFunction))
+                invocations.push(invocation)
             })
         })
 
@@ -309,7 +327,10 @@ export class HogExecutor {
         }
     }
 
-    execute(invocation: HogFunctionInvocation): HogFunctionInvocationResult {
+    execute(
+        invocation: HogFunctionInvocation,
+        options: { functions?: Record<string, (args: unknown[]) => unknown> } = {}
+    ): HogFunctionInvocationResult {
         const loggingContext = {
             invocationId: invocation.id,
             hogFunctionId: invocation.hogFunction.id,
@@ -440,6 +461,7 @@ export class HogExecutor {
 
             try {
                 let hogLogs = 0
+
                 execRes = execHog(invocationInput, {
                     globals: invocation.functionToExecute ? undefined : globals,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
@@ -447,39 +469,6 @@ export class HogExecutor {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
                     },
-                    // importBytecode: (module) => {
-                    //     // TODO: more than one hardcoded module
-                    //     if (module === 'provider/email') {
-                    //         const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
-                    //         if (!provider) {
-                    //             throw new Error('No email provider configured')
-                    //         }
-                    //         try {
-                    //             const providerGlobals = this.buildHogFunctionGlobals({
-                    //                 id: '',
-                    //                 teamId: invocation.teamId,
-                    //                 hogFunction: provider,
-                    //                 globals: {} as any,
-                    //                 queue: 'hog',
-                    //                 timings: [],
-                    //                 priority: 0,
-                    //             } satisfies HogFunctionInvocation)
-
-                    //             return {
-                    //                 bytecode: provider.bytecode,
-                    //                 globals: providerGlobals,
-                    //             }
-                    //         } catch (e) {
-                    //             result.logs.push({
-                    //                 level: 'error',
-                    //                 timestamp: DateTime.now(),
-                    //                 message: `Error building inputs: ${e}`,
-                    //             })
-                    //             throw e
-                    //         }
-                    //     }
-                    //     throw new Error(`Can't import unknown module: ${module}`)
-                    // },
                     functions: {
                         print: (...args) => {
                             hogLogs++
@@ -534,10 +523,16 @@ export class HogExecutor {
                                 },
                             })
                         },
+                        ...(options.functions ?? {}),
                     },
                 })
                 if (execRes.error) {
                     throw execRes.error
+                }
+
+                // Store the result if execution finished
+                if (execRes.finished && execRes.result !== undefined) {
+                    result.execResult = convertHogToJS(execRes.result)
                 }
             } catch (e) {
                 result.logs.push({
@@ -675,7 +670,8 @@ export class HogExecutor {
             }
         })
 
-        return values
+        // We don't want to add "REDACTED" for empty strings
+        return values.filter((v) => v.trim())
     }
 }
 

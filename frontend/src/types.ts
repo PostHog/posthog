@@ -569,6 +569,7 @@ export interface TeamType extends TeamBasicType {
     default_modifiers?: HogQLQueryModifiers
     product_intents?: ProductIntentType[]
     default_data_theme?: number
+    flags_persistence_default: boolean
 }
 
 export interface ProductIntentType {
@@ -1821,7 +1822,7 @@ export interface TextModel {
     last_modified_at: string
 }
 
-export interface InsightModel extends Cacheable {
+export interface InsightModel extends Cacheable, WithAccessControl {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -1860,7 +1861,7 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface DashboardBasicType {
+export interface DashboardBasicType extends WithAccessControl {
     id: number
     name: string
     description: string
@@ -4679,6 +4680,8 @@ export interface HogFunctionFiltersType {
 }
 
 export interface HogFunctionMappingType {
+    name: string
+    disabled?: boolean
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
     filters?: HogFunctionFiltersType | null

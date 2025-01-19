@@ -75,6 +75,7 @@ describe('Hog Executor', () => {
 
         it('can execute an invocation', () => {
             const invocation = createInvocation(hogFunction)
+
             const result = executor.execute(invocation)
             expect(result).toEqual({
                 capturedPostHogEvents: [],
@@ -318,6 +319,26 @@ describe('Hog Executor', () => {
     })
 
     describe('filtering', () => {
+        it('builds the correct globals object when filtering', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+
+            const inputGlobals = createHogExecutionGlobals({ groups: {} })
+            expect(inputGlobals.source).toBeUndefined()
+            const results = executor.findHogFunctionInvocations(inputGlobals)
+
+            expect(results.invocations).toHaveLength(1)
+
+            expect(results.invocations[0].globals.source).toEqual({
+                name: 'Hog Function',
+                url: `http://localhost:8000/projects/1/pipeline/destinations/hog-${fn.id}/configuration/`,
+            })
+        })
+
         it('can filters incoming messages correctly', () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
