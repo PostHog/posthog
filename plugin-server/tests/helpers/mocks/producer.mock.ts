@@ -9,14 +9,14 @@ export type ParsedTopicMessage = {
 }
 
 jest.mock('../../../src/kafka/producer', () => {
-    const mockKafkaProducer = {
-        create: jest.fn(() => mockKafkaProducer),
+    const mockKafkaProducer: jest.Mocked<KafkaProducerWrapper> = {
         producer: {
             connect: jest.fn(),
-        },
+        } as any,
         disconnect: jest.fn(),
-        produce: jest.fn(),
-        queueMessages: jest.fn(() => Promise.resolve()),
+        produce: jest.fn().mockReturnValue(Promise.resolve()),
+        queueMessages: jest.fn().mockReturnValue(Promise.resolve()),
+        flush: jest.fn().mockReturnValue(Promise.resolve()),
     }
 
     const MockKafkaProducer = {
