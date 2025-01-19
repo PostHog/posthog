@@ -4,11 +4,13 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EventsNode, EventsQuery, HogQLQuery, SessionAttributionExplorerQuery } from '~/queries/schema'
+import { EventsNode, EventsQuery, HogQLQuery, SessionAttributionExplorerQuery, TracesQuery } from '~/queries/schema'
 import { isHogQLQuery, isSessionAttributionExplorerQuery } from '~/queries/utils'
 import { AnyPropertyFilter } from '~/types'
 
-interface EventPropertyFiltersProps<Q extends EventsNode | EventsQuery | HogQLQuery | SessionAttributionExplorerQuery> {
+interface EventPropertyFiltersProps<
+    Q extends EventsNode | EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery
+> {
     query: Q
     setQuery?: (query: Q) => void
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
@@ -16,13 +18,17 @@ interface EventPropertyFiltersProps<Q extends EventsNode | EventsQuery | HogQLQu
 
 let uniqueNode = 0
 export function EventPropertyFilters<
-    Q extends EventsNode | EventsQuery | HogQLQuery | SessionAttributionExplorerQuery
+    Q extends EventsNode | EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery
 >({ query, setQuery, taxonomicGroupTypes }: EventPropertyFiltersProps<Q>): JSX.Element {
     const [id] = useState(() => uniqueNode++)
     const properties =
         isHogQLQuery(query) || isSessionAttributionExplorerQuery(query) ? query.filters?.properties : query.properties
     const eventNames =
-        isHogQLQuery(query) || isSessionAttributionExplorerQuery(query) ? [] : query.event ? [query.event] : []
+        isHogQLQuery(query) || isSessionAttributionExplorerQuery(query)
+            ? []
+            : 'event' in query && query.event
+            ? [query.event]
+            : []
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return !properties || Array.isArray(properties) ? (

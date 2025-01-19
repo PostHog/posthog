@@ -12,6 +12,11 @@ from dateutil.rrule import rrule, DAILY
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 
+# we have seen users accidentally set a huge value for iteration count
+# and cause performance issues, so we are extra careful with this value
+# NB this is enforced in the UI too
+MAX_ITERATION_COUNT = 500
+
 
 class Survey(UUIDModel):
     class SurveyType(models.TextChoices):
@@ -277,7 +282,7 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
     instance.iteration_start_dates = list(
         rrule(
             DAILY,
-            count=iteration_count,
+            count=min(iteration_count, MAX_ITERATION_COUNT),
             interval=iteration_frequency_dates,
             dtstart=instance.start_date,
         )

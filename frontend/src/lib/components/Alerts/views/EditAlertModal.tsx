@@ -23,7 +23,12 @@ import { alphabet, formatDate } from 'lib/utils'
 import { useCallback } from 'react'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType } from '~/queries/schema'
+import {
+    AlertCalculationInterval,
+    AlertConditionType,
+    AlertState,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
 import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'

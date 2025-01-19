@@ -106,6 +106,10 @@ class S3BatchExportInputs:
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
+    def __post_init__(self):
+        if self.max_file_size_mb:
+            self.max_file_size_mb = int(self.max_file_size_mb)
+
 
 @dataclass
 class SnowflakeBatchExportInputs:
@@ -154,6 +158,14 @@ class PostgresBatchExportInputs:
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
+    def __post_init__(self):
+        if self.has_self_signed_cert == "True":  # type: ignore
+            self.has_self_signed_cert = True
+        elif self.has_self_signed_cert == "False":  # type: ignore
+            self.has_self_signed_cert = False
+
+        self.port = int(self.port)
+
 
 @dataclass
 class RedshiftBatchExportInputs(PostgresBatchExportInputs):
@@ -185,6 +197,12 @@ class BigQueryBatchExportInputs:
 
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+
+    def __post_init__(self):
+        if self.use_json_type == "True":  # type: ignore
+            self.use_json_type = True
+        elif self.use_json_type == "False":  # type: ignore
+            self.use_json_type = False
 
 
 @dataclass
@@ -494,10 +512,7 @@ async def start_backfill_batch_export_workflow(
         "backfill-batch-export",
         inputs,
         id=workflow_id,
-        # TODO: Backfills could also run in async queue.
-        # But tests expect them not to, so we keep them in sync
-        # queue after everything is migrated.
-        task_queue=SYNC_BATCH_EXPORTS_TASK_QUEUE,
+        task_queue=BATCH_EXPORTS_TASK_QUEUE,
     )
 
     return workflow_id
@@ -648,11 +663,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 
     destination_config_fields = {field.name for field in fields(workflow_inputs)}
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
-    task_queue = (
-        BATCH_EXPORTS_TASK_QUEUE
-        if batch_export.destination.type in ("BigQuery", "Redshift")
-        else SYNC_BATCH_EXPORTS_TASK_QUEUE
-    )
+    task_queue = SYNC_BATCH_EXPORTS_TASK_QUEUE if batch_export.destination.type == "HTTP" else BATCH_EXPORTS_TASK_QUEUE
 
     temporal = sync_connect()
     schedule = Schedule(
@@ -689,7 +700,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
-            jitter=min(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
+            jitter=max(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
             time_zone_name=batch_export.team.timezone,
         ),
         state=state,

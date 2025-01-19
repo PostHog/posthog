@@ -215,6 +215,7 @@ COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog hogvm hogvm/
+COPY --chown=posthog:posthog dags dags/
 
 # Keep server command backwards compatible
 RUN cp ./bin/docker-server-unit ./bin/docker-server

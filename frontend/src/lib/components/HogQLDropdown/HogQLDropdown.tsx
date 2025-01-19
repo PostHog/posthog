@@ -2,7 +2,7 @@ import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useState } from 'react'
 
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 
 import { HogQLEditor } from '../HogQLEditor/HogQLEditor'
 

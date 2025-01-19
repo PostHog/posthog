@@ -15,7 +15,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ResultCustomizationBy } from '~/queries/schema'
+import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
 import { resultCustomizationsModalLogic } from './resultCustomizationsModalLogic'
@@ -108,7 +108,7 @@ function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.El
                         {formatBreakdownLabel(
                             dataset.breakdown_value,
                             breakdownFilter,
-                            cohorts,
+                            cohorts.results,
                             formatPropertyValueForDisplay
                         )}
                     </b>

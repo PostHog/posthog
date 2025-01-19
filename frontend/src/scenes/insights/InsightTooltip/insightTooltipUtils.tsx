@@ -113,7 +113,12 @@ export function invertDataSource(
         const pillValues = []
         if (s.breakdown_value !== undefined) {
             pillValues.push(
-                formatBreakdownLabel(s.breakdown_value, breakdownFilter, cohorts, formatPropertyValueForDisplay)
+                formatBreakdownLabel(
+                    s.breakdown_value,
+                    breakdownFilter,
+                    cohorts?.results,
+                    formatPropertyValueForDisplay
+                )
             )
         }
         if (s.compare_label) {

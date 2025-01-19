@@ -583,8 +583,8 @@ body {
         --content-danger-bold: var(--red-100);
         --content-success-bold: var(--green-100);
         --background-primary: var(--neutral-cool-900);
-        --background-secondary: var(--neutral-cool-850);
-        --background-tertiary: var(--neutral-cool-800);
+        --background-secondary: var(--neutral-cool-800);
+        --background-tertiary: var(--neutral-cool-850);
         --background-warning-subtle: var(--orange-850);
         --background-danger-subtle: var(--red-800);
         --background-success-subtle: var(--green-800);
@@ -620,7 +620,7 @@ body {
 
     h1,
     h2,
-    h3,
+    h3:not(.thank-you-message), // to prevent the survey thank you message to be styled, as these styles are only for PostHog main app
     h4,
     h5 {
         margin-top: 0;
@@ -759,4 +759,40 @@ img {
     &::-webkit-scrollbar {
         display: none;
     }
+}
+
+.arial {
+    font-family: Arial, sans-serif;
+}
+
+.verdana {
+    font-family: Verdana, sans-serif;
+}
+
+.tahoma {
+    font-family: Tahoma, sans-serif;
+}
+
+.trebuchet-ms {
+    font-family: 'Trebuchet MS', sans-serif;
+}
+
+.helvetica {
+    font-family: Helvetica, sans-serif;
+}
+
+.times-new-roman {
+    font-family: 'Times New Roman', serif;
+}
+
+.georgia {
+    font-family: Georgia, serif;
+}
+
+.courier-new {
+    font-family: 'Courier New', monospace;
+}
+
+.system-ui {
+    font-family: system-ui;
 }

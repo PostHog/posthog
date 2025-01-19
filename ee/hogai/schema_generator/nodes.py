@@ -55,7 +55,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True).with_structured_output(
+        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True, stream_usage=True).with_structured_output(
             self.OUTPUT_SCHEMA,
             method="function_calling",
             include_raw=False,

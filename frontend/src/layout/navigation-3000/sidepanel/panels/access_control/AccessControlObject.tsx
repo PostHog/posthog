@@ -39,7 +39,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
     return (
         <BindLogic logic={accessControlLogic} props={props}>
             <div className="space-y-6">
-                {canEditAccessControls === true ? (
+                {canEditAccessControls === false ? (
                     <LemonBanner type="warning">
                         <b>Permission required</b>
                         <br />

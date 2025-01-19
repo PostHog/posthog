@@ -5,7 +5,7 @@ import { useCallback } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { FunnelPathType, PathType } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'

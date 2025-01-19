@@ -7,7 +7,7 @@ import {
     IconWarning,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonInput, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonPropsBase, LemonInput, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
@@ -22,13 +22,13 @@ import { twMerge } from 'tailwind-merge'
 
 import { Query } from '~/queries/Query/Query'
 import {
+    AssistantForm,
     AssistantMessage,
     FailureMessage,
     HumanMessage,
-    InsightVizNode,
-    NodeKind,
     VisualizationMessage,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-assistant-messages'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
 import {
@@ -58,7 +58,7 @@ interface MessageGroupProps {
     index: number
 }
 
-function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupIndex }: MessageGroupProps): JSX.Element {
+function MessageGroup({ messages, isFinal: isFinalGroup, index: messageGroupIndex }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
@@ -100,8 +100,8 @@ function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupInde
                             <TextAnswer
                                 key={key}
                                 message={message}
-                                rateable={messageIndex === messages.length - 1}
-                                retriable={messageIndex === messages.length - 1 && isGroupFinal}
+                                interactable={messageIndex === messages.length - 1}
+                                isFinalGroup={isFinalGroup}
                                 messageGroupIndex={messageGroupIndex}
                             />
                         )
@@ -173,31 +173,50 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
 
 interface TextAnswerProps {
     message: (AssistantMessage | FailureMessage) & ThreadMessage
-    rateable: boolean
-    retriable: boolean
     messageGroupIndex: number
+    interactable?: boolean
+    isFinalGroup?: boolean
 }
 
 const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function TextAnswer(
-    { message, rateable, retriable, messageGroupIndex },
+    { message, messageGroupIndex, interactable, isFinalGroup },
     ref
 ) {
+    const retriable = !!(interactable && isFinalGroup)
+
+    const action = (() => {
+        if (message.status !== 'completed') {
+            return null
+        }
+
+        // Don't show retry button when rate-limited
+        if (
+            isFailureMessage(message) &&
+            !message.content?.includes('usage limit') && // Don't show retry button when rate-limited
+            retriable
+        ) {
+            return <RetriableFailureActions />
+        }
+
+        if (isAssistantMessage(message) && interactable) {
+            // Message has been interrupted with a form
+            if (message.meta?.form?.options && isFinalGroup) {
+                return <AssistantMessageForm form={message.meta.form} />
+            }
+
+            // Show answer actions if the assistant's response is complete at this point
+            return <SuccessActions retriable={retriable} messageGroupIndex={messageGroupIndex} />
+        }
+
+        return null
+    })()
+
     return (
         <MessageTemplate
             type="ai"
             boxClassName={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
             ref={ref}
-            action={
-                message.status === 'completed' &&
-                message.type === 'ai/failure' &&
-                !message.content?.includes('usage limit') && // Don't show retry button when rate-limited
-                retriable ? (
-                    <RetriableFailureActions />
-                ) : message.status === 'completed' && message.type === 'ai' && rateable ? (
-                    // Show answer actions if the assistant's response is complete at this point
-                    <SuccessActions retriable={retriable} messageGroupIndex={messageGroupIndex} />
-                ) : null
-            }
+            action={action}
         >
             <LemonMarkdown>
                 {message.content || '*Max has failed to generate an answer. Please try again.*'}
@@ -205,6 +224,32 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
         </MessageTemplate>
     )
 })
+
+interface AssistantMessageFormProps {
+    form: AssistantForm
+}
+
+function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
+    const { askMax } = useActions(maxLogic)
+    return (
+        <div className="flex flex-wrap gap-2 mt-1">
+            {form.options.map((option) => (
+                <LemonButton
+                    key={option.value}
+                    onClick={() => askMax(option.value)}
+                    size="small"
+                    type={
+                        option.variant && ['primary', 'secondary', 'tertiary'].includes(option.variant)
+                            ? (option.variant as LemonButtonPropsBase['type'])
+                            : 'secondary'
+                    }
+                >
+                    {option.value}
+                </LemonButton>
+            ))}
+        </div>
+    )
+}
 
 function VisualizationAnswer({
     message,

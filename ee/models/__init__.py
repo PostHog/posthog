@@ -1,4 +1,10 @@
-from .assistant import Conversation, ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
+from .assistant import (
+    Conversation,
+    ConversationCheckpoint,
+    ConversationCheckpointBlob,
+    ConversationCheckpointWrite,
+    CoreMemory,
+)
 from .dashboard_privilege import DashboardPrivilege
 from .event_definition import EnterpriseEventDefinition
 from .explicit_team_membership import ExplicitTeamMembership
@@ -14,6 +20,7 @@ __all__ = [
     "ConversationCheckpoint",
     "ConversationCheckpointBlob",
     "ConversationCheckpointWrite",
+    "CoreMemory",
     "DashboardPrivilege",
     "Conversation",
     "EnterpriseEventDefinition",

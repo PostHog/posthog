@@ -61,6 +61,8 @@ _clickhouse_http_pool_mgr = httputil.get_pool_manager(
     maxsize=settings.CLICKHOUSE_CONN_POOL_MAX,  # max number of open connection per pool
     block=True,  # makes the maxsize limit per pool, keeps connections
     num_pools=12,  # number of pools
+    ca_cert=settings.CLICKHOUSE_CA,  # type: ignore[arg-type]  #  ca_cert default value is None, but the type hint is str instead of Optional[str], https://github.com/ClickHouse/clickhouse-connect/pull/450
+    verify=settings.CLICKHOUSE_VERIFY,
 )
 
 
@@ -71,8 +73,6 @@ def get_http_client(**overrides):
         "secure": settings.CLICKHOUSE_SECURE,
         "username": settings.CLICKHOUSE_USER,
         "password": settings.CLICKHOUSE_PASSWORD,
-        "ca_cert": settings.CLICKHOUSE_CA,
-        "verify": settings.CLICKHOUSE_VERIFY,
         "settings": {"mutations_sync": "1"} if settings.TEST else {},
         # Without this, OPTIMIZE table and other queries will regularly run into timeouts
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,

@@ -15,6 +15,16 @@ import { OnboardingStep } from '../OnboardingStep'
 import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
 
+export function InviteHelpCard(): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false}>
+            <h3 className="font-bold">Need help?</h3>
+            <p>Invite a team member to help you get set up.</p>
+            <InviteMembersButton type="secondary" />
+        </LemonCard>
+    )
+}
+
 export function SDKs({
     sdkInstructionMap,
     stepKey = OnboardingStepKey.INSTALL,
@@ -38,6 +48,7 @@ export function SDKs({
     const { goToNextStep, completeOnboarding } = useActions(onboardingLogic)
     const [showListeningFor, setShowListeningFor] = React.useState(false)
     const [hasCheckedInstallation, setHasCheckedInstallation] = React.useState(false)
+    const { isUserInNonTechnicalTest } = useValues(sdksLogic)
 
     const {
         windowSize: { width },
@@ -76,6 +87,7 @@ export function SDKs({
                         !showSideBySide && panel !== 'options' ? 'hidden' : 'flex'
                     }`}
                 >
+                    {isUserInNonTechnicalTest && <InviteHelpCard />}
                     {showSourceOptionsSelect && (
                         <LemonSelect
                             allowClear
@@ -108,11 +120,7 @@ export function SDKs({
                             </LemonButton>
                         </React.Fragment>
                     ))}
-                    <LemonCard className="mt-6" hoverEffect={false}>
-                        <h3 className="font-bold">Need help with this step?</h3>
-                        <p>Invite a team member to help you get set up.</p>
-                        <InviteMembersButton type="secondary" />
-                    </LemonCard>
+                    {!isUserInNonTechnicalTest && <InviteHelpCard />}
                 </div>
                 {selectedSDK && productKey && !!sdkInstructionMap[selectedSDK.key] && (
                     <div

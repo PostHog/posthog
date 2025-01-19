@@ -40,7 +40,7 @@ import {
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isStickinessQuery } from '~/queries/utils'
 import {
     ActionFilter,
@@ -681,9 +681,16 @@ function useMathSelectorOptions({
         staticActorsOnlyMathDefinitions,
     } = useValues(mathsLogic)
 
-    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
-        isPropertyValueMath(math) ? math : PropertyMathType.Average
-    )
+    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(() => {
+        if (isPropertyValueMath(math)) {
+            return math
+        }
+        if (onlyPropertyMathDefinitions?.length) {
+            return onlyPropertyMathDefinitions[0] as PropertyMathType
+        }
+        return PropertyMathType.Average
+    })
+
     const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average
     )

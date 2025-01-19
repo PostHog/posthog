@@ -241,6 +241,19 @@ export const PROPERTY_MATH_DEFINITIONS: Record<PropertyMathType, MathDefinition>
         ),
         category: MathCategory.PropertyValue,
     },
+    [PropertyMathType.P75]: {
+        name: '75th percentile',
+        shortName: '75th percentile',
+        description: (
+            <>
+                Event property 75th percentile.
+                <br />
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 175.
+            </>
+        ),
+        category: MathCategory.PropertyValue,
+    },
     [PropertyMathType.P90]: {
         name: '90th percentile',
         shortName: '90th percentile',
@@ -313,6 +326,12 @@ export const COUNT_PER_ACTOR_MATH_DEFINITIONS: Record<CountPerActorMathType, Mat
         name: 'Median',
         shortName: 'median',
         description: <>Event count per actor 50th percentile.</>,
+        category: MathCategory.EventCountPerActor,
+    },
+    [CountPerActorMathType.P75]: {
+        name: '75th percentile',
+        shortName: '75th percentile',
+        description: <>Event count per actor 75th percentile.</>,
         category: MathCategory.EventCountPerActor,
     },
     [CountPerActorMathType.P90]: {

@@ -84,6 +84,20 @@ class DeltaTableHelper:
 
         return None
 
+    def reset_table(self):
+        table = self.get_delta_table()
+        if table is None:
+            return
+
+        delta_uri = self._get_delta_table_uri()
+
+        table.delete()
+
+        s3 = get_s3_client()
+        s3.delete(delta_uri, recursive=True)
+
+        self.get_delta_table.cache_clear()
+
     def write_to_deltalake(
         self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None
     ) -> deltalake.DeltaTable:

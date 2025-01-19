@@ -1,14 +1,17 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 export function BillingAlertsV2(): JSX.Element | null {
     const { billingAlert } = useValues(billingLogic)
     const { reportBillingAlertShown, reportBillingAlertActionClicked } = useActions(billingLogic)
     const { currentLocation } = useValues(router)
+    const { sceneConfig } = useValues(sceneLogic)
     const [alertHidden, setAlertHidden] = useState(false)
 
     useEffect(() => {
@@ -29,6 +32,9 @@ export function BillingAlertsV2(): JSX.Element | null {
     const showButton =
         billingAlert.action || billingAlert.contactSupport || currentLocation.pathname !== urls.organizationBilling()
 
+    const requiresHorizontalMargin =
+        sceneConfig?.layout && ['app-raw', 'app-raw-no-header'].includes(sceneConfig.layout)
+
     const buttonProps = billingAlert.action
         ? billingAlert.action
         : billingAlert.contactSupport
@@ -44,7 +50,7 @@ export function BillingAlertsV2(): JSX.Element | null {
           }
 
     return (
-        <div className="my-4">
+        <div className={clsx('my-4', requiresHorizontalMargin && 'mx-4')}>
             <LemonBanner
                 type={billingAlert.status}
                 action={showButton ? buttonProps : undefined}

@@ -20,7 +20,6 @@ from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
-from rest_framework import serializers
 
 import lzstring
 import posthoganalytics
@@ -38,6 +37,7 @@ from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
+from rest_framework import serializers
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
@@ -174,6 +174,7 @@ def relative_date_parse_with_delta_mapping(
     timezone_info: ZoneInfo,
     *,
     always_truncate: bool = False,
+    human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
 ) -> tuple[datetime.datetime, Optional[dict[str, int]], str | None]:
@@ -201,57 +202,17 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None, None
 
-    regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-zA-Z])(?P<position>Start|End)?"
+    regex = r"\-?(?P<number>[0-9]+)?(?P<kind>[hdwmqyHDWMQY])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: dict[str, int] = {}
     if not match:
         return parsed_dt, delta_mapping, None
-    elif match.group("type") == "h":
-        if match.group("number"):
-            delta_mapping["hours"] = int(match.group("number"))
-        if match.group("position") == "Start":
-            delta_mapping["minute"] = 0
-            delta_mapping["second"] = 0
-            delta_mapping["microsecond"] = 0
-        elif match.group("position") == "End":
-            delta_mapping["minute"] = 59
-            delta_mapping["second"] = 59
-            delta_mapping["microsecond"] = 999999
-    elif match.group("type") == "d":
-        if match.group("number"):
-            delta_mapping["days"] = int(match.group("number"))
-        if match.group("position") == "Start":
-            delta_mapping["hour"] = 0
-            delta_mapping["minute"] = 0
-            delta_mapping["second"] = 0
-            delta_mapping["microsecond"] = 0
-        elif match.group("position") == "End":
-            delta_mapping["hour"] = 23
-            delta_mapping["minute"] = 59
-            delta_mapping["second"] = 59
-            delta_mapping["microsecond"] = 999999
-    elif match.group("type") == "w":
-        if match.group("number"):
-            delta_mapping["weeks"] = int(match.group("number"))
-    elif match.group("type") == "m":
-        if match.group("number"):
-            delta_mapping["months"] = int(match.group("number"))
-        if match.group("position") == "Start":
-            delta_mapping["day"] = 1
-        elif match.group("position") == "End":
-            delta_mapping["day"] = 31
-    elif match.group("type") == "q":
-        if match.group("number"):
-            delta_mapping["weeks"] = 13 * int(match.group("number"))
-    elif match.group("type") == "y":
-        if match.group("number"):
-            delta_mapping["years"] = int(match.group("number"))
-        if match.group("position") == "Start":
-            delta_mapping["month"] = 1
-            delta_mapping["day"] = 1
-        elif match.group("position") == "End":
-            delta_mapping["day"] = 31
+
+    delta_mapping = get_delta_mapping_for(
+        **match.groupdict(),
+        human_friendly_comparison_periods=human_friendly_comparison_periods,
+    )
 
     if increase:
         parsed_dt += relativedelta(**delta_mapping)  # type: ignore
@@ -268,16 +229,86 @@ def relative_date_parse_with_delta_mapping(
     return parsed_dt, delta_mapping, match.group("position") or None
 
 
+def get_delta_mapping_for(
+    *,
+    kind: str,
+    number: Optional[str] = None,
+    position: Optional[str] = None,
+    human_friendly_comparison_periods: bool = False,
+) -> dict[str, int]:
+    delta_mapping: dict[str, int] = {}
+
+    if kind == "h":
+        if number:
+            delta_mapping["hours"] = int(number)
+        if position == "Start":
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif position == "End":
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
+    elif kind == "d":
+        if number:
+            delta_mapping["days"] = int(number)
+        if position == "Start":
+            delta_mapping["hour"] = 0
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif position == "End":
+            delta_mapping["hour"] = 23
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
+    elif kind == "w":
+        if number:
+            delta_mapping["weeks"] = int(number)
+    elif kind == "m":
+        if number:
+            if human_friendly_comparison_periods:
+                delta_mapping["weeks"] = 4
+            else:
+                delta_mapping["months"] = int(number)
+        if position == "Start":
+            delta_mapping["day"] = 1
+        elif position == "End":
+            delta_mapping["day"] = 31
+    elif kind == "q":
+        if number:
+            delta_mapping["weeks"] = 13 * int(number)
+    elif kind == "y":
+        if number:
+            if human_friendly_comparison_periods:
+                delta_mapping["weeks"] = 52
+            else:
+                delta_mapping["years"] = int(number)
+        if position == "Start":
+            delta_mapping["month"] = 1
+            delta_mapping["day"] = 1
+        elif position == "End":
+            delta_mapping["day"] = 31
+
+    return delta_mapping
+
+
 def relative_date_parse(
     input: str,
     timezone_info: ZoneInfo,
     *,
     always_truncate: bool = False,
+    human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
 ) -> datetime.datetime:
     return relative_date_parse_with_delta_mapping(
-        input, timezone_info, always_truncate=always_truncate, now=now, increase=increase
+        input,
+        timezone_info,
+        always_truncate=always_truncate,
+        human_friendly_comparison_periods=human_friendly_comparison_periods,
+        now=now,
+        increase=increase,
     )[0]
 
 
@@ -333,7 +364,7 @@ def render_template(
         context["js_posthog_ui_host"] = "'https://us.posthog.com'"
 
     elif settings.SELF_CAPTURE:
-        api_token = get_self_capture_api_token(request)
+        api_token = get_self_capture_api_token(request.user)
 
         if api_token:
             context["js_posthog_api_key"] = f"'{api_token}'"
@@ -363,12 +394,12 @@ def render_template(
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
-        from posthog.api.project import ProjectSerializer
         from posthog.api.user import UserSerializer
-        from posthog.user_permissions import UserPermissions
         from posthog.rbac.user_access_control import UserAccessControl
+        from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
         posthog_app_context = {
@@ -466,13 +497,13 @@ def render_template(
     return response
 
 
-def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
+def get_self_capture_api_token(user: Optional[Union["AbstractBaseUser", "AnonymousUser"]]) -> Optional[str]:
     from posthog.models import Team
 
     # Get the current user's team (or first team in the instance) to set self capture configs
     team: Optional[Team] = None
-    if request and getattr(request, "user", None) and getattr(request.user, "team", None):
-        team = request.user.team  # type: ignore
+    if user and getattr(user, "team", None):
+        team = user.team  # type: ignore
     else:
         try:
             team = Team.objects.only("api_token").first()

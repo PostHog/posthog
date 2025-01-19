@@ -22,6 +22,8 @@ export type SettingSectionId =
     | 'environment-web-analytics'
     | 'environment-replay'
     | 'environment-surveys'
+    | 'environment-feature-flags'
+    | 'environment-error-tracking'
     | 'environment-toolbar'
     | 'environment-integrations'
     | 'environment-access-control'
@@ -63,6 +65,7 @@ export type SettingId =
     | 'person-display-name'
     | 'path-cleaning'
     | 'datacapture'
+    | 'human-friendly-comparison-periods'
     | 'group-analytics'
     | 'persons-on-events'
     | 'replay'
@@ -70,6 +73,8 @@ export type SettingId =
     | 'replay-authorized-domains'
     | 'replay-ingestion'
     | 'surveys-interface'
+    | 'feature-flags-interface'
+    | 'error-tracking-user-groups'
     | 'authorized-toolbar-urls'
     | 'integration-webhooks'
     | 'integration-slack'
@@ -107,6 +112,7 @@ export type SettingId =
     | 'dead-clicks-autocapture'
     | 'channel-type'
     | 'cookieless-server-hash-mode'
+    | 'user-groups'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

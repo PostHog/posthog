@@ -90,6 +90,9 @@ export const sharingLogic = kea<sharingLogicType>([
             if (name === 'whitelabel' && props.dashboardId) {
                 eventUsageLogic.actions.reportDashboardWhitelabelToggled(value)
             }
+            if (name === 'whitelabel' && props.insightShortId) {
+                eventUsageLogic.actions.reportInsightWhitelabelToggled(value)
+            }
         },
     })),
 

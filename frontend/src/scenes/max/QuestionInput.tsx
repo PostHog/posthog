@@ -9,7 +9,7 @@ import { maxLogic } from './maxLogic'
 
 export function QuestionInput(): JSX.Element {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { question, threadGrouped, threadLoading } = useValues(maxLogic)
+    const { question, threadGrouped, inputDisabled, threadLoading } = useValues(maxLogic)
     const { askMax, setQuestion } = useActions(maxLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -40,7 +40,7 @@ export function QuestionInput(): JSX.Element {
                         askMax(question)
                     }
                 }}
-                disabled={threadLoading}
+                disabled={inputDisabled}
                 minRows={1}
                 maxRows={10}
                 className={clsx('p-3', isFloating && 'border-border-bold')}

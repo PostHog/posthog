@@ -73,6 +73,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 return self._math_func("max", None)
             elif self.series.math == "median":
                 return self._math_quantile(0.5, None)
+            elif self.series.math == "p75":
+                return self._math_quantile(0.75, None)
             elif self.series.math == "p90":
                 return self._math_quantile(0.9, None)
             elif self.series.math == "p95":
@@ -106,6 +108,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             "min_count_per_actor",
             "max_count_per_actor",
             "median_count_per_actor",
+            "p75_count_per_actor",
             "p90_count_per_actor",
             "p95_count_per_actor",
             "p99_count_per_actor",
@@ -247,6 +250,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 math_func = self._math_func("max", ["total"])
             elif self.series.math == "median_count_per_actor":
                 math_func = self._math_quantile(0.5, ["total"])
+            elif self.series.math == "p75_count_per_actor":
+                math_func = self._math_quantile(0.75, ["total"])
             elif self.series.math == "p90_count_per_actor":
                 math_func = self._math_quantile(0.9, ["total"])
             elif self.series.math == "p95_count_per_actor":

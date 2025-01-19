@@ -1,5 +1,7 @@
+import './TrendsMetricForm.scss'
+
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonInput, LemonLabel, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
@@ -13,7 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
-import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
+import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FilterType, PropertyMathType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -35,6 +37,8 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
     }
 
     const currentMetric = metrics[metricIdx] as ExperimentTrendsQuery
+
+    const isDataWarehouseMetric = currentMetric.count_query?.series[0]?.kind === NodeKind.DataWarehouseNode
 
     return (
         <>
@@ -70,6 +74,19 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             MathAvailability.All
                                         )
 
+                                        // Custom exposure metrics are not supported for data warehouse metrics
+                                        if (series[0].kind === NodeKind.DataWarehouseNode) {
+                                            const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
+                                            setExperiment({
+                                                ...experiment,
+                                                [metricsField]: metrics.map((metric, idx) =>
+                                                    idx === metricIdx
+                                                        ? { ...metric, exposure_query: undefined }
+                                                        : metric
+                                                ),
+                                            })
+                                        }
+
                                         setTrendsMetric({
                                             metricIdx,
                                             series,
@@ -81,7 +98,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     showSeriesIndicator={true}
                                     entitiesLimit={1}
                                     showNumericalPropsOnly={true}
-                                    onlyPropertyMathDefinitions={[PropertyMathType.Average]}
+                                    onlyPropertyMathDefinitions={[PropertyMathType.Sum]}
                                     {...commonActionFilterProps}
                                 />
                                 <div className="mt-4 space-y-4">
@@ -124,8 +141,8 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                         content: (
                             <>
                                 <div className="flex gap-4 mb-4">
-                                    <div
-                                        className={`flex-1 cursor-pointer p-4 rounded border ${
+                                    <LemonButton
+                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             !currentMetric.exposure_query
                                                 ? 'border-primary bg-primary-highlight'
                                                 : 'border-border'
@@ -148,19 +165,24 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                                 <IconCheckCircle fontSize={18} color="var(--primary)" />
                                             )}
                                         </div>
-                                        <div className="text-muted text-sm leading-relaxed">
+                                        <div className="text-muted text-sm leading-relaxed mt-1">
                                             Uses the number of unique users who trigger the{' '}
                                             <LemonTag>$feature_flag_called</LemonTag> event as your exposure count. This
                                             is the recommended setting for most experiments, as it accurately tracks
                                             variant exposure.
                                         </div>
-                                    </div>
-                                    <div
-                                        className={`flex-1 cursor-pointer p-4 rounded border ${
+                                    </LemonButton>
+                                    <LemonButton
+                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             currentMetric.exposure_query
                                                 ? 'border-primary bg-primary-highlight'
                                                 : 'border-border'
                                         }`}
+                                        disabledReason={
+                                            isDataWarehouseMetric
+                                                ? 'Custom exposure events are not supported for data warehouse metrics. Please contact support if you need this feature.'
+                                                : undefined
+                                        }
                                         onClick={() => {
                                             const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
                                             setExperiment({
@@ -206,12 +228,12 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                                 <IconCheckCircle fontSize={18} color="var(--primary)" />
                                             )}
                                         </div>
-                                        <div className="text-muted text-sm leading-relaxed">
+                                        <div className="text-muted text-sm leading-relaxed mt-1">
                                             Define your own exposure metric for specific use cases, such as counting by
                                             sessions instead of users. This gives you full control but requires careful
                                             configuration.
                                         </div>
-                                    </div>
+                                    </LemonButton>
                                 </div>
                                 {currentMetric.exposure_query && (
                                     <>

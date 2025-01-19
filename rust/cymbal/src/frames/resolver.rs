@@ -6,7 +6,7 @@ use sqlx::PgPool;
 use crate::{
     config::Config,
     error::UnhandledError,
-    metric_consts::{FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS},
+    metric_consts::{FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES},
     symbol_store::{saving::SymbolSetRecord, Catalog},
 };
 
@@ -48,6 +48,8 @@ impl Resolver {
             metrics::counter!(FRAME_DB_HITS).increment(1);
             return Ok(result.contents);
         }
+
+        metrics::counter!(FRAME_DB_MISSES).increment(1);
 
         let resolved = frame.resolve(team_id, catalog).await?;
 

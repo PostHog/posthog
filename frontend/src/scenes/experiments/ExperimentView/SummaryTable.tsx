@@ -1,5 +1,5 @@
 import { IconInfo, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -90,7 +90,22 @@ export function SummaryTable({
         })
         columns.push({
             key: 'exposure',
-            title: 'Exposure',
+            title: (
+                <div className="inline-flex items-center space-x-1">
+                    <div className="">Exposure</div>
+                    <Tooltip
+                        title={
+                            <div>
+                                The number of users who were exposed to this variant. By default, this is measured by
+                                the count of <LemonTag type="option">$feature_flag_called</LemonTag> events per unique
+                                user. Check your metric settings to confirm how this is measured.
+                            </div>
+                        }
+                    >
+                        <IconInfo className="text-muted-alt text-base" />
+                    </Tooltip>
+                </div>
+            ),
             render: function Key(_, variant): JSX.Element {
                 const exposure = exposureCountDataForVariant(result, variant.key)
                 if (!exposure) {

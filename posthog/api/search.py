@@ -149,6 +149,10 @@ def class_queryset(
     else:
         qs = qs.annotate(result_id=Cast("pk", CharField()))
 
+    # Exclude generated dashboards
+    if entity_type == "dashboard":
+        qs = qs.exclude(creation_mode="template")
+
     # extra fields
     if extra_fields:
         qs = qs.annotate(extra_fields=JSONObject(**{field: field for field in extra_fields}))

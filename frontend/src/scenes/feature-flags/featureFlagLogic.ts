@@ -233,7 +233,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     connect((props: FeatureFlagLogicProps) => ({
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeam', 'currentTeamId'],
             projectLogic,
             ['currentProjectId'],
             groupsModel,
@@ -287,10 +287,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             errors?: any
         ) => ({ filters, active, errors }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
+        setAccessDeniedToFeatureFlag: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
-            defaults: { ...NEW_FLAG },
+            defaults: {
+                ...NEW_FLAG,
+                ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
+            },
             errors: ({ key, filters }) => {
                 return {
                     key: validateFeatureFlagKey(key),
@@ -449,6 +453,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        accessDeniedToFeatureFlag: [false, { setAccessDeniedToFeatureFlag: () => true }],
         propertySelectErrors: [
             null as any,
             {
@@ -527,12 +532,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     try {
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
-                    } catch (e) {
-                        actions.setFeatureFlagMissing()
+                    } catch (e: any) {
+                        if (e.status === 403 && e.code === 'permission_denied') {
+                            actions.setAccessDeniedToFeatureFlag()
+                        } else {
+                            actions.setFeatureFlagMissing()
+                        }
                         throw e
                     }
                 }
-                return NEW_FLAG
+                return {
+                    ...NEW_FLAG,
+                    ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                }
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 const { created_at, id, ...flag } = updatedFlag

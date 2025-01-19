@@ -11,11 +11,9 @@
 
 set -e -o pipefail
 
-export WORKER_CONCURRENCY=1
 export KAFKA_MAX_MESSAGE_BATCH_SIZE=0
 export APP_METRICS_FLUSH_FREQUENCY_MS=0 # Reduce the potential for spurious errors in tests that wait for metrics
-export APP_METRICS_GATHERED_FOR_ALL=true
-export PLUGINS_DEFAULT_LOG_LEVEL=0 # All logs, as debug logs are used in synchronization barriers
+export PLUGINS_DEFAULT_LOG_LEVEL=0      # All logs, as debug logs are used in synchronization barriers
 export NODE_ENV=production-functional-tests
 export PLUGIN_SERVER_MODE=functional-tests # running all capabilities is too slow
 

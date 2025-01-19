@@ -55,6 +55,7 @@ export const ConditionalFormattingTab = (): JSX.Element => {
                             </>
                         ),
                         content: <RuleItem rule={rule} key={rule.id} />,
+                        className: 'p-2',
                     }))}
                 />
             )}

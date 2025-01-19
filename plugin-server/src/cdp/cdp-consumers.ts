@@ -40,6 +40,7 @@ import { HogWatcher, HogWatcherState } from './hog-watcher'
 import { CdpRedis, createCdpRedisPool } from './redis'
 import { CdpInternalEventSchema } from './schema'
 import {
+    HogFunctionAppMetric,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
@@ -55,11 +56,10 @@ import {
     convertInternalEventToHogFunctionInvocationGlobals,
     convertToCaptureEvent,
     convertToHogFunctionInvocationGlobals,
-    createInvocation,
     cyclotronJobToInvocation,
+    fixLogDeduplication,
     gzipObject,
     invocationToCyclotronJobUpdate,
-    prepareLogEntriesForClickhouse,
     serializeHogFunctionInvocation,
     unGzipObject,
 } from './utils'
@@ -182,9 +182,7 @@ abstract class CdpConsumerBase {
         )
     }
 
-    protected produceAppMetric(
-        metric: Pick<AppMetric2Type, 'team_id' | 'app_source_id' | 'metric_kind' | 'metric_name' | 'count'>
-    ) {
+    protected produceAppMetric(metric: HogFunctionAppMetric) {
         const appMetric: AppMetric2Type = {
             app_source: 'hog_function',
             ...metric,
@@ -201,7 +199,15 @@ abstract class CdpConsumerBase {
     }
 
     protected produceLogs(result: HogFunctionInvocationResult) {
-        const logs = prepareLogEntriesForClickhouse(result)
+        const logs = fixLogDeduplication(
+            result.logs.map((logEntry) => ({
+                ...logEntry,
+                team_id: result.invocation.hogFunction.team_id,
+                log_source: 'hog_function',
+                log_source_id: result.invocation.hogFunction.id,
+                instance_id: result.invocation.id,
+            }))
+        )
 
         logs.forEach((logEntry) => {
             this.messagesToProduce.push({
@@ -291,6 +297,9 @@ abstract class CdpConsumerBase {
                         }
 
                         this.produceLogs(result)
+
+                        // Clear the logs so we don't pass them on to the next invocation
+                        result.logs = []
 
                         // PostHog capture events
                         const capturedEvents = result.capturedPostHogEvents
@@ -457,7 +466,13 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 vmState: serializeHogFunctionInvocation(item),
             }
         })
-        await this.cyclotronManager?.bulkCreateJobs(cyclotronJobs)
+        try {
+            await this.cyclotronManager?.bulkCreateJobs(cyclotronJobs)
+        } catch (e) {
+            status.error('⚠️', 'Error creating cyclotron jobs', e)
+            status.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
+            throw e
+        }
 
         if (kafkaInvocations.length) {
             // As we don't want to over-produce to kafka we invoke the hog functions and then queue the results
@@ -491,40 +506,28 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.queueMatchingFunctions`,
             func: async () => {
-                const possibleInvocations: HogFunctionInvocation[] = []
-
                 // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
                 await this.groupsManager.enrichGroups(invocationGlobals)
 
-                await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
-                    const { matchingFunctions, nonMatchingFunctions, erroredFunctions } =
-                        this.hogExecutor.findMatchingFunctions(globals)
+                const possibleInvocations = (
+                    await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
+                        const { invocations, metrics, logs } = this.hogExecutor.findHogFunctionInvocations(globals)
 
-                    possibleInvocations.push(
-                        ...matchingFunctions.map((hogFunction) => createInvocation(globals, hogFunction))
-                    )
-
-                    nonMatchingFunctions.forEach((item) =>
-                        this.produceAppMetric({
-                            team_id: item.team_id,
-                            app_source_id: item.id,
-                            metric_kind: 'other',
-                            metric_name: 'filtered',
-                            count: 1,
+                        metrics.forEach((metric) => {
+                            this.produceAppMetric(metric)
                         })
-                    )
 
-                    erroredFunctions.forEach(([item, error]) => {
-                        this.produceAppMetric({
-                            team_id: item.team_id,
-                            app_source_id: item.id,
-                            metric_kind: 'other',
-                            metric_name: 'filtering_failed',
-                            count: 1,
+                        fixLogDeduplication(logs).forEach((logEntry) => {
+                            this.messagesToProduce.push({
+                                topic: KAFKA_LOG_ENTRIES,
+                                value: logEntry,
+                                key: logEntry.instance_id,
+                            })
                         })
-                        this.logFilteringError(item, error)
+
+                        return invocations
                     })
-                })
+                ).flat()
 
                 const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
                 const validInvocations: HogFunctionInvocation[] = []

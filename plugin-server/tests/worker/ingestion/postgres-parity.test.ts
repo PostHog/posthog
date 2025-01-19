@@ -20,7 +20,6 @@ jest.mock('../../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    WORKER_CONCURRENCY: 2,
     LOG_LEVEL: LogLevel.Log,
 }
 

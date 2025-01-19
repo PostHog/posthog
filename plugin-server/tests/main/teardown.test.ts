@@ -56,7 +56,6 @@ describe('teardown', () => {
 
         const { hub, stop } = await startPluginsServer(
             {
-                WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
             },
             makePiscina,
@@ -102,7 +101,6 @@ describe('teardown', () => {
         `)
         const { hub, stop } = await startPluginsServer(
             {
-                WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
             },
             makePiscina,

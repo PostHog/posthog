@@ -77,6 +77,8 @@ export const campaignParams = new Set([
     'igshid', // instagram
     'ttclid', // tiktok
     'rdt_cid', // reddit
+    'irclid', // impact
+    '_kx', // klaviyo
 ])
 
 export const initialCampaignParams = new Set(Array.from(campaignParams, (key) => `$initial_${key.replace('$', '')}`))

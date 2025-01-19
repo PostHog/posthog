@@ -1,4 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { convertSecondsToDuration, DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
@@ -7,11 +7,13 @@ import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTy
 
 import { DurationType, PropertyOperator, RecordingDurationFilter } from '~/types'
 
-interface Props {
+interface DurationFilterProps {
     recordingDurationFilter: RecordingDurationFilter
     durationTypeFilter: DurationType
     onChange: (recordingDurationFilter: RecordingDurationFilter, durationType: DurationType) => void
     pageKey: string
+    size?: LemonButtonProps['size']
+    type?: LemonButtonProps['type']
 }
 
 const durationTypeMapping: Record<DurationType, string> = {
@@ -31,7 +33,13 @@ export const humanFriendlyDurationFilter = (
     return `${operator} ${duration.timeValue || 0} ${durationDescription}${unit}`
 }
 
-export function DurationFilter({ recordingDurationFilter, durationTypeFilter, onChange }: Props): JSX.Element {
+export function DurationFilter({
+    recordingDurationFilter,
+    durationTypeFilter,
+    onChange,
+    size,
+    type,
+}: DurationFilterProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const durationString = useMemo(
         () => humanFriendlyDurationFilter(recordingDurationFilter, durationTypeFilter),
@@ -69,8 +77,8 @@ export function DurationFilter({ recordingDurationFilter, durationTypeFilter, on
             }
         >
             <LemonButton
-                type="secondary"
-                size="small"
+                type={type ?? 'secondary'}
+                size={size ?? 'small'}
                 onClick={() => {
                     setIsOpen(true)
                 }}

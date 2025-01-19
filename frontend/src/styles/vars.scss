@@ -141,6 +141,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     // Primitives colors
     // DO NOT USE PRIMITIVE COLORS DIRECTLY.
     // Use the semantic colors instead.
+    --blue-50: #e7ecfe;
     --blue-100: #d2dcfd;
     --blue-200: #a5b9fb;
     --blue-300: #7995fa;

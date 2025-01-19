@@ -1,4 +1,6 @@
+import decimal
 import json
+import math
 from typing import Any, Optional
 from collections.abc import Sequence
 
@@ -94,6 +96,11 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
             )
             json_str_array = pa.array([None if s is None else json_dumps(s) for s in columnar_known_types[field.name]])
             columnar_known_types[field.name] = json_str_array
+        if issubclass(py_type, decimal.Decimal):
+            # Remove any NaN values from decimal columns
+            columnar_known_types[field.name] = np.array(
+                [None if x is not None and math.isnan(x) else x for x in columnar_known_types[field.name]]
+            )
 
     # If there are unknown type columns, first create a table to infer their types
     if columnar_unknown_types:

@@ -146,7 +146,7 @@ export function InsightsTable({
 
     if (breakdownFilter?.breakdown) {
         const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
-            formatBreakdownLabel(item.breakdown_value, breakdownFilter, cohorts, formatPropertyValueForDisplay)
+            formatBreakdownLabel(item.breakdown_value, breakdownFilter, cohorts?.results, formatPropertyValueForDisplay)
 
         columns.push({
             title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
@@ -182,7 +182,7 @@ export function InsightsTable({
                 formatBreakdownLabel(
                     Array.isArray(item.breakdown_value) ? item.breakdown_value[index] : item.breakdown_value,
                     breakdownFilter,
-                    cohorts,
+                    cohorts?.results,
                     formatPropertyValueForDisplay,
                     index
                 )

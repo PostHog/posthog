@@ -3,7 +3,7 @@ import { CompactList } from 'lib/components/CompactList/CompactList'
 import { InsightRow } from 'scenes/project-homepage/RecentInsights'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, QueryBasedInsightModel } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'

@@ -24,6 +24,7 @@ pub const FRAME_RESOLVED: &str = "cymbal_frame_resolved";
 pub const FRAME_CACHE_HITS: &str = "cymbal_frame_cache_hits";
 pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
+pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
 pub const S3_FETCH: &str = "cymbal_s3_fetch";
 pub const S3_PUT: &str = "cymbal_s3_put";

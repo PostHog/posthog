@@ -19,7 +19,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import 
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table_sync
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
 
 class PipelineNonDLT:
@@ -29,11 +29,14 @@ class PipelineNonDLT:
     _schema: ExternalDataSchema
     _logger: FilteringBoundLogger
     _is_incremental: bool
+    _reset_pipeline: bool
     _delta_table_helper: DeltaTableHelper
     _internal_schema = HogQLSchema()
     _load_id: int
 
-    def __init__(self, source: DltSource, logger: FilteringBoundLogger, job_id: str, is_incremental: bool) -> None:
+    def __init__(
+        self, source: DltSource, logger: FilteringBoundLogger, job_id: str, is_incremental: bool, reset_pipeline: bool
+    ) -> None:
         resources = list(source.resources.items())
         assert len(resources) == 1
         resource_name, resource = resources[0]
@@ -42,6 +45,7 @@ class PipelineNonDLT:
         self._resource_name = resource_name
         self._job = ExternalDataJob.objects.prefetch_related("schema").get(id=job_id)
         self._is_incremental = is_incremental
+        self._reset_pipeline = reset_pipeline
         self._logger = logger
         self._load_id = time.time_ns()
 
@@ -59,6 +63,14 @@ class PipelineNonDLT:
             chunk_size = 5000
             row_count = 0
             chunk_index = 0
+
+            if self._reset_pipeline:
+                self._logger.debug("Deleting existing table due to reset_pipeline being set")
+                self._delta_table_helper.reset_table()
+
+                source: ExternalDataSource = self._job.pipeline
+                source.job_inputs.pop("reset_pipeline", None)
+                source.save()
 
             for item in self._resource:
                 py_table = None
@@ -140,20 +152,25 @@ class PipelineNonDLT:
             return
 
         self._logger.debug("Spawning new process for deltatable compact and vacuuming")
-        process = subprocess.Popen(
-            [
-                "python",
-                f"{os.getcwd()}/posthog/temporal/data_imports/pipelines/pipeline/delta_table_subprocess.py",
-                "--table_uri",
-                self._delta_table_helper._get_delta_table_uri(),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        stdout, stderr = process.communicate()
+        try:
+            process = subprocess.Popen(
+                [
+                    "python",
+                    f"{os.getcwd()}/posthog/temporal/data_imports/pipelines/pipeline/delta_table_subprocess.py",
+                    "--table_uri",
+                    self._delta_table_helper._get_delta_table_uri(),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                close_fds=True,
+            )
+            stdout, stderr = process.communicate()
 
-        if process.returncode != 0:
-            raise Exception(f"Delta subprocess failed: {stderr.decode()}")
+            if process.returncode != 0:
+                raise Exception(f"Delta subprocess failed: {stderr.decode()}")
+        finally:
+            if process.poll() is not None:
+                process.kill()
 
         file_uris = delta_table.file_uris()
         self._logger.info(f"Preparing S3 files - total parquet files: {len(file_uris)}")

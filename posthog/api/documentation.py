@@ -161,6 +161,7 @@ All of the below are property aggregations, and require `math_property` to be se
 - `min`: min of a numeric property.
 - `max`: max of a numeric property.
 - `median`: median of a numeric property.
+- `p75`: 75th percentile of a numeric property.
 - `p90`: 90th percentile of a numeric property.
 - `p95` 95th percentile of a numeric property.
 - `p99`: 99th percentile of a numeric property.

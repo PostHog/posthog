@@ -57,6 +57,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_client_id: "".to_string(),
         kafka_metadata_max_age_ms: 60000,
         kafka_producer_max_retries: 2,
+        kafka_producer_acks: "all".to_string(),
     },
     otel_url: None,
     otel_sampling_rate: 0.0,

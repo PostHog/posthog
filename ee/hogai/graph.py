@@ -11,6 +11,13 @@ from ee.hogai.funnels.nodes import (
     FunnelPlannerNode,
     FunnelPlannerToolsNode,
 )
+from ee.hogai.memory.nodes import (
+    MemoryCollectorNode,
+    MemoryCollectorToolsNode,
+    MemoryInitializerInterruptNode,
+    MemoryInitializerNode,
+    MemoryOnboardingNode,
+)
 from ee.hogai.retention.nodes import (
     RetentionGeneratorNode,
     RetentionGeneratorToolsNode,
@@ -54,9 +61,6 @@ class AssistantGraph:
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
         return self._graph.compile(checkpointer=checkpointer)
-
-    def add_start(self):
-        return self.add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
 
     def add_router(
         self,
@@ -225,9 +229,67 @@ class AssistantGraph:
         builder.add_edge(AssistantNodeName.SUMMARIZER, next_node)
         return self
 
+    def add_memory_initializer(self, next_node: AssistantNodeName = AssistantNodeName.ROUTER):
+        builder = self._graph
+        self._has_start_node = True
+
+        memory_onboarding = MemoryOnboardingNode(self._team)
+        memory_initializer = MemoryInitializerNode(self._team)
+        memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team)
+
+        builder.add_node(AssistantNodeName.MEMORY_ONBOARDING, memory_onboarding.run)
+        builder.add_node(AssistantNodeName.MEMORY_INITIALIZER, memory_initializer.run)
+        builder.add_node(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, memory_initializer_interrupt.run)
+
+        builder.add_conditional_edges(
+            AssistantNodeName.START,
+            memory_onboarding.should_run,
+            path_map={True: AssistantNodeName.MEMORY_ONBOARDING, False: next_node},
+        )
+        builder.add_conditional_edges(
+            AssistantNodeName.MEMORY_ONBOARDING,
+            memory_onboarding.router,
+            path_map={"continue": next_node, "initialize_memory": AssistantNodeName.MEMORY_INITIALIZER},
+        )
+        builder.add_conditional_edges(
+            AssistantNodeName.MEMORY_INITIALIZER,
+            memory_initializer.router,
+            path_map={"continue": next_node, "interrupt": AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT},
+        )
+        builder.add_edge(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, next_node)
+
+        return self
+
+    def add_memory_collector(
+        self,
+        next_node: AssistantNodeName = AssistantNodeName.END,
+        tools_node: AssistantNodeName = AssistantNodeName.MEMORY_COLLECTOR_TOOLS,
+    ):
+        builder = self._graph
+        self._has_start_node = True
+
+        memory_collector = MemoryCollectorNode(self._team)
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_COLLECTOR)
+        builder.add_node(AssistantNodeName.MEMORY_COLLECTOR, memory_collector.run)
+        builder.add_conditional_edges(
+            AssistantNodeName.MEMORY_COLLECTOR,
+            memory_collector.router,
+            path_map={"tools": tools_node, "next": next_node},
+        )
+        return self
+
+    def add_memory_collector_tools(self):
+        builder = self._graph
+        memory_collector_tools = MemoryCollectorToolsNode(self._team)
+        builder.add_node(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, memory_collector_tools.run)
+        builder.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
+        return self
+
     def compile_full_graph(self):
         return (
-            self.add_start()
+            self.add_memory_initializer()
+            .add_memory_collector()
+            .add_memory_collector_tools()
             .add_router()
             .add_trends_planner()
             .add_trends_generator()

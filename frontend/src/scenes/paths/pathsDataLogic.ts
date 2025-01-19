@@ -10,7 +10,7 @@ import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-m
 import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { InsightActorsQuery, InsightVizNode, NodeKind, PathsQuery } from '~/queries/schema'
+import { InsightActorsQuery, InsightVizNode, NodeKind, PathsQuery } from '~/queries/schema/schema-general'
 import { isPathsQuery } from '~/queries/utils'
 import { ActionFilter, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 

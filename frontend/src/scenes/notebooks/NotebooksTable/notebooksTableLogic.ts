@@ -1,4 +1,4 @@
-import { PaginationManual } from '@posthog/lemon-ui'
+import { PaginationManual, Sorting } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { CountedPaginatedResponse } from 'lib/api'
@@ -23,13 +23,16 @@ export const DEFAULT_FILTERS: NotebooksListFilters = {
 }
 
 const RESULTS_PER_PAGE = 50
+const DEFAULT_SORTING: Sorting = { columnKey: '-created_at', order: 1 }
 
 export const notebooksTableLogic = kea<notebooksTableLogicType>([
     path(['scenes', 'notebooks', 'NotebooksTable', 'notebooksTableLogic']),
     actions({
         loadNotebooks: true,
         setFilters: (filters: Partial<NotebooksListFilters>) => ({ filters }),
-        setSortValue: (sortValue: string | null) => ({ sortValue }),
+        tableSortingChanged: (sorting: Sorting | null) => ({
+            sorting,
+        }),
         setPage: (page: number) => ({ page }),
     }),
     connect({
@@ -59,6 +62,13 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
                 setPage: (_, { page }) => page,
                 setFilters: () => 1,
                 setSortValue: () => 1,
+            },
+        ],
+        tableSorting: [
+            DEFAULT_SORTING,
+            { persist: true },
+            {
+                tableSortingChanged: (_, { sorting }) => sorting || DEFAULT_SORTING,
             },
         ],
     }),

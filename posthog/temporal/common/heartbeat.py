@@ -1,10 +1,12 @@
-import asyncio
-import typing
-import dataclasses
-import collections.abc
 import abc
+import asyncio
+import collections.abc
+import dataclasses
+import typing
 
 from temporalio import activity
+
+from posthog.temporal.common.logger import get_internal_logger
 
 
 class Heartbeater:
@@ -28,6 +30,7 @@ class Heartbeater:
         self.factor = factor
         self.heartbeat_task: asyncio.Task | None = None
         self.heartbeat_on_shutdown_task: asyncio.Task | None = None
+        self.logger = get_internal_logger()
 
     @property
     def details(self) -> tuple[typing.Any, ...]:
@@ -62,10 +65,18 @@ class Heartbeater:
         async def heartbeat_on_shutdown() -> None:
             """Handle the Worker shutting down by heart-beating our latest status."""
             await activity.wait_for_worker_shutdown()
+            await self.logger.adebug("Detected Worker shutdown")
+
             if not self.details:
                 return
 
             activity.heartbeat(*self.details)
+            if heartbeat_timeout:
+                heartbeat_timeout_seconds = heartbeat_timeout.total_seconds()
+                await self.logger.adebug(
+                    "Will attempt to wait %d seconds for heartbeat to flush", heartbeat_timeout_seconds
+                )
+                await asyncio.sleep(heartbeat_timeout_seconds)
 
         self.heartbeat_on_shutdown_task = asyncio.create_task(heartbeat_on_shutdown())
 

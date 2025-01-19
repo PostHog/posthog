@@ -24,9 +24,13 @@ export function MetricModal({
         editingPrimaryMetricIndex,
         editingSecondaryMetricIndex,
     } = useValues(experimentLogic({ experimentId }))
-    const { updateExperimentGoal, setExperiment, closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(
-        experimentLogic({ experimentId })
-    )
+    const {
+        updateExperimentGoal,
+        setExperiment,
+        closePrimaryMetricModal,
+        closeSecondaryMetricModal,
+        restoreUnmodifiedExperiment,
+    } = useActions(experimentLogic({ experimentId }))
 
     const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
@@ -40,10 +44,15 @@ export function MetricModal({
     const metricType = _getMetricType(metric)
     const funnelStepsLength = (metric as ExperimentFunnelsQuery)?.funnels_query?.series?.length || 0
 
+    const onClose = (): void => {
+        restoreUnmodifiedExperiment()
+        isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
+    }
+
     return (
         <LemonModal
             isOpen={isSecondary ? isSecondaryMetricModalOpen : isPrimaryMetricModalOpen}
-            onClose={isSecondary ? closeSecondaryMetricModal : closePrimaryMetricModal}
+            onClose={onClose}
             width={1000}
             title="Edit experiment metric"
             footer={
@@ -64,6 +73,7 @@ export function MetricModal({
                                             [metricsField]: newMetrics,
                                         })
                                         updateExperimentGoal()
+                                        isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
                                     },
                                     size: 'small',
                                 },
@@ -78,11 +88,7 @@ export function MetricModal({
                         Delete
                     </LemonButton>
                     <div className="flex items-center gap-2 ml-auto">
-                        <LemonButton
-                            form="edit-experiment-goal-form"
-                            type="secondary"
-                            onClick={isSecondary ? closeSecondaryMetricModal : closePrimaryMetricModal}
-                        >
+                        <LemonButton form="edit-experiment-goal-form" type="secondary" onClick={onClose}>
                             Cancel
                         </LemonButton>
                         <LemonButton
@@ -94,6 +100,7 @@ export function MetricModal({
                             form="edit-experiment-goal-form"
                             onClick={() => {
                                 updateExperimentGoal()
+                                isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
                             }}
                             type="primary"
                             loading={experimentLoading}

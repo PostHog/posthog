@@ -21,6 +21,7 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog import constants
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
@@ -889,7 +890,7 @@ async def test_s3_export_workflow_with_minio_bucket(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -902,7 +903,7 @@ async def test_s3_export_workflow_with_minio_bucket(
                 S3BatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(minutes=10),
             )
@@ -979,7 +980,7 @@ async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -992,7 +993,7 @@ async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
                 S3BatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(minutes=10),
             )
@@ -1062,7 +1063,7 @@ async def test_s3_export_workflow_with_minio_bucket_without_events(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -1075,7 +1076,7 @@ async def test_s3_export_workflow_with_minio_bucket_without_events(
                 S3BatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(minutes=10),
             )
@@ -1177,7 +1178,7 @@ async def test_s3_export_workflow_with_s3_bucket(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -1190,7 +1191,7 @@ async def test_s3_export_workflow_with_s3_bucket(
                 S3BatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=10),
             )
@@ -1270,7 +1271,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -1283,7 +1284,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
                 S3BatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=10),
             )
@@ -1356,7 +1357,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -1370,7 +1371,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
                     S3BatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -1409,7 +1410,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(a
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -1423,7 +1424,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(a
                     S3BatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -1461,7 +1462,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -1474,7 +1475,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
                 S3BatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
             await asyncio.sleep(5)
@@ -2035,7 +2036,7 @@ async def test_s3_export_workflow_with_request_timeouts(
         await WorkflowEnvironment.start_time_skipping() as activity_environment,
         Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -2053,7 +2054,7 @@ async def test_s3_export_workflow_with_request_timeouts(
                 S3BatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=2),
                 execution_timeout=dt.timedelta(minutes=2),
             )

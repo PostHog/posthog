@@ -15,6 +15,8 @@ from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
+from posthog.utils import posthoganalytics
+from posthog.event_usage import groups
 
 
 class OrganizationMemberObjectPermissions(BasePermission):
@@ -139,4 +141,22 @@ class OrganizationMemberViewSet(
 
     def perform_destroy(self, instance: Model):
         instance = cast(OrganizationMembership, instance)
+        requesting_user = cast(User, self.request.user)
+        removed_user = cast(User, instance.user)
+
+        is_self_removal = requesting_user.id == removed_user.id
+
+        posthoganalytics.capture(
+            str(requesting_user.distinct_id),
+            "organization member removed",
+            properties={
+                "removed_member_id": removed_user.distinct_id,
+                "removed_by_id": requesting_user.distinct_id,
+                "organization_id": instance.organization_id,
+                "organization_name": instance.organization.name,
+                "removal_type": "self_removal" if is_self_removal else "removed_by_other",
+            },
+            groups=groups(instance.organization),
+        )
+
         instance.user.leave(organization=instance.organization)

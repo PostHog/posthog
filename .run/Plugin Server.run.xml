@@ -14,7 +14,6 @@
       <env name="SESSION_RECORDING_KAFKA_BATCH_SIZE" value="200" />
       <env name="SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS" value="180" />
       <env name="SESSION_RECORDING_SUMMARY_INGESTION_ENABLED_TEAMS" value="all" />
-      <env name="WORKER_CONCURRENCY" value="2" />
       <env name="SESSION_RECORDING_KAFKA_QUEUE_SIZE" value="600" />
     </envs>
     <method v="2" />

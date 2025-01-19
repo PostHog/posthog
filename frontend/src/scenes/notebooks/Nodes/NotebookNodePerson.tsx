@@ -13,7 +13,7 @@ import { asDisplay } from 'scenes/persons/person-utils'
 import { useEffect } from 'react'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import clsx from 'clsx'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { NotFound } from 'lib/components/NotFound'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {

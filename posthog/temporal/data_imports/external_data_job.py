@@ -21,7 +21,6 @@ from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 from posthog.settings.base_variables import TEST
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_imports.util import is_posthog_team, is_enabled_for_team, randomly_enabled
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
@@ -67,6 +66,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "password authentication failed for user",
         "No primary key defined for table",
         "failed: timeout expired",
+        "SSL connection has been closed unexpectedly",
     ],
     ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
     ExternalDataSource.Type.MYSQL: ["Can't connect to MySQL server on", "No primary key defined for table"],
@@ -209,11 +209,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
     async def run(self, inputs: ExternalDataWorkflowInputs):
         assert inputs.external_data_schema_id is not None
 
-        if (
-            settings.TEMPORAL_TASK_QUEUE != DATA_WAREHOUSE_TASK_QUEUE_V2
-            and not TEST
-            and (is_posthog_team(inputs.team_id) or is_enabled_for_team(inputs.team_id) or randomly_enabled())
-        ):
+        if settings.TEMPORAL_TASK_QUEUE != DATA_WAREHOUSE_TASK_QUEUE_V2 and not TEST:
             await workflow.execute_activity(
                 trigger_pipeline_v2,
                 inputs,

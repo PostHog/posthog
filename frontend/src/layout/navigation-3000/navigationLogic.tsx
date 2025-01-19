@@ -1,4 +1,5 @@
 import {
+    IconAI,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
@@ -35,6 +36,8 @@ import React from 'react'
 import { editorSidebarLogic } from 'scenes/data-warehouse/editor/editorSidebarLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { replayLandingPageLogic } from 'scenes/session-recordings/replayLandingPageLogic'
+import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -72,6 +75,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['mobileLayout'],
             teamLogic,
             ['currentTeam', 'hasOnboardedAnyProduct'],
+            replayLandingPageLogic,
+            ['replayLandingPage'],
+            savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }),
+            ['playlists', 'playlistsLoading'],
         ],
         actions: [navigationLogic, ['closeAccountPopover']],
     })),
@@ -114,7 +121,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         ],
         sidebarWidth: [
             DEFAULT_SIDEBAR_WIDTH_PX,
-            { persist: true },
             {
                 setSidebarWidth: (_, { width }) => width,
             },
@@ -280,15 +286,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             }
             actions.setSidebarWidth(newWidth)
             actions.setSidebarOverslide(newWidthRaw - newWidth)
-            if (newWidthRaw < MINIMUM_SIDEBAR_WIDTH_PX / 2) {
-                if (values.isSidebarShown) {
-                    actions.hideSidebar()
-                }
-            } else {
-                if (!values.isSidebarShown) {
-                    actions.showSidebar()
-                }
-            }
         },
         syncSidebarWidthWithViewport: () => {
             if (values.sidebarWidth > window.innerWidth * (MAXIMUM_SIDEBAR_WIDTH_PERCENTAGE / 100)) {
@@ -349,20 +346,23 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 dashboardsModel.selectors.pinnedDashboards,
                 s.currentTeam,
                 s.hasOnboardedAnyProduct,
+                s.replayLandingPage,
+                s.playlists,
+                s.playlistsLoading,
             ],
             (
                 featureFlags,
                 dashboardsLoading,
                 pinnedDashboards,
                 currentTeam,
-                hasOnboardedAnyProduct
+                hasOnboardedAnyProduct,
+                replayLandingPage,
+                playlists,
+                playlistsLoading
             ): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
                 const hasOnboardedFeatureFlags = currentTeam?.has_completed_onboarding_for?.[ProductKey.FEATURE_FLAGS]
 
-                const replayLandingPageFlag = featureFlags[FEATURE_FLAGS.REPLAY_LANDING_PAGE]
-                const replayLandingPage: ReplayTabs =
-                    replayLandingPageFlag === 'templates' ? ReplayTabs.Templates : ReplayTabs.Home
                 const sectionOne: NavbarItem[] = hasOnboardedAnyProduct
                     ? [
                           {
@@ -494,6 +494,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                               {
                                                                   label: 'Core Web Vitals',
                                                                   to: urls.webAnalyticsCoreWebVitals(),
+                                                                  tag: 'beta' as const,
                                                               },
                                                           ],
                                                       },
@@ -505,11 +506,60 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   }
                                 : undefined,
                         },
+                        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
+                            ? {
+                                  identifier: Scene.LLMObservability,
+                                  label: 'LLM observability',
+                                  icon: <IconAI />,
+                                  to: urls.llmObservability('dashboard'),
+                                  tag: 'beta' as const,
+                              }
+                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
                             icon: <IconRewindPlay />,
                             to: urls.replay(replayLandingPage),
+                            sideAction: {
+                                identifier: 'replay-dropdown',
+                                dropdown: {
+                                    overlay: (
+                                        <LemonMenuOverlay
+                                            items={
+                                                playlists.count > 0
+                                                    ? [
+                                                          {
+                                                              title: 'Saved playlists',
+                                                              items: playlists.results.map((playlist) => ({
+                                                                  label:
+                                                                      playlist.name ||
+                                                                      playlist.derived_name ||
+                                                                      'Unnamed',
+                                                                  to: urls.replayPlaylist(playlist.short_id),
+                                                              })),
+                                                              footer: playlistsLoading && (
+                                                                  <div className="px-2 py-1 text-text-secondary-3000">
+                                                                      <Spinner /> Loading…
+                                                                  </div>
+                                                              ),
+                                                          },
+                                                      ]
+                                                    : [
+                                                          {
+                                                              label: 'All recordings',
+                                                              to: urls.replay(ReplayTabs.Home),
+                                                          },
+                                                          {
+                                                              label: 'Playlists',
+                                                              to: urls.replay(ReplayTabs.Playlists),
+                                                          },
+                                                      ]
+                                            }
+                                        />
+                                    ),
+                                    placement: 'bottom-end',
+                                },
+                            },
                         },
                         featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
                             ? {

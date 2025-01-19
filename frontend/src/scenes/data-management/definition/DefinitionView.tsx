@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyDefinition, ReplayTabs } from '~/types'
 
 export const scene: SceneExport = {
