@@ -71,8 +71,8 @@ export class IngestionConsumer {
         this.topic = hub.INGESTION_CONSUMER_CONSUME_TOPIC
         this.overflowTopic = hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
         this.dlqTopic = hub.INGESTION_CONSUMER_DLQ_TOPIC
-        this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',')
-        this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',')
+        this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',').filter((x) => !!x)
+        this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
 
         this.name = `ingestion-consumer-${this.topic}`
     }
@@ -372,7 +372,7 @@ export class IngestionConsumer {
     private shouldDropEvent(token?: string, distinctId?: string) {
         return (
             (token && this.tokensToDrop.includes(token)) ||
-            (distinctId && this.tokenDistinctIdsToDrop.includes(`${token}:${distinctId}`))
+            (token && distinctId && this.tokenDistinctIdsToDrop.includes(`${token}:${distinctId}`))
         )
     }
 

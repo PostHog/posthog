@@ -2,11 +2,16 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { UUIDT } from '~/src/utils/utils'
-import { getParsedQueuedMessages, mockProducer } from '~/tests/helpers/mocks/producer.mock'
+import {
+    getProducedKafkaMessages,
+    getProducedKakfaMessagesForTopic,
+    mockProducer,
+} from '~/tests/helpers/mocks/producer.mock'
+import { forSnapshot } from '~/tests/helpers/snapshots'
 
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { createTeam, createUserTeamAndOrganization, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { IngestionConsumer } from './ingestion-consumer'
 
 const mockConsumer = {
@@ -36,48 +41,6 @@ jest.mock('../../src/kafka/batch-consumer', () => {
 
 jest.setTimeout(1000)
 
-type DecodedKafkaMessage = {
-    topic: string
-    key?: any
-    value: Record<string, unknown>
-}
-
-const decodeAllKafkaMessages = (): DecodedKafkaMessage[] => {
-    const queuedMessages = getParsedQueuedMessages()
-
-    const result: DecodedKafkaMessage[] = []
-
-    for (const topicMessage of queuedMessages) {
-        for (const message of topicMessage.messages) {
-            result.push({
-                topic: topicMessage.topic,
-                key: message.key,
-                value: message.value ?? {},
-            })
-        }
-    }
-
-    return result
-}
-
-const UUID_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
-const forSnapshot = (obj: any, idMap?: Record<string, string>) => {
-    idMap = idMap ?? {}
-
-    // To make snapshot testing way simpler this matches on UUIDs and replaces them with an incrementing ID
-
-    let strData = JSON.stringify(obj)
-
-    const matches = strData.match(UUID_REGEX)
-
-    for (const match of matches ?? []) {
-        idMap[match] = `<REPLACED-UUID-${Object.keys(idMap).length}>`
-        strData = strData.replace(match, idMap[match])
-    }
-
-    return JSON.parse(strData)
-}
-
 let offsetIncrementer = 0
 
 const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => {
@@ -105,6 +68,7 @@ describe('IngestionConsumer', () => {
     let ingester: IngestionConsumer
     let hub: Hub
     let team: Team
+    let team2: Team
 
     const createEvent = (event?: Partial<PipelineEvent>): PipelineEvent => ({
         distinct_id: 'user-1',
@@ -121,19 +85,24 @@ describe('IngestionConsumer', () => {
     })
 
     beforeEach(async () => {
+        const now = new Date(2025, 1, 1).getTime()
+        jest.spyOn(Date, 'now').mockReturnValue(now)
         offsetIncrementer = 0
         await resetTestDatabase()
         hub = await createHub()
+
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
-
-        ingester = new IngestionConsumer(hub)
-        await ingester.start()
+        const team2Id = await createTeam(hub.db.postgres, team.organization_id)
+        team2 = (await hub.db.fetchTeam(team2Id)) as Team
     })
 
     afterEach(async () => {
+        jest.restoreAllMocks()
         jest.setTimeout(10000)
-        await ingester.stop()
+        if (ingester) {
+            await ingester.stop()
+        }
         await closeHub(hub)
     })
 
@@ -142,16 +111,118 @@ describe('IngestionConsumer', () => {
     })
 
     describe('general', () => {
-        beforeEach(() => {
-            // TODO: Freeze time for tests
-            // TODO: Add helper to replace all UUIDs with simple strings for better test comaprisons
+        beforeEach(async () => {
+            ingester = new IngestionConsumer(hub)
+            await ingester.start()
         })
+        it('should process a standard event', async () => {
+            await ingester.handleKafkaBatch(createKafkaMessages([createEvent()]))
 
-        it('should process events', async () => {
-            const messages = createKafkaMessages([createEvent()])
-            await ingester.handleKafkaBatch(messages)
+            expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
+        })
+    })
 
-            expect(forSnapshot(decodeAllKafkaMessages())).toMatchSnapshot()
+    describe('dropping events', () => {
+        describe.each(['headers', 'payload'] as const)('via %s', (kind) => {
+            const addMessageHeaders = (message: Message, token?: string, distinctId?: string) => {
+                if (kind !== 'headers') {
+                    return
+                }
+                message.headers = []
+
+                if (distinctId) {
+                    message.headers.push({
+                        key: 'distinct_id',
+                        value: Buffer.from(distinctId),
+                    })
+                }
+                if (token) {
+                    message.headers.push({
+                        key: 'token',
+                        value: Buffer.from(token),
+                    })
+                }
+            }
+
+            describe('with DROP_EVENTS_BY_TOKEN', () => {
+                beforeEach(async () => {
+                    hub.DROP_EVENTS_BY_TOKEN = `${team.api_token},phc_other`
+                    ingester = new IngestionConsumer(hub)
+                    await ingester.start()
+                })
+                it('should drop events with matching token', async () => {
+                    const messages = createKafkaMessages([createEvent({}), createEvent({})])
+                    addMessageHeaders(messages[0], team.api_token)
+                    await ingester.handleKafkaBatch(messages)
+                    expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                })
+
+                it('should not drop events for a different team token', async () => {
+                    const messages = createKafkaMessages([createEvent({ token: team2.api_token })])
+                    addMessageHeaders(messages[0], team2.api_token)
+                    await ingester.handleKafkaBatch(messages)
+                    expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
+                })
+
+                it('should only drop events in batch matching', async () => {
+                    const messages = createKafkaMessages([
+                        createEvent({ token: team.api_token }),
+                        createEvent({ token: team2.api_token, distinct_id: 'team2-distinct-id' }),
+                        createEvent({ token: team.api_token }),
+                    ])
+                    addMessageHeaders(messages[0], team.api_token)
+                    addMessageHeaders(messages[1], team2.api_token)
+                    addMessageHeaders(messages[2], team.api_token)
+                    await ingester.handleKafkaBatch(messages)
+                    const eventsMessages = getProducedKakfaMessagesForTopic('clickhouse_events_json_test')
+                    expect(eventsMessages).toHaveLength(1)
+                    expect(eventsMessages[0].value).toMatchObject({
+                        team_id: team2.id,
+                        distinct_id: 'team2-distinct-id',
+                    })
+                })
+            })
+
+            describe('with DROP_EVENTS_BY_TOKEN_DISTINCT_ID', () => {
+                beforeEach(async () => {
+                    hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = `${team.api_token}:distinct-id-to-ignore,phc_other:distinct-id-to-ignore`
+                    ingester = new IngestionConsumer(hub)
+                    await ingester.start()
+                })
+                it('should drop events with matching token and distinct_id', async () => {
+                    const messages = createKafkaMessages([
+                        createEvent({
+                            distinct_id: 'distinct-id-to-ignore',
+                        }),
+                    ])
+                    addMessageHeaders(messages[0], team.api_token, 'distinct-id-to-ignore')
+                    await ingester.handleKafkaBatch(messages)
+                    expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                })
+
+                it('should not drop events for a different team token', async () => {
+                    const messages = createKafkaMessages([
+                        createEvent({
+                            token: team2.api_token,
+                            distinct_id: 'distinct-id-to-ignore',
+                        }),
+                    ])
+                    addMessageHeaders(messages[0], team2.api_token, 'distinct-id-to-ignore')
+                    await ingester.handleKafkaBatch(messages)
+                    expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
+                })
+
+                it('should not drop events for a different distinct_id', async () => {
+                    const messages = createKafkaMessages([
+                        createEvent({
+                            distinct_id: 'other-id',
+                        }),
+                    ])
+                    addMessageHeaders(messages[0], team.api_token, 'not-ignored')
+                    await ingester.handleKafkaBatch(messages)
+                    expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
+                })
+            })
         })
     })
 })
