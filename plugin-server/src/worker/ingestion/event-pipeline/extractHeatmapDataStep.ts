@@ -26,7 +26,7 @@ export async function extractHeatmapDataStep(
 ): Promise<[PreIngestionEvent, Promise<void>[]]> {
     const { eventUuid, teamId } = event
 
-    let acks: Promise<void>[] = []
+    const acks: Promise<void>[] = []
 
     try {
         const team = await runner.hub.teamManager.fetchTeam(teamId)
@@ -34,15 +34,17 @@ export async function extractHeatmapDataStep(
         if (team?.heatmaps_opt_in !== false) {
             const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []
 
-            acks.push(
-                runner.hub.kafkaProducer.queueMessages({
-                    topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                    messages: heatmapEvents.map((rawEvent) => ({
-                        key: eventUuid,
-                        value: JSON.stringify(rawEvent),
-                    })),
-                })
-            )
+            if (heatmapEvents.length > 0) {
+                acks.push(
+                    runner.hub.kafkaProducer.queueMessages({
+                        topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                        messages: heatmapEvents.map((rawEvent) => ({
+                            key: eventUuid,
+                            value: JSON.stringify(rawEvent),
+                        })),
+                    })
+                )
+            }
         }
     } catch (e) {
         acks.push(

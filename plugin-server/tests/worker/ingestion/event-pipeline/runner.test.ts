@@ -110,11 +110,11 @@ describe('EventPipelineRunner', () => {
     let hub: any
 
     const mockProducer: jest.Mocked<KafkaProducerWrapper> = {
-        queueMessages: jest.fn(() => Promise.resolve()) as any,
+        queueMessages: jest.fn() as any,
     } as any
 
     beforeEach(() => {
-        jest.mocked(mockProducer.queueMessages).mockResolvedValue(Promise.resolve())
+        jest.mocked(mockProducer.queueMessages).mockImplementation(() => Promise.resolve())
 
         hub = {
             kafkaProducer: mockProducer,
@@ -277,6 +277,7 @@ describe('EventPipelineRunner', () => {
                 const pipelineStepDLQCounterSpy = jest.spyOn(metrics.pipelineStepDLQCounter, 'labels')
                 jest.mocked(processOnEventStep).mockRejectedValue(error)
 
+                expect(mockProducer.queueMessages).not.toHaveBeenCalled()
                 await runner.runEventPipeline(pipelineEvent)
 
                 expect(mockProducer.queueMessages).not.toHaveBeenCalled()
