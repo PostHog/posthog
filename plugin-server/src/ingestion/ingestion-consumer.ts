@@ -4,6 +4,7 @@ import { Histogram } from 'prom-client'
 
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
+import { KafkaProducerWrapper } from '../kafka/producer'
 import { IngestionOverflowMode } from '../main/ingestion-queues/batch-processing/each-batch-ingestion'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
@@ -15,8 +16,6 @@ import {
 } from '../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
-import { createKafkaProducerWrapper } from '../utils/db/hub'
-import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { normalizeEvent } from '../utils/event'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
@@ -53,10 +52,10 @@ const KNOWN_SET_EVENTS = new Set([
 abstract class IngestionConsumer {
     batchConsumer?: BatchConsumer
     isStopping = false
-    protected kafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
     protected heartbeat = () => {}
     protected promises: Set<Promise<any>> = new Set()
+    protected kafkaProducer?: KafkaProducerWrapper
 
     protected scheduleWork<T>(promise: Promise<T>): Promise<T> {
         this.promises.add(promise)
@@ -101,7 +100,7 @@ abstract class IngestionConsumer {
     }): Promise<void> {
         this.batchConsumer = await startBatchConsumer({
             ...options,
-            connectionConfig: createRdConnectionConfigFromEnvVars(this.hub),
+            connectionConfig: createRdConnectionConfigFromEnvVars(this.hub, 'consumer'),
             autoCommit: true,
             sessionTimeout: this.hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.hub.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
@@ -148,13 +147,10 @@ abstract class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
-        // NOTE: This is only for starting shared services
-        await Promise.all([
-            createKafkaProducerWrapper(this.hub).then((producer) => {
-                this.kafkaProducer = producer
-                this.kafkaProducer.producer.connect()
-            }),
-        ])
+        await KafkaProducerWrapper.create(this.hub).then((producer) => {
+            this.kafkaProducer = producer
+            this.kafkaProducer.producer.connect()
+        })
     }
 
     public async stop(): Promise<void> {
