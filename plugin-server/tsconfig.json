@@ -10,15 +10,19 @@
         "esModuleInterop": true,
         "allowJs": true,
         "sourceMap": true,
-        "baseUrl": "src/",
-        "rootDir": "src/",
+        "baseUrl": "./",
+        "rootDir": "./",
         "outDir": "dist/",
         "types": ["node", "jest", "long"],
         "resolveJsonModule": true,
         "strict": true,
         "noImplicitAny": true,
-        "useUnknownInCatchVariables": false
+        "useUnknownInCatchVariables": false,
+        "paths": {
+            "src/*": ["src/*"],
+            "tests/*": ["tests/*"]
+        }
     },
-    "include": ["src"],
+    "include": ["src", "tests"],
     "exclude": ["node_modules", "dist", "bin"]
 }

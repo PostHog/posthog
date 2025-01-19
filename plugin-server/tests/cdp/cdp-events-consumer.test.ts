@@ -1,11 +1,9 @@
-// eslint-disable-next-line simple-import-sort/imports
-import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer.mock'
-
 import { CdpInternalEventsConsumer, CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
 import { HogWatcherState } from '../../src/cdp/hog-watcher'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
+import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer.mock'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './fixtures'
