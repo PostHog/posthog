@@ -9,4 +9,8 @@ module.exports = {
     testMatch: ['<rootDir>/tests/**/*.test.ts', '<rootDir>/src/**/*.test.ts'],
     testTimeout: 60000,
     modulePathIgnorePatterns: ['<rootDir>/.tmp/'],
+
+    moduleNameMapper: {
+        '^~/(.*)$': '<rootDir>/$1',
+    },
 }

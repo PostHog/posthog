@@ -95,17 +95,7 @@ export class IngestionConsumer {
             this.startKafkaConsumer({
                 topic: this.topic,
                 groupId: this.groupId,
-                handleBatch: async (messages) => {
-                    const invocationGlobals = await this.parseKafkaBatch(messages)
-                    await this.processBatch(invocationGlobals)
-                    for (const message of messages) {
-                        if (message.timestamp) {
-                            latestOffsetTimestampGauge
-                                .labels({ partition: message.partition, topic: message.topic, groupId: this.groupId })
-                                .set(message.timestamp)
-                        }
-                    }
-                },
+                handleBatch: async (messages) => this.handleKafkaBatch(messages),
             }),
         ])
     }
@@ -131,6 +121,18 @@ export class IngestionConsumer {
         this.promises.add(promise)
         void promise.finally(() => this.promises.delete(promise))
         return promise
+    }
+
+    public async handleKafkaBatch(messages: Message[]) {
+        const parsedMessages = await this.parseKafkaBatch(messages)
+        await this.processBatch(parsedMessages)
+        for (const message of messages) {
+            if (message.timestamp) {
+                latestOffsetTimestampGauge
+                    .labels({ partition: message.partition, topic: message.topic, groupId: this.groupId })
+                    .set(message.timestamp)
+            }
+        }
     }
 
     public async processBatch(groupedIncomingEvents: GroupedIncomingEvents): Promise<void> {

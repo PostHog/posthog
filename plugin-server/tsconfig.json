@@ -19,8 +19,7 @@
         "noImplicitAny": true,
         "useUnknownInCatchVariables": false,
         "paths": {
-            "src/*": ["src/*"],
-            "tests/*": ["tests/*"]
+            "~/*": ["./*"]
         }
     },
     "include": ["src", "tests"],
