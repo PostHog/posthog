@@ -115,6 +115,15 @@ describe('IngestionConsumer', () => {
             ingester = new IngestionConsumer(hub)
             await ingester.start()
         })
+
+        it('should have the correct config', () => {
+            expect(ingester['name']).toMatchInlineSnapshot(`"ingestion-consumer-events_plugin_ingestion_test"`)
+            expect(ingester['groupId']).toMatchInlineSnapshot(`"events-ingestion-consumer"`)
+            expect(ingester['topic']).toMatchInlineSnapshot(`"events_plugin_ingestion_test"`)
+            expect(ingester['dlqTopic']).toMatchInlineSnapshot(`"events_plugin_ingestion_dlq_test"`)
+            expect(ingester['overflowTopic']).toMatchInlineSnapshot(`"events_plugin_ingestion_overflow_test"`)
+        })
+
         it('should process a standard event', async () => {
             await ingester.handleKafkaBatch(createKafkaMessages([createEvent()]))
 
