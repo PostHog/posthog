@@ -23,7 +23,6 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
-import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
@@ -880,6 +879,34 @@ export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGr
 
 export type SessionRecordingId = SessionRecordingType['id']
 
+/* copied from rrweb console record
+https://github.com/rrweb-io/rrweb/blob/dc20cd45cc63058325784444af6bd32ed2cace48/packages/plugins/rrweb-plugin-console-record/src/index.ts#L62C1-L86C37 %/
+ */
+type Logger = {
+    assert?: typeof console.assert
+    clear?: typeof console.clear
+    count?: typeof console.count
+    countReset?: typeof console.countReset
+    debug?: typeof console.debug
+    dir?: typeof console.dir
+    dirxml?: typeof console.dirxml
+    error?: typeof console.error
+    group?: typeof console.group
+    groupCollapsed?: typeof console.groupCollapsed
+    groupEnd?: () => void
+    info?: typeof console.info
+    log?: typeof console.log
+    table?: typeof console.table
+    time?: typeof console.time
+    timeEnd?: typeof console.timeEnd
+    timeLog?: typeof console.timeLog
+    trace?: typeof console.trace
+    warn?: typeof console.warn
+}
+
+type LogLevel = keyof Logger
+
+/* end of copied section */
 export interface RRWebRecordingConsoleLogPayload {
     level: LogLevel
     payload: (string | null)[]
