@@ -222,13 +222,9 @@ describe('PersonState.update()', () => {
             await kafkaAcks
             await kafkaAcks2
 
-            console.log('Post acks', performance.now() - start)
-
             // new2 has an override, because it was in posthog_personlessdistinctid
             await delayUntilEventIngested(() => fetchOverridesForDistinctId('new2'))
-            console.log('Postgres', performance.now() - start)
             const chOverrides = await fetchOverridesForDistinctId('new2')
-            console.log('Clickhouse', performance.now() - start)
             expect(chOverrides.length).toEqual(1)
             expect(chOverrides).toEqual(
                 expect.arrayContaining([
@@ -242,7 +238,6 @@ describe('PersonState.update()', () => {
 
             // old2 has no override, because it wasn't in posthog_personlessdistinctid
             const chOverridesOld = await fetchOverridesForDistinctId('old2')
-            console.log('post fetch 2', performance.now() - start)
             expect(chOverridesOld.length).toEqual(0)
         })
 
