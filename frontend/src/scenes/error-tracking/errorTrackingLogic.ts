@@ -35,7 +35,7 @@ export const DEFAULT_ERROR_TRACKING_FILTER_GROUP = {
     values: [{ type: FilterLogicalOperator.And, values: [] }],
 }
 
-const SPARKLINE_CONFIGURATIONS: Record<string, ErrorTrackingSparklineConfig> = {
+export const SPARKLINE_CONFIGURATIONS: Record<string, ErrorTrackingSparklineConfig> = {
     '1h': { value: 60, interval: 'minute' },
     '24h': { value: 24, interval: 'hour' },
     '7d': { value: 168, interval: 'hour' }, // 7d * 24h = 168h
@@ -46,7 +46,7 @@ const SPARKLINE_CONFIGURATIONS: Record<string, ErrorTrackingSparklineConfig> = {
     yStart: { value: 52, interval: 'week' },
 }
 
-function constructSparklineConfig(selectedPeriod: string): ErrorTrackingSparklineConfig | null {
+export function constructSparklineConfig(selectedPeriod: string): ErrorTrackingSparklineConfig | null {
     if (selectedPeriod in SPARKLINE_CONFIGURATIONS) {
         return SPARKLINE_CONFIGURATIONS[selectedPeriod]
     }
