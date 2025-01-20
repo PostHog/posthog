@@ -4,10 +4,10 @@ import { DateTime } from 'luxon'
 import { Hub } from '../types'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
-import { FetchExecutor } from './fetch-executor'
-import { HogExecutor, MAX_ASYNC_STEPS } from './hog-executor'
-import { HogFunctionManager } from './hog-function-manager'
+import { FetchExecutor } from './executors/fetch.executor'
+import { HogExecutor, MAX_ASYNC_STEPS } from './executors/hog.executor'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
+import { HogFunctionManager } from './managers/hog-function.manager'
 import { HogFunctionInvocationResult, HogFunctionQueueParametersFetchRequest, HogFunctionType, LogEntry } from './types'
 
 export class CdpApi {

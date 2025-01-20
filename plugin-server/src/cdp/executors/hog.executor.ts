@@ -1,14 +1,14 @@
 import { calculateCost, convertHogToJS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
+import { HogFunctionManager } from 'cdp/managers/hog-function.manager'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
-import { buildIntegerMatcher } from '../config/config'
-import { Hub, ValueMatcher } from '../types'
-import { status } from '../utils/status'
-import { UUIDT } from '../utils/utils'
-import { HogFunctionManager } from './hog-function-manager'
+import { buildIntegerMatcher } from '../../config/config'
+import { Hub, ValueMatcher } from '../../types'
+import { status } from '../../utils/status'
+import { UUIDT } from '../../utils/utils'
 import {
     CyclotronFetchFailureInfo,
     HogFunctionAppMetric,
@@ -21,8 +21,8 @@ import {
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
-} from './types'
-import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from './utils'
+} from '../types'
+import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25

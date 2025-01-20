@@ -4,7 +4,7 @@ import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
 import { Hub } from '../../../types'
-import { buildGlobalsWithInputs, HogExecutor } from '../../hog-executor'
+import { buildGlobalsWithInputs, HogExecutor } from '../../executors/hog.executor'
 import {
     HogFunctionInputType,
     HogFunctionInvocation,

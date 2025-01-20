@@ -1,4 +1,8 @@
 import * as Sentry from '@sentry/node'
+import { CdpFunctionCallbackConsumer } from 'cdp/consumers/cdp-function-callback.consumer'
+import { CdpInternalEventsConsumer } from 'cdp/consumers/cdp-internal-events.consumer'
+import { CdpProcessedEventsConsumer } from 'cdp/consumers/cdp-processed-events.consumer'
+import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from 'cdp/workers/cyclotron.worker'
 import fs from 'fs'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes, KafkaJSProtocolError } from 'kafkajs'
@@ -11,13 +15,6 @@ import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { CdpApi } from '../cdp/cdp-api'
-import {
-    CdpCyclotronWorker,
-    CdpCyclotronWorkerFetch,
-    CdpFunctionCallbackConsumer,
-    CdpInternalEventsConsumer,
-    CdpProcessedEventsConsumer,
-} from '../cdp/cdp-consumers'
 import { defaultConfig } from '../config/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
