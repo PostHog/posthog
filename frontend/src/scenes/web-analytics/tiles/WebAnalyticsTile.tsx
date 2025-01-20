@@ -20,12 +20,12 @@ import { GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyti
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
 import {
-    CoreWebVitalsPathBreakdownQuery,
     DataTableNode,
     InsightVizNode,
     NodeKind,
     QuerySchema,
     WebStatsBreakdown,
+    WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { ChartDisplayType, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
@@ -605,11 +605,11 @@ export const WebExternalClicksTile = ({
     )
 }
 
-export const CoreWebVitalsPathBreakdownTile = ({
+export const WebVitalsPathBreakdownTile = ({
     query,
     insightProps,
     control,
-}: QueryWithInsightProps<CoreWebVitalsPathBreakdownQuery> & {
+}: QueryWithInsightProps<WebVitalsPathBreakdownQuery> & {
     control?: JSX.Element
 }): JSX.Element => {
     return (
@@ -655,8 +655,8 @@ export const WebQuery = ({
         return <WebGoalsTile query={query} insightProps={insightProps} />
     }
 
-    if (query.kind === NodeKind.CoreWebVitalsPathBreakdownQuery) {
-        return <CoreWebVitalsPathBreakdownTile query={query} insightProps={insightProps} control={control} />
+    if (query.kind === NodeKind.WebVitalsPathBreakdownQuery) {
+        return <WebVitalsPathBreakdownTile query={query} insightProps={insightProps} control={control} />
     }
 
     return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />

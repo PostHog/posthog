@@ -257,15 +257,15 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
-    [NodeKind.CoreWebVitalsQuery]: {
-        name: 'Core web vitals',
-        description: 'View core web vitals.',
+    [NodeKind.WebVitalsQuery]: {
+        name: 'Web vitals',
+        description: 'View web vitals.',
         icon: IconPieChart,
         inMenu: true,
     },
-    [NodeKind.CoreWebVitalsPathBreakdownQuery]: {
-        name: 'Core web vitals path breakdown',
-        description: 'View core web vitals broken down by path.',
+    [NodeKind.WebVitalsPathBreakdownQuery]: {
+        name: 'Web vitals path breakdown',
+        description: 'View web vitals broken down by path.',
         icon: IconPieChart,
         inMenu: true,
     },

@@ -88,8 +88,8 @@ const teamActionsMapping: Record<
         }
     },
     recording_domains(change: ActivityChange | undefined): ChangeMapping | null {
-        const before: string[] | null = Array.isArray(change?.before) ? change!.before : null
-        const after: string[] | null = Array.isArray(change?.after) ? change!.after : null
+        const before: string[] | null = Array.isArray(change?.before) ? change?.before.map(String) ?? null : null
+        const after: string[] | null = Array.isArray(change?.after) ? change?.after.map(String) ?? null : null
         if (after === null && before === null) {
             return null
         }

@@ -11,8 +11,8 @@ import { dayjs } from 'lib/dayjs'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, KNOWN_PROMOTED_PROPERTY_PARENTS } from 'lib/taxonomy'
 import { pluralize } from 'lib/utils'
 import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/event-property-utls'
+import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
 import { useState } from 'react'
-import { ConversationDisplay } from 'scenes/llm-observability/ConversationDisplay/ConversationDisplay'
 
 import { EventType, PropertyDefinitionType } from '~/types'
 
