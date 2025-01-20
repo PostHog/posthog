@@ -236,7 +236,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner: @robbie-c #team-web-analytics
     REPLAY_FLAGS_FILTERS: 'replay-flags-filters', // owner: @pauldambra #team-replay
     REPLAY_LANDING_PAGE: 'replay-landing-page', // owner :#team-replay
-    CORE_WEB_VITALS: 'core-web-vitals', // owner: @rafaeelaudibert #team-web-analytics
+    WEB_VITALS: 'web-vitals', // owner: @rafaeelaudibert #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

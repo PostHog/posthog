@@ -1,4 +1,4 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
@@ -11162,4 +11162,5 @@ packages:
   file:../rust/cyclotron-node:
     resolution: {directory: ../rust/cyclotron-node, type: directory}
     name: '@posthog/cyclotron'
+    version: 0.1.7
     dev: false
