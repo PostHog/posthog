@@ -9,7 +9,7 @@ export const processAiEvent = (event: PluginEvent): PluginEvent => {
         return event
     }
     event = processCost(event)
-
+    event = extractCoreModelParams(event)
     return event
 }
 
@@ -38,6 +38,54 @@ const processCost = (event: PluginEvent) => {
     event.properties['$ai_total_cost_usd'] = parseFloat(
         bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
     )
+
+    return event
+}
+
+export const extractCoreModelParams = (event: PluginEvent): PluginEvent => {
+    if (!event.properties || !event.properties['$ai_provider'] || !event.properties['$ai_model']) {
+        return event
+    }
+    const provider = event.properties['$ai_provider'].toLowerCase()
+
+    const params = event.properties['$ai_model_parameters']
+
+    if (!params) {
+        return event
+    }
+
+    if (provider === 'anthropic') {
+        if (params.temperature !== undefined) {
+            event.properties.$ai_temperature = params.temperature
+        }
+        if (params.max_tokens !== undefined) {
+            event.properties.$ai_max_tokens = params.max_tokens
+        }
+        if (params.stream !== undefined) {
+            event.properties.$ai_stream = params.stream
+        }
+    } else if (provider === 'openai') {
+        if (params.temperature !== undefined) {
+            event.properties.$ai_temperature = params.temperature
+        }
+        if (params.max_completion_tokens !== undefined) {
+            event.properties.$ai_max_tokens = params.max_completion_tokens
+        }
+        if (params.stream !== undefined) {
+            event.properties.$ai_stream = params.stream
+        }
+    } else {
+        // Default to openai-like params
+        if (params.temperature !== undefined) {
+            event.properties.$ai_temperature = params.temperature
+        }
+        if (params.max_completion_tokens !== undefined) {
+            event.properties.$ai_max_tokens = params.max_completion_tokens
+        }
+        if (params.stream !== undefined) {
+            event.properties.$ai_stream = params.stream
+        }
+    }
 
     return event
 }

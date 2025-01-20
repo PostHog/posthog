@@ -116,6 +116,27 @@ describe('processAiEvent()', () => {
         })
     })
 
+    describe('model parameters', () => {
+        it('dont extract core model parameters if not present', () => {
+            const result = processAiEvent(event)
+            expect(result.properties.$ai_temperature).toBeUndefined()
+            expect(result.properties.$ai_max_tokens).toBeUndefined()
+            expect(result.properties.$ai_stream).toBeUndefined()
+        })
+
+        it('extracts core model parameters if present', () => {
+            event.properties.$ai_model_parameters = {
+                temperature: 0.5,
+                max_completion_tokens: 100,
+                stream: false,
+            }
+            const result = processAiEvent(event)
+            expect(result.properties.$ai_temperature).toBe(0.5)
+            expect(result.properties.$ai_max_tokens).toBe(100)
+            expect(result.properties.$ai_stream).toBe(false)
+        })
+    })
+
     describe('error handling', () => {
         it('handles missing required properties', () => {
             delete event.properties.$ai_model
