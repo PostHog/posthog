@@ -543,7 +543,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 : deleteFeatureFlag(featureFlag)
                                                         }}
                                                         disabledReason={
-                                                            (featureFlag.features?.length || 0) > 0
+                                                            !featureFlag.can_edit
+                                                                ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                                : (featureFlag.features?.length || 0) > 0
                                                                 ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
                                                                 : (featureFlag.experiment_set?.length || 0) > 0
                                                                 ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
@@ -574,7 +576,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             data-attr="edit-feature-flag"
                                             type="secondary"
                                             disabledReason={
-                                                featureFlag.deleted
+                                                !featureFlag.can_edit
+                                                    ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                    : featureFlag.deleted
                                                     ? 'This feature flag has been deleted. Restore it to edit.'
                                                     : null
                                             }
@@ -817,7 +821,12 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                             })
                                                         }}
                                                         label="Enabled"
-                                                        disabledReason={accessControlDisabledReason}
+                                                        disabledReason={
+                                                            accessControlDisabledReason ||
+                                                            (!featureFlag.can_edit
+                                                                ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
+                                                                : null)
+                                                        }
                                                         checked={featureFlag.active}
                                                     />
                                                     <FeatureFlagStatusIndicator flagStatus={flagStatus} />
