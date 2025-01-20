@@ -12,6 +12,7 @@ export type ProductCrossSellProperties = {
     from: ProductKey
     to: ProductKey
     location: ProductCrossSellLocation
+    context?: ProductCrossSellContext
 }
 
 export function trackProductCrossSell(properties: ProductCrossSellProperties): void {
