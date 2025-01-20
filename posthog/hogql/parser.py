@@ -816,7 +816,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         count, unit = text.split(" ")
         if count.isdigit():
-            count = int(count)
+            int_count = int(count)
         else:
             raise NotImplementedError(f"Unsupported interval count: {count}")
 
@@ -839,7 +839,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         else:
             raise NotImplementedError(f"Unsupported interval unit: {unit}")
 
-        return ast.Call(name=name, args=[ast.Constant(value=count)])
+        return ast.Call(name=name, args=[ast.Constant(value=int_count)])
 
     def visitColumnExprIsNull(self, ctx: HogQLParser.ColumnExprIsNullContext):
         return ast.CompareOperation(
