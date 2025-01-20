@@ -75,6 +75,8 @@ RUN apt-get update && \
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
+# Remove test files as they might fail when importing from the root tests dir
+RUN rm -rf ./src/**/*.test.ts
 RUN pnpm build
 
 # As the plugin-server is now built, let’s keep

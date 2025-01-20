@@ -18,4 +18,9 @@ module.exports = {
     testTimeout: 60000,
     maxConcurrency: 10,
     maxWorkers: 6,
+
+    // NOTE: This should be kept in sync with tsconfig.json
+    moduleNameMapper: {
+        '^~/(.*)$': '<rootDir>/$1',
+    },
 }
