@@ -13,7 +13,7 @@ pub fn captured_parse_fn(
             return Err(Error::msg("No distinct_id found"));
         };
         // We'll respect the events uuid if ones set
-        let uuid = raw.uuid.clone().unwrap_or_else(Uuid::now_v7);
+        let uuid = raw.uuid.unwrap_or_else(Uuid::now_v7);
         // Grab the events timestamp, or make one up
         let timestamp = get_timestamp(&raw);
 

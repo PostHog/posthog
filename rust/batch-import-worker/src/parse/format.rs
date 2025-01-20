@@ -87,7 +87,7 @@ pub const fn newline_delim<T: Send>(
     skip_blank_lines: bool,
     inner: impl Fn(&str) -> Result<T, Error> + Sync,
 ) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error> {
-    let out = move |data: Vec<u8>| {
+    move |data: Vec<u8>| {
         let mut cursor = 0;
         let mut last_consumed_byte = 0;
 
@@ -154,16 +154,12 @@ pub const fn newline_delim<T: Send>(
         };
 
         Ok(parsed)
-    };
-
-    out
+    }
 }
 
-pub const fn json_nd<T: Send>(
-    skip_blank_lines: bool,
-) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error>
+pub const fn json_nd<T>(skip_blank_lines: bool) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error>
 where
-    T: DeserializeOwned,
+    T: DeserializeOwned + Send,
 {
     newline_delim(skip_blank_lines, |line| {
         let parsed = serde_json::from_str(line)?;

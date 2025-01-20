@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 
 use anyhow::{Context, Error};
 use chrono::{DateTime, Utc};
@@ -201,13 +201,13 @@ impl JobModel {
     }
 }
 
-impl ToString for JobStatus {
-    fn to_string(&self) -> String {
+impl Display for JobStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            JobStatus::Running => "running".to_string(),
-            JobStatus::Paused => "paused".to_string(),
-            JobStatus::Failed => "failed".to_string(),
-            JobStatus::Completed => "completed".to_string(),
+            JobStatus::Running => write!(f, "running"),
+            JobStatus::Paused => write!(f, "paused"),
+            JobStatus::Failed => write!(f, "failed"),
+            JobStatus::Completed => write!(f, "completed"),
         }
     }
 }

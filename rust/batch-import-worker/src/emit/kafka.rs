@@ -120,12 +120,8 @@ impl Emitter for KafkaEmitter {
             return Err(Error::msg("Cannot emit in a non-writing state"));
         };
 
-        txn.send_keyed_iter_to_kafka(
-            &self.topic,
-            |e| Some(e.inner.key()),
-            data.iter().map(|e| e.clone()),
-        )
-        .await?;
+        txn.send_keyed_iter_to_kafka(&self.topic, |e| Some(e.inner.key()), data.iter())
+            .await?;
 
         count.fetch_add(data.len(), Ordering::SeqCst);
 
