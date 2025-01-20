@@ -78,15 +78,13 @@ def create_initial_channel_type(name: str, custom_rules: Optional[list[CustomCha
                     args=[ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_hostname"])])],
                 ),
                 pathname=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_pathname"])]),
-                has_gclid=ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotEq,
-                    left=wrap_with_null_if_empty(ast.Field(chain=["properties", "$initial_gclid"])),
-                    right=ast.Constant(value=None),
+                has_gclid=ast.Call(
+                    name="isNotNull",
+                    args=[wrap_with_null_if_empty(ast.Field(chain=["properties", "$initial_gclid"]))],
                 ),
-                has_fbclid=ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotEq,
-                    left=wrap_with_null_if_empty(ast.Field(chain=["properties", "$initial_fbclid"])),
-                    right=ast.Constant(value=None),
+                has_fbclid=ast.Call(
+                    name="isNotNull",
+                    args=[wrap_with_null_if_empty(ast.Field(chain=["properties", "$initial_fbclid"]))],
                 ),
                 gad_source=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gad_source"])]),
             ),

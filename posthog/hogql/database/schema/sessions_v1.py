@@ -268,11 +268,13 @@ def select_from_sessions_table_v1(
             url=aggregate_fields["$entry_current_url"],
             hostname=aggregate_fields["$entry_hostname"],
             pathname=aggregate_fields["$entry_pathname"],
-            has_gclid=ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq, left=aggregate_fields["$entry_gclid"], right=ast.Constant(value=None)
+            has_gclid=ast.Call(
+                name="isNotNull",
+                args=[aggregate_fields["$entry_gclid"]],
             ),
-            has_fbclid=ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq, left=aggregate_fields["$entry_fbclid"], right=ast.Constant(value=None)
+            has_fbclid=ast.Call(
+                name="isNotNull",
+                args=[aggregate_fields["$entry_fbclid"]],
             ),
             gad_source=aggregate_fields["$entry_gad_source"],
         ),
