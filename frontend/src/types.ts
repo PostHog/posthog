@@ -569,6 +569,7 @@ export interface TeamType extends TeamBasicType {
     default_modifiers?: HogQLQueryModifiers
     product_intents?: ProductIntentType[]
     default_data_theme?: number
+    flags_persistence_default: boolean
 }
 
 export interface ProductIntentType {
@@ -1821,7 +1822,7 @@ export interface TextModel {
     last_modified_at: string
 }
 
-export interface InsightModel extends Cacheable {
+export interface InsightModel extends Cacheable, WithAccessControl {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -1860,7 +1861,7 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface DashboardBasicType {
+export interface DashboardBasicType extends WithAccessControl {
     id: number
     name: string
     description: string
@@ -3519,7 +3520,7 @@ export interface DateMappingOption {
 
 interface BreadcrumbBase {
     /** E.g. scene, tab, or scene with item ID. Particularly important for `onRename`. */
-    key: string | number | [scene: Scene, key: string | number]
+    key: string | number | [scene: Scene | string, key: string | number]
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
 }
@@ -4627,7 +4628,8 @@ export type HogFunctionInputSchemaType = {
     description?: string
     integration?: string
     integration_key?: string
-    integration_field?: 'slack_channel'
+    integration_field?: string
+    requires_field?: string
     requiredScopes?: string
 }
 
@@ -4853,6 +4855,12 @@ export type ReplayTemplateVariableType = {
     description?: string
     filterGroup?: UniversalFiltersGroupValue
     noTouch?: boolean
+}
+
+export type GoogleAdsConversionActionType = {
+    id: string
+    name: string
+    resourceName: string
 }
 
 export type DataColorThemeModel = {

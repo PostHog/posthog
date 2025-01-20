@@ -2235,6 +2235,35 @@ class TestCapture(BaseTest):
             KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
         )
 
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.api.capture.get_tokens_to_drop")
+    def test_capture_drops_events_for_dropped_tokens(
+        self, get_tokens_to_drop: MagicMock, kafka_produce: MagicMock
+    ) -> None:
+        get_tokens_to_drop.return_value = {"token1:id1", "token2:id2"}
+
+        options = [
+            ("token1", "id1", 0),
+            ("token2", "id2", 0),
+            ("token3", "id3", 1),
+            ("token1", "id2", 1),
+        ]
+        for token, distinct_id, expected_result in options:
+            kafka_produce.reset_mock()
+            response = self.client.post(
+                "/e/",
+                data={
+                    "api_key": token,
+                    "type": "capture",
+                    "event": "test",
+                    "distinct_id": distinct_id,
+                },
+                content_type="application/json",
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(kafka_produce.call_count, expected_result)
+
     def test_capture_replay_to_bucket_when_random_number_is_less_than_sample_rate(self):
         sample_rate = 0.001
         random_number = sample_rate / 2

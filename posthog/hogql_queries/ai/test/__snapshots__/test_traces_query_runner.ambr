@@ -3,13 +3,13 @@
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
          min(toTimeZone(events.timestamp, 'UTC')) AS trace_timestamp,
-         tuple(max(events__person.id), max(events.distinct_id), max(events__person.created_at), max(events__person.properties)) AS person,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_latency,
+         tuple(max(events__person.id), max(events.distinct_id), max(events__person.created_at), max(events__person.properties)) AS first_person,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 2) AS total_latency,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_tokens,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_tokens,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_cost,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_cost,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS input_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS output_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS total_cost,
          arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
@@ -47,13 +47,13 @@
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
          min(toTimeZone(events.timestamp, 'UTC')) AS trace_timestamp,
-         tuple(max(events__person.id), max(events.distinct_id), max(events__person.created_at), max(events__person.properties)) AS person,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_latency,
+         tuple(max(events__person.id), max(events.distinct_id), max(events__person.created_at), max(events__person.properties)) AS first_person,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 2) AS total_latency,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_tokens,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_tokens,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_cost,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_cost,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS input_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS output_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS total_cost,
          arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
@@ -91,13 +91,13 @@
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
          min(toTimeZone(events.timestamp, 'UTC')) AS trace_timestamp,
-         tuple(max(events__person.id), max(events.distinct_id), max(events__person.created_at), max(events__person.properties)) AS person,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_latency,
+         tuple(max(events__person.id), max(events.distinct_id), max(events__person.created_at), max(events__person.properties)) AS first_person,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 2) AS total_latency,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_tokens,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_tokens,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_cost,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_cost,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS input_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS output_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS total_cost,
          arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
@@ -135,13 +135,13 @@
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
          min(toTimeZone(events.timestamp, 'UTC')) AS trace_timestamp,
-         tuple(max(events__person.id), max(events.distinct_id), max(events__person.created_at), max(events__person.properties)) AS person,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_latency,
+         tuple(max(events__person.id), max(events.distinct_id), max(events__person.created_at), max(events__person.properties)) AS first_person,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 2) AS total_latency,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_tokens,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_tokens,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_cost,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_cost,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS input_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS output_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS total_cost,
          arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
@@ -179,13 +179,13 @@
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
          min(toTimeZone(events.timestamp, 'UTC')) AS trace_timestamp,
-         tuple(max(events__person.id), max(events.distinct_id), max(events__person.created_at), max(events__person.properties)) AS person,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_latency,
+         tuple(max(events__person.id), max(events.distinct_id), max(events__person.created_at), max(events__person.properties)) AS first_person,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 2) AS total_latency,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_tokens,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_tokens,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_cost,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_cost,
-         sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) AS total_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS input_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS output_cost,
+         round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS total_cost,
          arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN

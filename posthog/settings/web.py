@@ -60,6 +60,7 @@ DECIDE_SESSION_REPLAY_QUOTA_CHECK = get_from_env("DECIDE_SESSION_REPLAY_QUOTA_CH
 # Application definition
 
 INSTALLED_APPS = [
+    "daphne",
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
     "django.contrib.admin",
     "django.contrib.auth",
@@ -84,8 +85,10 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
+    "products.early_access_features",  # TODO: add this automatically
 ]
 
+ASGI_APPLICATION = "posthog.asgi.application"
 
 MIDDLEWARE = [
     "posthog.middleware.PrometheusBeforeMiddlewareWithTeamIds",
