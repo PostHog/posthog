@@ -25,7 +25,7 @@ import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
-import { sparklineLabels } from './utils'
+import { sparklineLabels, sparklineLabelsDay, sparklineLabelsMonth } from './utils'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -103,9 +103,9 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
 
     const [data, labels] =
         sparklineSelectedPeriod === '24h'
-            ? [record.volumeDay, sparklineLabels({ value: 24, interval: 'hour' })]
+            ? [record.volumeDay, sparklineLabelsDay]
             : sparklineSelectedPeriod === '1m'
-            ? [record.volumeMonth, sparklineLabels({ value: 31, interval: 'day' })]
+            ? [record.volumeMonth, sparklineLabelsMonth]
             : customSparklineConfig
             ? [record.customVolume, sparklineLabels(customSparklineConfig)]
             : [null, null]
@@ -115,12 +115,12 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
     const { sparklineSelectedPeriod: period, sparklineOptions: options } = useValues(errorTrackingLogic)
-    const { setSparklineSelectedPeriod: setPeriod } = useActions(errorTrackingLogic)
+    const { setSparklineSelectedPeriod: onChange } = useActions(errorTrackingLogic)
 
     return period ? (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
-            <LemonSegmentedButton size="xsmall" value={period} options={options} onChange={(p) => setPeriod(p)} />
+            <LemonSegmentedButton size="xsmall" value={period} options={options} onChange={onChange} />
         </div>
     ) : null
 }
