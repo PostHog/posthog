@@ -29,7 +29,9 @@ def test_full_job(cluster: ClickhouseCluster):
         ("a", UUID(int=0), timestamp - timedelta(hours=24)),
         ("b", UUID(int=1), timestamp - timedelta(hours=24)),
         ("c", UUID(int=2), timestamp - timedelta(hours=24)),
-        ("d", UUID(int=3), timestamp - timedelta(hours=24)),
+        ("d", UUID(int=3), timestamp - timedelta(hours=12)),
+        ("e", UUID(int=4), timestamp - timedelta(hours=6)),
+        ("z", UUID(int=100), timestamp - timedelta(hours=3)),
     ]
 
     def insert_events(client: Client) -> None:
@@ -37,10 +39,12 @@ def test_full_job(cluster: ClickhouseCluster):
 
     cluster.any_host(insert_events).result()
 
-    # TODO: also test a multiple-version merge
     overrides = [
-        ("c", UUID(int=0), timestamp - timedelta(hours=12), 1),
-        ("d", UUID(int=1), timestamp + timedelta(hours=1), 1),
+        ("c", UUID(int=0), timestamp - timedelta(hours=12), 1),  # 0: {"a", "c"}
+        ("e", UUID(int=3), timestamp - timedelta(hours=6), 1),  # 3: {"d", "e"}
+        ("d", UUID(int=1), timestamp - timedelta(hours=5), 1),  # 1: {"b", "d"}
+        ("e", UUID(int=1), timestamp - timedelta(hours=5), 2),  # 1: {"b", "d", "e"}
+        ("z", UUID(int=0), timestamp + timedelta(hours=1), 1),  # arrived after timestamp, ignored this run
     ]
 
     def insert_overrides(client: Client) -> None:
@@ -50,18 +54,28 @@ def test_full_job(cluster: ClickhouseCluster):
 
     cluster.any_host(insert_overrides).result()
 
-    def get_stored_distinct_ids_by_person(client: Client) -> dict[UUID, int]:
+    def get_distinct_ids_on_events_by_person(client: Client) -> dict[UUID, int]:
         rows = client.execute("SELECT person_id, groupUniqArray(distinct_id) FROM events GROUP BY ALL")
         result = {person_id: set(distinct_ids) for person_id, distinct_ids in rows}
         assert len(rows) == len(result)
         return result
 
-    assert cluster.any_host(get_stored_distinct_ids_by_person).result() == {
+    def get_distinct_ids_with_overrides(client: Client) -> set[str]:
+        rows = client.execute("SELECT distinct_id FROM person_distinct_id_overrides FINAL")
+        result = {distinct_id for [distinct_id] in rows}
+        assert len(rows) == len(result)
+        return result
+
+    # check preconditions
+    assert cluster.any_host(get_distinct_ids_on_events_by_person).result() == {
         UUID(int=0): {"a"},
         UUID(int=1): {"b"},
         UUID(int=2): {"c"},
         UUID(int=3): {"d"},
+        UUID(int=4): {"e"},
+        UUID(int=100): {"z"},
     }
+    assert cluster.any_host(get_distinct_ids_with_overrides).result() == {"c", "d", "e", "z"}
 
     result = squash_person_overrides.execute_in_process(
         run_config=dagster.RunConfig(
@@ -70,11 +84,13 @@ def test_full_job(cluster: ClickhouseCluster):
         resources={"cluster": cluster},
     )
 
-    assert cluster.any_host(get_stored_distinct_ids_by_person).result() == {
+    # check postconditions
+    assert cluster.any_host(get_distinct_ids_on_events_by_person).result() == {
         UUID(int=0): {"a", "c"},
-        UUID(int=1): {"b"},
-        UUID(int=3): {"d"},
+        UUID(int=1): {"b", "d", "e"},
+        UUID(int=100): {"z"},
     }
+    assert cluster.any_host(get_distinct_ids_with_overrides).result() == {"z"}
 
     # ensure we cleaned up after ourselves
     table = PersonOverridesSnapshotTable(UUID(result.dagster_run.run_id), timestamp)
