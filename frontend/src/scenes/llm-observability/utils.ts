@@ -1,8 +1,26 @@
-import { LLMGeneration, LLMTrace } from '~/queries/schema'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema'
 
-export function formatLLMUsage(trace: LLMTrace | LLMGeneration): string | null {
-    if (typeof trace.inputTokens === 'number') {
-        return `${trace.inputTokens} → ${trace.outputTokens || 0} (∑ ${trace.inputTokens + (trace.outputTokens || 0)})`
+import {
+    AnthropicInputMessage,
+    AnthropicTextMessage,
+    AnthropicToolCallMessage,
+    CompatMessage,
+    CompatToolCall,
+    OpenAICompletionMessage,
+    OpenAIToolCall,
+} from './types'
+
+function formatUsage(inputTokens: number, outputTokens?: number | null): string | null {
+    return `${inputTokens} → ${outputTokens || 0} (∑ ${inputTokens + (outputTokens || 0)})`
+}
+
+export function formatLLMUsage(trace_or_event: LLMTrace | LLMTraceEvent): string | null {
+    if ('properties' in trace_or_event && typeof trace_or_event.properties.$ai_input_tokens === 'number') {
+        return formatUsage(trace_or_event.properties.$ai_input_tokens, trace_or_event.properties.$ai_output_tokens)
+    }
+
+    if (!('properties' in trace_or_event) && typeof trace_or_event.inputTokens === 'number') {
+        return formatUsage(trace_or_event.inputTokens, trace_or_event.outputTokens)
     }
 
     return null
@@ -22,51 +40,27 @@ export function formatLLMCost(cost: number): string {
     return usdFormatter.format(cost)
 }
 
-export interface RoleBasedMessage {
-    role: string
-    content: string
-    additional_kwargs?: any
-    tool_calls?: any
-}
-
-export function isRoleBasedMessage(input: any): input is RoleBasedMessage {
+export function isOpenAICompatToolCall(input: unknown): input is OpenAIToolCall {
     return (
+        input !== null &&
         typeof input === 'object' &&
-        'role' in input &&
-        'content' in input &&
-        typeof input.role === 'string' &&
-        typeof input.content === 'string'
+        'type' in input &&
+        'function' in input &&
+        input.type === 'function' &&
+        typeof input.function === 'object' &&
+        input.function !== null
     )
 }
 
-export interface ChoicesOutput {
-    choices: RoleBasedMessage[]
+export function isOpenAICompatToolCallsArray(input: any): input is OpenAIToolCall[] {
+    return Array.isArray(input) && input.every(isOpenAICompatToolCall)
 }
 
-export function isChoicesOutput(input: any): input is ChoicesOutput {
-    return typeof input === 'object' && 'choices' in input && Array.isArray(input.choices)
+export function isOpenAICompatMessage(output: unknown): output is OpenAICompletionMessage {
+    return !!output && typeof output === 'object' && 'role' in output && 'content' in output
 }
 
-export interface ToolCall {
-    type: string
-    id?: string
-    function: {
-        name: string
-        arguments: string
-    }
-}
-
-export function isToolCall(input: any): input is ToolCall {
-    return typeof input === 'object' && 'type' in input && 'function' in input && input.type === 'function'
-}
-
-export type ToolCalls = ToolCall[]
-
-export function isToolCallsArray(input: any): input is ToolCalls {
-    return Array.isArray(input) && input.every(isToolCall)
-}
-
-export function formatToolCalls(toolCalls: ToolCalls): string {
+export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCall[] {
     const toolsWithParsedArguments = toolCalls.map((toolCall) => ({
         ...toolCall,
         function: {
@@ -78,9 +72,106 @@ export function formatToolCalls(toolCalls: ToolCalls): string {
         },
     }))
 
-    return JSON.stringify(toolsWithParsedArguments, null, 2)
+    return toolsWithParsedArguments
 }
 
-export function formatAsMarkdownJSONBlock(output: string): string {
-    return `\`\`\`json\n${output}\n\`\`\``
+export function isAnthropicTextMessage(output: unknown): output is AnthropicTextMessage {
+    return !!output && typeof output === 'object' && 'type' in output && output.type === 'text'
+}
+
+export function isAnthropicToolCallMessage(output: unknown): output is AnthropicToolCallMessage {
+    return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_use'
+}
+
+export function isAnthropicRoleBasedMessage(input: unknown): input is AnthropicInputMessage {
+    return !!input && typeof input === 'object' && 'role' in input && 'content' in input
+}
+
+export function normalizeOutputMessage(output: unknown): CompatMessage[] {
+    // OpenAI
+    if (isOpenAICompatMessage(output)) {
+        return [
+            {
+                ...output,
+                role: output.role,
+                content: output.content,
+                tool_calls: isOpenAICompatToolCallsArray(output.tool_calls)
+                    ? parseOpenAIToolCalls(output.tool_calls)
+                    : undefined,
+            },
+        ]
+    }
+
+    // Anthropic
+    // Normal completion
+    if (isAnthropicTextMessage(output)) {
+        return [
+            {
+                ...output,
+                role: 'assistant',
+                content: output.text,
+            },
+        ]
+    }
+
+    // Tool call completion
+    if (isAnthropicToolCallMessage(output)) {
+        return [
+            {
+                ...output,
+                role: 'assistant',
+                content: '',
+                tool_calls: [
+                    {
+                        type: 'function',
+                        id: output.id,
+                        function: {
+                            name: output.name,
+                            arguments: output.input,
+                        },
+                    },
+                ],
+            },
+        ]
+    }
+
+    // Input message
+    if (isAnthropicRoleBasedMessage(output)) {
+        // Content is a nested array (tool responses, etc.)
+        if (Array.isArray(output.content)) {
+            return output.content.map(normalizeOutputMessage).flat()
+        }
+
+        return [
+            {
+                ...output,
+                role: output.role,
+                content: output.content,
+            },
+        ]
+    }
+
+    // Unsupported message.
+    return [
+        {
+            role: 'assistant',
+            content: typeof output === 'string' ? output : JSON.stringify(output),
+        },
+    ]
+}
+
+export function normalizeMessages(output: unknown): CompatMessage[] | null {
+    if (!output) {
+        return null
+    }
+
+    if (Array.isArray(output)) {
+        return output.map(normalizeOutputMessage).flat()
+    }
+
+    if (typeof output === 'object' && 'choices' in output && Array.isArray(output.choices)) {
+        return output.choices.map(normalizeOutputMessage).flat()
+    }
+
+    return null
 }
