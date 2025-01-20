@@ -2394,6 +2394,7 @@
                           $end_pathname: {},
                           $end_timestamp: {},
                           $entry_current_url: {},
+                          $entry_fbclid: {},
                           $entry_gad_source: {},
                           $entry_gclid: {},
                           $entry_hostname: {},

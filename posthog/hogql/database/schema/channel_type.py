@@ -36,7 +36,8 @@ class ChannelTypeExprs:
     url: ast.Expr
     hostname: ast.Expr
     pathname: ast.Expr
-    gclid: ast.Expr
+    has_gclid: ast.Expr
+    has_fbclid: ast.Expr
     gad_source: ast.Expr
 
 
@@ -77,7 +78,14 @@ def create_initial_channel_type(name: str, custom_rules: Optional[list[CustomCha
                     args=[ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_hostname"])])],
                 ),
                 pathname=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_pathname"])]),
-                gclid=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gclid"])]),
+                has_gclid=ast.Call(
+                    name="isNotNull",
+                    args=[wrap_with_null_if_empty(ast.Field(chain=["properties", "$initial_gclid"]))],
+                ),
+                has_fbclid=ast.Call(
+                    name="isNotNull",
+                    args=[wrap_with_null_if_empty(ast.Field(chain=["properties", "$initial_fbclid"]))],
+                ),
                 gad_source=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gad_source"])]),
             ),
             custom_rules=custom_rules,
@@ -197,18 +205,6 @@ def custom_rule_to_expr(custom_rule: CustomChannelRule, source_exprs: ChannelTyp
 def create_channel_type_expr(
     custom_rules: Optional[list[CustomChannelRule]], source_exprs: ChannelTypeExprs
 ) -> ast.Expr:
-    def wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:
-        return ast.Call(
-            name="nullIf",
-            args=[ast.Call(name="nullIf", args=[expr, ast.Constant(value="")]), ast.Constant(value="null")],
-        )
-
-    def wrap_with_lower(expr: ast.Expr) -> ast.Expr:
-        return ast.Call(
-            name="lower",
-            args=[expr],
-        )
-
     custom_rule_expr: Optional[ast.Expr] = None
     if custom_rules:
         if_args = []
@@ -229,7 +225,7 @@ multiIf(
     (
         {medium} IN ('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting') OR
         startsWith({medium}, 'paid') OR
-        {gclid} IS NOT NULL OR
+        {has_gclid} OR
         {gad_source} IS NOT NULL
     ),
     coalesce(
@@ -248,6 +244,9 @@ multiIf(
             match({campaign}, '^(.*video.*)$'),
             'Paid Video',
 
+            {has_fbclid},
+            'Paid Social',
+
             'Paid Unknown'
         )
     ),
@@ -256,6 +255,7 @@ multiIf(
         {referring_domain} = '$direct'
         AND ({medium} IS NULL)
         AND ({source} IS NULL OR {source} IN ('(direct)', 'direct', '$direct'))
+        AND NOT {has_fbclid}
     ),
     'Direct',
 
@@ -275,6 +275,9 @@ multiIf(
             match({medium}, 'push$'),
             'Push',
 
+            {has_fbclid},
+            'Organic Social',
+
             {referring_domain} == '$direct',
             'Direct',
 
@@ -291,7 +294,8 @@ multiIf(
             "medium": wrap_with_lower(wrap_with_null_if_empty(source_exprs.medium)),
             "source": wrap_with_lower(wrap_with_null_if_empty(source_exprs.source)),
             "referring_domain": source_exprs.referring_domain,
-            "gclid": wrap_with_null_if_empty(source_exprs.gclid),
+            "has_gclid": source_exprs.has_gclid,
+            "has_fbclid": source_exprs.has_fbclid,
             "gad_source": wrap_with_null_if_empty(source_exprs.gad_source),
         },
     )
@@ -302,6 +306,20 @@ multiIf(
         )
     else:
         return builtin_rules
+
+
+def wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:
+    return ast.Call(
+        name="nullIf",
+        args=[ast.Call(name="nullIf", args=[expr, ast.Constant(value="")]), ast.Constant(value="null")],
+    )
+
+
+def wrap_with_lower(expr: ast.Expr) -> ast.Expr:
+    return ast.Call(
+        name="lower",
+        args=[expr],
+    )
 
 
 DEFAULT_CHANNEL_TYPES = [entry.value for entry in DefaultChannelTypes]
