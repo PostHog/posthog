@@ -45,7 +45,10 @@ anyio==4.6.2.post1
     #   starlette
     #   watchfiles
 asgiref==3.7.2
-    # via django
+    # via
+    #   channels
+    #   daphne
+    #   django
 asn1crypto==1.5.1
     # via snowflake-connector-python
 astunparse==1.6.3
@@ -106,6 +109,8 @@ cffi==1.16.0
     #   cryptography
     #   pynacl
     #   snowflake-connector-python
+channels==4.2.0
+    # via -r requirements.in
 charset-normalizer==2.1.0
     # via
     #   requests
@@ -142,14 +147,18 @@ coloredlogs==14.0
     # via dagster
 conditional-cache==1.2
     # via -r requirements.in
+constantly==23.10.4
+    # via twisted
 croniter==5.0.1
     # via dagster
 cryptography==39.0.2
     # via
     #   -r requirements.in
+    #   autobahn
     #   paramiko
     #   pyjwt
     #   pyopenssl
+    #   service-identity
     #   snowflake-connector-python
     #   social-auth-core
     #   urllib3
@@ -174,6 +183,8 @@ dagster-postgres==0.25.8
     # via -r requirements.in
 dagster-webserver==1.9.8
     # via -r requirements.in
+daphne==4.1.2
+    # via -r requirements.in
 dataclasses-json==0.6.7
     # via langchain-community
 decorator==5.1.1
@@ -191,6 +202,7 @@ dj-database-url==0.5.0
 django==4.2.15
     # via
     #   -r requirements.in
+    #   channels
     #   django-axes
     #   django-cors-headers
     #   django-deprecate-fields
@@ -369,15 +381,23 @@ humanfriendly==10.0
     # via coloredlogs
 humanize==4.9.0
     # via dlt
+hyperlink==21.0.0
+    # via
+    #   autobahn
+    #   twisted
 idna==3.10
     # via
     #   anyio
     #   httpx
+    #   hyperlink
     #   requests
     #   snowflake-connector-python
     #   trio
+    #   twisted
     #   urllib3
     #   yarl
+incremental==24.7.2
+    # via twisted
 infi-clickhouse-orm @ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
     # via -r requirements.in
 inflection==0.5.1
@@ -884,6 +904,10 @@ trio==0.26.0
     #   trio-websocket
 trio-websocket==0.11.1
     # via selenium
+twisted==24.11.0
+    # via daphne
+txaio==23.1.1
+    # via autobahn
 types-protobuf==4.22.0.0
     # via temporalio
 types-setuptools==69.0.0.0
@@ -905,6 +929,7 @@ typing-extensions==4.12.2
     #   sqlalchemy
     #   stripe
     #   temporalio
+    #   twisted
     #   typing-inspect
 typing-inspect==0.9.0
     # via dataclasses-json

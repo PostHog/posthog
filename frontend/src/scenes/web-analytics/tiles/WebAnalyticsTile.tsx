@@ -20,7 +20,7 @@ import { GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyti
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
 import {
-    CoreWebVitalsQuery,
+    CoreWebVitalsPathBreakdownQuery,
     DataTableNode,
     InsightVizNode,
     NodeKind,
@@ -370,15 +370,13 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
     },
 }
 
+type QueryWithInsightProps<Q extends QuerySchema> = { query: Q; insightProps: InsightLogicProps }
+
 export const WebStatsTrendTile = ({
     query,
     showIntervalTile,
     insightProps,
-}: {
-    query: InsightVizNode
-    showIntervalTile?: boolean
-    insightProps: InsightLogicProps
-}): JSX.Element => {
+}: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
     const { togglePropertyFilter, setInterval } = useActions(webAnalyticsLogic)
     const {
         hasCountryFilter,
@@ -449,10 +447,8 @@ export const WebStatsTableTile = ({
     breakdownBy,
     insightProps,
     control,
-}: {
-    query: DataTableNode
+}: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
-    insightProps: InsightLogicProps
     control?: JSX.Element
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
@@ -550,13 +546,7 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
     return breakdownValue
 }
 
-export const WebGoalsTile = ({
-    query,
-    insightProps,
-}: {
-    query: DataTableNode
-    insightProps: InsightLogicProps
-}): JSX.Element | null => {
+export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<DataTableNode>): JSX.Element | null => {
     const { actions, actionsLoading } = useValues(actionsModel)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
@@ -595,10 +585,7 @@ export const WebGoalsTile = ({
 export const WebExternalClicksTile = ({
     query,
     insightProps,
-}: {
-    query: DataTableNode
-    insightProps: InsightLogicProps
-}): JSX.Element | null => {
+}: QueryWithInsightProps<DataTableNode>): JSX.Element | null => {
     const { shouldStripQueryParams } = useValues(webAnalyticsLogic)
     const { setShouldStripQueryParams } = useActions(webAnalyticsLogic)
     return (
@@ -618,8 +605,22 @@ export const WebExternalClicksTile = ({
     )
 }
 
-export const CoreWebVitalsQueryTile = ({ query }: { query: CoreWebVitalsQuery }): JSX.Element => {
-    return <Query query={query} readOnly context={{}} />
+export const CoreWebVitalsPathBreakdownTile = ({
+    query,
+    insightProps,
+    control,
+}: QueryWithInsightProps<CoreWebVitalsPathBreakdownQuery> & {
+    control?: JSX.Element
+}): JSX.Element => {
+    return (
+        <div>
+            <div className="flex flex-row items-center justify-between m-2 mr-4">
+                <h3 className="text-lg font-semibold">Path Breakdown</h3>
+                {control}
+            </div>
+            <Query query={query} readOnly context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
+        </div>
+    )
 }
 
 export const WebQuery = ({
@@ -627,11 +628,9 @@ export const WebQuery = ({
     showIntervalSelect,
     control,
     insightProps,
-}: {
-    query: QuerySchema
+}: QueryWithInsightProps<QuerySchema> & {
     showIntervalSelect?: boolean
     control?: JSX.Element
-    insightProps: InsightLogicProps
 }): JSX.Element => {
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
         return (
@@ -656,8 +655,8 @@ export const WebQuery = ({
         return <WebGoalsTile query={query} insightProps={insightProps} />
     }
 
-    if (query.kind === NodeKind.CoreWebVitalsQuery) {
-        return <CoreWebVitalsQueryTile query={query} />
+    if (query.kind === NodeKind.CoreWebVitalsPathBreakdownQuery) {
+        return <CoreWebVitalsPathBreakdownTile query={query} insightProps={insightProps} control={control} />
     }
 
     return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />

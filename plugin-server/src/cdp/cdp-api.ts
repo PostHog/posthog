@@ -8,7 +8,7 @@ import { FetchExecutor } from './fetch-executor'
 import { HogExecutor, MAX_ASYNC_STEPS } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
-import { HogFunctionInvocationResult, HogFunctionType, LogEntry } from './types'
+import { HogFunctionInvocationResult, HogFunctionQueueParametersFetchRequest, HogFunctionType, LogEntry } from './types'
 
 export class CdpApi {
     private hogExecutor: HogExecutor
@@ -163,11 +163,11 @@ export class CdpApi {
                     if (invocation.queue === 'fetch') {
                         if (mock_async_functions) {
                             // Add the state, simulating what executeAsyncResponse would do
-
                             // Re-parse the fetch args for the logging
-                            const fetchArgs = {
-                                ...invocation.queueParameters,
-                            }
+                            const fetchArgs: HogFunctionQueueParametersFetchRequest =
+                                this.hogExecutor.redactFetchRequest(
+                                    invocation.queueParameters as HogFunctionQueueParametersFetchRequest
+                                )
 
                             response = {
                                 invocation: {

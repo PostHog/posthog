@@ -8,6 +8,7 @@ import {
     ActorsQuery,
     BreakdownFilter,
     CompareFilter,
+    CoreWebVitalsPathBreakdownQuery,
     CoreWebVitalsQuery,
     DatabaseSchemaQuery,
     DataTableNode,
@@ -40,6 +41,7 @@ import {
     SavedInsightNode,
     SessionAttributionExplorerQuery,
     StickinessQuery,
+    TracesQuery,
     TrendsQuery,
     WebGoalsQuery,
     WebOverviewQuery,
@@ -140,8 +142,18 @@ export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebG
     return node?.kind === NodeKind.WebGoalsQuery
 }
 
+export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
+    return node?.kind === NodeKind.TracesQuery
+}
+
 export function isCoreWebVitalsQuery(node?: Record<string, any> | null): node is CoreWebVitalsQuery {
     return node?.kind === NodeKind.CoreWebVitalsQuery
+}
+
+export function isCoreWebVitalsPathBreakdownQuery(
+    node?: Record<string, any> | null
+): node is CoreWebVitalsPathBreakdownQuery {
+    return node?.kind === NodeKind.CoreWebVitalsPathBreakdownQuery
 }
 
 export function isSessionAttributionExplorerQuery(
