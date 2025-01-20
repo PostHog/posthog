@@ -1,11 +1,11 @@
 import { LemonSelect } from '@posthog/lemon-ui'
+import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 
-import { Survey, SurveyType } from '~/types'
+import { Survey, SurveyQuestionBranchingType, SurveyType } from '~/types'
 
 import { NewSurvey } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
-import { getNextQuestionIndex } from './utils/branchingPreviewLogic'
 
 interface SurveyFormAppearanceProps {
     previewPageIndex: number
@@ -25,13 +25,9 @@ export function SurveyFormAppearance({
                 survey={survey as Survey}
                 previewPageIndex={previewPageIndex}
                 onPreviewSubmit={(response) => {
+                    const nextStep = getNextSurveyStep(survey, previewPageIndex, response)
                     handleSetSelectedPageIndex(
-                        getNextQuestionIndex(
-                            survey.questions[previewPageIndex],
-                            survey.questions.length,
-                            previewPageIndex,
-                            response
-                        )
+                        nextStep === SurveyQuestionBranchingType.End ? survey.questions.length : nextStep
                     )
                 }}
             />
