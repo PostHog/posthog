@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import { Person } from 'types'
+
+import { Person } from '~/src/types'
 
 import { PersonState } from '../person-state'
 import { EventPipelineRunner } from './runner'

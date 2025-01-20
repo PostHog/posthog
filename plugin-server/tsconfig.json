@@ -10,9 +10,6 @@
         "esModuleInterop": true,
         "allowJs": true,
         "sourceMap": true,
-        // "baseUrl": "src/",
-        // "rootDir": "src/",
-
         "outDir": "dist/",
         "types": ["node", "jest", "long"],
         "resolveJsonModule": true,
