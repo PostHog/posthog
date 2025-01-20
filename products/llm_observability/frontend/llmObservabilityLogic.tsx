@@ -87,6 +87,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         activeTab: [
             (s) => [s.sceneKey],
             (sceneKey) => {
+                console.log({ sceneKey })
                 if (sceneKey === 'llmObservabilityGenerations') {
                     return 'generations'
                 } else if (sceneKey === 'llmObservabilityTraces') {

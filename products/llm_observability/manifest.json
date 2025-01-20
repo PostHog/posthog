@@ -20,7 +20,9 @@
     },
     "routes": {
         "/llm-observability": ["LLMObservability", "llmObservability"],
-        "/llm-observability/:tab": ["LLMObservability", "llmObservability"],
+        "/llm-observability/dashboard": ["LLMObservability", "llmObservabilityDashboard"],
+        "/llm-observability/generations": ["LLMObservability", "llmObservabilityGenerations"],
+        "/llm-observability/traces": ["LLMObservability", "llmObservabilityTraces"],
         "/llm-observability/traces/:id": ["LLMObservabilityTrace", "llmObservability"]
     },
     "redirects": {}
