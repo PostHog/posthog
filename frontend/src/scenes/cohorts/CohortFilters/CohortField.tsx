@@ -1,7 +1,6 @@
 import './CohortField.scss'
 
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'

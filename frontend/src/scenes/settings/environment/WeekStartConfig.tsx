@@ -1,5 +1,4 @@
-import { LemonSelect } from '@posthog/lemon-ui'
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 

@@ -1,7 +1,12 @@
 import { IconNotebook, IconPlus } from '@posthog/icons'
-import { LemonDivider, LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
-import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
-import { PopoverProps } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonDivider,
+    LemonDropdown,
+    PopoverProps,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { IconWithCount } from 'lib/lemon-ui/icons'

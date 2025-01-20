@@ -1,6 +1,4 @@
-import { LemonMenuItem, LemonSkeleton, LemonTableColumn, lemonToast } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonMenuItem, LemonSkeleton, LemonTableColumn, lemonToast, Link, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import api from 'lib/api'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'

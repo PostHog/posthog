@@ -1,7 +1,5 @@
 import { IconGear, IconInfo, IconPlus } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, Link } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import clsx from 'clsx'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'

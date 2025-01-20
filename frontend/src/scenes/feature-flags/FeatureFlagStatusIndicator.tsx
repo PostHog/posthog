@@ -1,5 +1,4 @@
-import { LemonTag } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { FeatureFlagStatus, FeatureFlagStatusResponse } from '~/types'
 

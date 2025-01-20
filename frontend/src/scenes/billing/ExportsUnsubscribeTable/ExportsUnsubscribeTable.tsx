@@ -1,6 +1,5 @@
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { organizationLogic } from 'scenes/organizationLogic'

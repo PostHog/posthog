@@ -1,9 +1,6 @@
 import './Login.scss'
 
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonField, LemonInput, Link } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'

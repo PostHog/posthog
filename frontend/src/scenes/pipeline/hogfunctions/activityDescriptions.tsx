@@ -1,6 +1,5 @@
 import { DiffEditor } from '@monaco-editor/react'
-import { LemonDropdown } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import { LemonDropdown, Link } from '@posthog/lemon-ui'
 import {
     ActivityLogItem,
     defaultDescriber,

@@ -1,5 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'

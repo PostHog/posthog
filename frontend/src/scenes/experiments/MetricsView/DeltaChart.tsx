@@ -8,8 +8,7 @@ import {
     IconPencil,
     IconTrending,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
-import { LemonProgress } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonProgress, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'

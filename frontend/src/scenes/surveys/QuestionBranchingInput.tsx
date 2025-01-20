@@ -1,7 +1,6 @@
 import './EditSurvey.scss'
 
-import { LemonDialog, LemonSelect } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonDialog, LemonField, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { truncate } from 'lib/utils'
 

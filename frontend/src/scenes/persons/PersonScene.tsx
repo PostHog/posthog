@@ -1,8 +1,15 @@
 import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonTabs } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonMenu,
+    LemonSelect,
+    LemonTabs,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'

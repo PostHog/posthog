@@ -1,9 +1,7 @@
 import './FunnelCorrelationTable.scss'
 
 import { IconArchive, IconTrending } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
-import { Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonTable, Link, Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'

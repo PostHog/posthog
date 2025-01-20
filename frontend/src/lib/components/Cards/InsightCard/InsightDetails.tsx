@@ -1,7 +1,4 @@
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonRow } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
-import { ProfilePicture } from '@posthog/lemon-ui'
+import { LemonDivider, LemonRow, Link, ProfilePicture } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import {
     convertPropertiesToPropertyGroup,

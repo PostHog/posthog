@@ -1,8 +1,6 @@
 import './EventDetails.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonTableProps } from '@posthog/lemon-ui'
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTableProps, LemonTabs } from '@posthog/lemon-ui'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { JSONViewer } from 'lib/components/JSONViewer'

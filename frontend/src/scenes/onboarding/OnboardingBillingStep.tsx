@@ -1,6 +1,5 @@
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { StarHog } from 'lib/components/hedgehogs'

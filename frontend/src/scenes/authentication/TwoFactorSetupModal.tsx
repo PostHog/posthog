@@ -1,5 +1,4 @@
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'

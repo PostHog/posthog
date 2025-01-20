@@ -1,9 +1,15 @@
 import { IconEllipsis, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonMenu } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonMenu,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    LemonTag,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'

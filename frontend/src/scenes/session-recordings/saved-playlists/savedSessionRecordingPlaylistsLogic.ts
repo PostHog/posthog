@@ -1,6 +1,4 @@
-import { lemonToast } from '@posthog/lemon-ui'
-import { Sorting } from '@posthog/lemon-ui'
-import { PaginationManual } from '@posthog/lemon-ui'
+import { lemonToast, PaginationManual, Sorting } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'

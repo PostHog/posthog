@@ -1,9 +1,13 @@
 import './Cohorts.scss'
 
-import { LemonInput } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { ListHog } from 'lib/components/hedgehogs'

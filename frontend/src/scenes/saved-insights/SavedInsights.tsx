@@ -22,13 +22,19 @@ import {
     IconVideoCamera,
     IconWarning,
 } from '@posthog/icons'
-import { LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
-import { LemonTabs } from '@posthog/lemon-ui'
-import { PaginationControl, usePagination } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonSegmentedButton,
+    LemonSelectOptions,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    LemonTabs,
+    LemonTag,
+    PaginationControl,
+    usePagination,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'

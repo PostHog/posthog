@@ -2,8 +2,7 @@
 Scene to request a password reset email.
 */
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonField, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'

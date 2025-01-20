@@ -1,11 +1,15 @@
-import { lemonToast } from '@posthog/lemon-ui'
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonMarkdown } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
-import { Splotch, SplotchColor } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonWithDropdown,
+    LemonDivider,
+    LemonMarkdown,
+    lemonToast,
+    Link,
+    Spinner,
+    Splotch,
+    SplotchColor,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'

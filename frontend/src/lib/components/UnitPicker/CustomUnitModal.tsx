@@ -1,6 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonField, LemonModal } from '@posthog/lemon-ui'
 import { HandleUnitChange } from 'lib/components/UnitPicker/UnitPicker'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { capitalizeFirstLetter } from 'lib/utils'

@@ -1,6 +1,5 @@
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { useEffect, useState } from 'react'

@@ -1,5 +1,4 @@
-import { LemonBanner } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { useMemo } from 'react'
 

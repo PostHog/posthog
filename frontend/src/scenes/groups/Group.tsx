@@ -1,7 +1,4 @@
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonTabs } from '@posthog/lemon-ui'
-import { lemonToast } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTabs, lemonToast, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'

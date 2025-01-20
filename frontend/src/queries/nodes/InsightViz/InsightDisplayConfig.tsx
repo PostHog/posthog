@@ -1,6 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
-import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonMenu, LemonMenuItems, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'

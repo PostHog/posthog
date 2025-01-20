@@ -1,5 +1,4 @@
-import { LemonBanner, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonBanner, LemonField, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { id } from 'chartjs-plugin-trendline'
 import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'

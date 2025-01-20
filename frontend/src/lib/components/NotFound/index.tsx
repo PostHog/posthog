@@ -1,8 +1,7 @@
 import './NotFound.scss'
 
 import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
-import { LemonButton, lemonToast, ProfilePicture, SpinnerOverlay } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, lemonToast, Link, ProfilePicture, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { getCookie } from 'lib/api'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'

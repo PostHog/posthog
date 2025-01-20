@@ -1,6 +1,5 @@
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
-import { LemonDropdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDropdown } from '@posthog/lemon-ui'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { useEffect, useState } from 'react'

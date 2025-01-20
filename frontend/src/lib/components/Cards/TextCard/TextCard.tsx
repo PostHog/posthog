@@ -1,7 +1,6 @@
 import './TextCard.scss'
 
-import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
-import { LemonMarkdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown, LemonDivider, LemonMarkdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'

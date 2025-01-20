@@ -1,7 +1,6 @@
 import { Placement } from '@floating-ui/react'
 import { IconCalendar } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDivider, Popover } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDivider, Popover, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import {

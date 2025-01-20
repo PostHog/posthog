@@ -1,6 +1,5 @@
 import { IconPencil, IconSearch } from '@posthog/icons'
-import { LemonModal } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'

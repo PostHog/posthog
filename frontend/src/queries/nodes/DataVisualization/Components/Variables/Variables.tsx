@@ -1,8 +1,15 @@
 import './Variables.scss'
 
 import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton, LemonSelect, Popover } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonField,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSelect,
+    Popover,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'

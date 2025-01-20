@@ -1,5 +1,4 @@
-import { LemonCheckbox } from '@posthog/lemon-ui'
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonSegmentedButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { Field } from 'kea-forms'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'

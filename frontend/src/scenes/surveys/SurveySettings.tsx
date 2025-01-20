@@ -1,5 +1,4 @@
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'

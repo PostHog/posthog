@@ -1,7 +1,6 @@
 import './DashboardTemplateChooser.scss'
 
-import { LemonTag } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonTag, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'

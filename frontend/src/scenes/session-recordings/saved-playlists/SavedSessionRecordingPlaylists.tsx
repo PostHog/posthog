@@ -1,7 +1,14 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
-import { LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    Link,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'

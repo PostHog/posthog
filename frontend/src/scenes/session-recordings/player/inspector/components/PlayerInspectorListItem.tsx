@@ -13,8 +13,7 @@ import {
     IconPlusSquare,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Dayjs } from 'lib/dayjs'

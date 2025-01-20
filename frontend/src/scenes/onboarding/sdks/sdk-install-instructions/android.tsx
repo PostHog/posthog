@@ -1,5 +1,4 @@
-import { Link } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'

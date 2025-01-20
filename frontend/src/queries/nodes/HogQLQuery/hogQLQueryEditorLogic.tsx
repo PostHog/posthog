@@ -1,6 +1,5 @@
 import type { Monaco } from '@monaco-editor/react'
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonDialog, LemonField, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'

@@ -1,10 +1,7 @@
 import './PreflightCheck.scss'
 
 import { IconCheckCircle, IconCollapse, IconExpand, IconWarning } from '@posthog/icons'
-import { Link, Spinner } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonRow } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonRow, Link, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'

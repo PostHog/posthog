@@ -1,5 +1,4 @@
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 

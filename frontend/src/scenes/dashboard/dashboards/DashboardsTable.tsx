@@ -1,11 +1,15 @@
 import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
-import { LemonInput } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonRow } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonRow,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'

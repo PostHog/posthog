@@ -1,6 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'

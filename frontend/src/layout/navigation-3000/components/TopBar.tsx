@@ -1,8 +1,7 @@
 import './TopBar.scss'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'

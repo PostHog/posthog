@@ -1,7 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'

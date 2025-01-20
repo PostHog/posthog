@@ -1,9 +1,14 @@
 import { IconMagicWand, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonRadio } from '@posthog/lemon-ui'
-import { LemonSelect } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonField,
+    LemonInput,
+    LemonRadio,
+    LemonSelect,
+    LemonTextArea,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'

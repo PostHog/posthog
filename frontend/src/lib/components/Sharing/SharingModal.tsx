@@ -1,10 +1,16 @@
 import './SharingModal.scss'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
-import { LemonDialog } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonField,
+    LemonModal,
+    LemonSkeleton,
+    LemonSwitch,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'

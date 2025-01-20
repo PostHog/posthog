@@ -1,6 +1,5 @@
 import { IconPencil } from '@posthog/icons'
-import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'

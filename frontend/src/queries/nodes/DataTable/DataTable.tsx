@@ -1,8 +1,6 @@
 import './DataTable.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'

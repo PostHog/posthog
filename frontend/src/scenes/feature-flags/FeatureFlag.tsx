@@ -1,14 +1,21 @@
 import './FeatureFlag.scss'
 
 import { IconBalance, IconCollapse, IconExpand, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
-import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonCheckbox } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
-import { Lettermark, LettermarkColor } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonDialog,
+    LemonDivider,
+    LemonField,
+    LemonSegmentedButton,
+    LemonSkeleton,
+    LemonSwitch,
+    LemonTab,
+    LemonTabs,
+    Lettermark,
+    LettermarkColor,
+} from '@posthog/lemon-ui'
 import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'

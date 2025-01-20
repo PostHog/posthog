@@ -1,6 +1,4 @@
-import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 import { useCallback, useEffect, useState } from 'react'

@@ -1,7 +1,5 @@
 import { IconGear } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonSwitch } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'

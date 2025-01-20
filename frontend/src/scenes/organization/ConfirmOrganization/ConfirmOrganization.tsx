@@ -1,7 +1,4 @@
-import { Link } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonField, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'

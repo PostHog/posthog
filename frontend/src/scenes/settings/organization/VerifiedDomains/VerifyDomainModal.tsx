@@ -1,6 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonField, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'

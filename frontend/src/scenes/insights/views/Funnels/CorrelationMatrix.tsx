@@ -1,10 +1,7 @@
 import './CorrelationMatrix.scss'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'

@@ -1,5 +1,4 @@
-import { LemonTag } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import GenericNode from 'scenes/data-model/Node'

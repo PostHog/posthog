@@ -1,5 +1,4 @@
-import { Sorting } from '@posthog/lemon-ui'
-import { PaginationManual } from '@posthog/lemon-ui'
+import { PaginationManual, Sorting } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'

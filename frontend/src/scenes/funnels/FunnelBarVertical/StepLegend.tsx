@@ -1,7 +1,5 @@
 import { IconClock } from '@posthog/icons'
-import { LemonRow } from '@posthog/lemon-ui'
-import { Lettermark, LettermarkColor } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonRow, Lettermark, LettermarkColor, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'

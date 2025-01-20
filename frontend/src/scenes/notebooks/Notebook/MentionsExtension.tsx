@@ -1,5 +1,4 @@
-import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
-import { Popover } from '@posthog/lemon-ui'
+import { LemonButton, Popover, ProfilePicture } from '@posthog/lemon-ui'
 import { Extension } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
 import { ReactRenderer } from '@tiptap/react'

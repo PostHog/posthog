@@ -1,10 +1,18 @@
 import { IconLock } from '@posthog/icons'
-import { LemonDialog, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
-import { LemonTabs } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonInput,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    LemonTabs,
+    LemonTag,
+    lemonToast,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'

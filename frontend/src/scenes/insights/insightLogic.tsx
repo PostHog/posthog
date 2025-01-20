@@ -1,5 +1,4 @@
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonDialog, LemonField, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'

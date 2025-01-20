@@ -1,7 +1,5 @@
 import { IconAIText, IconCheckCircle, IconCode, IconMessage, IconPencil } from '@posthog/icons'
-import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { useState } from 'react'

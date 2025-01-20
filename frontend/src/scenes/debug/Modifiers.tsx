@@ -1,5 +1,4 @@
-import { LemonLabel } from '@posthog/lemon-ui'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { HogQLQueryModifiers } from '~/queries/schema'
 

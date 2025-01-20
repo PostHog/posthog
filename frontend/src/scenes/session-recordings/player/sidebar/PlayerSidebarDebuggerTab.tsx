@@ -1,5 +1,4 @@
-import { LemonButton, LemonCollapse, LemonInputSelect } from '@posthog/lemon-ui'
-import { LemonSlider } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonInputSelect, LemonSlider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'

@@ -1,6 +1,5 @@
 import { urls } from '@posthog/apps-common'
-import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'

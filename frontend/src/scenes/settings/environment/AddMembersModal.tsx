@@ -1,6 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonButton, LemonField, LemonModal, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'

@@ -8,10 +8,7 @@ import {
     IconThumbsUpFilled,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonTable, Popover, Spinner } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonMarkdown } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonMarkdown, LemonTable, Popover, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'

@@ -1,5 +1,12 @@
-import { LemonDivider, LemonFileInput, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import {
+    LemonDivider,
+    LemonField,
+    LemonFileInput,
+    LemonInput,
+    LemonSelect,
+    LemonSwitch,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 import { Form, Group } from 'kea-forms'
 import React from 'react'
 

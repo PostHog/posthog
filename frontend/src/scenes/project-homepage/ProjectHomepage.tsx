@@ -1,10 +1,7 @@
 import './ProjectHomepage.scss'
 
 import { IconHome } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'

@@ -1,6 +1,4 @@
-import { LemonLabel, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonLabel, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Sparkline } from 'lib/components/Sparkline'
 import { urls } from 'scenes/urls'

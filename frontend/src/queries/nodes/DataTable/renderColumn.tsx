@@ -1,5 +1,4 @@
-import { Link } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'

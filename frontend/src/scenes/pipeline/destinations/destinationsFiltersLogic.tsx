@@ -1,5 +1,4 @@
-import { LemonDialog, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonDialog, LemonField, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'

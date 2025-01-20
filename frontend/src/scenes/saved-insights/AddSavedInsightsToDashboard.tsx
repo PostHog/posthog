@@ -1,10 +1,7 @@
 import './SavedInsights.scss'
 
 import { IconMinusSmall, IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTable, LemonTableColumn, LemonTableColumns, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'

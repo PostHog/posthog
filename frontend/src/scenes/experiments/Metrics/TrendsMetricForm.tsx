@@ -1,8 +1,7 @@
 import './TrendsMetricForm.scss'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonTabs, LemonTag } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'

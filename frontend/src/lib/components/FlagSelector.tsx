@@ -1,5 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { Popover } from '@posthog/lemon-ui'
+import { LemonButton, Popover } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'

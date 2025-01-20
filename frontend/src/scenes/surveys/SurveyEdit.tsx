@@ -17,9 +17,7 @@ import {
     Link,
     Popover,
 } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonRadio, LemonRadioOption } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonField, LemonRadio, LemonRadioOption, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'

@@ -1,7 +1,6 @@
 import './TimelineSeekbar.scss'
 
-import { LemonBadge } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { Dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'

@@ -1,6 +1,14 @@
-import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonSelect,
+    LemonSelectOptions,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'

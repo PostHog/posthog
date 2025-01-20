@@ -1,6 +1,4 @@
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonProgress } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonDivider, LemonProgress, Tooltip } from '@posthog/lemon-ui'
 import zxcvbn from 'zxcvbn'
 
 export type ValidatedPasswordResult = {

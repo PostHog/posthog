@@ -1,6 +1,5 @@
 import { IconTrash } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'

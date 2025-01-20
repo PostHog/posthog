@@ -1,6 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'

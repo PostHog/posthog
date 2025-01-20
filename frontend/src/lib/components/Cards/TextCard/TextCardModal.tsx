@@ -1,6 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonModal } from '@posthog/lemon-ui'
-import { LemonTextAreaMarkdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'

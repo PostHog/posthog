@@ -1,9 +1,13 @@
 import { IconX } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDialog } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
-import { ProfilePicture } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    LemonTag,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'

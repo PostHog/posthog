@@ -1,6 +1,5 @@
 import { BaseIcon, IconCheck, IconEye, IconHide, IconLogomark, IconSearch, IconVideoCamera } from '@posthog/icons'
-import { LemonInput } from '@posthog/lemon-ui'
-import { LemonMenuItem } from '@posthog/lemon-ui'
+import { LemonInput, LemonMenuItem } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'

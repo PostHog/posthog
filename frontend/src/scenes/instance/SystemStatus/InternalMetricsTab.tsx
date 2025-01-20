@@ -1,5 +1,4 @@
-import { LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-import { LemonCollapse } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonCollapse, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { useMemo, useState } from 'react'

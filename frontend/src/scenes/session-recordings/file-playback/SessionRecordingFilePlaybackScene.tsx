@@ -1,5 +1,4 @@
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonFileInput } from '@posthog/lemon-ui'
+import { LemonBanner, LemonFileInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { IconUploadFile } from 'lib/lemon-ui/icons'

@@ -1,6 +1,4 @@
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'

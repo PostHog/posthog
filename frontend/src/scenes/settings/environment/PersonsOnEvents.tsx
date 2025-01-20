@@ -1,6 +1,4 @@
-import { LemonTag, Link } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonRadio, LemonRadioOption } from '@posthog/lemon-ui'
+import { LemonButton, LemonRadio, LemonRadioOption, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'

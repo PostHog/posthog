@@ -1,8 +1,7 @@
 import './LemonBanner.scss'
 
 import { IconInfo, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, SideAction } from '@posthog/lemon-ui'
-import { LemonButtonPropsBase } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonPropsBase, SideAction } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 

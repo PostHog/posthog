@@ -1,8 +1,13 @@
 import { IconInfo, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonCheckbox, LemonDialog, LemonTextArea } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonDialog,
+    LemonField,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'

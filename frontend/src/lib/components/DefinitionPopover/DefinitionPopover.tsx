@@ -1,9 +1,6 @@
 import './DefinitionPopover.scss'
 
-import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
-import { LemonMarkdown } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonDivider, LemonMarkdown, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'

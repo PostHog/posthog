@@ -1,7 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { toast } from 'react-toastify'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'

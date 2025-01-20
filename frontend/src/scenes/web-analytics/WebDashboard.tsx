@@ -1,7 +1,5 @@
 import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { Popover } from '@posthog/lemon-ui'
+import { LemonButton, Popover, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'

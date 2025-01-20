@@ -1,6 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonCollapse } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { useState } from 'react'

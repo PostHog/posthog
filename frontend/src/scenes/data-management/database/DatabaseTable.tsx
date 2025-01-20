@@ -1,6 +1,4 @@
-import { LemonButton, LemonSelect, lemonToast, Spinner } from '@posthog/lemon-ui'
-import { LemonTable } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTable, lemonToast, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'

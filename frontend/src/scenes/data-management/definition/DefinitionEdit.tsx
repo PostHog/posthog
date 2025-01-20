@@ -1,7 +1,4 @@
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonField, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { VerifiedDefinitionCheckbox } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'

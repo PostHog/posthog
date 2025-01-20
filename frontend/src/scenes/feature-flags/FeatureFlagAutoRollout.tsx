@@ -1,6 +1,5 @@
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonField, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'

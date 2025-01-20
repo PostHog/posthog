@@ -1,6 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { isLemonSelectSection } from '@posthog/lemon-ui'
+import { isLemonSelectSection, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'

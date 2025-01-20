@@ -1,5 +1,4 @@
-import { LemonTable } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import { LemonTable, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'

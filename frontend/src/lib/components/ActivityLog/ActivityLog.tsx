@@ -1,9 +1,6 @@
 import './ActivityLog.scss'
 
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonSkeleton } from '@posthog/lemon-ui'
-import { PaginationControl, usePagination } from '@posthog/lemon-ui'
-import { ProfilePicture } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSkeleton, PaginationControl, ProfilePicture, usePagination } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { activityLogLogic, ActivityLogLogicProps } from 'lib/components/ActivityLog/activityLogLogic'

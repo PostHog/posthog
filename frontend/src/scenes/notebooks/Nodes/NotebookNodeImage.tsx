@@ -1,5 +1,4 @@
-import { LemonBanner } from '@posthog/lemon-ui'
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'

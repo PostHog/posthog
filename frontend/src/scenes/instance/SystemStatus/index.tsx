@@ -1,9 +1,7 @@
 import './index.scss'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, Link } from '@posthog/lemon-ui'
-import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTab, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'

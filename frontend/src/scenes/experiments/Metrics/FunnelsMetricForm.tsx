@@ -1,6 +1,4 @@
-import { LemonLabel } from '@posthog/lemon-ui'
-import { LemonInput } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'

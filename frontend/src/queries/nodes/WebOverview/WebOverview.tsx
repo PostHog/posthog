@@ -1,7 +1,5 @@
 import { IconTrending } from '@posthog/icons'
-import { LemonSkeleton } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'

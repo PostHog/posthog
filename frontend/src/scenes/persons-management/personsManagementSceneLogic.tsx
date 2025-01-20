@@ -1,5 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonTab } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'

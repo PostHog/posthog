@@ -1,6 +1,5 @@
 import { IconGear, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
-import { LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'

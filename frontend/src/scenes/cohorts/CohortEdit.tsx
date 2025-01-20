@@ -1,7 +1,14 @@
-import { LemonBanner, LemonDivider, LemonFileInput, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonSelect } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonField,
+    LemonFileInput,
+    LemonSelect,
+    LemonSkeleton,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'

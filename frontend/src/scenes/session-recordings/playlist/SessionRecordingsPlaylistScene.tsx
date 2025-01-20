@@ -1,5 +1,4 @@
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'

@@ -1,9 +1,16 @@
 import { IconCrown, IconLeave, IconLock, IconUnlock } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSelectOption, LemonSnack, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
-import { LemonDialog } from '@posthog/lemon-ui'
-import { LemonTableColumns } from '@posthog/lemon-ui'
-import { ProfilePicture } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonSelect,
+    LemonSelectOption,
+    LemonSnack,
+    LemonSwitch,
+    LemonTable,
+    LemonTableColumns,
+    ProfilePicture,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'

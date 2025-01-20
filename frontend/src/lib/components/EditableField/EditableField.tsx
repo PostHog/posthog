@@ -1,9 +1,7 @@
 import './EditableField.scss'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonMarkdown } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonMarkdown, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'

@@ -1,6 +1,5 @@
 import { IconDownload } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonMenu, lemonToast } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonField, LemonInput, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'

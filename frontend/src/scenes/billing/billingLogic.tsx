@@ -1,5 +1,4 @@
-import { LemonDialog, lemonToast, Link } from '@posthog/lemon-ui'
-import { LemonButtonPropsBase } from '@posthog/lemon-ui'
+import { LemonButtonPropsBase, LemonDialog, lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { FieldNamePath, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'

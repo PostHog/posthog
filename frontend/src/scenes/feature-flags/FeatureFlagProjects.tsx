@@ -1,6 +1,13 @@
 import { IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    LemonTag,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSync } from 'lib/lemon-ui/icons'

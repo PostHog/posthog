@@ -1,8 +1,16 @@
 import { IconDownload, IconLock, IconRedo, IconTrash, IconUnlock } from '@posthog/icons'
-import { LemonBanner, LemonDialog, LemonDivider, LemonMenu, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonInput } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonInput,
+    LemonMenu,
+    LemonTable,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'

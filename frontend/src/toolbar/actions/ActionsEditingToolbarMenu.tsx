@@ -1,7 +1,5 @@
 import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
 

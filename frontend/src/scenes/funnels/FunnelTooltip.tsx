@@ -1,6 +1,4 @@
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonRow } from '@posthog/lemon-ui'
-import { Lettermark, LettermarkColor } from '@posthog/lemon-ui'
+import { LemonDivider, LemonRow, Lettermark, LettermarkColor } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'

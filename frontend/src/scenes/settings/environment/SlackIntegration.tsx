@@ -1,6 +1,5 @@
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'

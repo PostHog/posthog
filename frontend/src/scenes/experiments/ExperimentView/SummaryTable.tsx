@@ -1,6 +1,5 @@
 import { IconInfo, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { LemonProgress } from '@posthog/lemon-ui'
+import { LemonButton, LemonProgress, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'

@@ -1,8 +1,7 @@
 import './ToolbarLaunch.scss'
 
 import { IconFlag, IconSearch } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'

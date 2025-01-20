@@ -12,8 +12,7 @@ import {
     IconUserPaths,
 } from '@posthog/icons'
 import { IconCode } from '@posthog/icons'
-import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, lemonToast, Popover } from '@posthog/lemon-ui'
 import { Extension } from '@tiptap/core'
 import { ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'

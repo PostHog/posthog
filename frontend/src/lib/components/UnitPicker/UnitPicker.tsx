@@ -1,5 +1,4 @@
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CustomUnitModal } from 'lib/components/UnitPicker/CustomUnitModal'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'

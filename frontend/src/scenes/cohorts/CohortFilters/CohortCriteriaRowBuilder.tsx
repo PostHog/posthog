@@ -1,9 +1,7 @@
 import './CohortCriteriaRowBuilder.scss'
 
 import { IconCopy, IconTrash } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { Field as KeaField } from 'kea-forms'

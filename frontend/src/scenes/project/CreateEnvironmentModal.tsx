@@ -1,5 +1,4 @@
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonButton, LemonField, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useState } from 'react'

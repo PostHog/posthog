@@ -13,9 +13,7 @@ import {
     LemonSkeleton,
     Link,
 } from '@posthog/lemon-ui'
-import { LemonTabs } from '@posthog/lemon-ui'
-import { ProfilePicture } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonTabs, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'

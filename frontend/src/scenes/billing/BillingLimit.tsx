@@ -1,6 +1,4 @@
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonField, LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useRef } from 'react'

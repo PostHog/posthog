@@ -1,8 +1,15 @@
 import './PropertyDefinitionsTable.scss'
 
-import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonInput,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    LemonTag,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'

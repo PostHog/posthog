@@ -12,9 +12,7 @@ import {
     LemonSelectOption,
     LemonSelectOptions,
 } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDropdown } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, Tooltip } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'

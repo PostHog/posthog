@@ -1,9 +1,15 @@
-import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
-import { LemonTabs } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonInput,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    LemonTabs,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExperimentsHog } from 'lib/components/hedgehogs'

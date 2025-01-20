@@ -1,6 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { Properties } from '@posthog/plugin-scaffold'
 import { useActions, useValues } from 'kea'
 import { PropertiesTable } from 'lib/components/PropertiesTable'

@@ -1,7 +1,5 @@
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'

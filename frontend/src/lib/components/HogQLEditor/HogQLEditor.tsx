@@ -1,5 +1,4 @@
-import { Link } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { useEffect, useState } from 'react'

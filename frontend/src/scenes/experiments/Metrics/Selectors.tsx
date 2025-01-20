@@ -1,6 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonSelectOption, LemonSelectSection, Link } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSelectOption, LemonSelectSection, Link, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'

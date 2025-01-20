@@ -1,8 +1,6 @@
 import './PlayerMeta.scss'
 
-import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
-import { LemonSkeleton } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectOption, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'

@@ -1,5 +1,4 @@
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonField, LemonSelect } from '@posthog/lemon-ui'
 
 export default function SignupRoleSelect({ className }: { className?: string }): JSX.Element {
     return (

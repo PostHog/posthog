@@ -1,7 +1,4 @@
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonTable } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PropertiesTable } from 'lib/components/PropertiesTable'

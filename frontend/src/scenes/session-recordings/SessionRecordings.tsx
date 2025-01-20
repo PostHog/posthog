@@ -1,8 +1,6 @@
 import { IconEllipsis, IconGear } from '@posthog/icons'
 import { IconOpenSidebar } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonBadge, LemonBanner, LemonButton, LemonMenu, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import {

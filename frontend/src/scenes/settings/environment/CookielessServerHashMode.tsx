@@ -1,5 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonRadio, LemonRadioOption } from '@posthog/lemon-ui'
+import { LemonButton, LemonRadio, LemonRadioOption } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'

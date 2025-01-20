@@ -1,7 +1,14 @@
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonRadio } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonField,
+    LemonInput,
+    LemonModal,
+    LemonRadio,
+    LemonTable,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { supportLogic } from 'lib/components/Support/supportLogic'

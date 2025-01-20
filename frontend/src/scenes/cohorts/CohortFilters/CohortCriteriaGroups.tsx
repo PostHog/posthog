@@ -1,10 +1,7 @@
 import './CohortCriteriaGroups.scss'
 
 import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { Lettermark, LettermarkColor } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, Lettermark, LettermarkColor } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'

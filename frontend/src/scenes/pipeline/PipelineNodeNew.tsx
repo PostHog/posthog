@@ -1,6 +1,5 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'

@@ -1,5 +1,4 @@
-import { LemonButton, LemonButtonWithoutSideActionProps } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithoutSideActionProps, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'

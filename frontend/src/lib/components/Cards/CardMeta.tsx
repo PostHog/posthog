@@ -1,8 +1,7 @@
 import './CardMeta.scss'
 
 import { IconPieChart } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconRefresh, IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'

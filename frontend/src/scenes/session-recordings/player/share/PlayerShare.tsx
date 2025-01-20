@@ -1,7 +1,5 @@
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
-import { LemonDialog } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonDivider, LemonField, LemonInput } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'

@@ -1,5 +1,4 @@
-import { LemonButton, LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'

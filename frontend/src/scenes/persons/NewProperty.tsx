@@ -1,5 +1,4 @@
-import { LemonInput, LemonLabel, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useState } from 'react'
 
 interface NewPropertyInterface {

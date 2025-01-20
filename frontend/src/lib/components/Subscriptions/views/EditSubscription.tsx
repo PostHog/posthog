@@ -1,10 +1,14 @@
-import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonModal } from '@posthog/lemon-ui'
-import { LemonSelect } from '@posthog/lemon-ui'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonField,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    LemonSkeleton,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import api from 'lib/api'

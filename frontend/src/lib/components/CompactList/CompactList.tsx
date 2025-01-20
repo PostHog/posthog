@@ -1,8 +1,6 @@
 import './CompactList.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 

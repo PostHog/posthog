@@ -1,8 +1,13 @@
 import { IconTrash } from '@posthog/icons'
-import { LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-import { ProfilePicture } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonModal,
+    LemonTable,
+    LemonTableColumns,
+    Link,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'

@@ -1,6 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { CodeEditor } from 'lib/monaco/CodeEditor'

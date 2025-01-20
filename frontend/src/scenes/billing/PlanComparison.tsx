@@ -1,8 +1,7 @@
 import './PlanComparison.scss'
 
 import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
-import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonModal, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'

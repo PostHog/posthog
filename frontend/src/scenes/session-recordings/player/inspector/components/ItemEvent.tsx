@@ -1,7 +1,6 @@
 import './ImagePreview.scss'
 
-import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'

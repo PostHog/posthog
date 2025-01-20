@@ -1,5 +1,4 @@
-import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
-import { LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useEffect, useState } from 'react'

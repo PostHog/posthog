@@ -11,10 +11,7 @@ import {
     Link,
     Spinner,
 } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonTableColumn } from '@posthog/lemon-ui'
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonField, LemonTableColumn, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'

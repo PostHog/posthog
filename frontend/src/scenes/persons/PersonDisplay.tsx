@@ -1,9 +1,7 @@
 import './PersonDisplay.scss'
 
 import { IconCopy } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
-import { Popover } from '@posthog/lemon-ui'
-import { ProfilePicture, ProfilePictureProps } from '@posthog/lemon-ui'
+import { Link, Popover, ProfilePicture, ProfilePictureProps } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { router } from 'kea-router'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'

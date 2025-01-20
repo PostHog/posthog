@@ -12,8 +12,7 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonMarkdown } from '@posthog/lemon-ui'
+import { LemonField, LemonMarkdown } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'

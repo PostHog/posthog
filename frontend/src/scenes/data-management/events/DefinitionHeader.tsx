@@ -1,6 +1,5 @@
 import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark } from '@posthog/icons'
-import { LinkProps } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LinkProps, Tooltip } from '@posthog/lemon-ui'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconSelectAll } from 'lib/lemon-ui/icons'

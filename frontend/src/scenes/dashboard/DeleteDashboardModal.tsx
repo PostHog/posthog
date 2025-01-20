@@ -1,7 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonCheckbox } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonField, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'

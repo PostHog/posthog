@@ -1,8 +1,7 @@
 import './EditorFilterGroup.scss'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonButton, LemonField } from '@posthog/lemon-ui'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { slugify } from 'lib/utils'
 import { Fragment, useState } from 'react'

@@ -1,9 +1,7 @@
 import './AnnotationsOverlay.scss'
 
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonModal } from '@posthog/lemon-ui'
-import { ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
 import { Chart } from 'chart.js'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'

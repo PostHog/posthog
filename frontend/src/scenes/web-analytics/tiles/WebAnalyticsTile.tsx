@@ -1,7 +1,5 @@
 import { IconTrending } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getColorVar } from 'lib/colors'

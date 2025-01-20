@@ -1,7 +1,6 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconCheck, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@posthog/lemon-ui'
-import { LemonMarkdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonMarkdown, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'

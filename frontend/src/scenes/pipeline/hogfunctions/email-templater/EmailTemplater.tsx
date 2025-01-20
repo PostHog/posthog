@@ -1,5 +1,4 @@
-import { LemonButton, LemonLabel, LemonModal } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonButton, LemonField, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'

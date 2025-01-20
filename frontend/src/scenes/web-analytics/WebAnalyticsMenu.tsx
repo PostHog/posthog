@@ -1,7 +1,5 @@
 import { IconEllipsis, IconSearch } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonMenu } from '@posthog/lemon-ui'
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'

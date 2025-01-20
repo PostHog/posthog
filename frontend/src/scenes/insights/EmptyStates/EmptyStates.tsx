@@ -9,10 +9,7 @@ import {
     IconPlusSquare,
     IconWarning,
 } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
-import { LoadingBar } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link, LoadingBar, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'

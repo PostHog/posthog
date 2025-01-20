@@ -1,9 +1,19 @@
 import './PropertiesTable.scss'
 
 import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumns, LemonTableProps } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDialog,
+    LemonInput,
+    LemonMenu,
+    LemonTable,
+    LemonTableColumns,
+    LemonTableProps,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'

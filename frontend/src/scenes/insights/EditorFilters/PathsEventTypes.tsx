@@ -1,5 +1,4 @@
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'

@@ -1,6 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'

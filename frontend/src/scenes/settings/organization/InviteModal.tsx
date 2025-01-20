@@ -1,10 +1,7 @@
 import './InviteModal.scss'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { isEmail, pluralize } from 'lib/utils'

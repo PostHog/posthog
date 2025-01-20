@@ -1,6 +1,5 @@
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'

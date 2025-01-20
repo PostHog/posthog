@@ -7,8 +7,15 @@ import {
     IconWarning,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonButtonPropsBase, LemonInput, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
-import { LemonMarkdown } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonPropsBase,
+    LemonInput,
+    LemonMarkdown,
+    ProfilePicture,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'

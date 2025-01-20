@@ -1,7 +1,6 @@
 import './Billing.scss'
 
-import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'

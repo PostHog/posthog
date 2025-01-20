@@ -1,5 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
+import { LemonButton, LemonField } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 

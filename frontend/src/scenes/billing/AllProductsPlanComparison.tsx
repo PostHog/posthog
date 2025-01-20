@@ -1,6 +1,5 @@
 import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
-import { LemonCollapse, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonModal, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'

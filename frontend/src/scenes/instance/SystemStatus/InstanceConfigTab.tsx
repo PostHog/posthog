@@ -1,6 +1,5 @@
 import { IconWarning } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
-import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'

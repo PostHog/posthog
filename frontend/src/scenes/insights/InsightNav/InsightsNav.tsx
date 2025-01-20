@@ -1,6 +1,4 @@
-import { LemonTabs } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AlertDeletionWarning } from 'lib/components/Alerts/AlertDeletionWarning'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'

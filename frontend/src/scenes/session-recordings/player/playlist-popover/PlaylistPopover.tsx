@@ -1,10 +1,14 @@
 import { IconPin, IconPlus } from '@posthog/icons'
-import { LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
-import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
-import { LemonSkeleton } from '@posthog/lemon-ui'
-import { Popover } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonCheckbox,
+    LemonDivider,
+    LemonField,
+    LemonSkeleton,
+    Popover,
+    Spinner,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { IconOpenInNew, IconWithCount } from 'lib/lemon-ui/icons'

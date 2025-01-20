@@ -1,7 +1,5 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonMenu } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'

@@ -1,6 +1,4 @@
-import { LemonInput } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DOMAIN_REGEX } from 'lib/constants'
 import { useState } from 'react'

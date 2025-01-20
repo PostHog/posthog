@@ -1,10 +1,6 @@
 import './NetworkView.scss'
 
-import { LemonTable, Link } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { LemonSkeleton } from '@posthog/lemon-ui'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSkeleton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
