@@ -322,7 +322,7 @@ mod tests {
         // Return EmptyDistinctId if empty string
         assert!(matches!(
             parse_and_extract(r#"{"event": "e", "distinct_id": ""}"#),
-            Err(CaptureError::EmptyDistinctId)
+            Err(CaptureError::MissingDistinctId)
         ));
 
         let assert_extracted_id = |input: &'static str, expected: &str| {
