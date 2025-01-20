@@ -3956,6 +3956,7 @@ class DashboardFilter(BaseModel):
             ]
         ]
     ] = None
+    breakdown_filter: Optional[BreakdownFilter] = None
 
 
 class Response(BaseModel):

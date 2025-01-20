@@ -815,6 +815,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.query.dateRange.date_from = dashboard_filter.date_from
             self.query.dateRange.date_to = dashboard_filter.date_to
 
+        if dashboard_filter.breakdown_filter:
+            self.query.breakdownFilter = dashboard_filter.breakdown_filter
+
 
 ### START OF BACKWARDS COMPATIBILITY CODE
 
