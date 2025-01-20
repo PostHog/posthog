@@ -30,6 +30,7 @@ export enum Scene {
     ReplayFilePlayback = 'ReplayFilePlayback',
     CustomCss = 'CustomCss',
     LLMObservability = 'LLMObservability',
+    LLMObservabilityTrace = 'LLMObservabilityTrace',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
     PipelineNodeNew = 'PipelineNodeNew',
