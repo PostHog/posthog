@@ -90,6 +90,13 @@ class TracesQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
+    def get_cache_payload(self):
+        return {
+            **super().get_cache_payload(),
+            # When the response schema changes, increment this version to invalidate the cache.
+            "schema_version": 1,
+        }
+
     @cached_property
     def _date_range(self):
         # Minute-level precision for 10m capture range
