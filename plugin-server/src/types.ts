@@ -17,9 +17,8 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
-import { BatchConsumer } from '~/src/kafka/batch-consumer'
-
 import { EncryptedFields } from './cdp/encryption-utils'
+import { BatchConsumer } from './kafka/batch-consumer'
 import { ObjectStorage } from './main/services/object_storage'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
