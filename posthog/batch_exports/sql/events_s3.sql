@@ -8,4 +8,4 @@ select
     properties as properties,
     distinct_id as distinct_id,
 from
-    events
+    events_batch_export

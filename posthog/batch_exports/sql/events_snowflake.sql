@@ -2,7 +2,7 @@ select
     uuid as uuid,
     distinct_id as distinct_id,
     event as event,
-    team_id as team_id,
+    team_id,
     set as people_set,
     set_once as people_set_once,
     properties.$ip as ip,
@@ -12,4 +12,4 @@ select
     created_at as created_at,
     properties as properties
 from
-    events
+    events_batch_export

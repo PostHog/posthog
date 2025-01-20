@@ -6,4 +6,4 @@ select
     distinct_id as distinct_id,
     elements_chain as elements_chain
 from
-    events
+    events_batch_export
