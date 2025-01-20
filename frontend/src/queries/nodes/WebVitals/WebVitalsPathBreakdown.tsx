@@ -2,12 +2,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useMemo, useState } from 'react'
-import {
-    WEB_VITALS_COLORS,
-    WEB_VITALS_THRESHOLDS,
-    webAnalyticsLogic,
-    WebVitalsThreshold,
-} from 'scenes/web-analytics/webAnalyticsLogic'
+import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import {
     AnyResponseType,
@@ -18,7 +13,7 @@ import {
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { getValueWithUnit, ICON_PER_BAND } from './definitions'
+import { computePositionInBand, getValueWithUnit, ICON_PER_BAND } from './definitions'
 
 let uniqueNode = 0
 export function WebVitalsPathBreakdown(props: {
@@ -152,7 +147,7 @@ const Content = ({
                     <LemonSkeleton fade className={clsx('w-full', SKELETON_HEIGHT[band])} />
                 ) : values?.length ? (
                     values?.map(({ path, value }) => {
-                        const width = computeWidth(value, threshold)
+                        const width = computePositionInBand(value, threshold) * 100
 
                         return (
                             <div
@@ -180,18 +175,4 @@ const Content = ({
             </div>
         </div>
     )
-}
-
-const computeWidth = (value: number, threshold: WebVitalsThreshold): string => {
-    if (value <= threshold.good) {
-        return `${(value / threshold.good) * 100}%`
-    }
-
-    if (value > threshold.poor) {
-        // Avoid going over 100%
-        const width = Math.min(((value - threshold.poor) / (threshold.end - threshold.poor)) * 100, 100)
-        return `${width}%`
-    }
-
-    return `${((value - threshold.good) / (threshold.poor - threshold.good)) * 100}%`
 }

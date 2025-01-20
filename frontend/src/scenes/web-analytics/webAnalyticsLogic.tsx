@@ -225,12 +225,13 @@ export interface WebAnalyticsStatusCheck {
     isSendingPageLeavesScroll: boolean
 }
 
+// We're setting end to 20% above the poor threshold to have much more space in the UI for the good and poor segments
 export type WebVitalsThreshold = { good: number; poor: number; end: number }
 export const WEB_VITALS_THRESHOLDS: Record<WebVitalsMetric, WebVitalsThreshold> = {
-    INP: { good: 200, poor: 500, end: 550 },
-    LCP: { good: 2500, poor: 4000, end: 4400 },
-    CLS: { good: 0.1, poor: 0.25, end: 0.3 },
-    FCP: { good: 1800, poor: 3000, end: 3300 },
+    INP: { good: 200, poor: 500, end: 500 * 1.2 },
+    LCP: { good: 2500, poor: 4000, end: 4000 * 1.2 },
+    CLS: { good: 0.1, poor: 0.25, end: 0.25 * 1.2 },
+    FCP: { good: 1800, poor: 3000, end: 3000 * 1.2 },
 }
 
 export const WEB_VITALS_COLORS = {
