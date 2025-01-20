@@ -2,7 +2,12 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useMemo, useState } from 'react'
-import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import {
+    WEB_VITALS_COLORS,
+    WEB_VITALS_THRESHOLDS,
+    webAnalyticsLogic,
+    WebVitalsThreshold,
+} from 'scenes/web-analytics/webAnalyticsLogic'
 
 import {
     AnyResponseType,
@@ -177,13 +182,15 @@ const Content = ({
     )
 }
 
-const computeWidth = (value: number, threshold: { good: number; poor: number }): string => {
-    if (value < threshold.good) {
+const computeWidth = (value: number, threshold: WebVitalsThreshold): string => {
+    if (value <= threshold.good) {
         return `${(value / threshold.good) * 100}%`
     }
 
     if (value > threshold.poor) {
-        return `${((value - threshold.poor) / (threshold.good - threshold.poor)) * 100}%`
+        // Avoid going over 100%
+        const width = Math.min(((value - threshold.poor) / (threshold.end - threshold.poor)) * 100, 100)
+        return `${width}%`
     }
 
     return `${((value - threshold.good) / (threshold.poor - threshold.good)) * 100}%`
