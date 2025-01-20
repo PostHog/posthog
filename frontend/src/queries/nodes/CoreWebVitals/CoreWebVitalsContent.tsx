@@ -33,20 +33,22 @@ export const CoreWebVitalsContent = ({ coreWebVitalsQueryResponse }: CoreWebVita
         [coreWebVitalsQueryResponse, coreWebVitalsPercentile, coreWebVitalsTab]
     )
 
-    if (value === undefined) {
-        return (
-            <div className="w-full border rounded p-4 md:w-[30%]">
-                <LemonSkeleton fade className="w-full h-40" />
-            </div>
-        )
-    }
-
     const withMilliseconds = (values: number[]): string =>
         coreWebVitalsTab === 'CLS' ? values.join(' and ') : values.map((value) => `${value}ms`).join(' and ')
 
     const threshold = CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab]
     const color = getThresholdColor(value, threshold)
     const band = getMetricBand(value, threshold)
+
+    // NOTE: `band` will only return `none` if the value is undefined,
+    // so this is basically the same check twice, but we need that to make TS happy
+    if (value === undefined || band === 'none') {
+        return (
+            <div className="w-full border rounded p-4 md:w-[30%]">
+                <LemonSkeleton fade className="w-full h-40" />
+            </div>
+        )
+    }
 
     const grade = GRADE_PER_BAND[band]
 
