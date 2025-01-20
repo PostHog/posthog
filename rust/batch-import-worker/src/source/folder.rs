@@ -2,21 +2,9 @@ use std::path::PathBuf;
 
 use anyhow::Error;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use super::DataSource;
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct FolderSourceConfig {
-    pub path: String,
-}
-
-impl FolderSourceConfig {
-    pub async fn create_source(&self) -> Result<FolderSource, Error> {
-        FolderSource::new(self.path.clone()).await
-    }
-}
 
 pub struct FolderSource {
     pub path: PathBuf,

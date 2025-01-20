@@ -3,25 +3,8 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Error;
 use async_trait::async_trait;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-
-use crate::job::config::JobSecrets;
 
 use super::DataSource;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct UrlListConfig {
-    urls_key: String,
-    #[serde(default)]
-    allow_internal_ips: bool,
-    #[serde(default = "default_timeout_seconds")]
-    timeout_seconds: u64,
-}
-
-fn default_timeout_seconds() -> u64 {
-    30
-}
 
 pub struct UrlList {
     pub urls: Vec<String>,
@@ -90,24 +73,6 @@ impl UrlList {
             .map_err(|e| Error::msg(format!("Failed to parse Content-Length as usize: {}", e)))?;
 
         Ok(())
-    }
-}
-
-impl UrlListConfig {
-    pub async fn create_source(&self, secrets: &JobSecrets) -> Result<UrlList, Error> {
-        let urls = secrets
-            .secrets
-            .get(&self.urls_key)
-            .ok_or(Error::msg(format!("Missing urls as key {}", self.urls_key)))?;
-
-        let urls: Vec<String> = serde_json::from_value(urls.clone())?;
-
-        UrlList::new(
-            urls,
-            self.allow_internal_ips,
-            Duration::from_secs(self.timeout_seconds),
-        )
-        .await
     }
 }
 

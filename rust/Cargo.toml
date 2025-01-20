@@ -24,7 +24,6 @@ members = [
 
 [workspace.lints.rust]
 # See https://doc.rust-lang.org/stable/rustc/lints/listing/allowed-by-default.html
-unsafe_code = "forbid"            # forbid cannot be ignored with an annotation
 unstable_features = "forbid"
 macro_use_extern_crate = "forbid"
 let_underscore_drop = "deny"

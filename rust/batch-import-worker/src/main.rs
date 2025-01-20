@@ -67,7 +67,7 @@ pub async fn main() -> Result<(), Error> {
 
         let mut next_step = Some(Job::new(model, context.clone()).await?);
         while let Some(job) = next_step {
-            next_step = match job.process_next_chunk().await {
+            next_step = match job.process().await {
                 Ok(next) => next,
                 Err(e) => {
                     // process_next_chunk is written such that if an error occurs that should

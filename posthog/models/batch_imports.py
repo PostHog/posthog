@@ -5,75 +5,89 @@ from posthog.models.team import Team
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 
+from typing import Self
+from enum import Enum
+
+
+class ContentType(str, Enum):
+    MIXPANEL = "mixpanel"
+    CAPTURED = "captured"
+
+    def serialize(self) -> dict:
+        return {"type": self.value}
+
 
 class BatchImport(UUIDModel):
     class Status(models.TextChoices):
-        COMPLETED = "completed", "Completed"  # Completed successfully
-        FAILED = "failed", "Failed"  # Failed, and should not be retried
-        PAUSED = "paused", "Paused"  # Paused, awaiting a manual unpause after some fixing action
-        RUNNING = "running", "Running"  # Created or running, but not yet finished
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+        PAUSED = "paused", "Paused"
+        RUNNING = "running", "Running"
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
-    # Workers pick up a lease for a job, run a batch of it, then renew their lease, in a loop,
-    # until the job is done.
     lease_id = models.TextField(null=True, blank=True)
     leased_until = models.DateTimeField(null=True, blank=True)
-
-    # Since the state/config of the job is opaque to the DB, we store the outcome at the
-    # DB level, to prevent other workers from picking up a finished job. Any error messages
-    # etc are store in the state.
     status = models.TextField(choices=Status.choices, default=Status.RUNNING)
-    # If we're e.g. paused, we can put some user-facing message here
     status_message = models.TextField(null=True, blank=True)
-
-    # A json object describing the state the job is in. I'm being deliberately vague here,
-    # to let me be flexible in the worker code without needing a migration.
     state = models.JSONField(null=True, blank=True)
-    # A json object describing the configuration of the job. As above
     import_config = models.JSONField()
-    # The secrets needed to do this job - api keys etc. Referenced by the import_config
     secrets = EncryptedJSONStringField()
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._config_builder = BatchImportConfigBuilder(self)
 
-def create_url_job(team: Team, url_list: list, content_type: str) -> BatchImport:
-    source_config = {
-        "type": "url_list",
-        "urls_key": "urls",
-    }
-
-    secrets = {
-        "urls": url_list,
-    }
-
-    return create_test_job(team, source_config, content_type, secrets)
+    @property
+    def config(self) -> "BatchImportConfigBuilder":
+        return self._config_builder
 
 
-def create_path_job(team: Team, path: str, content_type: str) -> BatchImport:
-    source_config = {
-        "type": "folder",
-        "path": path,
-    }
+# Mostly used for manual job creation
+class BatchImportConfigBuilder:
+    def __init__(self, batch_import: BatchImport):
+        self.batch_import = batch_import
+        self.batch_import.import_config = {}
+        self.batch_import.secrets = {}
 
-    return create_test_job(team, source_config, content_type)
+    def json_lines(self, content_type: ContentType, skip_blanks: bool = True) -> Self:
+        self.batch_import.import_config["data_format"] = {
+            "type": "json_lines",
+            "skip_blanks": skip_blanks,
+            "content": content_type.serialize(),
+        }
+        return self
 
+    def from_folder(self, path: str) -> Self:
+        self.batch_import.import_config["source"] = {"type": "folder", "path": path}
+        return self
 
-# Create a test job, configured to read from the workers local filesystem and
-# write to either stdout in json format
-def create_test_job(team: Team, source_config, content_type: str, secrets=None) -> BatchImport:
-    data_format = {"type": "jsonlines", "skip_blanks": False, "content": {"type": content_type}}
+    def from_urls(
+        self, urls: list[str], urls_key: str = "urls", allow_internal_ips: bool = False, timeout_seconds: int = 30
+    ) -> Self:
+        self.batch_import.import_config["source"] = {
+            "type": "url_list",
+            "urls_key": urls_key,
+            "allow_internal_ips": allow_internal_ips,
+            "timeout_seconds": timeout_seconds,
+        }
+        self.batch_import.secrets[urls_key] = urls
+        return self
 
-    sink_config = {"type": "noop", "as_json": True}
+    def to_stdout(self, as_json: bool = True) -> Self:
+        self.batch_import.import_config["sink"] = {"type": "stdout", "as_json": as_json}
+        return self
 
-    import_config = {"source": source_config, "data_format": data_format, "sink": sink_config}
+    def to_file(self, path: str, as_json: bool = True, cleanup: bool = False) -> Self:
+        self.batch_import.import_config["sink"] = {"type": "file", "path": path, "as_json": as_json, "cleanup": cleanup}
+        return self
 
-    if secrets is None:
-        secrets = {}
-
-    return BatchImport.objects.create(
-        team=team,
-        import_config=import_config,
-        secrets=secrets,
-    )
+    def to_kafka(self, topic: str, send_rate: int, transaction_timeout_seconds: int) -> Self:
+        self.batch_import.import_config["sink"] = {
+            "type": "kafka",
+            "topic": topic,
+            "send_rate": send_rate,
+            "transaction_timeout_seconds": transaction_timeout_seconds,
+        }
+        return self
