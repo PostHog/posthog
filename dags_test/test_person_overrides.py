@@ -25,31 +25,31 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
 def test_full_job(cluster: ClickhouseCluster):
     timestamp = datetime(2025, 1, 1)
 
-    events = [
-        ("a", UUID(int=0), timestamp - timedelta(hours=24)),
-        ("b", UUID(int=1), timestamp - timedelta(hours=24)),
-        ("c", UUID(int=2), timestamp - timedelta(hours=24)),
-        ("d", UUID(int=3), timestamp - timedelta(hours=12)),
-        ("e", UUID(int=4), timestamp - timedelta(hours=6)),
-        ("z", UUID(int=100), timestamp - timedelta(hours=3)),
-    ]
-
     def insert_events(client: Client) -> None:
-        client.execute("INSERT INTO writable_events (distinct_id, person_id, timestamp) VALUES", events)
+        client.execute(
+            "INSERT INTO writable_events (distinct_id, person_id, timestamp) VALUES",
+            [
+                ("a", UUID(int=0), timestamp - timedelta(hours=24)),
+                ("b", UUID(int=1), timestamp - timedelta(hours=24)),
+                ("c", UUID(int=2), timestamp - timedelta(hours=24)),
+                ("d", UUID(int=3), timestamp - timedelta(hours=12)),
+                ("e", UUID(int=4), timestamp - timedelta(hours=6)),
+                ("z", UUID(int=100), timestamp - timedelta(hours=3)),
+            ],
+        )
 
     cluster.any_host(insert_events).result()
 
-    overrides = [
-        ("c", UUID(int=0), timestamp - timedelta(hours=12), 1),  # 0: {"a", "c"}
-        ("e", UUID(int=3), timestamp - timedelta(hours=6), 1),  # 3: {"d", "e"}
-        ("d", UUID(int=1), timestamp - timedelta(hours=5), 1),  # 1: {"b", "d"}
-        ("e", UUID(int=1), timestamp - timedelta(hours=5), 2),  # 1: {"b", "d", "e"}
-        ("z", UUID(int=0), timestamp + timedelta(hours=1), 1),  # arrived after timestamp, ignored this run
-    ]
-
     def insert_overrides(client: Client) -> None:
         client.execute(
-            "INSERT INTO person_distinct_id_overrides (distinct_id, person_id, _timestamp, version) VALUES", overrides
+            "INSERT INTO person_distinct_id_overrides (distinct_id, person_id, _timestamp, version) VALUES",
+            [
+                ("c", UUID(int=0), timestamp - timedelta(hours=12), 1),  # 0: {"a", "c"}
+                ("e", UUID(int=3), timestamp - timedelta(hours=6), 1),  # 3: {"d", "e"}
+                ("d", UUID(int=1), timestamp - timedelta(hours=5), 1),  # 1: {"b", "d"}
+                ("e", UUID(int=1), timestamp - timedelta(hours=5), 2),  # 1: {"b", "d", "e"}
+                ("z", UUID(int=0), timestamp + timedelta(hours=1), 1),  # arrived after timestamp, ignored this run
+            ],
         )
 
     cluster.any_host(insert_overrides).result()
