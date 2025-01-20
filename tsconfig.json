@@ -11,7 +11,8 @@
             "storybook/*": ["../.storybook/*"],
             "@posthog/ee/exports": ["../ee/exports", "@posthog/ee/exports"],
             "~/*": ["src/*"],
-            "public/*": ["public/*"]
+            "public/*": ["public/*"],
+            "products/*": ["../products/*"]
         },
         // https://www.sitepoint.com/react-with-typescript-best-practices/
         "allowJs": true, // Allow JavaScript files to be compiled
@@ -39,7 +40,7 @@
         "ignoreDeprecations": "5.0",
         "lib": ["dom", "es2021"]
     },
-    "include": ["frontend/**/*", ".storybook/**/*", "playwright/**/*", "ee/frontend/**/*"],
+    "include": ["frontend/**/*", ".storybook/**/*", "playwright/**/*", "ee/frontend/**/*", "products/**/frontend/**/*"],
     "exclude": ["frontend/dist/**/*"],
     "ts-node": {
         "compilerOptions": {

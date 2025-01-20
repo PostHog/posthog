@@ -40,7 +40,7 @@ from posthog.api import (
 )
 from .api.web_experiment import web_experiments
 from .api.utils import hostname_in_allowed_url_list
-from posthog.api.early_access_feature import early_access_features
+from products.early_access_features.backend.api import early_access_features
 from posthog.api.survey import surveys
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route

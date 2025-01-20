@@ -3,11 +3,11 @@ import { useEffect, useState } from 'react'
 import { HogDebug } from 'scenes/debug/HogDebug'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { CoreWebVitals } from '~/queries/nodes/CoreWebVitals/CoreWebVitals'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
+import { WebVitals } from '~/queries/nodes/WebVitals/WebVitals'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import {
     AnyResponseType,
@@ -20,18 +20,18 @@ import {
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
-import { CoreWebVitalsPathBreakdown } from '../nodes/CoreWebVitals/CoreWebVitalsPathBreakdown'
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
+import { WebVitalsPathBreakdown } from '../nodes/WebVitals/WebVitalsPathBreakdown'
 import {
-    isCoreWebVitalsPathBreakdownQuery,
-    isCoreWebVitalsQuery,
     isDataTableNode,
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
     isSavedInsightNode,
     isWebOverviewQuery,
+    isWebVitalsPathBreakdownQuery,
+    isWebVitalsQuery,
 } from '../utils'
 
 export interface QueryProps<Q extends Node> {
@@ -139,12 +139,10 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         )
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
-    } else if (isCoreWebVitalsQuery(query)) {
-        component = <CoreWebVitals query={query} cachedResults={props.cachedResults} context={queryContext} />
-    } else if (isCoreWebVitalsPathBreakdownQuery(query)) {
-        component = (
-            <CoreWebVitalsPathBreakdown query={query} cachedResults={props.cachedResults} context={queryContext} />
-        )
+    } else if (isWebVitalsQuery(query)) {
+        component = <WebVitals query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else if (isWebVitalsPathBreakdownQuery(query)) {
+        component = <WebVitalsPathBreakdown query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {
         component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
     } else {

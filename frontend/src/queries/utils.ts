@@ -8,8 +8,6 @@ import {
     ActorsQuery,
     BreakdownFilter,
     CompareFilter,
-    CoreWebVitalsPathBreakdownQuery,
-    CoreWebVitalsQuery,
     DatabaseSchemaQuery,
     DataTableNode,
     DataVisualizationNode,
@@ -46,6 +44,8 @@ import {
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
+    WebVitalsPathBreakdownQuery,
+    WebVitalsQuery,
 } from '~/queries/schema/schema-general'
 import { ChartDisplayType, IntervalType } from '~/types'
 
@@ -146,14 +146,12 @@ export function isTracesQuery(node?: Record<string, any> | null): node is Traces
     return node?.kind === NodeKind.TracesQuery
 }
 
-export function isCoreWebVitalsQuery(node?: Record<string, any> | null): node is CoreWebVitalsQuery {
-    return node?.kind === NodeKind.CoreWebVitalsQuery
+export function isWebVitalsQuery(node?: Record<string, any> | null): node is WebVitalsQuery {
+    return node?.kind === NodeKind.WebVitalsQuery
 }
 
-export function isCoreWebVitalsPathBreakdownQuery(
-    node?: Record<string, any> | null
-): node is CoreWebVitalsPathBreakdownQuery {
-    return node?.kind === NodeKind.CoreWebVitalsPathBreakdownQuery
+export function isWebVitalsPathBreakdownQuery(node?: Record<string, any> | null): node is WebVitalsPathBreakdownQuery {
+    return node?.kind === NodeKind.WebVitalsPathBreakdownQuery
 }
 
 export function isSessionAttributionExplorerQuery(
