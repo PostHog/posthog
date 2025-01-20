@@ -339,10 +339,10 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "WebVitalsPathBreakdownQuery":
-        from .web_analytics.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
+    if kind == "CoreWebVitalsPathBreakdownQuery":
+        from .web_analytics.core_web_vitals_path_breakdown import CoreWebVitalsPathBreakdownQueryRunner
 
-        return WebVitalsPathBreakdownQueryRunner(
+        return CoreWebVitalsPathBreakdownQueryRunner(
             query=query,
             team=team,
         )

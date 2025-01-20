@@ -55,7 +55,6 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "initial_utm_content": DatabaseField(name="initial_utm_content"),
     "initial_referring_domain": DatabaseField(name="initial_referring_domain"),
     "initial_gclid": DatabaseField(name="initial_gclid"),
-    "initial_fbclid": DatabaseField(name="initial_fbclid"),
     "initial_gad_source": DatabaseField(name="initial_gad_source"),
     # do not expose the count fields, as we can't rely on them being accurate due to double-counting events
     "pageview_uniq": DatabaseField(name="pageview_uniq"),
@@ -90,7 +89,6 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$entry_utm_content": StringDatabaseField(name="$entry_utm_content"),
     "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
     "$entry_gclid": StringDatabaseField(name="$entry_gclid"),
-    "$entry_fbclid": StringDatabaseField(name="$entry_fbclid"),
     "$entry_gad_source": StringDatabaseField(name="$entry_gad_source"),
     # we expose "count" fields here, though they are actually the aggregates of the uniq columns in the raw tables
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
@@ -134,7 +132,6 @@ class RawSessionsTableV2(Table):
             "initial_utm_content",
             "initial_referring_domain",
             "initial_gclid",
-            "initial_fbclid",
             "initial_gad_source",
             "pageview_uniq",
             "autocapture_uniq",
@@ -219,7 +216,6 @@ def select_from_sessions_table_v2(
         "$entry_utm_content": null_if_empty(arg_min_merge_field("initial_utm_content")),
         "$entry_referring_domain": null_if_empty(arg_min_merge_field("initial_referring_domain")),
         "$entry_gclid": null_if_empty(arg_min_merge_field("initial_gclid")),
-        "$entry_fbclid": null_if_empty(arg_min_merge_field("initial_fbclid")),
         "$entry_gad_source": null_if_empty(arg_min_merge_field("initial_gad_source")),
         # the count columns here do not come from the "count" columns in the raw table, instead aggregate the uniq columns
         "$pageview_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
@@ -346,14 +342,7 @@ def select_from_sessions_table_v2(
             hostname=aggregate_fields["$entry_hostname"],
             pathname=aggregate_fields["$entry_pathname"],
             referring_domain=aggregate_fields["$entry_referring_domain"],
-            has_gclid=ast.Call(
-                name="isNotNull",
-                args=[aggregate_fields["$entry_gclid"]],
-            ),
-            has_fbclid=ast.Call(
-                name="isNotNull",
-                args=[aggregate_fields["$entry_fbclid"]],
-            ),
+            gclid=aggregate_fields["$entry_gclid"],
             gad_source=aggregate_fields["$entry_gad_source"],
         ),
     )
