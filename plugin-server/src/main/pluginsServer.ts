@@ -52,6 +52,8 @@ import {
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
+import { DefaultBatchConsumerFactory } from './ingestion-queues/session-recording-v2/batch-consumer-factory'
+import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './ingestion-queues/session-recording-v2/consumer'
 import { expressApp, setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
 
@@ -442,6 +444,20 @@ export async function startPluginsServer(
             // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
             // NOTE: We don't pass captureRedis to disable overflow computation on the overflow topic
             const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, true, undefined)
+            await ingester.start()
+            services.push(ingester.service)
+        }
+
+        if (capabilities.sessionRecordingBlobIngestionV2) {
+            const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
+            const ingester = new SessionRecordingIngesterV2(serverConfig, false, batchConsumerFactory)
+            await ingester.start()
+            services.push(ingester.service)
+        }
+
+        if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
+            const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
+            const ingester = new SessionRecordingIngesterV2(serverConfig, true, batchConsumerFactory)
             await ingester.start()
             services.push(ingester.service)
         }

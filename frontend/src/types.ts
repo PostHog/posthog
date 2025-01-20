@@ -4628,7 +4628,8 @@ export type HogFunctionInputSchemaType = {
     description?: string
     integration?: string
     integration_key?: string
-    integration_field?: 'slack_channel'
+    integration_field?: string
+    requires_field?: string
     requiredScopes?: string
 }
 
@@ -4854,6 +4855,12 @@ export type ReplayTemplateVariableType = {
     description?: string
     filterGroup?: UniversalFiltersGroupValue
     noTouch?: boolean
+}
+
+export type GoogleAdsConversionActionType = {
+    id: string
+    name: string
+    resourceName: string
 }
 
 export type DataColorThemeModel = {
