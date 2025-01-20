@@ -8,8 +8,13 @@ export const processAiEvent = (event: PluginEvent): PluginEvent => {
     if ((event.event !== '$ai_generation' && event.event !== '$ai_embedding') || !event.properties) {
         return event
     }
+    event = processCost(event)
 
-    if (!event.properties['$ai_provider'] || !event.properties['$ai_model']) {
+    return event
+}
+
+const processCost = (event: PluginEvent) => {
+    if (!event.properties || !event.properties['$ai_provider'] || !event.properties['$ai_model']) {
         return event
     }
 
