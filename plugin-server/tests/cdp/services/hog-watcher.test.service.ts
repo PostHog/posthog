@@ -3,14 +3,19 @@ jest.mock('../../src/utils/now', () => {
         now: jest.fn(() => Date.now()),
     }
 })
-import { CdpRedis, createCdpRedisPool } from '../../src/cdp/redis'
-import { BASE_REDIS_KEY, CELERY_TASK_ID, HogWatcher, HogWatcherState } from '../../src/cdp/services/hog-watcher.service'
-import { HogFunctionInvocationResult } from '../../src/cdp/types'
-import { Hub } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { delay } from '../../src/utils/utils'
-import { createInvocation } from './fixtures'
-import { deleteKeysWithPrefix } from './helpers/redis'
+import { CdpRedis, createCdpRedisPool } from '../../../src/cdp/redis'
+import {
+    BASE_REDIS_KEY,
+    CELERY_TASK_ID,
+    HogWatcher,
+    HogWatcherState,
+} from '../../../src/cdp/services/hog-watcher.service'
+import { HogFunctionInvocationResult } from '../../../src/cdp/types'
+import { Hub } from '../../../src/types'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { delay } from '../../../src/utils/utils'
+import { createInvocation } from '../fixtures'
+import { deleteKeysWithPrefix } from '../helpers/redis'
 
 const mockNow: jest.Mock = require('../../src/utils/now').now as any
 
