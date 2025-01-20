@@ -1,4 +1,4 @@
-import { EncryptedFields } from '../../src/cdp/encryption-utils'
+import { EncryptedFields } from '../../src/cdp/services/encryption-utils.service'
 import { Hub } from '../../src/types'
 import { insertHogFunction as _insertHogFunction } from './fixtures'
 

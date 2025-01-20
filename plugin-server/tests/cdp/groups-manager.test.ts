@@ -1,4 +1,4 @@
-import { GroupsManager } from '../../src/cdp/groups-manager'
+import { GroupsManager } from '../../src/cdp/services/groups-manager.service'
 import { Hub } from '../../src/types'
 import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './fixtures'
 

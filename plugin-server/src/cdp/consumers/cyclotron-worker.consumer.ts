@@ -3,9 +3,9 @@ import { Counter, Gauge } from 'prom-client'
 
 import { runInstrumentedFunction } from '../../main/utils'
 import { status } from '../../utils/status'
-import { CdpConsumerBase } from '../consumers/cdp-base.consumer'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
+import { CdpConsumerBase } from './cdp-base.consumer'
 
 export const gaugeBatchUtilization = new Gauge({
     name: 'cdp_cyclotron_batch_utilization',

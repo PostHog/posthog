@@ -1,6 +1,6 @@
 import { CdpInternalEventsConsumer } from '../../src/cdp/consumers/cdp-internal-events.consumer'
 import { CdpProcessedEventsConsumer } from '../../src/cdp/consumers/cdp-processed-events.consumer'
-import { HogWatcherState } from '../../src/cdp/hog-watcher'
+import { HogWatcherState } from '../../src/cdp/services/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'

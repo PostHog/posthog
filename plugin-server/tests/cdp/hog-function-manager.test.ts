@@ -1,4 +1,4 @@
-import { HogFunctionManager } from '../../src/cdp/managers/hog-function.manager'
+import { HogFunctionManager } from '../../src/cdp/services/hog-function-manager.service'
 import { HogFunctionType, IntegrationType } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'

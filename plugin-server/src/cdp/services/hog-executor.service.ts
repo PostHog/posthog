@@ -1,5 +1,5 @@
 import { calculateCost, convertHogToJS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
-import { HogFunctionManager } from 'cdp/managers/hog-function.manager'
+import { HogFunctionManager } from 'cdp/services/hog-function-manager.service'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'

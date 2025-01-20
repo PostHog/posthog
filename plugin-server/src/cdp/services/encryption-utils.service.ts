@@ -1,6 +1,6 @@
 import { Fernet } from 'fernet-nodejs'
 
-import { PluginsServerConfig } from '../types'
+import { PluginsServerConfig } from '../../types'
 
 export class EncryptedFields {
     private fernets: Fernet[] = []
