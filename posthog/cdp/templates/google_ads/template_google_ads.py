@@ -1,6 +1,6 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
-# Based on https://developers.google.com/google-ads/api/reference/rpc/v17/ClickConversion
+# Based on https://developers.google.com/google-ads/api/reference/rpc/v18/ClickConversion
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
@@ -34,7 +34,7 @@ if (not empty(inputs.currencyCode)) {
     body.conversions[1].currency_code := inputs.currencyCode
 }
 
-let res := fetch(f'https://googleads.googleapis.com/v17/customers/{replaceAll(inputs.customerId, '-', '')}:uploadClickConversions', {
+let res := fetch(f'https://googleads.googleapis.com/v18/customers/{replaceAll(inputs.customerId, '-', '')}:uploadClickConversions', {
     'method': 'POST',
     'headers': {
         'Authorization': f'Bearer {inputs.oauth.access_token}',

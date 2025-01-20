@@ -26,7 +26,7 @@ class TestTemplateGoogleAds(BaseHogFunctionTemplateTest):
         self.run_function(self._inputs())
         assert self.get_mock_fetch_calls()[0] == snapshot(
             (
-                "https://googleads.googleapis.com/v17/customers/1231231234:uploadClickConversions",
+                "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
                 {
                     "method": "POST",
                     "headers": {
