@@ -1,4 +1,4 @@
-import { SymbolSets } from 'scenes/error-tracking/configuration/SymbolSets'
+import { SymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/SymbolSets'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -328,6 +328,12 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
+                component: <SymbolSets />,
+            },
+            {
+                id: 'error-tracking-alerting',
+                title: 'Alerting',
+                flag: 'ERROR_TRACKING_ALERTING',
                 component: <SymbolSets />,
             },
         ],
