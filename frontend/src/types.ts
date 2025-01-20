@@ -3780,6 +3780,7 @@ export type IntegrationKind =
     | 'google-pubsub'
     | 'google-cloud-storage'
     | 'google-ads'
+    | 'linkedin-ads'
     | 'snapchat'
 
 export interface IntegrationType {

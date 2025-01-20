@@ -5,6 +5,10 @@ import {
     GoogleAdsCustomerIdPicker,
 } from 'lib/integrations/GoogleAdsIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import {
+    LinkedInAdsAccountIdPicker,
+    LinkedInAdsConversionRulePicker,
+} from 'lib/integrations/LinkedInIntegrationHelpers'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 
 import { HogFunctionInputSchemaType } from '~/types'
@@ -93,6 +97,25 @@ export function HogFunctionInputIntegrationField({
     if (schema.integration_field === 'google_ads_customer_id') {
         return (
             <GoogleAdsCustomerIdPicker
+                value={value}
+                onChange={(x) => onChange?.(x?.split('|')[0])}
+                integration={integration}
+            />
+        )
+    }
+    if (schema.integration_field === 'linkedin_ads_conversion_rule_id' && requiresFieldValue) {
+        return (
+            <LinkedInAdsConversionRulePicker
+                value={value}
+                requiresFieldValue={requiresFieldValue}
+                onChange={(x) => onChange?.(x?.split('|')[0])}
+                integration={integration}
+            />
+        )
+    }
+    if (schema.integration_field === 'linkedin_ads_account_id') {
+        return (
+            <LinkedInAdsAccountIdPicker
                 value={value}
                 onChange={(x) => onChange?.(x?.split('|')[0])}
                 integration={integration}
