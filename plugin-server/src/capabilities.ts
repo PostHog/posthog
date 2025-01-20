@@ -19,6 +19,8 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         processAsyncWebhooksHandlers: true,
         sessionRecordingBlobIngestion: true,
         sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
+        sessionRecordingBlobIngestionV2: true,
+        sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
         appManagementSingleton: true,
         preflightSchedules: true,
         cdpProcessedEvents: true,
@@ -92,6 +94,17 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobOverflowIngestion: true,
                 ...sharedCapabilities,
             }
+        case PluginServerMode.recordings_blob_ingestion_v2:
+            return {
+                sessionRecordingBlobIngestionV2: true,
+                ...sharedCapabilities,
+            }
+        case PluginServerMode.recordings_blob_ingestion_v2_overflow:
+            return {
+                sessionRecordingBlobIngestionV2Overflow: true,
+                ...sharedCapabilities,
+            }
+
         case PluginServerMode.async_onevent:
             return {
                 processAsyncOnEventHandlers: true,
