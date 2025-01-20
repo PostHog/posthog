@@ -1,9 +1,9 @@
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { signupLogic } from '../signupLogic'

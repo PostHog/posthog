@@ -1,7 +1,7 @@
+import { LemonCheckbox } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { getSeriesBackgroundColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'

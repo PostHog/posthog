@@ -1,7 +1,7 @@
+import { LemonTable } from '@posthog/lemon-ui'
+import { LemonTabs, LemonTabsProps } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
 

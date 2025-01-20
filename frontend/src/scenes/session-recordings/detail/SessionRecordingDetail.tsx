@@ -1,10 +1,10 @@
 import './SessionRecordingScene.scss'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {

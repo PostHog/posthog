@@ -1,6 +1,6 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
 import { BindLogic } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 

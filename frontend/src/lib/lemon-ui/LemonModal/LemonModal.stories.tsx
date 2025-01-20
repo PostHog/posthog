@@ -1,5 +1,5 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { Meta, StoryFn } from '@storybook/react'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
 
 import { LemonModal, LemonModalProps } from './LemonModal'

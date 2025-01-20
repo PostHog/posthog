@@ -1,6 +1,6 @@
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 import { playerMetaLogic } from '../playerMetaLogic'

@@ -10,11 +10,11 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { hogFunctionTestLogic, HogFunctionTestLogicProps } from './hogFunctionTestLogic'

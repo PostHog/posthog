@@ -1,6 +1,6 @@
 import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/types'

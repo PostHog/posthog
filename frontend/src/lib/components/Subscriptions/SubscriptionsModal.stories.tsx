@@ -1,5 +1,5 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { uuid } from 'lib/utils'
 import { useRef, useState } from 'react'
 

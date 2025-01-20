@@ -1,5 +1,5 @@
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export interface LemonRadioOption<T extends React.Key> {
     label: string | JSX.Element

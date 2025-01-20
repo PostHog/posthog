@@ -1,7 +1,7 @@
 import { IconX } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonButtonWithSideActionProps, SideAction } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import {
     GetLemonButtonTimePropsOpts,
     LemonCalendar,

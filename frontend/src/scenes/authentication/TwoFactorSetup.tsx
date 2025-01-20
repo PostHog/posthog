@@ -1,10 +1,10 @@
 import './Setup2FA.scss'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { twoFactorLogic } from './twoFactorLogic'
 

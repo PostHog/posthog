@@ -1,7 +1,7 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'

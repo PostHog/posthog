@@ -1,6 +1,6 @@
 import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'

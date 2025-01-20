@@ -1,6 +1,6 @@
+import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { Link } from 'lib/lemon-ui/Link'
 import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 

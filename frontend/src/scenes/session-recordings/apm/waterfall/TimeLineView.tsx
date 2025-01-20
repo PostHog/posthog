@@ -1,5 +1,5 @@
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonDivider } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import {
     calculatePerformanceParts,
     perfDescriptions,

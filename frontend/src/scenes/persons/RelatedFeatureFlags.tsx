@@ -1,7 +1,7 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { capitalizeFirstLetter } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'

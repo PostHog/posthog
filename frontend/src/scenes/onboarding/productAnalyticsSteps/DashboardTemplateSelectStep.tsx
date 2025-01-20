@@ -1,7 +1,7 @@
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useEffect } from 'react'
 import { DashboardTemplateChooser } from 'scenes/dashboard/DashboardTemplateChooser'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'

@@ -1,8 +1,8 @@
 import './PlayerInspectorList.scss'
 
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { range } from 'd3'
 import { useActions, useValues } from 'kea'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useEffect, useMemo, useRef } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'

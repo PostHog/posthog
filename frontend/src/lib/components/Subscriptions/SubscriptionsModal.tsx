@@ -1,7 +1,7 @@
 import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
 

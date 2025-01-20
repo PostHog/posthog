@@ -11,11 +11,11 @@ import {
     ProfileBubbles,
     ProfilePicture,
 } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, Form } from 'kea-forms'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { fullName } from 'lib/utils'
 import { useMemo, useState } from 'react'

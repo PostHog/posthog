@@ -1,9 +1,9 @@
 import { LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import React, { FunctionComponent, ReactElement, useState } from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
 

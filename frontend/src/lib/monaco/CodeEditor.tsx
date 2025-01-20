@@ -1,8 +1,8 @@
 import './CodeEditor.scss'
 
 import MonacoEditor, { type EditorProps, loader, Monaco } from '@monaco-editor/react'
+import { Spinner } from '@posthog/lemon-ui'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'

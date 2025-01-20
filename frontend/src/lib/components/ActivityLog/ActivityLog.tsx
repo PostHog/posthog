@@ -1,15 +1,15 @@
 import './ActivityLog.scss'
 
 import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
+import { PaginationControl, usePagination } from '@posthog/lemon-ui'
+import { ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { activityLogLogic, ActivityLogLogicProps } from 'lib/components/ActivityLog/activityLogLogic'
 import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 

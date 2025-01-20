@@ -1,6 +1,6 @@
+import { LemonModal } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { LemonSkeleton } from './LemonSkeleton'
 

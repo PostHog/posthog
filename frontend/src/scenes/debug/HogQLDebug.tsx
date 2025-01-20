@@ -1,5 +1,5 @@
+import { LemonDivider } from '@posthog/lemon-ui'
 import { BindLogic, useValues } from 'kea'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Modifiers } from 'scenes/debug/Modifiers'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'

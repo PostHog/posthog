@@ -1,8 +1,8 @@
 // Loads custom icons (some icons may come from a third-party library)
 import './icons.scss'
 
+import { LemonBadge, LemonBadgeProps } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
 
 interface IconWithBadgeProps {

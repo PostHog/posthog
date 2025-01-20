@@ -1,5 +1,6 @@
 import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 
+import { Link } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import {
     ActivityChange,
@@ -14,7 +15,6 @@ import {
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { Link } from 'lib/lemon-ui/Link'
 import { areObjectValuesEmpty, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 

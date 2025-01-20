@@ -2,13 +2,13 @@
 Scene to enter a new password from a received reset link
 */
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 

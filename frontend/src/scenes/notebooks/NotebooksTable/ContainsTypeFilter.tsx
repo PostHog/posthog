@@ -1,4 +1,4 @@
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
+import { LemonInputSelect } from '@posthog/lemon-ui'
 import posthog from 'posthog-js'
 import { NotebooksListFilters } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 

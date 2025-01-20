@@ -1,7 +1,7 @@
+import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

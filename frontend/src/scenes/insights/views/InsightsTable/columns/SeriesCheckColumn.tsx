@@ -1,4 +1,4 @@
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonCheckbox } from '@posthog/lemon-ui'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 type SeriesCheckColumnTitleProps = {

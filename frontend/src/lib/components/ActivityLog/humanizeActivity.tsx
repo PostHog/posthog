@@ -1,5 +1,5 @@
+import { LemonMarkdown } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { fullName } from 'lib/utils'
 
 import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/types'

@@ -1,5 +1,5 @@
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonButton } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useState } from 'react'
 import { convertForTimelineView, TimeLineView } from 'scenes/session-recordings/apm/waterfall/TimeLineView'
 import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'

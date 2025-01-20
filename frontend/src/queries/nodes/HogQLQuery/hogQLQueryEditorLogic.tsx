@@ -1,10 +1,10 @@
 import type { Monaco } from '@monaco-editor/react'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 // Note: we can only import types and not values from monaco-editor, because otherwise some Monaco code breaks
 // auto reload in development. Specifically, on this line:

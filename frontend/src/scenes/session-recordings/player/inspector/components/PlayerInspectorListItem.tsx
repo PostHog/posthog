@@ -14,11 +14,11 @@ import {
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect, useRef } from 'react'

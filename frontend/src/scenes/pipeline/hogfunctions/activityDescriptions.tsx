@@ -1,12 +1,12 @@
 import { DiffEditor } from '@monaco-editor/react'
+import { LemonDropdown } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import {
     ActivityLogItem,
     defaultDescriber,
     HumanizedChange,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { Link } from 'lib/lemon-ui/Link'
 import { initHogLanguage } from 'lib/monaco/languages/hog'
 
 import { hogFunctionUrl } from './urls'

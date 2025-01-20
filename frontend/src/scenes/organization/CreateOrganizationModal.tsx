@@ -1,6 +1,6 @@
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 

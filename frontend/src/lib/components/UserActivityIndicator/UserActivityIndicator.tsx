@@ -1,7 +1,7 @@
 import './UserActivityIndicator.scss'
 
+import { ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import { UserBasicType } from '~/types'
 

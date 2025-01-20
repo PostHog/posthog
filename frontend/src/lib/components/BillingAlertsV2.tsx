@@ -1,7 +1,7 @@
+import { LemonBanner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { sceneLogic } from 'scenes/sceneLogic'

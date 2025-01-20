@@ -1,6 +1,6 @@
+import { LemonButton } from '@posthog/lemon-ui'
+import { LemonModal } from '@posthog/lemon-ui'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { useState } from 'react'
 
 import { ElementType } from '~/types'

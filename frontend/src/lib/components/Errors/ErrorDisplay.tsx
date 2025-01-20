@@ -1,9 +1,9 @@
 import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { Link } from 'lib/lemon-ui/Link'
 import { getExceptionAttributes, hasAnyInAppFrames, hasStacktrace } from 'scenes/error-tracking/utils'
 
 import { EventType } from '~/types'

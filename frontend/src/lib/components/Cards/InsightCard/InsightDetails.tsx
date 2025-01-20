@@ -1,3 +1,7 @@
+import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonRow } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
+import { ProfilePicture } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import {
     convertPropertiesToPropertyGroup,
@@ -10,10 +14,6 @@ import {
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconCalculate } from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { Link } from 'lib/lemon-ui/Link'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'

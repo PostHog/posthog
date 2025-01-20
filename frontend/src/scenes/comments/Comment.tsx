@@ -1,9 +1,9 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconCheck, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonMarkdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useEffect, useRef } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'

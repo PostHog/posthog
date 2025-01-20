@@ -1,6 +1,6 @@
+import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { navigation3000Logic } from '../navigationLogic'

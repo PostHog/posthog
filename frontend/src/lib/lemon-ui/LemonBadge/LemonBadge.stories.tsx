@@ -1,6 +1,6 @@
 import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { LemonBadge } from './LemonBadge'
 

@@ -1,9 +1,9 @@
 import { IconCalendar } from '@posthog/icons'
+import { LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 

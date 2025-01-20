@@ -1,10 +1,10 @@
 import './HedgehogBuddy.scss'
 
 import { lemonToast, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { ForwardedRef, useEffect, useMemo, useRef, useState } from 'react'

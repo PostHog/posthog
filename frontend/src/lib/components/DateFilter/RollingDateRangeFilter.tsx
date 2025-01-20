@@ -1,9 +1,9 @@
 import './RollingDateRangeFilter.scss'
 
 import { LemonButton, LemonButtonProps, LemonInput, LemonSelect, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 

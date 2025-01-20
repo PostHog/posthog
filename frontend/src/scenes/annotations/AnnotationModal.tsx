@@ -7,9 +7,9 @@ import {
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
 

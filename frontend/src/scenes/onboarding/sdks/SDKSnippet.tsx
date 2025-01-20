@@ -1,4 +1,4 @@
-import { Link } from 'lib/lemon-ui/Link'
+import { Link } from '@posthog/lemon-ui'
 
 import { SDK } from '~/types'
 

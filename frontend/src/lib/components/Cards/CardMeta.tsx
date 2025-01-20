@@ -1,12 +1,12 @@
 import './CardMeta.scss'
 
 import { IconPieChart } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconRefresh, IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import React from 'react'
 import { Transition } from 'react-transition-group'
 

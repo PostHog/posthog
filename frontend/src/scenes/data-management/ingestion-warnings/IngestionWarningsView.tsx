@@ -1,11 +1,11 @@
+import { LemonTable } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'

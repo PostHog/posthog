@@ -3,7 +3,7 @@ import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } fro
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import {

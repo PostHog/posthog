@@ -1,8 +1,8 @@
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { LemonModal, LemonModalProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 

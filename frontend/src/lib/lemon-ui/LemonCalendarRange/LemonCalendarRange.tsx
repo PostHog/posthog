@@ -1,6 +1,6 @@
 import { IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { formatDate, formatDateRange } from 'lib/utils'
 import { useState } from 'react'
 

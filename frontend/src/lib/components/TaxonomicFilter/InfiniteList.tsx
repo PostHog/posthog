@@ -3,6 +3,8 @@ import '../../lemon-ui/Popover/Popover.scss'
 
 import { IconArchive } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
@@ -15,8 +17,6 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { useState } from 'react'

@@ -1,5 +1,5 @@
 import { LemonSelect } from '@posthog/lemon-ui'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui'
 
 import { HogFunctionFiltersType } from '~/types'
 

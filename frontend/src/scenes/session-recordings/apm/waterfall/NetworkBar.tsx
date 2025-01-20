@@ -1,5 +1,5 @@
+import { Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { networkViewLogic } from 'scenes/session-recordings/apm/networkViewLogic'
 import { initiatorTypeToColor } from 'scenes/session-recordings/apm/performance-event-utils'
 import { TimeLineView } from 'scenes/session-recordings/apm/waterfall/TimeLineView'

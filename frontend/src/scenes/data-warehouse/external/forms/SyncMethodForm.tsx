@@ -1,5 +1,5 @@
 import { LemonButton, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonRadio } from '@posthog/lemon-ui'
 import { useEffect, useState } from 'react'
 
 import { ExternalDataSourceSyncSchema } from '~/types'

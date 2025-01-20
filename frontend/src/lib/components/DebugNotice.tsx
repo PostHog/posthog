@@ -1,8 +1,8 @@
 import { IconCode, IconWarning, IconX } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { IconBranch } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useEffect, useState } from 'react'
 
 import { NavbarButton } from '~/layout/navigation-3000/components/NavbarButton'

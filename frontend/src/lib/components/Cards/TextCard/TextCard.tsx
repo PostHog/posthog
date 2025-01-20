@@ -1,13 +1,13 @@
 import './TextCard.scss'
 
 import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
+import { LemonMarkdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/Cards/handles'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React from 'react'
 import { urls } from 'scenes/urls'
 

@@ -11,6 +11,8 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
+import { LemonMarkdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -18,8 +20,6 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { AvailableFeature } from '~/types'
 

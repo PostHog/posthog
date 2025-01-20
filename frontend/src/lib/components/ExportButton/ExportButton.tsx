@@ -1,7 +1,7 @@
+import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useMountedLogic } from 'kea'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { forwardRef } from 'react'
 
 import { ExporterFormat, OnlineExportContext } from '~/types'

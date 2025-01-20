@@ -1,11 +1,11 @@
 import '~/styles'
 import './Exporter.scss'
 
+import { Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
-import { Link } from 'lib/lemon-ui/Link'
 import { useEffect } from 'react'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'

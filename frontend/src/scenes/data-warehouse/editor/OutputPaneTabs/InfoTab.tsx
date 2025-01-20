@@ -1,6 +1,6 @@
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'

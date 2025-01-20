@@ -1,7 +1,7 @@
 import { IconInfo } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
 import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'

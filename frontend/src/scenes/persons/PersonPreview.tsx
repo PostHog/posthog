@@ -1,9 +1,9 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
+import { ProfilePicture } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { urls } from 'scenes/urls'
 

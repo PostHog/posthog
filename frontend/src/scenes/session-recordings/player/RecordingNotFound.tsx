@@ -1,5 +1,5 @@
+import { Link } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
-import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 export function RecordingNotFound(): JSX.Element {

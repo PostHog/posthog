@@ -1,9 +1,9 @@
 import './EmptyDashboardComponent.scss'
 
 import { IconPlus } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import React from 'react'
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'

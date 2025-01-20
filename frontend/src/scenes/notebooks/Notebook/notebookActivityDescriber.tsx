@@ -1,3 +1,4 @@
+import { Link } from '@posthog/lemon-ui'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -8,7 +9,6 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'

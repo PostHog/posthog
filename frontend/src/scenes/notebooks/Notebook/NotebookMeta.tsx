@@ -1,8 +1,8 @@
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useCallback, useEffect, useState } from 'react'
 
 import { NotebookSyncStatus } from '~/types'

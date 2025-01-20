@@ -1,9 +1,9 @@
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { UserBasicType, UserGroup } from '~/types'
 

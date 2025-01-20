@@ -1,10 +1,10 @@
 import './DashboardTemplateChooser.scss'
 
 import { LemonTag } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 import { useState } from 'react'
 import {

@@ -1,11 +1,11 @@
 import { IconGear, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
 import { AccessLevel, AvailableFeature, FeatureFlagType, Resource, RoleType } from '~/types'

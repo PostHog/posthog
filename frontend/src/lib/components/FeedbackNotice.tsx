@@ -1,8 +1,8 @@
 import { IconBug } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconFeedback } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { supportLogic } from './Support/supportLogic'

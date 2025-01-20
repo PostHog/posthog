@@ -42,6 +42,7 @@ import {
     IconWarning,
     IconX,
 } from '@posthog/icons'
+import { ProfilePicture } from '@posthog/lemon-ui'
 import { Parser } from 'expr-eval'
 import Fuse from 'fuse.js'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
@@ -49,7 +50,6 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconFlare } from 'lib/lemon-ui/icons'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMobile, isURL, uniqueBy } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'

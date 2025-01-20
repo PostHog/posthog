@@ -1,6 +1,6 @@
 import { IconPerson } from '@posthog/icons'
+import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
@@ -25,13 +25,12 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
             render: function RenderActor(_, actor: ActorType) {
                 if (actor.type === 'group') {
                     return <>{capitalizeFirstLetter(aggregationLabel(actor.group_type_index).singular)}</>
-                } else {
-                    return (
-                        <>
-                            <IconPerson /> Person
-                        </>
-                    )
                 }
+                return (
+                    <>
+                        <IconPerson /> Person
+                    </>
+                )
             },
         },
         {
@@ -40,9 +39,8 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
             render: function RenderActor(_, actor: ActorType) {
                 if (actor.type == 'group') {
                     return <GroupActorDisplay actor={actor} />
-                } else {
-                    return <PersonDisplay person={actor} withIcon={false} />
                 }
+                return <PersonDisplay person={actor} withIcon={false} />
             },
         },
     ]

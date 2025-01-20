@@ -1,7 +1,7 @@
 import './InsightsTable.scss'
 
+import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { compare as compareFn } from 'natural-orderby'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'

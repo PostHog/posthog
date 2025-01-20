@@ -1,8 +1,8 @@
 import { IconArrowLeft, IconServer } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DatabaseTableTree } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useRef } from 'react'
 import { Scene } from 'scenes/sceneTypes'
 

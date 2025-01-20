@@ -1,11 +1,11 @@
 import './DashboardItems.scss'
 
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { useRef, useState } from 'react'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'

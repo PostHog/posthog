@@ -1,9 +1,9 @@
 import './ProjectHomepage.scss'
 
+import { ProfilePicture } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { dayjs } from 'lib/dayjs'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'

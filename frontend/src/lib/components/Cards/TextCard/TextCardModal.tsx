@@ -1,9 +1,9 @@
+import { LemonButton } from '@posthog/lemon-ui'
+import { LemonModal } from '@posthog/lemon-ui'
+import { LemonTextAreaMarkdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea'
 
 import { DashboardType, QueryBasedInsightModel } from '~/types'
 

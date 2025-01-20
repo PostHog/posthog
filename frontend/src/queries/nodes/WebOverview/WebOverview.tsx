@@ -1,10 +1,10 @@
 import { IconTrending } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { useState } from 'react'
 

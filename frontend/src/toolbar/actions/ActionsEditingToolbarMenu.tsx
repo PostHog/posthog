@@ -1,9 +1,9 @@
 import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'

@@ -1,12 +1,12 @@
 import './InsightLabel.scss'
 
 import { LemonTag } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 

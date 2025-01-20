@@ -1,12 +1,12 @@
 import { PersonDisplay } from '@posthog/apps-common'
 import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 
 import type { LiveEvent } from '~/types'

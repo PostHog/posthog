@@ -1,3 +1,4 @@
+import { Link } from '@posthog/lemon-ui'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -8,7 +9,6 @@ import {
     HumanizedChange,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { Link } from 'lib/lemon-ui/Link'
 import { truncate } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { match, P } from 'ts-pattern'

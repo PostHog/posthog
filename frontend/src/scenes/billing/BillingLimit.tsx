@@ -1,8 +1,8 @@
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useRef } from 'react'
 
 import { BillingProductV2Type } from '~/types'

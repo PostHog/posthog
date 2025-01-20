@@ -1,8 +1,8 @@
 import { LemonTagType, SideAction } from '@posthog/lemon-ui'
+import { LemonMenuItems } from '@posthog/lemon-ui'
 import { Logic, LogicWrapper } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
-import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import React from 'react'
 
 export interface SidebarLogic extends Logic {

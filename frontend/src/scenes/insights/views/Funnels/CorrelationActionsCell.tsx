@@ -1,6 +1,6 @@
 import { IconEllipsis } from '@posthog/icons'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { useState } from 'react'
 import { funnelCorrelationDetailsLogic } from 'scenes/funnels/funnelCorrelationDetailsLogic'

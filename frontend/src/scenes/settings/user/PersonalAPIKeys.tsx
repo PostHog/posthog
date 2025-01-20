@@ -15,12 +15,12 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
 

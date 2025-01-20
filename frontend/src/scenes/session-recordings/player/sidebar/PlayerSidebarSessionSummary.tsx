@@ -1,10 +1,10 @@
 import { IconMagicWand, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 

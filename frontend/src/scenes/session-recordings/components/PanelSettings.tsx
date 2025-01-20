@@ -1,7 +1,7 @@
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropsWithChildren } from 'react'
 
 /**

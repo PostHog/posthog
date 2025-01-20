@@ -1,7 +1,7 @@
 import { LemonButton, LemonDivider, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { SpinnerOverlay } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useLayoutEffect, useState } from 'react'
 
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'

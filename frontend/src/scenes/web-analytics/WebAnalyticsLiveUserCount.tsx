@@ -1,6 +1,6 @@
 import { IconLive } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { liveEventsTableLogic } from 'scenes/web-analytics/liveWebAnalyticsLogic'

@@ -1,11 +1,11 @@
 import './LemonCalendar.scss'
 
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { range } from 'lib/utils'
 import { forwardRef, Ref, useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'

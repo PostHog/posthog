@@ -1,3 +1,4 @@
+import { LemonBannerProps } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -13,7 +14,6 @@ import {
     DEFAULT_HEATMAP_FILTERS,
     PostHogAppToolbarEvent,
 } from 'lib/components/IframedToolbarBrowser/utils'
-import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'

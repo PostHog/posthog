@@ -8,12 +8,12 @@ import {
     IconX,
 } from '@posthog/icons'
 import { LemonButton, LemonButtonPropsBase, LemonInput, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonMarkdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import posthog from 'posthog-js'
 import React, { useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'

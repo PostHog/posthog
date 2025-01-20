@@ -1,9 +1,9 @@
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { ColorGlyph } from 'lib/components/SeriesGlyph'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { dataColorThemesModalLogic } from './dataColorThemeModalLogic'
 

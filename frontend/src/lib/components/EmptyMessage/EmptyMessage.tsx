@@ -1,6 +1,6 @@
 import './EmptyMessage.scss'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export interface EmptyMessageProps {
     title: string

@@ -1,9 +1,9 @@
 import './LemonModal.scss'
 
 import { IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useEffect, useRef, useState } from 'react'
 import Modal from 'react-modal'
 

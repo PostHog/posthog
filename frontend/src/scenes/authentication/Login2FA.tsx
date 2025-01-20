@@ -1,9 +1,9 @@
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { login2FALogic } from './login2FALogic'

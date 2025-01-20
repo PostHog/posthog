@@ -1,4 +1,4 @@
-import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
+import { LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 
 import { TrendsFilter } from '~/queries/schema'

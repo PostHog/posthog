@@ -1,14 +1,14 @@
 import './DefinitionPopover.scss'
 
 import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonMarkdown } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { Link } from 'lib/lemon-ui/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 

@@ -1,8 +1,8 @@
+import { LemonButton } from '@posthog/lemon-ui'
+import { Popover } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Popover } from 'lib/lemon-ui/Popover'
 import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 

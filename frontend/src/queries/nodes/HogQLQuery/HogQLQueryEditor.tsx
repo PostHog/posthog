@@ -1,13 +1,13 @@
 import { Monaco } from '@monaco-editor/react'
 import { IconMagicWand, IconPlus, IconX } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import {
     activeModelStateKey,

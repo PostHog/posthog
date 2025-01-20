@@ -1,6 +1,6 @@
 import { IconCollapse, IconExpand } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React, { HTMLProps, useState } from 'react'
 
 import { ExpandableConfig, LemonTableColumnGroup, TableCellRepresentation } from './types'

@@ -1,7 +1,7 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 import { ErrorTrackingTile } from 'scenes/web-analytics/webAnalyticsLogic'
