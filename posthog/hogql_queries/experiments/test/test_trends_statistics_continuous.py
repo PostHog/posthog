@@ -52,7 +52,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             control_mean = 100.0
             control = create_variant(
                 "control",
-                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                total_sum=control_mean * control_absolute_exposure,
                 exposure=1,
                 absolute_exposure=control_absolute_exposure,
             )
@@ -60,7 +60,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_mean = 105.0
             test = create_variant(
                 "test",
-                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
+                total_sum=test_mean * test_absolute_exposure,
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -84,17 +84,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test"][0], 80, delta=5)  # Lower bound
                 self.assertAlmostEqual(intervals["test"][1], 120, delta=5)  # Upper bound
             else:
-                # Original implementation behavior for small sample
-                self.assertAlmostEqual(probabilities[0], 0.5, delta=0.2)
-                self.assertAlmostEqual(probabilities[1], 0.5, delta=0.2)
-                self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
+                self.assertAlmostEqual(probabilities[0], 0.0, delta=0.1)
+                self.assertAlmostEqual(probabilities[1], 1.0, delta=0.1)
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
                 self.assertEqual(p_value, 1)
 
-                # Original implementation returns intervals as ratios/multipliers of the mean
-                self.assertAlmostEqual(intervals["control"][0], 1.0, delta=0.2)  # Lower bound is less than mean
-                self.assertAlmostEqual(intervals["control"][1], 1.2, delta=0.1)  # Upper bound is greater than mean
-                self.assertAlmostEqual(intervals["test"][0], 1.0, delta=0.2)
-                self.assertAlmostEqual(intervals["test"][1], 1.2, delta=0.1)
+                # Control: ~$100 mean with wide interval due to small sample
+                self.assertAlmostEqual(intervals["control"][0], 80, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["control"][1], 114, delta=5)  # Upper bound
+
+                # Test: ~$105 mean with wide interval due to small sample
+                self.assertAlmostEqual(intervals["test"][0], 80, delta=5)  # Lower bound
+                self.assertAlmostEqual(intervals["test"][1], 120, delta=5)  # Upper bound
 
         self.run_test_for_both_implementations(run_test)
 
