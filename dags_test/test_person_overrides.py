@@ -13,8 +13,7 @@ from dags.person_overrides import (
     create_snapshot_table,
     squash_person_overrides,
 )
-from ee.clickhouse.materialized_columns.columns import get_cluster  # XXX
-from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 
 
 @pytest.fixture

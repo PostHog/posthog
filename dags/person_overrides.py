@@ -7,9 +7,8 @@ import dagster
 import pydantic
 from clickhouse_driver import Client
 
-from posthog.clickhouse.cluster import ClickhouseCluster
-from ee.clickhouse.materialized_columns.columns import get_cluster  # XXX
 from posthog import settings
+from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 

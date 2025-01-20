@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterator, Sequence
-from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from concurrent.futures import (
+    ALL_COMPLETED,
+    FIRST_EXCEPTION,
+    Future,
+    ThreadPoolExecutor,
+    as_completed,
+)
+from copy import copy
 from typing import Literal, NamedTuple, TypeVar
-from collections.abc import Mapping
 
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 from django.conf import settings
 
-from posthog.clickhouse.client.connection import _make_ch_pool
+from posthog.clickhouse.client.connection import _make_ch_pool, default_client
+from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 
 
 K = TypeVar("K")
@@ -155,3 +162,13 @@ class ClickhouseCluster:
             return FuturesMap(
                 {host: executor.submit(self.__get_task_function(host, fn)) for host in shard_hosts.values()}
             )
+
+
+def get_cluster(
+    logger: logging.Logger | None = None, client_settings: Mapping[str, str] | None = None
+) -> ClickhouseCluster:
+    extra_hosts = []
+    for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
+        extra_hosts.append(ConnectionInfo(host_config.pop("host")))
+        assert len(host_config) == 0, f"unexpected values: {host_config!r}"
+    return ClickhouseCluster(default_client(), extra_hosts=extra_hosts, logger=logger, client_settings=client_settings)
