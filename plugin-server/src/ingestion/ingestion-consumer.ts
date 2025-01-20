@@ -17,10 +17,9 @@ import {
 import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
 import { normalizeEvent } from '../utils/event'
-import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { ConfiguredLimiter, LoggingLimiter } from '../utils/token-bucket'
-import { EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
+import { EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -136,20 +135,21 @@ export class IngestionConsumer {
     }
 
     public async processBatch(groupedIncomingEvents: GroupedIncomingEvents): Promise<void> {
-        await this.runManyWithHeartbeat(Object.values(groupedIncomingEvents), async (eventsForDistinctId) => {
-            // Process every message sequentially, stash promises to await on later
-            for (const { message, event } of eventsForDistinctId) {
-                // Track $set usage in events that aren't known to use it, before ingestion adds anything there
-                if (
-                    event.properties &&
-                    !PERSON_EVENTS.has(event.event) &&
-                    !KNOWN_SET_EVENTS.has(event.event) &&
-                    ('$set' in event.properties || '$set_once' in event.properties || '$unset' in event.properties)
-                ) {
-                    setUsageInNonPersonEventsCounter.inc()
-                }
+        // TODO: Investigate if we can process batches in parallel
+        try {
+            await this.runManyWithHeartbeat(Object.values(groupedIncomingEvents), async (eventsForDistinctId) => {
+                // Process every message sequentially, stash promises to await on later
+                for (const { message, event } of eventsForDistinctId) {
+                    // Track $set usage in events that aren't known to use it, before ingestion adds anything there
+                    if (
+                        event.properties &&
+                        !PERSON_EVENTS.has(event.event) &&
+                        !KNOWN_SET_EVENTS.has(event.event) &&
+                        ('$set' in event.properties || '$set_once' in event.properties || '$unset' in event.properties)
+                    ) {
+                        setUsageInNonPersonEventsCounter.inc()
+                    }
 
-                try {
                     const eventKey = `${event.token}:${event.distinct_id}`
                     // Check the rate limiter and emit to overflow if necessary
                     if (this.overflowEnabled() && !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)) {
@@ -162,25 +162,38 @@ export class IngestionConsumer {
                         continue
                     }
 
-                    const result = await retryIfRetriable(async () => {
-                        const runner = new EventPipelineRunner(this.hub, event)
-                        return await runner.runEventPipeline(event)
-                    })
+                    // Modified this to not use retries - if we do retries we should wrap the specific steps in a retryIfRetriable
+                    // const result = await retryIfRetriable(async () => {
+                    //     return await runner.run()
+                    // })
 
-                    result.ackPromises?.forEach((promise) => {
-                        void this.scheduleWork(
-                            promise.catch(async (error) => {
-                                await this.handleProcessingError(error, message, event)
-                            })
-                        )
+                    const runner = new EventPipelineRunnerV2(this.hub, event)
+                    try {
+                        await runner.run()
+                    } catch (error) {
+                        await this.handleProcessingError(error, message, event)
+                    }
+
+                    // TRICKY: We want to later catch anything that goes wrong with flushing
+                    // the promises so we can send the event to the DLQ
+
+                    this.scheduleWork(Promise.all(runner.getPromises())).catch((error) => {
+                        return this.handleProcessingError(error, message, event)
                     })
-                } catch (error) {
-                    await this.handleProcessingError(error, message, event)
                 }
-            }
-        })
+            })
 
-        await Promise.all(this.promises)
+            await Promise.all(this.promises)
+        } catch (error) {
+            status.error('🔥', `Error processing batch`, {
+                stack: error.stack,
+                error: error,
+            })
+
+            throw error
+        } finally {
+            this.promises.clear()
+        }
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<GroupedIncomingEvents> {
@@ -310,21 +323,15 @@ export class IngestionConsumer {
     }
 
     private async handleProcessingError(error: any, message: Message, event: PipelineEvent) {
-        status.error('🔥', `Error processing message`, {
-            stack: error.stack,
-            error: error,
-        })
+        // TODO: Carefully re-evaluate this logic. Are we sure we don't want to just throw properly?
+        // In theory anything that could go wrong we should have handled. Isn't it better if we crash out
+        // and are forced to fix than just writing to the DLQ 🧐
 
         // If the error is a non-retriable error, push to the dlq and commit the offset. Else raise the
         // error.
-        //
-        // NOTE: there is behavior to push to a DLQ at the moment within EventPipelineRunner. This
-        // doesn't work so well with e.g. messages that when sent to the DLQ is it's self too large.
-        // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
-        // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
-        //
         // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
         // fact that node-rdkafka adheres to the `isRetriable` interface.
+
         if (error?.isRetriable === false) {
             const sentryEventId = Sentry.captureException(error)
             const headers: MessageHeader[] = message.headers ?? []
