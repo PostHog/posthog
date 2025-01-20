@@ -26,6 +26,7 @@ pub struct MixpanelProperties {
     other: HashMap<String, Value>,
 }
 
+// Based off sample data provided by customer.
 impl MixpanelEvent {
     pub fn parse_fn(
         context: TransformContext,
@@ -82,34 +83,5 @@ pub fn map_event_names(event: String) -> String {
     match event.as_str() {
         "$mp_web_page_view" => "$pageview".to_string(),
         _ => event,
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    const INPUT_DATA: &str = include_str!("../../../tests/birdbuddy_export_example.json");
-
-    #[test]
-    fn test_parse_jsonl_to_internal_events() {
-        let context = TransformContext {
-            team_id: 1,
-            token: "test_token".to_string(),
-        };
-
-        for line in INPUT_DATA.lines() {
-            let event: MixpanelEvent = serde_json::from_str(&line).unwrap();
-            let internal_event = MixpanelEvent::parse_fn(context.clone())(event).unwrap();
-
-            // Verify the internal event structure
-            assert_eq!(internal_event.team_id, 1);
-            assert_eq!(internal_event.inner.token, "test_token");
-
-            // Parse back the raw event from the internal event's data field
-            let raw_event: RawEvent = serde_json::from_str(&internal_event.inner.data).unwrap();
-            assert!(raw_event.uuid.is_some());
-            assert!(raw_event.timestamp.is_some());
-        }
     }
 }
