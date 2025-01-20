@@ -86,7 +86,10 @@ export function SharedFunnelsMetricForm(): JSX.Element {
                                 ...sharedMetricQuery,
                                 funnels_query: {
                                     ...sharedMetricQuery.funnels_query,
-                                    aggregation_group_type_index: value,
+                                    funnelsFilter: {
+                                        ...sharedMetricQuery.funnels_query.funnelsFilter,
+                                        funnelAggregateByHogQL: value,
+                                    },
                                 },
                             },
                         })

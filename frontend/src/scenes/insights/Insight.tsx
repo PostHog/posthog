@@ -1,5 +1,6 @@
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { DebugCHQueries } from 'lib/components/CommandPalette/DebugCHQueries'
 import { isObject } from 'lib/utils'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
@@ -35,7 +36,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         filtersOverride,
         variablesOverride,
     })
-    const { insightProps } = useValues(logic)
+    const { insightProps, accessDeniedToInsight } = useValues(logic)
 
     // insightDataLogic
     const { query, showQueryEditor, showDebugPanel } = useValues(insightDataLogic(insightProps))
@@ -50,6 +51,10 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         if (!isInsightVizNode(query) || isSourceUpdate) {
             setInsightQuery(query)
         }
+    }
+
+    if (accessDeniedToInsight) {
+        return <AccessDenied object="insight" />
     }
 
     return (

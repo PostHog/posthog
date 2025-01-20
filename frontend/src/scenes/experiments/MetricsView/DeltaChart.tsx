@@ -1,6 +1,7 @@
 import {
     IconActivity,
     IconArrowRight,
+    IconClock,
     IconFunnels,
     IconGraph,
     IconMinus,
@@ -274,7 +275,7 @@ export function DeltaChart({
                             ref={ticksSvgRef}
                             viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT}`}
                             preserveAspectRatio="xMidYMid meet"
-                            className="ml-12"
+                            className={result ? 'ml-12' : undefined}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ minHeight: `${TICK_PANEL_HEIGHT}px`, maxWidth: `${CHART_MAX_WIDTH}px` }}
                         >
@@ -541,25 +542,23 @@ export function DeltaChart({
                         preserveAspectRatio="xMidYMid meet"
                     >
                         {!experiment.start_date ? (
-                            <foreignObject
-                                x={VIEW_BOX_WIDTH / 2 - 100}
-                                y={chartHeight / 2 - 10}
-                                width="250"
-                                height="20"
-                            >
+                            <foreignObject x="0" y={chartHeight / 2 - 10} width={VIEW_BOX_WIDTH} height="20">
                                 <div
-                                    className="flex items-center justify-center text-muted cursor-default"
+                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-muted cursor-default"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ fontSize: '10px', fontWeight: 400 }}
                                 >
+                                    <LemonTag size="small" className="mr-2">
+                                        <IconClock fontSize="1em" />
+                                    </LemonTag>
                                     <span>Waiting for experiment to start&hellip;</span>
                                 </div>
                             </foreignObject>
                         ) : (
                             <foreignObject
-                                x={VIEW_BOX_WIDTH / 2 - 100 - (result ? 0 : 200)}
+                                x={0}
                                 y={chartHeight / 2 - 10}
-                                width="250"
+                                width={VIEW_BOX_WIDTH}
                                 height="20"
                                 onMouseEnter={(e) => {
                                     const rect = e.currentTarget.getBoundingClientRect()
@@ -572,7 +571,7 @@ export function DeltaChart({
                                 onMouseLeave={() => setEmptyStateTooltipVisible(false)}
                             >
                                 <div
-                                    className="flex items-center justify-center text-muted cursor-default"
+                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-muted cursor-default"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ fontSize: '10px', fontWeight: 400 }}
                                 >
@@ -845,7 +844,7 @@ function SignificanceHighlight({
         : { color: 'primary', label: 'Not significant' }
 
     const inner = isSignificant ? (
-        <div className="bg-success-highlight text-success-dark px-1.5 py-0.5 flex items-center gap-1 rounded border border-success-light">
+        <div className="bg-success-highlight text-success-light px-1.5 py-0.5 flex items-center gap-1 rounded border border-success-light">
             <IconTrending fontSize={20} fontWeight={600} />
             <span className="text-xs font-semibold">{result.label}</span>
         </div>

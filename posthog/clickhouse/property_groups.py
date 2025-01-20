@@ -108,6 +108,8 @@ ignore_custom_properties = [
     "igshid",  # instagram
     "ttclid",  # tiktok
     "rdt_cid",  # reddit
+    "irclid",  # impact
+    "_kx",  # klaviyo
 ]
 
 event_property_group_definitions = {
