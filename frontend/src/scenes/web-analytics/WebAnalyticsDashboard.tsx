@@ -94,6 +94,8 @@ const Filters = (): JSX.Element => {
                 />
 
                 <ReloadAll />
+
+                <WebAnalyticsLiveUserCount />
             </div>
         </div>
     )
@@ -380,8 +382,6 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                             ]}
                         />
                     )}
-
-                    <WebAnalyticsLiveUserCount />
 
                     <Filters />
                     <WebAnalyticsHealthCheck />
