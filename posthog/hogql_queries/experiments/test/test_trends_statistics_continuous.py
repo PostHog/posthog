@@ -84,18 +84,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test"][0], 80, delta=5)  # Lower bound
                 self.assertAlmostEqual(intervals["test"][1], 120, delta=5)  # Upper bound
             else:
-                self.assertAlmostEqual(probabilities[0], 0.0, delta=0.1)
-                self.assertAlmostEqual(probabilities[1], 1.0, delta=0.1)
+                self.assertAlmostEqual(probabilities[0], 0.0, delta=0.005)
+                self.assertAlmostEqual(probabilities[1], 1.0, delta=0.005)
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
-                self.assertEqual(p_value, 1)
+                self.assertAlmostEqual(p_value, 0.00049, delta=0.00001)
 
                 # Control: ~$100 mean with wide interval due to small sample
-                self.assertAlmostEqual(intervals["control"][0], 80, delta=5)  # Lower bound
-                self.assertAlmostEqual(intervals["control"][1], 114, delta=5)  # Upper bound
+                self.assertAlmostEqual(intervals["control"][0], 98, delta=5)
+                self.assertAlmostEqual(intervals["control"][1], 102, delta=5)
 
                 # Test: ~$105 mean with wide interval due to small sample
-                self.assertAlmostEqual(intervals["test"][0], 80, delta=5)  # Lower bound
-                self.assertAlmostEqual(intervals["test"][1], 120, delta=5)  # Upper bound
+                self.assertAlmostEqual(intervals["test"][0], 103, delta=5)
+                self.assertAlmostEqual(intervals["test"][1], 107, delta=5)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -108,7 +108,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             control_mean = 100.0
             control = create_variant(
                 "control",
-                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                total_sum=control_mean * control_absolute_exposure,
                 exposure=1,
                 absolute_exposure=control_absolute_exposure,
             )
@@ -116,7 +116,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_mean = 120.0
             test = create_variant(
                 "test",
-                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
+                total_sum=test_mean * test_absolute_exposure,
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -140,19 +140,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test"][0], 116, delta=2)  # Lower bound
                 self.assertAlmostEqual(intervals["test"][1], 122, delta=2)  # Upper bound
             else:
-                # Original implementation behavior for large sample
-                self.assertAlmostEqual(probabilities[1], 0.75, delta=0.25)
-                self.assertAlmostEqual(probabilities[0], 0.25, delta=0.25)
-                self.assertTrue(
-                    significance in [ExperimentSignificanceCode.HIGH_P_VALUE, ExperimentSignificanceCode.SIGNIFICANT]
-                )
-                self.assertAlmostEqual(p_value, 0.15, delta=0.15)
+                self.assertAlmostEqual(probabilities[1], 1.0, delta=0.025)
+                self.assertAlmostEqual(probabilities[0], 0.0, delta=0.025)
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
+                self.assertEqual(p_value, 0)
 
-                # Original implementation returns intervals as ratios/multipliers of the mean
-                self.assertAlmostEqual(intervals["control"][0], 0.05, delta=0.05)  # Lower bound less than mean
-                self.assertAlmostEqual(intervals["control"][1], 0.015, delta=0.005)  # Upper bound greater than mean
-                self.assertAlmostEqual(intervals["test"][0], 0.05, delta=0.05)  # Lower bound less than mean
-                self.assertAlmostEqual(intervals["test"][1], 0.015, delta=0.005)  # Upper bound greater than mean
+                # Control: $100 mean with narrow interval due to large sample
+                self.assertAlmostEqual(intervals["control"][0], 99.8, delta=2)
+                self.assertAlmostEqual(intervals["control"][1], 100.2, delta=2)
+
+                # Test: $120 mean with narrow interval due to large sample
+                self.assertAlmostEqual(intervals["test"][0], 119, delta=2)
+                self.assertAlmostEqual(intervals["test"][1], 121, delta=2)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -165,7 +164,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             control_mean = 100.0
             control = create_variant(
                 "control",
-                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                total_sum=control_mean * control_absolute_exposure,
                 exposure=1,
                 absolute_exposure=control_absolute_exposure,
             )
@@ -173,7 +172,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_mean = 150.0
             test = create_variant(
                 "test",
-                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
+                total_sum=test_mean * test_absolute_exposure,
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -190,22 +189,25 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(p_value, 0)
 
                 # Control: $100 mean
-                self.assertAlmostEqual(intervals["control"][0], 97, delta=2)  # Lower bound
-                self.assertAlmostEqual(intervals["control"][1], 103, delta=2)  # Upper bound
+                self.assertAlmostEqual(intervals["control"][0], 99.8, delta=2)
+                self.assertAlmostEqual(intervals["control"][1], 100.2, delta=2)
 
                 # Test: $150 mean, clearly higher than control
-                self.assertAlmostEqual(intervals["test"][0], 146, delta=3)  # Lower bound
-                self.assertAlmostEqual(intervals["test"][1], 154, delta=3)  # Upper bound
+                self.assertAlmostEqual(intervals["test"][0], 146, delta=3)
+                self.assertAlmostEqual(intervals["test"][1], 154, delta=3)
             else:
-                # Original implementation behavior for strongly significant case
-                self.assertTrue(probabilities[1] > 0.5)  # Test variant winning
-                self.assertTrue(probabilities[0] < 0.5)  # Control variant losing
+                self.assertAlmostEqual(probabilities[1], 1.0, delta=0.005)
+                self.assertAlmostEqual(probabilities[0], 0.0, delta=0.005)
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
-                self.assertLess(p_value, 0.05)
+                self.assertEqual(p_value, 0)
 
-                # Original implementation returns intervals as ratios/multipliers of the mean
-                # For strongly significant differences, the intervals should not overlap when scaled
-                self.assertTrue(intervals["control"][1] * 100 < intervals["test"][0] * 150)
+                # Control: $100 mean
+                self.assertAlmostEqual(intervals["control"][0], 99.8, delta=2)
+                self.assertAlmostEqual(intervals["control"][1], 100.2, delta=2)
+
+                # Test: $150 mean, clearly higher than control
+                self.assertAlmostEqual(intervals["test"][0], 146, delta=3)
+                self.assertAlmostEqual(intervals["test"][1], 154, delta=3)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -218,7 +220,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             control_mean = 100.0
             control = create_variant(
                 "control",
-                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                total_sum=control_mean * control_absolute_exposure,
                 exposure=1,
                 absolute_exposure=control_absolute_exposure,
             )
@@ -226,7 +228,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_a_mean = 98.0
             test_a = create_variant(
                 "test_a",
-                total_sum=test_a_mean * (1 if stats_version == 1 else test_a_absolute_exposure),
+                total_sum=test_a_mean * test_a_absolute_exposure,
                 exposure=test_a_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_a_absolute_exposure,
             )
@@ -234,7 +236,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_b_mean = 102.0
             test_b = create_variant(
                 "test_b",
-                total_sum=test_b_mean * (1 if stats_version == 1 else test_b_absolute_exposure),
+                total_sum=test_b_mean * test_b_absolute_exposure,
                 exposure=test_b_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_b_absolute_exposure,
             )
@@ -242,7 +244,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_c_mean = 101.0
             test_c = create_variant(
                 "test_c",
-                total_sum=test_c_mean * (1 if stats_version == 1 else test_c_absolute_exposure),
+                total_sum=test_c_mean * test_c_absolute_exposure,
                 exposure=test_c_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_c_absolute_exposure,
             )
@@ -274,27 +276,25 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test_c"][0], 95, delta=5)  # Lower bound
                 self.assertAlmostEqual(intervals["test_c"][1], 105, delta=5)  # Upper bound
             else:
-                # Original implementation behavior for multiple variants with no clear winner
-                self.assertTrue(all(0.1 < p < 0.9 for p in probabilities))
-                self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
-                self.assertEqual(p_value, 1)
+                self.assertTrue(any(p > MIN_PROBABILITY_FOR_SIGNIFICANCE for p in probabilities))
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
+                self.assertAlmostEqual(p_value, 0, delta=0.00001)
 
-                # Original implementation returns intervals as ratios/multipliers of the mean
                 # Control variant
-                self.assertAlmostEqual(intervals["control"][0], 0.085, delta=0.01)  # ~8.5%
-                self.assertAlmostEqual(intervals["control"][1], 0.12, delta=0.01)  # ~12%
+                self.assertAlmostEqual(intervals["control"][0], 99.8, delta=5)
+                self.assertAlmostEqual(intervals["control"][1], 100.2, delta=5)
 
                 # Test A variant
-                self.assertAlmostEqual(intervals["test_a"][0], 0.085, delta=0.01)  # ~8.5%
-                self.assertAlmostEqual(intervals["test_a"][1], 0.12, delta=0.01)  # ~12%
+                self.assertAlmostEqual(intervals["test_a"][0], 97, delta=5)
+                self.assertAlmostEqual(intervals["test_a"][1], 99, delta=5)
 
                 # Test B variant
-                self.assertAlmostEqual(intervals["test_b"][0], 0.085, delta=0.01)  # ~8.5%
-                self.assertAlmostEqual(intervals["test_b"][1], 0.12, delta=0.01)  # ~12%
+                self.assertAlmostEqual(intervals["test_b"][0], 101, delta=5)
+                self.assertAlmostEqual(intervals["test_b"][1], 103, delta=5)
 
                 # Test C variant
-                self.assertAlmostEqual(intervals["test_c"][0], 0.085, delta=0.01)  # ~8.5%
-                self.assertAlmostEqual(intervals["test_c"][1], 0.12, delta=0.01)  # ~12%
+                self.assertAlmostEqual(intervals["test_c"][0], 99, delta=5)
+                self.assertAlmostEqual(intervals["test_c"][1], 101, delta=5)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -307,7 +307,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             control_mean = 100.0
             control = create_variant(
                 "control",
-                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                total_sum=control_mean * control_absolute_exposure,
                 exposure=1,
                 absolute_exposure=control_absolute_exposure,
             )
@@ -315,7 +315,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_a_mean = 105.0
             test_a = create_variant(
                 "test_a",
-                total_sum=test_a_mean * (1 if stats_version == 1 else test_a_absolute_exposure),
+                total_sum=test_a_mean * test_a_absolute_exposure,
                 exposure=test_a_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_a_absolute_exposure,
             )
@@ -323,7 +323,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_b_mean = 150.0
             test_b = create_variant(
                 "test_b",
-                total_sum=test_b_mean * (1 if stats_version == 1 else test_b_absolute_exposure),
+                total_sum=test_b_mean * test_b_absolute_exposure,
                 exposure=test_b_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_b_absolute_exposure,
             )
@@ -331,7 +331,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_c_mean = 110.0
             test_c = create_variant(
                 "test_c",
-                total_sum=test_c_mean * (1 if stats_version == 1 else test_c_absolute_exposure),
+                total_sum=test_c_mean * test_c_absolute_exposure,
                 exposure=test_c_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_c_absolute_exposure,
             )
@@ -342,9 +342,9 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 4)
             if stats_version == 2:
-                self.assertTrue(probabilities[2] > 0.9)  # test_b should be winning
-                self.assertTrue(probabilities[1] < 0.1)  # test_a should be losing
-                self.assertTrue(probabilities[0] < 0.1)  # control should be losing
+                self.assertTrue(probabilities[2] > 0.9)
+                self.assertTrue(probabilities[1] < 0.1)
+                self.assertTrue(probabilities[0] < 0.1)
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
                 self.assertEqual(p_value, 0)
 
@@ -364,16 +364,27 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test_c"][0], 108, delta=1)
                 self.assertAlmostEqual(intervals["test_c"][1], 112, delta=1)
             else:
-                # Original implementation behavior for multiple variants with clear winner
-                self.assertTrue(probabilities[2] > 0.5)  # test_b should be winning
+                self.assertTrue(probabilities[2] > 0.9)
+                self.assertTrue(probabilities[1] < 0.1)
+                self.assertTrue(probabilities[0] < 0.1)
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
-                self.assertLess(p_value, 0.05)
+                self.assertEqual(p_value, 0)
 
-                # Original implementation returns intervals as ratios/multipliers of the mean
-                # Test B (150.0) should have non-overlapping intervals with others when scaled
-                self.assertTrue(intervals["control"][1] * 100 < intervals["test_b"][0] * 150)
-                self.assertTrue(intervals["test_a"][1] * 105 < intervals["test_b"][0] * 150)
-                self.assertTrue(intervals["test_c"][1] * 110 < intervals["test_b"][0] * 150)
+                # Control at $100
+                self.assertAlmostEqual(intervals["control"][0], 99.0, delta=1)
+                self.assertAlmostEqual(intervals["control"][1], 101.0, delta=1)
+
+                # Test A slightly higher at $105
+                self.assertAlmostEqual(intervals["test_a"][0], 105, delta=1)
+                self.assertAlmostEqual(intervals["test_a"][1], 105, delta=1)
+
+                # Test B clearly winning at $150
+                self.assertAlmostEqual(intervals["test_b"][0], 150, delta=1)
+                self.assertAlmostEqual(intervals["test_b"][1], 150, delta=1)
+
+                # Test C slightly higher at $110
+                self.assertAlmostEqual(intervals["test_c"][0], 110, delta=1)
+                self.assertAlmostEqual(intervals["test_c"][1], 110, delta=1)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -386,7 +397,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             control_mean = 100.0
             control = create_variant(
                 "control",
-                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                total_sum=control_mean * control_absolute_exposure,
                 exposure=1,
                 absolute_exposure=control_absolute_exposure,
             )
@@ -394,7 +405,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_mean = 120.0
             test = create_variant(
                 "test",
-                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
+                total_sum=test_mean * test_absolute_exposure,
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -417,17 +428,17 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test"][0], 85, delta=10)
                 self.assertAlmostEqual(intervals["test"][1], 140, delta=10)
             else:
-                # Original implementation behavior for insufficient sample size
-                self.assertAlmostEqual(probabilities[0], 0.075, delta=0.025)
-                self.assertAlmostEqual(probabilities[1], 0.925, delta=0.075)
+                self.assertAlmostEqual(probabilities[0], 0.25, delta=0.25)
+                self.assertAlmostEqual(probabilities[1], 0.75, delta=0.25)
                 self.assertEqual(significance, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
                 self.assertEqual(p_value, 1.0)
 
-                # Original implementation returns intervals as ratios/multipliers of the mean
-                self.assertAlmostEqual(intervals["control"][0], 1.65, delta=0.15)
-                self.assertAlmostEqual(intervals["control"][1], 2.45, delta=0.15)
-                self.assertAlmostEqual(intervals["test"][0], 1.95, delta=0.15)
-                self.assertAlmostEqual(intervals["test"][1], 2.75, delta=0.15)
+                # Both variants should have wide intervals due to small sample size
+                self.assertAlmostEqual(intervals["control"][0], 97, delta=10)
+                self.assertAlmostEqual(intervals["control"][1], 102, delta=10)
+
+                self.assertAlmostEqual(intervals["test"][0], 117, delta=10)
+                self.assertAlmostEqual(intervals["test"][1], 123, delta=10)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -440,7 +451,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             control_mean = 0.0
             control = create_variant(
                 "control",
-                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                total_sum=control_mean * control_absolute_exposure,
                 exposure=1,
                 absolute_exposure=control_absolute_exposure,
             )
@@ -448,7 +459,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_mean = 0.0
             test = create_variant(
                 "test",
-                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
+                total_sum=test_mean * test_absolute_exposure,
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -459,8 +470,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 2)
             if stats_version == 2:
-                self.assertAlmostEqual(probabilities[0], 0.5, delta=0.1)  # Should be close to 50/50
-                self.assertAlmostEqual(probabilities[1], 0.5, delta=0.1)  # Should be close to 50/50
+                self.assertAlmostEqual(probabilities[0], 0.5, delta=0.1)
+                self.assertAlmostEqual(probabilities[1], 0.5, delta=0.1)
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
@@ -471,18 +482,17 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test"][0], 0, delta=0.05)
                 self.assertAlmostEqual(intervals["test"][1], 0, delta=0.05)
             else:
-                # Original implementation behavior for zero means
                 self.assertAlmostEqual(probabilities[0], 0.5, delta=0.1)
                 self.assertAlmostEqual(probabilities[1], 0.5, delta=0.1)
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
                 self.assertEqual(p_value, 1)
 
-                # Original implementation returns intervals as ratios/multipliers of the mean
-                # For zero means, the intervals should still be valid ratios
-                self.assertAlmostEqual(intervals["control"][0], 0, delta=0.1)
-                self.assertAlmostEqual(intervals["control"][1], 0, delta=0.1)
-                self.assertAlmostEqual(intervals["test"][0], 0, delta=0.1)
-                self.assertAlmostEqual(intervals["test"][1], 0, delta=0.1)
+                # Both variants should have very small intervals near zero
+                self.assertAlmostEqual(intervals["control"][0], 0, delta=0.05)
+                self.assertAlmostEqual(intervals["control"][1], 0, delta=0.05)
+
+                self.assertAlmostEqual(intervals["test"][0], 0, delta=0.05)
+                self.assertAlmostEqual(intervals["test"][1], 0, delta=0.05)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -491,12 +501,11 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
         """Test edge cases like near-zero means"""
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
-            # Using very small positive values instead of exact zeros
             control_absolute_exposure = 1000
             control_mean = 0.0001
             control = create_variant(
                 "control",
-                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                total_sum=control_mean * control_absolute_exposure,
                 exposure=1,
                 absolute_exposure=control_absolute_exposure,
             )
@@ -504,7 +513,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_mean = 0.0001
             test = create_variant(
                 "test",
-                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
+                total_sum=test_mean * test_absolute_exposure,
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -528,7 +537,6 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["test"][0], 0.0001, delta=0.00015)  # Lower bound
                 self.assertAlmostEqual(intervals["test"][1], 0.0001, delta=0.00015)  # Upper bound
             else:
-                # Original implementation behavior for near-zero means
                 self.assertAlmostEqual(probabilities[0], 0.5, delta=0.1)
                 self.assertAlmostEqual(probabilities[1], 0.5, delta=0.1)
                 self.assertEqual(significance, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
@@ -553,7 +561,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             control_mean = 100.0
             control = create_variant(
                 "control",
-                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                total_sum=control_mean * control_absolute_exposure,
                 exposure=1,
                 absolute_exposure=control_absolute_exposure,
             )
@@ -561,7 +569,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_mean = 120.0
             test = create_variant(
                 "test",
-                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
+                total_sum=test_mean * test_absolute_exposure,
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -571,13 +579,12 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             if stats_version == 2:
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
-                # Expected loss should be relatively small
-                self.assertLess(expected_loss, 3.0)  # Less than $3 expected loss
-                self.assertGreater(expected_loss, 0)  # But still some loss
+                self.assertLess(expected_loss, 3.0)
+                self.assertGreater(expected_loss, 0)
             else:
-                # Original implementation behavior (returns p_value in expected_loss)
-                self.assertEqual(significance, ExperimentSignificanceCode.HIGH_P_VALUE)
-                self.assertAlmostEqual(expected_loss, 0.2, delta=0.1)
+                self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
+                self.assertLess(expected_loss, 3.0)
+                self.assertGreater(expected_loss, 0)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -590,7 +597,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             control_mean = 100.0
             control = create_variant(
                 "control",
-                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                total_sum=control_mean * control_absolute_exposure,
                 exposure=1,
                 absolute_exposure=control_absolute_exposure,
             )
@@ -598,7 +605,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
             test_mean = 200.0
             test = create_variant(
                 "test",
-                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
+                total_sum=test_mean * test_absolute_exposure,
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -608,11 +615,9 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             if stats_version == 2:
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
-                # Expected loss should be very close to zero since test is clearly better
-                self.assertLess(expected_loss, 0.1)  # Essentially zero loss
+                self.assertLess(expected_loss, 0.1)
             else:
-                # Original implementation behavior
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
-                self.assertLess(expected_loss, 0.001)
+                self.assertLess(expected_loss, 0.1)
 
         self.run_test_for_both_implementations(run_test)
