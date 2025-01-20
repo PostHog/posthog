@@ -1,14 +1,14 @@
 import clsx from 'clsx'
-import { CoreWebVitalsThreshold } from 'scenes/web-analytics/webAnalyticsLogic'
+import { WebVitalsThreshold } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { getMetricBand, getThresholdColor } from './definitions'
 
-interface CoreWebVitalsProgressBarProps {
+interface WebVitalsProgressBarProps {
     value?: number
-    threshold: CoreWebVitalsThreshold
+    threshold: WebVitalsThreshold
 }
 
-export function CoreWebVitalsProgressBar({ value, threshold }: CoreWebVitalsProgressBarProps): JSX.Element {
+export function WebVitalsProgressBar({ value, threshold }: WebVitalsProgressBarProps): JSX.Element {
     const indicatorPercentage = Math.min((value ?? 0 / threshold.end) * 100, 100)
 
     const thresholdColor = getThresholdColor(value, threshold)
@@ -29,7 +29,10 @@ export function CoreWebVitalsProgressBar({ value, threshold }: CoreWebVitalsProg
 
             {/* Yellow segment up to "poor" threshold */}
             <div
-                className={clsx('absolute h-full rounded-full', band === 'improvements' ? 'bg-warning' : 'bg-muted')}
+                className={clsx(
+                    'absolute h-full rounded-full',
+                    band === 'needs_improvements' ? 'bg-warning' : 'bg-muted'
+                )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ left: `${goodWidth + 1}%`, width: `${improvementsWidth - 1}%` }}
             />
