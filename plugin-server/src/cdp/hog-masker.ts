@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 
-import { execHog } from './hog-executor'
+import { execHog } from './executors/hog.executor'
 import { CdpRedis } from './redis'
 import { HogFunctionInvocation } from './types'
 

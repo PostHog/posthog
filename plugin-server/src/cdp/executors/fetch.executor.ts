@@ -1,19 +1,19 @@
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
-import { buildIntegerMatcher } from '../config/config'
-import { PluginsServerConfig, ValueMatcher } from '../types'
-import { trackedFetch } from '../utils/fetch'
-import { status } from '../utils/status'
-import { RustyHook } from '../worker/rusty-hook'
+import { buildIntegerMatcher } from '../../config/config'
+import { PluginsServerConfig, ValueMatcher } from '../../types'
+import { trackedFetch } from '../../utils/fetch'
+import { status } from '../../utils/status'
+import { RustyHook } from '../../worker/rusty-hook'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationAsyncRequest,
     HogFunctionInvocationResult,
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
-} from './types'
-import { gzipObject, serializeHogFunctionInvocation } from './utils'
+} from '../types'
+import { gzipObject, serializeHogFunctionInvocation } from '../utils'
 
 export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 2024, 4096, 10240, Infinity]
 
