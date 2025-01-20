@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
     isActionFilter,
@@ -330,9 +331,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             } as RecordingsQueryResponse & { order: RecordingsQuery['order'] },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
-                    // as_query is a temporary parameter as a flag
-                    // to let the backend know not to convert the query to a legacy filter when processing
-                    const params: RecordingsQuery & { as_query?: boolean } = {
+                    const params: RecordingsQuery = {
                         ...convertUniversalFiltersToRecordingsQuery(values.filters),
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
@@ -348,10 +347,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                     if (direction === 'newer') {
                         params.offset = 0
-                    }
-
-                    if (values.listAPIAsQuery) {
-                        params.as_query = true
                     }
 
                     await breakpoint(400) // Debounce for lots of quick filter changes
@@ -540,13 +535,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
 
-        listAPIAsQuery: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                return !!featureFlags[FEATURE_FLAGS.REPLAY_LIST_RECORDINGS_AS_QUERY]
-            },
-        ],
-
         matchingEventsMatchType: [
             (s) => [s.filters],
             (filters): MatchingEventsMatchType => {
@@ -674,6 +662,38 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.pinnedRecordings, s.otherRecordings],
             (pinnedRecordings, otherRecordings): number => {
                 return otherRecordings.length + pinnedRecordings.length
+            },
+        ],
+
+        allowFlagsFilters: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_FLAGS_FILTERS],
+        ],
+
+        allowHogQLFilters: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS],
+        ],
+
+        taxonomicGroupTypes: [
+            (s) => [s.allowFlagsFilters, s.allowHogQLFilters],
+            (allowFlagsFilters, allowHogQLFilters) => {
+                const taxonomicGroupTypes = [
+                    TaxonomicFilterGroupType.Replay,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.SessionProperties,
+                ]
+
+                if (allowHogQLFilters) {
+                    taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
+                }
+                if (allowFlagsFilters) {
+                    taxonomicGroupTypes.push(TaxonomicFilterGroupType.EventFeatureFlags)
+                }
+                return taxonomicGroupTypes
             },
         ],
     }),

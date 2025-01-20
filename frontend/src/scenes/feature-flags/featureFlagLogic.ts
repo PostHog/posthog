@@ -233,7 +233,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     connect((props: FeatureFlagLogicProps) => ({
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeam', 'currentTeamId'],
             projectLogic,
             ['currentProjectId'],
             groupsModel,
@@ -291,7 +291,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
-            defaults: { ...NEW_FLAG },
+            defaults: {
+                ...NEW_FLAG,
+                ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
+            },
             errors: ({ key, filters }) => {
                 return {
                     key: validateFeatureFlagKey(key),
@@ -538,7 +541,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         throw e
                     }
                 }
-                return NEW_FLAG
+                return {
+                    ...NEW_FLAG,
+                    ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                }
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 const { created_at, id, ...flag } = updatedFlag

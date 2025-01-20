@@ -1,4 +1,5 @@
 import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -34,6 +35,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { QuerySchema } from '~/queries/schema'
+import { PropertyMathType } from '~/types'
 
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 
@@ -42,8 +44,11 @@ const Filters = (): JSX.Element => {
         webAnalyticsFilters,
         dateFilter: { dateTo, dateFrom },
         compareFilter,
+        productTab,
+        coreWebVitalsPercentile,
     } = useValues(webAnalyticsLogic)
-    const { setWebAnalyticsFilters, setDates, setCompareFilter } = useActions(webAnalyticsLogic)
+    const { setWebAnalyticsFilters, setDates, setCompareFilter, setCoreWebVitalsPercentile } =
+        useActions(webAnalyticsLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -57,19 +62,39 @@ const Filters = (): JSX.Element => {
             <div className="border-b py-2 flex flex-row flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
 
-                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PERIOD_COMPARISON] ? (
-                    <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
-                ) : null}
+                {productTab === ProductTab.ANALYTICS ? (
+                    <>
+                        {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PERIOD_COMPARISON] ? (
+                            <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+                        ) : null}
+                        <WebConversionGoal />
+                    </>
+                ) : (
+                    <LemonSegmentedSelect
+                        size="small"
+                        value={coreWebVitalsPercentile}
+                        onChange={setCoreWebVitalsPercentile}
+                        options={[
+                            { value: PropertyMathType.P75, label: 'P75' },
+                            {
+                                value: PropertyMathType.P90,
+                                label: (
+                                    <Tooltip title="P90 is recommended by the standard as a good baseline" delayMs={0}>
+                                        P90
+                                    </Tooltip>
+                                ),
+                            },
+                            { value: PropertyMathType.P99, label: 'P99' },
+                        ]}
+                    />
+                )}
 
-                <WebConversionGoal />
-                <ReloadAll />
-            </div>
-
-            <div className="border-b py-2 flex flex-row flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
                 <WebPropertyFilters
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
                 />
+
+                <ReloadAll />
             </div>
         </div>
     )
@@ -350,7 +375,9 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
                     <div className="flex flex-col sm:flex-row gap-2 justify-between items-center sm:items-start w-full border-b pb-2 mb-2 sm:mb-0">
-                        <WebAnalyticsLiveUserCount />
+                        <div>
+                            <WebAnalyticsLiveUserCount />
+                        </div>
 
                         {featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && (
                             <LemonSegmentedSelect

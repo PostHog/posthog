@@ -139,22 +139,41 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
 
-        id = pa.array(["1", "2", "3", "4", "5"])
-        timestamp = pa.array(
-            [
-                datetime(2023, 1, 1),
-                datetime(2023, 1, 2),
-                datetime(2023, 1, 3),
-                datetime(2023, 1, 6),
-                datetime(2023, 1, 7),
-            ]
-        )
-        distinct_id = pa.array(["user_control_0", "user_test_1", "user_test_2", "user_test_3", "user_extra"])
-        amount = pa.array([100, 50, 75, 80, 90])
-        names = ["id", "dw_timestamp", "dw_distinct_id", "amount"]
+        table_data = [
+            {
+                "id": "1",
+                "dw_timestamp": datetime(2023, 1, 1),
+                "dw_distinct_id": "user_control_0",
+                "amount": 100,
+            },
+            {
+                "id": "2",
+                "dw_timestamp": datetime(2023, 1, 2),
+                "dw_distinct_id": "user_test_1",
+                "amount": 50,
+            },
+            {
+                "id": "3",
+                "dw_timestamp": datetime(2023, 1, 3),
+                "dw_distinct_id": "user_test_2",
+                "amount": 75,
+            },
+            {
+                "id": "4",
+                "dw_timestamp": datetime(2023, 1, 6),
+                "dw_distinct_id": "user_test_3",
+                "amount": 80,
+            },
+            {
+                "id": "5",
+                "dw_timestamp": datetime(2023, 1, 7),
+                "dw_distinct_id": "user_extra",
+                "amount": 90,
+            },
+        ]
 
         pq.write_to_dataset(
-            pa.Table.from_arrays([id, timestamp, distinct_id, amount], names=names),
+            pa.Table.from_pylist(table_data),
             path_to_s3_object,
             filesystem=fs,
             use_dictionary=True,
@@ -209,16 +228,17 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
 
-        id = pa.array(["1", "2", "3", "4", "5", "6"])
-        date = pa.array(["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04", "2023-01-06", "2023-01-07"])
-        user_id = pa.array(
-            ["user_control_0", "user_test_1", "user_test_2", "internal_test_1", "user_test_3", "user_extra"]
-        )
-        usage = pa.array([1000, 500, 750, 100000, 800, 900])
-        names = ["id", "ds", "userid", "usage"]
+        table_data = [
+            {"id": "1", "ds": "2023-01-01", "userid": "user_control_0", "usage": 1000},
+            {"id": "2", "ds": "2023-01-02", "userid": "user_test_1", "usage": 500},
+            {"id": "3", "ds": "2023-01-03", "userid": "user_test_2", "usage": 750},
+            {"id": "4", "ds": "2023-01-04", "userid": "internal_test_1", "usage": 100000},
+            {"id": "5", "ds": "2023-01-06", "userid": "user_test_3", "usage": 800},
+            {"id": "6", "ds": "2023-01-07", "userid": "user_extra", "usage": 900},
+        ]
 
         pq.write_to_dataset(
-            pa.Table.from_arrays([id, date, user_id, usage], names=names),
+            pa.Table.from_pylist(table_data),
             path_to_s3_object,
             filesystem=fs,
             use_dictionary=True,

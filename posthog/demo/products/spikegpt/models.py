@@ -90,8 +90,7 @@ class SpikeGPTPerson(SimPerson):
         next_session_datetime = self.cluster.simulation_time
         while True:
             next_session_datetime += dt.timedelta(
-                seconds=self.cluster.random.betavariate(2.5, 1 + self.need)
-                * (36_000 if self.has_signed_up else 172_800)
+                seconds=self.cluster.random.betavariate(2.5, 1 + self.need) * (12_000 if self.has_signed_up else 36_800)
                 + 24
             )
             time_appropriateness: float
@@ -134,8 +133,9 @@ class SpikeGPTPerson(SimPerson):
         elif self.active_session_intent == SpikeGPTSessionIntent.CHAT:
             self.start_chat()
             self.satisfaction += (self.cluster.random.random() - 0.5) * 0.1
-            if self.satisfaction > 0 and self.cluster.random.random() < 0.3:
-                self.start_chat()
+            for _ in range(3):
+                if self.satisfaction > 0 and self.cluster.random.random() < 0.3:
+                    self.start_chat()
 
     # Individual actions
 
@@ -144,18 +144,19 @@ class SpikeGPTPerson(SimPerson):
         conversation_so_far: list[dict] = []
         for message in random_chat:
             # Human messages must naturally take longer to type, while AI ones are quick
-            if message["type"] == "human":
+            if message["role"] == "human":
                 self.advance_timer(2 + len(message["content"]) / 10)
                 self.active_client.capture("sent chat message", {"content": message["content"]})
             else:
                 generation_time = len(message["content"]) / 25
                 self.advance_timer(1 + generation_time)
-                self.active_client.capture_ai_generation(
+                self.cluster.matrix.server_client.capture_ai_generation(
+                    distinct_id=self.active_client.active_distinct_id,
                     input=conversation_so_far,
                     output_content=message["content"],
                     latency=generation_time,
                 )
-            conversation_so_far.append(message)
+            conversation_so_far = [*conversation_so_far, message]  # Copying here so that every event's list is distinct
 
 
 def add_params_to_url(url, query_params):

@@ -504,7 +504,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
         useMapping: [
             (s) => [s.hogFunction, s.template],
-            (hogFunction, template) => (hogFunction ?? template)?.type === 'site_destination',
+            // If the function has mappings, or the template has mapping templates, we use mappings
+            (hogFunction, template) => Array.isArray(hogFunction?.mappings) || template?.mapping_templates?.length,
         ],
         defaultFormState: [
             (s) => [s.template, s.hogFunction],
