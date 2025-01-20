@@ -7,6 +7,11 @@ from posthog.hogql_queries.experiments.funnels_statistics import (
     calculate_credible_intervals,
     calculate_probabilities,
 )
+from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
+    are_results_significant_v2,
+    calculate_credible_intervals_v2,
+    calculate_probabilities_v2,
+)
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
 from ..insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -16,15 +21,17 @@ from posthog.schema import (
     ExperimentFunnelsQueryResponse,
     ExperimentSignificanceCode,
     ExperimentVariantFunnelsBaseStats,
+    FunnelLayout,
     FunnelsFilter,
     FunnelsQuery,
     FunnelsQueryResponse,
-    InsightDateRange,
+    DateRange,
     BreakdownFilter,
 )
 from typing import Optional, Any, cast
 from zoneinfo import ZoneInfo
 from rest_framework.exceptions import ValidationError
+from datetime import datetime, timedelta, UTC
 
 
 class ExperimentFunnelsQueryRunner(QueryRunner):
@@ -44,6 +51,8 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
+        self.stats_version = self.experiment.get_stats_config("version") or 1
+
         self.prepared_funnels_query = self._prepare_funnel_query()
         self.funnels_query_runner = FunnelsQueryRunner(
             query=self.prepared_funnels_query, team=self.team, timings=self.timings, limit_context=self.limit_context
@@ -54,16 +63,24 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
         self._validate_event_variants(funnels_result)
 
-        # Filter results to only include valid variants in the first step
-        funnels_result.results = [
-            result for result in funnels_result.results if result[0]["breakdown_value"][0] in self.variants
-        ]
+        try:
+            # Filter results to only include valid variants in the first step
+            funnels_result.results = [
+                result for result in funnels_result.results if result[0]["breakdown_value"][0] in self.variants
+            ]
 
-        # Statistical analysis
-        control_variant, test_variants = self._get_variants_with_base_stats(funnels_result)
-        probabilities = calculate_probabilities(control_variant, test_variants)
-        significance_code, loss = are_results_significant(control_variant, test_variants, probabilities)
-        credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+            # Statistical analysis
+            control_variant, test_variants = self._get_variants_with_base_stats(funnels_result)
+            if self.stats_version == 2:
+                probabilities = calculate_probabilities_v2(control_variant, test_variants)
+                significance_code, loss = are_results_significant_v2(control_variant, test_variants, probabilities)
+                credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
+            else:
+                probabilities = calculate_probabilities(control_variant, test_variants)
+                significance_code, loss = are_results_significant(control_variant, test_variants, probabilities)
+                credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+        except Exception as e:
+            raise ValueError(f"Error calculating experiment funnel results: {str(e)}") from e
 
         return ExperimentFunnelsQueryResponse(
             kind="ExperimentFunnelsQuery",
@@ -76,6 +93,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             },
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
+            stats_version=self.stats_version,
             expected_loss=loss,
             credible_intervals=credible_intervals,
         )
@@ -101,7 +119,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             start_date = self.experiment.start_date
             end_date = self.experiment.end_date
 
-        prepared_funnels_query.dateRange = InsightDateRange(
+        prepared_funnels_query.dateRange = DateRange(
             date_from=start_date.isoformat() if start_date else None,
             date_to=end_date.isoformat() if end_date else None,
             explicitDate=True,
@@ -113,9 +131,10 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             breakdown_type="event",
         )
 
-        prepared_funnels_query.funnelsFilter = FunnelsFilter(
-            funnelVizType="steps",
-        )
+        # Set the layout to vertical
+        if prepared_funnels_query.funnelsFilter is None:
+            prepared_funnels_query.funnelsFilter = FunnelsFilter()
+        prepared_funnels_query.funnelsFilter.layout = FunnelLayout.VERTICAL
 
         return prepared_funnels_query
 
@@ -198,3 +217,14 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.funnels_query.kind} to query")
+
+    # Cache results for 24 hours
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        if last_refresh is None:
+            return None
+        return last_refresh + timedelta(hours=24)
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        if not last_refresh:
+            return True
+        return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)

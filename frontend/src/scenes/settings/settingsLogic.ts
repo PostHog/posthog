@@ -3,6 +3,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -17,30 +18,45 @@ export const settingsLogic = kea<settingsLogicType>([
     key((props) => props.logicKey ?? 'global'),
     path((key) => ['scenes', 'settings', 'settingsLogic', key]),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature'], preflightLogic, ['preflight']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['hasAvailableFeature'],
+            preflightLogic,
+            ['preflight'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     }),
 
     actions({
         selectSection: (section: SettingSectionId, level: SettingLevelId) => ({ section, level }),
         selectLevel: (level: SettingLevelId) => ({ level }),
-        selectSetting: (setting: string) => ({ setting }),
+        selectSetting: (setting: SettingId) => ({ setting }),
         openCompactNavigation: true,
         closeCompactNavigation: true,
     }),
 
     reducers(({ props }) => ({
-        selectedLevel: [
+        selectedLevelRaw: [
             (props.settingLevelId ?? 'project') as SettingLevelId,
             {
                 selectLevel: (_, { level }) => level,
                 selectSection: (_, { level }) => level,
             },
         ],
-        selectedSectionId: [
+        selectedSectionIdRaw: [
             (props.sectionId ?? null) as SettingSectionId | null,
             {
                 selectLevel: () => null,
                 selectSection: (_, { section }) => section,
+            },
+        ],
+        selectedSettingRaw: [
+            (props.settingId ?? null) as SettingId | null,
+            {
+                selectSetting: (_, { setting }) => setting,
             },
         ],
 
@@ -51,6 +67,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 closeCompactNavigation: () => false,
                 selectLevel: () => false,
                 selectSection: () => false,
+                selectSetting: () => false,
             },
         ],
     })),
@@ -74,16 +91,9 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         sections: [
-            (s) => [s.featureFlags],
-            (featureFlags): SettingSection[] => {
-                const sections = SETTINGS_MAP.filter((x) => {
-                    const isFlagConditionMet = !x.flag
-                        ? true // No flag condition
-                        : x.flag.startsWith('!')
-                        ? !featureFlags[FEATURE_FLAGS[x.flag.slice(1)]] // Negated flag condition (!-prefixed)
-                        : featureFlags[FEATURE_FLAGS[x.flag]] // Regular flag condition
-                    return isFlagConditionMet
-                })
+            (s) => [s.doesMatchFlags, s.featureFlags],
+            (doesMatchFlags, featureFlags): SettingSection[] => {
+                const sections = SETTINGS_MAP.filter(doesMatchFlags)
                 if (!featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
                     return sections
                         .filter((section) => section.level !== 'project')
@@ -101,10 +111,50 @@ export const settingsLogic = kea<settingsLogicType>([
                 return sections
             },
         ],
+        selectedLevel: [
+            (s) => [s.selectedLevelRaw, s.selectedSectionIdRaw, s.featureFlags],
+            (selectedLevelRaw, selectedSectionIdRaw, featureFlags): SettingLevelId => {
+                // As of middle of September 2024, `details` and `danger-zone` are the only sections present
+                // at both Environment and Project levels. Others we want to redirect based on the feature flag.
+                if (
+                    !selectedSectionIdRaw ||
+                    (!selectedSectionIdRaw.endsWith('-details') && !selectedSectionIdRaw.endsWith('-danger-zone'))
+                ) {
+                    if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
+                        return selectedLevelRaw === 'project' ? 'environment' : selectedLevelRaw
+                    }
+                    return selectedLevelRaw === 'environment' ? 'project' : selectedLevelRaw
+                }
+                return selectedLevelRaw
+            },
+        ],
+        selectedSectionId: [
+            (s) => [s.selectedSectionIdRaw, s.featureFlags],
+            (selectedSectionIdRaw, featureFlags): SettingSectionId | null => {
+                if (!selectedSectionIdRaw) {
+                    return null
+                }
+                // As of middle of September 2024, `details` and `danger-zone` are the only sections present
+                // at both Environment and Project levels. Others we want to redirect based on the feature flag.
+                if (!selectedSectionIdRaw.endsWith('-details') && !selectedSectionIdRaw.endsWith('-danger-zone')) {
+                    if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
+                        return selectedSectionIdRaw.replace(/^project/, 'environment') as SettingSectionId
+                    }
+                    return selectedSectionIdRaw.replace(/^environment/, 'project') as SettingSectionId
+                }
+                return selectedSectionIdRaw
+            },
+        ],
         selectedSection: [
             (s) => [s.sections, s.selectedSectionId],
             (sections, selectedSectionId): SettingSection | null => {
                 return sections.find((x) => x.id === selectedSectionId) ?? null
+            },
+        ],
+        selectedSettingId: [
+            (s) => [s.settings, s.settingId],
+            (settings, settingId): Setting['id'] | null => {
+                return settings.find((s) => s.id === settingId)?.id ?? null
             },
         ],
         settings: [
@@ -113,18 +163,18 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.selectedSectionId,
                 s.sections,
                 s.settingId,
-                s.featureFlags,
-                s.hasAvailableFeature,
+                s.doesMatchFlags,
                 s.preflight,
+                s.currentTeam,
             ],
             (
                 selectedLevel,
                 selectedSectionId,
                 sections,
                 settingId,
-                featureFlags,
-                hasAvailableFeature,
-                preflight
+                doesMatchFlags,
+                preflight,
+                currentTeam
             ): Setting[] => {
                 let settings: Setting[] = []
 
@@ -140,29 +190,43 @@ export const settingsLogic = kea<settingsLogicType>([
                     return settings.filter((x) => x.id === settingId)
                 }
 
-                return settings
-                    .filter((x) => {
-                        const isFlagConditionMet = !x.flag
-                            ? true // No flag condition
-                            : x.flag.startsWith('!')
-                            ? !featureFlags[FEATURE_FLAGS[x.flag.slice(1)]] // Negated flag condition (!-prefixed)
-                            : featureFlags[FEATURE_FLAGS[x.flag]] // Regular flag condition
-                        if (x.flag && x.features) {
-                            return x.features.some((feat) => hasAvailableFeature(feat)) || isFlagConditionMet
-                        } else if (x.features) {
-                            return x.features.some((feat) => hasAvailableFeature(feat))
-                        } else if (x.flag) {
-                            return isFlagConditionMet
-                        }
-
+                return settings.filter((x) => {
+                    if (!doesMatchFlags(x)) {
+                        return false
+                    }
+                    if (x.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
+                        return false
+                    }
+                    if (x.allowForTeam) {
+                        return x.allowForTeam(currentTeam)
+                    }
+                    return true
+                })
+            },
+        ],
+        doesMatchFlags: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return (x: Pick<Setting, 'flag'>) => {
+                    if (!x.flag) {
+                        // No flag condition
                         return true
-                    })
-                    .filter((x) => {
-                        if (x.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
+                    }
+                    const flagsArray = Array.isArray(x.flag) ? x.flag : [x.flag]
+                    for (const flagCondition of flagsArray) {
+                        const flag = (
+                            flagCondition.startsWith('!') ? flagCondition.slice(1) : flagCondition
+                        ) as keyof typeof FEATURE_FLAGS
+                        let isConditionMet = featureFlags[FEATURE_FLAGS[flag]]
+                        if (flagCondition.startsWith('!')) {
+                            isConditionMet = !isConditionMet // Negated flag condition (!-prefixed)
+                        }
+                        if (!isConditionMet) {
                             return false
                         }
-                        return true
-                    })
+                    }
+                    return true
+                }
             },
         ],
     }),

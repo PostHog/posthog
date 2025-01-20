@@ -10,6 +10,7 @@ import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { humanizeBatchExportName } from './batch-exports/utils'
+import { DESTINATION_TYPES } from './destinations/constants'
 import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
@@ -188,6 +189,12 @@ const personsTable: DatabaseSchemaBatchExportTable = {
             type: 'integer',
             schema_valid: true,
         },
+        created_at: {
+            name: 'created_at',
+            hogql_value: 'created_at',
+            type: 'datetime',
+            schema_valid: true,
+        },
     },
 }
 
@@ -208,7 +215,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
     }),
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, actions }) => ({
         batchExportConfig: [
             null as BatchExportConfiguration | null,
             {
@@ -219,13 +226,6 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     return null
                 },
                 updateBatchExportConfig: async (formdata) => {
-                    if (
-                        (!values.batchExportConfig || (values.batchExportConfig.paused && formdata.paused !== true)) &&
-                        !values.canEnableNewDestinations
-                    ) {
-                        lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
-                        return null
-                    }
                     const { name, destination, interval, paused, created_at, start_at, end_at, model, ...config } =
                         formdata
                     const destinationObj = {
@@ -404,7 +404,9 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             // Reset so that form doesn't think there are unsaved changes.
             actions.resetConfiguration(getConfigurationFromBatchExportConfig(batchExportConfig))
 
-            pipelineDestinationsLogic.findMounted()?.actions.updateBatchExportConfig(batchExportConfig)
+            pipelineDestinationsLogic
+                .findMounted({ types: DESTINATION_TYPES })
+                ?.actions.updateBatchExportConfig(batchExportConfig)
         },
         setConfigurationValue: async ({ name, value }) => {
             if (name[0] === 'json_config_file' && value) {

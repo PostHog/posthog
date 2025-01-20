@@ -113,10 +113,10 @@ class TestJavaScript(BaseTest):
         code = to_js_expr("x -> x + 1")
         self.assertTrue(code.startswith("__lambda((x) => (x + 1))"))
 
-    def test_inlined_stl(self):
+    def test_stl_code(self):
         compiler = JavaScriptCompiler()
-        compiler.inlined_stl.add("concat")
-        stl_code = compiler.get_inlined_stl()
+        compiler.stl_functions.add("concat")
+        stl_code = compiler.get_stl_code()
         self.assertIn("function concat", stl_code)
 
     def test_sanitize_keywords(self):
@@ -148,8 +148,8 @@ class TestJavaScript(BaseTest):
         self.assertEqual(to_js_expr("1 not in 2"), "(!2.includes(1))")
         self.assertEqual(to_js_expr("match('test', 'e.*')"), 'match("test", "e.*")')
         self.assertEqual(to_js_expr("not('test')"), '(!"test")')
-        self.assertEqual(to_js_expr("or('test', 'test2')"), '("test" || "test2")')
-        self.assertEqual(to_js_expr("and('test', 'test2')"), '("test" && "test2")')
+        self.assertEqual(to_js_expr("or('test', 'test2')"), '!!("test" || "test2")')
+        self.assertEqual(to_js_expr("and('test', 'test2')"), '!!("test" && "test2")')
 
     def test_javascript_code_generation(self):
         js_code = to_js_program("""
@@ -194,19 +194,19 @@ return fibonacci(6);"""
 
     def test_regex(self):
         code = to_js_expr("'hello' =~ 'h.*o'")
-        self.assertEqual(code, 'new RegExp("h.*o").test("hello")')
+        self.assertEqual(code, 'match("hello", "h.*o")')
 
     def test_not_regex(self):
         code = to_js_expr("'hello' !~ 'h.*o'")
-        self.assertEqual(code, '!(new RegExp("h.*o").test("hello"))')
+        self.assertEqual(code, '!match("hello", "h.*o")')
 
     def test_i_regex(self):
         code = to_js_expr("'hello' =~* 'H.*O'")
-        self.assertEqual(code, 'new RegExp("H.*O", "i").test("hello")')
+        self.assertEqual(code, '__imatch("hello", "H.*O")')
 
     def test_not_i_regex(self):
         code = to_js_expr("'hello' !~* 'H.*O'")
-        self.assertEqual(code, '!(new RegExp("H.*O", "i").test("hello"))')
+        self.assertEqual(code, '!__imatch("hello", "H.*O")')
 
     def test_array_access(self):
         code = to_js_expr("array[2]")

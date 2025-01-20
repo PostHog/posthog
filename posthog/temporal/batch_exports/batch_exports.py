@@ -3,6 +3,7 @@ import collections
 import collections.abc
 import dataclasses
 import datetime as dt
+import operator
 import typing
 import uuid
 from string import Template
@@ -67,6 +68,32 @@ SETTINGS
     optimize_aggregation_in_order=1
 """
 
+# This is an updated version of the view that we will use going forward
+# We will migrate each batch export destination over one at a time to migitate
+# risk, and once this is done we can clean this up.
+SELECT_FROM_PERSONS_VIEW_NEW = """
+SELECT
+    persons.team_id AS team_id,
+    persons.distinct_id AS distinct_id,
+    persons.person_id AS person_id,
+    persons.properties AS properties,
+    persons.person_distinct_id_version AS person_distinct_id_version,
+    persons.person_version AS person_version,
+    persons.created_at AS created_at,
+    persons._inserted_at AS _inserted_at
+FROM
+    persons_batch_export(
+        team_id={team_id},
+        interval_start={interval_start},
+        interval_end={interval_end}
+    ) AS persons
+FORMAT ArrowStream
+SETTINGS
+    max_bytes_before_external_group_by=50000000000,
+    max_bytes_before_external_sort=50000000000,
+    optimize_aggregation_in_order=1
+"""
+
 SELECT_FROM_PERSONS_VIEW_BACKFILL = """
 SELECT
     persons.team_id AS team_id,
@@ -75,6 +102,31 @@ SELECT
     persons.properties AS properties,
     persons.person_distinct_id_version AS person_distinct_id_version,
     persons.person_version AS person_version,
+    persons._inserted_at AS _inserted_at
+FROM
+    persons_batch_export_backfill(
+        team_id={team_id},
+        interval_end={interval_end}
+    ) AS persons
+FORMAT ArrowStream
+SETTINGS
+    max_bytes_before_external_group_by=50000000000,
+    max_bytes_before_external_sort=50000000000,
+    optimize_aggregation_in_order=1
+"""
+
+# This is an updated version of the view that we will use going forward
+# We will migrate each batch export destination over one at a time to migitate
+# risk, and once this is done we can clean this up.
+SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW = """
+SELECT
+    persons.team_id AS team_id,
+    persons.distinct_id AS distinct_id,
+    persons.person_id AS person_id,
+    persons.properties AS properties,
+    persons.person_distinct_id_version AS person_distinct_id_version,
+    persons.person_version AS person_version,
+    persons.created_at AS created_at,
     persons._inserted_at AS _inserted_at
 FROM
     persons_batch_export_backfill(
@@ -127,6 +179,26 @@ SETTINGS
 """
 )
 
+SELECT_FROM_EVENTS_VIEW_RECENT = Template(
+    """
+SELECT
+    $fields
+FROM
+    events_batch_export_recent(
+        team_id={team_id},
+        interval_start={interval_start},
+        interval_end={interval_end},
+        include_events={include_events}::Array(String),
+        exclude_events={exclude_events}::Array(String)
+    ) AS events
+FORMAT ArrowStream
+SETTINGS
+    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
+    max_bytes_before_external_sort=50000000000,
+    max_replica_delay_for_distributed_queries=1
+"""
+)
+
 SELECT_FROM_EVENTS_VIEW_BACKFILL = Template(
     """
 SELECT
@@ -174,6 +246,8 @@ async def iter_model_records(
     interval_start: str | None,
     interval_end: str,
     destination_default_fields: list[BatchExportField] | None = None,
+    # TODO - remove this once all batch exports are using the latest schema
+    use_latest_schema: bool = False,
     **parameters,
 ) -> AsyncRecordsGenerator:
     if not is_backfill and interval_start is None:
@@ -194,6 +268,7 @@ async def iter_model_records(
             extra_query_parameters=model.schema["values"] if model.schema is not None else None,
             interval_start=interval_start,
             interval_end=interval_end,
+            use_latest_schema=use_latest_schema,
             **parameters,
         ):
             yield record
@@ -220,13 +295,21 @@ async def iter_records_from_model_view(
     interval_start: str | None,
     interval_end: str,
     fields: list[BatchExportField],
+    # TODO - remove this once all batch exports are using the latest schema
+    use_latest_schema: bool = False,
     **parameters,
 ) -> AsyncRecordsGenerator:
     if model_name == "persons":
         if is_backfill and interval_start is None:
-            view = SELECT_FROM_PERSONS_VIEW_BACKFILL
+            if use_latest_schema:
+                view = SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW
+            else:
+                view = SELECT_FROM_PERSONS_VIEW_BACKFILL
         else:
-            view = SELECT_FROM_PERSONS_VIEW
+            if use_latest_schema:
+                view = SELECT_FROM_PERSONS_VIEW_NEW
+            else:
+                view = SELECT_FROM_PERSONS_VIEW
     elif str(team_id) not in settings.ASYNC_ARROW_STREAMING_TEAM_IDS:
         # TODO: Let this model be exported by `astream_query_as_arrow`.
         # Just to reduce risk, I don't want to change the function that runs 100% of the exports
@@ -257,7 +340,17 @@ async def iter_records_from_model_view(
         else:
             parameters["include_events"] = []
 
-        if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
+        end_at = dt.datetime.fromisoformat(interval_end)
+
+        if start_at:
+            is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
+        else:
+            is_5_min_batch_export = False
+
+        if is_5_min_batch_export and not is_backfill:
+            query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+        elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
             query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
         elif is_backfill:
             query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
@@ -361,10 +454,12 @@ def start_produce_batch_export_record_batches(
     model_name: str,
     is_backfill: bool,
     team_id: int,
-    interval_start: str | None,
-    interval_end: str,
+    full_range: tuple[dt.datetime | None, dt.datetime],
+    done_ranges: list[tuple[dt.datetime, dt.datetime]],
     fields: list[BatchExportField] | None = None,
     destination_default_fields: list[BatchExportField] | None = None,
+    # TODO - remove this once all batch exports are using the latest schema
+    use_latest_schema: bool = False,
     **parameters,
 ):
     """Start producing batch export record batches from a model query.
@@ -386,10 +481,16 @@ def start_produce_batch_export_record_batches(
             fields = destination_default_fields
 
     if model_name == "persons":
-        if is_backfill and interval_start is None:
-            view = SELECT_FROM_PERSONS_VIEW_BACKFILL
+        if is_backfill and full_range[0] is None:
+            if use_latest_schema:
+                view = SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW
+            else:
+                view = SELECT_FROM_PERSONS_VIEW_BACKFILL
         else:
-            view = SELECT_FROM_PERSONS_VIEW
+            if use_latest_schema:
+                view = SELECT_FROM_PERSONS_VIEW_NEW
+            else:
+                view = SELECT_FROM_PERSONS_VIEW
 
     else:
         if parameters.get("exclude_events", None):
@@ -402,6 +503,15 @@ def start_produce_batch_export_record_batches(
         else:
             parameters["include_events"] = []
 
+        start_at, end_at = full_range
+
+        if start_at:
+            is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
+        else:
+            is_5_min_batch_export = False
+
+        if is_5_min_batch_export and not is_backfill:
+            query_template = SELECT_FROM_EVENTS_VIEW_RECENT
         if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
             query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
         elif is_backfill:
@@ -420,24 +530,110 @@ def start_produce_batch_export_record_batches(
 
         view = query_template.substitute(fields=query_fields)
 
-    if interval_start is not None:
-        parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
-
-    parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
     parameters["team_id"] = team_id
 
     extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
     parameters = {**parameters, **extra_query_parameters}
 
     queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BUFFER_QUEUE_MAX_SIZE_BYTES)
-    query_id = uuid.uuid4()
     produce_task = asyncio.create_task(
-        client.aproduce_query_as_arrow_record_batches(
-            view, queue=queue, query_parameters=parameters, query_id=str(query_id)
+        produce_batch_export_record_batches_from_range(
+            client=client,
+            query=view,
+            full_range=full_range,
+            done_ranges=done_ranges,
+            queue=queue,
+            query_parameters=parameters,
         )
     )
 
     return queue, produce_task
+
+
+async def produce_batch_export_record_batches_from_range(
+    client: ClickHouseClient,
+    query: str,
+    full_range: tuple[dt.datetime | None, dt.datetime],
+    done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
+    queue: RecordBatchQueue,
+    query_parameters: dict[str, typing.Any],
+):
+    """Produce all record batches into `queue` required to complete `full_range`.
+
+    This function will skip over any already completed `done_ranges`.
+    """
+    for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
+        if interval_start is not None:
+            query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+        query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+        query_id = uuid.uuid4()
+
+        await client.aproduce_query_as_arrow_record_batches(
+            query, queue=queue, query_parameters=query_parameters, query_id=str(query_id)
+        )
+
+
+def generate_query_ranges(
+    remaining_range: tuple[dt.datetime | None, dt.datetime],
+    done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
+) -> typing.Iterator[tuple[dt.datetime | None, dt.datetime]]:
+    """Recursively yield ranges of dates that need to be queried.
+
+    There are essentially 3 scenarios we are expecting:
+    1. The batch export just started, so we expect `done_ranges` to be an empty
+       list, and thus should return the `remaining_range`.
+    2. The batch export crashed mid-execution, so we have some `done_ranges` that
+       do not completely add up to the full range. In this case we need to yield
+       ranges in between all the done ones.
+    3. The batch export crashed right after we finish, so we have a full list of
+       `done_ranges` adding up to the `remaining_range`. In this case we should not
+       yield anything.
+
+    Case 1 is fairly trivial and we can simply return `remaining_range` if we get
+    an empty `done_ranges`.
+
+    Case 2 is more complicated and we can expect that the ranges produced by this
+    function will lead to duplicate events selected, as our batch export query is
+    inclusive in the lower bound. Since multiple rows may have the same
+    `inserted_at` we cannot simply skip an `inserted_at` value, as there may be a
+    row that hasn't been exported as it with the same `inserted_at` as a row that
+    has been exported. So this function will return ranges with `inserted_at`
+    values that were already exported for at least one event. Ideally, this is
+    *only* one event, but we can never be certain.
+    """
+    if len(done_ranges) == 0:
+        yield remaining_range
+        return
+
+    epoch = dt.datetime.fromtimestamp(0, tz=dt.UTC)
+    list_done_ranges: list[tuple[dt.datetime, dt.datetime]] = list(done_ranges)
+
+    list_done_ranges.sort(key=operator.itemgetter(0))
+
+    while True:
+        try:
+            next_range: tuple[dt.datetime | None, dt.datetime] = list_done_ranges.pop(0)
+        except IndexError:
+            if remaining_range[0] != remaining_range[1]:
+                # If they were equal it would mean we have finished.
+                yield remaining_range
+
+            return
+        else:
+            candidate_end_at = next_range[0] if next_range[0] is not None else epoch
+
+        candidate_start_at = remaining_range[0]
+        remaining_range = (next_range[1], remaining_range[1])
+
+        if candidate_start_at is not None and candidate_start_at >= candidate_end_at:
+            # We have landed within a done range.
+            continue
+
+        if candidate_start_at is None and candidate_end_at == epoch:
+            # We have landed within the first done range of a backfill.
+            continue
+
+        yield (candidate_start_at, candidate_end_at)
 
 
 async def raise_on_produce_task_failure(produce_task: asyncio.Task) -> None:
@@ -518,7 +714,18 @@ def iter_records(
         "exclude_events": events_to_exclude_array,
         "include_events": events_to_include_array,
     }
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+
+    start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
+    end_at = dt.datetime.fromisoformat(interval_end)
+
+    if start_at:
+        is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
+    else:
+        is_5_min_batch_export = False
+
+    if is_5_min_batch_export and not is_backfill:
+        query = SELECT_FROM_EVENTS_VIEW_RECENT
+    elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
     elif is_backfill:
         query = SELECT_FROM_EVENTS_VIEW_BACKFILL
@@ -625,13 +832,10 @@ BatchExportRunId = str
 
 @activity.defn
 async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExportRunId:
-    """Activity that creates an BatchExportRun and returns the count of records to export.
+    """Activity that creates an BatchExportRun and returns the run id.
 
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
-
-    Upon seeing a count of 0 records to export, batch export workflows should finish early
-    (i.e. without running the insert activity), as there will be nothing to export.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     await logger.ainfo(
@@ -698,6 +902,14 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         for key, value in dataclasses.asdict(inputs).items()
         if key not in not_model_params and value is not None
     }
+
+    latest_error = update_params.get("latest_error", None)
+    if latest_error is not None and isinstance(latest_error, str):
+        # NUL (\x00) bytes are not allowed in PostgreSQL, so we replace them in
+        # the free text field `latest_error`.
+        latest_error = latest_error.replace("\x00", "")
+        update_params["latest_error"] = latest_error
+
     batch_export_run = await database_sync_to_async(update_batch_export_run)(
         run_id=uuid.UUID(inputs.id),
         finished_at=dt.datetime.now(dt.UTC),
@@ -957,6 +1169,9 @@ async def execute_batch_export_insert_activity(
     if TEST:
         maximum_attempts = 1
 
+    if isinstance(settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS, int):
+        heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
+
     if interval == "hour":
         start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
@@ -1016,3 +1231,20 @@ async def execute_batch_export_insert_activity(
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
+
+
+async def wait_for_delta_past_data_interval_end(
+    data_interval_end: dt.datetime, delta: dt.timedelta = dt.timedelta(seconds=30)
+) -> None:
+    """Wait for some time after `data_interval_end` before querying ClickHouse."""
+    if settings.TEST:
+        return
+
+    target = data_interval_end.astimezone(dt.UTC)
+    now = dt.datetime.now(dt.UTC)
+
+    while target + delta > now:
+        now = dt.datetime.now(dt.UTC)
+        remaining = (target + delta) - now
+        # Sleep between 1-10 seconds, there shouldn't ever be the need to wait too long.
+        await asyncio.sleep(min(max(remaining.total_seconds(), 1), 10))

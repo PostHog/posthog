@@ -1,11 +1,7 @@
-import './Max.scss'
-
 import { BindLogic, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { uuid } from 'lib/utils'
-import { useMemo } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { Intro } from './Intro'
@@ -21,25 +17,23 @@ export const scene: SceneExport = {
 export function Max(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const sessionId = useMemo(() => uuid(), [])
-
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
         return <NotFound object="page" caption="You don't have access to AI features yet." />
     }
 
     return (
-        <BindLogic logic={maxLogic} props={{ sessionId }}>
+        <BindLogic logic={maxLogic} props={{ conversationId: null }}>
             <MaxInstance />
         </BindLogic>
     )
 }
 
 export function MaxInstance(): JSX.Element {
-    const { thread } = useValues(maxLogic)
+    const { threadGrouped } = useValues(maxLogic)
 
     return (
         <>
-            {!thread.length ? (
+            {!threadGrouped.length ? (
                 <div className="relative flex flex-col gap-3 px-4 items-center grow justify-center">
                     <Intro />
                     <QuestionInput />

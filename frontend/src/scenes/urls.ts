@@ -20,10 +20,10 @@ import {
     SDKKey,
 } from '~/types'
 
+import { BillingSectionId } from './billing/types'
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 import { SurveysTabs } from './surveys/surveysLogic'
-
 /**
  * To add a new URL to the front end:
  * - add a URL function here
@@ -34,6 +34,8 @@ import { SurveysTabs } from './surveys/surveysLogic'
  *
  * Sync the paths with AutoProjectMiddleware!
  */
+
+export type LLMObservabilityTab = 'dashboard' | 'traces' | 'generations'
 
 export const urls = {
     absolute: (path = ''): string => window.location.origin + path,
@@ -108,7 +110,9 @@ export const urls = {
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
+
     webAnalytics: (): string => `/web`,
+    webAnalyticsCoreWebVitals: (): string => `/web/core-web-vitals`,
 
     replay: (
         tab?: ReplayTabs,
@@ -157,19 +161,22 @@ export const urls = {
     cohorts: (): string => '/cohorts',
     experiment: (id: string | number): string => `/experiments/${id}`,
     experiments: (): string => '/experiments',
+    experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
+    experimentsSharedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
+    featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     /** @param id A UUID or 'new'. ':id' for routing. */
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     errorTracking: (): string => '/error_tracking',
-    errorTrackingGroup: (fingerprint: string): string =>
-        `/error_tracking/${fingerprint === ':fingerprint' ? fingerprint : encodeURIComponent(fingerprint)}`,
+    errorTrackingConfiguration: (): string => '/error_tracking/configuration',
+    errorTrackingIssue: (id: string): string => `/error_tracking/${id}`,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
-    dataModel: (): string => '/data-model',
+    customCss: (): string => '/themes/custom-css',
     dataWarehouse: (query?: string | Record<string, any>): string =>
         combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
             .url,
@@ -207,6 +214,8 @@ export const urls = {
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
+    organizationBillingSection: (section: BillingSectionId = 'overview'): string =>
+        combineUrl(`/organization/billing/${section}`).url,
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
@@ -252,4 +261,8 @@ export const urls = {
     insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
+    llmObservability: (tab?: LLMObservabilityTab): string =>
+        `/llm-observability${tab !== 'dashboard' ? '/' + tab : ''}`,
+    llmObservabilityTrace: (id: string, eventId?: string): string =>
+        `/llm-observability/traces/${id}${eventId ? `?event=${eventId}` : ''}`,
 }

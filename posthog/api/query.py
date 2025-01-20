@@ -1,18 +1,15 @@
 import re
 import uuid
 
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotAuthenticated, ValidationError
-from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception, set_tag
 
-from ee.hogai.assistant import Assistant
-from ee.hogai.utils import Conversation
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
@@ -25,7 +22,6 @@ from posthog.clickhouse.client.execute_async import (
 )
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import report_user_action
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.apply_dashboard_filters import (
@@ -42,21 +38,10 @@ from posthog.rate_limit import (
     HogQLQueryThrottle,
 )
 from posthog.schema import (
-    AssistantEventType,
-    AssistantGenerationStatusEvent,
-    HumanMessage,
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
 )
-
-
-class ServerSentEventRenderer(BaseRenderer):
-    media_type = "text/event-stream"
-    format = "txt"
-
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        return data
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -68,7 +53,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     sharing_enabled_actions = ["retrieve"]
 
     def get_throttles(self):
-        if self.action in ("draft_sql", "chat"):
+        if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if query := self.request.data.get("query"):
             if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
@@ -181,34 +166,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except PromptUnclear as e:
             raise ValidationError({"prompt": [str(e)]}, code="unclear")
         return Response({"sql": result})
-
-    @action(detail=False, methods=["POST"], renderer_classes=[ServerSentEventRenderer])
-    def chat(self, request: Request, *args, **kwargs):
-        assert request.user is not None
-        validated_body = Conversation.model_validate(request.data)
-        assistant = Assistant(self.team)
-
-        def generate():
-            last_message = None
-            for message in assistant.stream(validated_body):
-                last_message = message
-                if isinstance(message, AssistantGenerationStatusEvent):
-                    yield f"event: {AssistantEventType.STATUS}\n"
-                else:
-                    yield f"event: {AssistantEventType.MESSAGE}\n"
-                yield f"data: {message.model_dump_json(exclude_none=True)}\n\n"
-
-            human_message = validated_body.messages[-1].root
-            if isinstance(human_message, HumanMessage):
-                report_user_action(
-                    request.user,  # type: ignore
-                    "chat with ai",
-                    {"prompt": human_message.content, "response": last_message},
-                )
-
-        return StreamingHttpResponse(
-            generate(), content_type=ServerSentEventRenderer.media_type, headers={"X-Accel-Buffering": "no"}
-        )
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):

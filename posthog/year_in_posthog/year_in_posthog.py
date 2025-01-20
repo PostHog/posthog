@@ -9,7 +9,7 @@ import structlog
 from sentry_sdk import capture_exception
 
 from posthog import settings
-from posthog.year_in_posthog.calculate_2023 import calculate_year_in_posthog_2023
+from posthog.year_in_posthog.calculate_2024 import calculate_year_in_posthog_2024
 
 logger = structlog.get_logger(__name__)
 
@@ -85,11 +85,11 @@ def sort_list_based_on_preference(badges: list[str]) -> str:
 
 
 @cache_control(public=True, max_age=300)  # cache for 5 minutes
-def render_2023(request, user_uuid: str) -> HttpResponse:
+def render_2024(request, user_uuid: str) -> HttpResponse:
     data = None
 
     try:
-        data = calculate_year_in_posthog_2023(user_uuid)
+        data = calculate_year_in_posthog_2024(user_uuid)
 
         badge = sort_list_based_on_preference(data.get("badges") or ["astronaut"])
         stats = stats_for_user(data)
@@ -124,12 +124,12 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
             "page_url": f"{request.scheme}://{request.META['HTTP_HOST']}{request.get_full_path()}",
         }
 
-        template = get_template("2023.html")
+        template = get_template("2024.html")
         html = template.render(context, request=request)
         return HttpResponse(html)
     except Exception as e:
         capture_exception(e)
-        logger.error("year_in_posthog_2023_error_rendering_2023_page", exc_info=True, exc=e, data=data or "no data")
+        logger.error("year_in_posthog_2024_error_rendering_2024_page", exc_info=True, exc=e, data=data or "no data")
         template = get_template("hibernating.html")
         html = template.render({"message": "Something went wrong 🫠"}, request=request)
         return HttpResponse(html, status=500)
@@ -139,4 +139,11 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
 def render_2022(request, user_uuid: str) -> HttpResponse:
     template = get_template("hibernating.html")
     html = template.render({"message": "This is the 2022 Year in PostHog. That's too long ago 🙃"}, request=request)
+    return HttpResponse(html)
+
+
+@cache_control(public=True, max_age=300)  # cache for 5 minutes
+def render_2023(request, user_uuid: str) -> HttpResponse:
+    template = get_template("hibernating.html")
+    html = template.render({"message": "This is the 2023 Year in PostHog. That's too long ago 🙃"}, request=request)
     return HttpResponse(html)

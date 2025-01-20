@@ -11,6 +11,7 @@ import IconHubspot from 'public/services/hubspot.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
+import IconSnapchat from 'public/services/snapchat.png'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -25,6 +26,7 @@ const ICONS: Record<IntegrationKind, any> = {
     'google-pubsub': IconGoogleCloud,
     'google-cloud-storage': IconGoogleCloudStorage,
     'google-ads': IconGoogleAds,
+    snapchat: IconSnapchat,
     'linkedin-ads': IconLinkedIn,
 }
 

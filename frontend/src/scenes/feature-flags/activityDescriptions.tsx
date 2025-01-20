@@ -252,6 +252,7 @@ const featureFlagActionsMapping: Record<
     analytics_dashboards: () => null,
     has_enriched_analytics: () => null,
     surveys: () => null,
+    user_access_level: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

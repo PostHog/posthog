@@ -8,7 +8,7 @@ use cymbal::{
     app_context::AppContext,
     config::Config,
     handle_event,
-    metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, STACK_PROCESSED},
+    metric_consts::{ERRORS, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME},
 };
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
@@ -58,48 +58,67 @@ async fn main() {
 
     start_health_liveness_server(&config, context.clone());
 
+    let batch_wait_time = std::time::Duration::from_secs(config.max_event_batch_wait_seconds);
+    let batch_size = config.max_events_per_batch;
+
     loop {
         let whole_loop = common_metrics::timing_guard(MAIN_LOOP_TIME, &[]);
         context.worker_liveness.report_healthy().await;
         // Just grab the event as a serde_json::Value and immediately drop it,
         // we can work out a real type for it later (once we're deployed etc)
-        let (event, offset): (ClickHouseEvent, _) = match context.kafka_consumer.json_recv().await {
-            Ok(r) => r,
-            Err(RecvErr::Kafka(e)) => {
-                panic!("Kafka error: {}", e)
-            }
-            Err(err) => {
-                // If we failed to parse the message, or it was empty, just log and continue, our
-                // consumer has already stored the offset for us.
-                metrics::counter!(ERRORS, "cause" => "recv_err").increment(1);
-                error!("Error receiving message: {:?}", err);
-                continue;
-            }
-        };
-        metrics::counter!(EVENT_RECEIVED).increment(1);
+        let received: Vec<Result<(ClickHouseEvent, _), _>> = context
+            .kafka_consumer
+            .json_recv_batch(batch_size, batch_wait_time)
+            .await;
 
-        let event = match handle_event(context.clone(), event).await {
-            Ok(e) => e,
-            Err(e) => {
-                error!("Error handling event: {:?}", e);
-                // If we get an unhandled error, it means we have some logical error in the code, or a
-                // dependency is down, and we should just fall over.
-                panic!("Unhandled error: {:?}", e);
-            }
-        };
+        let mut output = Vec::with_capacity(received.len());
+        let mut offsets = Vec::with_capacity(received.len());
+        for message in received {
+            let (event, offset) = match message {
+                Ok(r) => r,
+                Err(RecvErr::Kafka(e)) => {
+                    panic!("Kafka error: {}", e)
+                }
+                Err(err) => {
+                    // If we failed to parse the message, or it was empty, just log and continue, our
+                    // consumer has already stored the offset for us.
+                    metrics::counter!(ERRORS, "cause" => "recv_err").increment(1);
+                    error!("Error receiving message: {:?}", err);
+                    continue;
+                }
+            };
+
+            metrics::counter!(EVENT_RECEIVED).increment(1);
+
+            let event = match handle_event(context.clone(), event).await {
+                Ok(e) => e,
+                Err(e) => {
+                    error!("Error handling event: {:?}", e);
+                    // If we get an unhandled error, it means we have some logical error in the code, or a
+                    // dependency is down, and we should just fall over.
+                    panic!("Unhandled error: {:?}", e);
+                }
+            };
+
+            metrics::counter!(EVENT_PROCESSED).increment(1);
+
+            output.push(event);
+            offsets.push(offset);
+        }
 
         send_keyed_iter_to_kafka(
             &context.kafka_producer,
             &context.config.events_topic,
             |ev| Some(ev.uuid.to_string()),
-            &[event],
+            &output,
         )
         .await
         .expect("Failed to send event to Kafka");
 
-        offset.store().unwrap();
+        for offset in offsets {
+            offset.store().unwrap();
+        }
 
-        metrics::counter!(STACK_PROCESSED).increment(1);
         whole_loop.label("finished", "true").fin();
     }
 }

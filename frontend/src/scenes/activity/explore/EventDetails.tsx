@@ -1,6 +1,5 @@
 import './EventDetails.scss'
 
-import { Properties } from '@posthog/plugin-scaffold'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -11,7 +10,9 @@ import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, KNOWN_PROMOTED_PROPERTY_PARENTS } from 'lib/taxonomy'
 import { pluralize } from 'lib/utils'
+import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/event-property-utls'
 import { useState } from 'react'
+import { ConversationDisplay } from 'scenes/llm-observability/ConversationDisplay/ConversationDisplay'
 
 import { EventType, PropertyDefinitionType } from '~/types'
 
@@ -22,11 +23,13 @@ interface EventDetailsProps {
 
 export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Element {
     const [showSystemProps, setShowSystemProps] = useState(false)
-    const [activeTab, setActiveTab] = useState(event.event === '$exception' ? 'exception' : 'properties')
+    const [activeTab, setActiveTab] = useState(
+        event.event === '$ai_generation' ? 'conversation' : event.event === '$exception' ? 'exception' : 'properties'
+    )
 
-    const displayedEventProperties: Properties = {}
-    const visibleSystemProperties: Properties = {}
-    const featureFlagProperties: Properties = {}
+    const displayedEventProperties = {}
+    const visibleSystemProperties = {}
+    const featureFlagProperties = {}
     let systemPropsCount = 0
     for (const key of Object.keys(event.properties)) {
         if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] && CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
@@ -49,7 +52,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             key: 'properties',
             label: 'Properties',
             content: (
-                <div className="ml-10 mt-2">
+                <div className="mx-3">
                     <PropertiesTable
                         type={PropertyDefinitionType.Event}
                         properties={{
@@ -73,10 +76,28 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             ),
         },
         {
-            key: 'json',
-            label: 'JSON',
+            key: 'metadata',
+            label: 'Metadata',
             content: (
-                <div className="px-4 py-4">
+                <div className="mx-3 -mt-4">
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Meta}
+                        properties={{
+                            event: event.event,
+                            distinct_id: event.distinct_id,
+                            timestamp: event.timestamp,
+                        }}
+                        sortProperties
+                        tableProps={tableProps}
+                    />
+                </div>
+            ),
+        },
+        {
+            key: 'raw',
+            label: 'Raw',
+            content: (
+                <div className="mx-3 -mt-3 py-2">
                     <JSONViewer src={event} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
                 </div>
             ),
@@ -93,13 +114,31 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
         })
     }
 
-    if (event.event === '$exception') {
+    if (event.elements && autocaptureToImage(event.elements)) {
         tabs.push({
+            key: 'image',
+            label: 'Image',
+            content: <AutocaptureImageTab elements={event.elements} />,
+        })
+    }
+
+    if (event.event === '$exception') {
+        tabs.splice(0, 0, {
             key: 'exception',
             label: 'Exception',
             content: (
-                <div className="ml-10 my-2">
+                <div className="mx-3">
                     <ErrorDisplay eventProperties={event.properties} />
+                </div>
+            ),
+        })
+    } else if (event.event === '$ai_generation') {
+        tabs.splice(0, 0, {
+            key: 'conversation',
+            label: 'Conversation',
+            content: (
+                <div className="mx-3 -mt-2 mb-2">
+                    <ConversationDisplay eventProperties={event.properties} />
                 </div>
             ),
         })

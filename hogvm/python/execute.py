@@ -268,17 +268,25 @@ def execute_bytecode(
             case Operation.REGEX:
                 args = [pop_stack(), pop_stack()]
                 # TODO: swap this for re2, as used in HogQL/ClickHouse and in the NodeJS VM
-                push_stack(bool(re.search(re.compile(args[1]), args[0])))
+                push_stack(bool(re.search(re.compile(args[1]), args[0])) if args[0] and args[1] else False)
             case Operation.NOT_REGEX:
                 args = [pop_stack(), pop_stack()]
                 # TODO: swap this for re2, as used in HogQL/ClickHouse and in the NodeJS VM
-                push_stack(not bool(re.search(re.compile(args[1]), args[0])))
+                push_stack(not bool(re.search(re.compile(args[1]), args[0])) if args[0] and args[1] else False)
             case Operation.IREGEX:
                 args = [pop_stack(), pop_stack()]
-                push_stack(bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
+                push_stack(
+                    bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0]))
+                    if args[0] and args[1]
+                    else False
+                )
             case Operation.NOT_IREGEX:
                 args = [pop_stack(), pop_stack()]
-                push_stack(not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
+                push_stack(
+                    not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0]))
+                    if args[0] and args[1]
+                    else False
+                )
             case Operation.GET_GLOBAL:
                 chain = [pop_stack() for _ in range(next_token())]
                 if chunk_globals and chain[0] in chunk_globals:

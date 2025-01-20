@@ -9,7 +9,7 @@ function toFloat(value) {
     else if (__isHogDate(value)) { const date = new Date(Date.UTC(value.year, value.month - 1, value.day)); const epoch = new Date(Date.UTC(1970, 0, 1)); const diffInDays = (date - epoch) / (1000 * 60 * 60 * 24); return diffInDays; }
     return !isNaN(parseFloat(value)) ? parseFloat(value) : null; }
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
-function match (str, pattern) { return new RegExp(pattern).test(str) }
+function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }
 function like (str, pattern) { return __like(str, pattern, false) }
 function jsonStringify (value, spacing) {
     function convert(x, marked) {
@@ -52,6 +52,7 @@ function __like(str, pattern, caseInsensitive = false) {
         .replaceAll('_', '.')
     return new RegExp(pattern).test(str)
 }
+function __imatch (str, pattern) { return !str || !pattern ? false : new RegExp(pattern, 'i').test(str) }
 function __STLToString(arg) {
     if (arg && __isHogDate(arg)) { return `${arg.year}-${arg.month.toString().padStart(2, '0')}-${arg.day.toString().padStart(2, '0')}`; }
     else if (arg && __isHogDateTime(arg)) { return __DateTimeToString(arg); }
@@ -181,15 +182,15 @@ test(concat(true, false));
 test(match("test", "e.*"));
 test(match("test", "^e.*"));
 test(match("test", "x.*"));
-test(new RegExp("e.*").test("test"));
-test(!(new RegExp("e.*").test("test")));
-test(new RegExp("^e.*").test("test"));
-test(!(new RegExp("^e.*").test("test")));
-test(new RegExp("x.*").test("test"));
-test(!(new RegExp("x.*").test("test")));
-test(new RegExp("EST", "i").test("test"));
-test(new RegExp("EST", "i").test("test"));
-test(!(new RegExp("EST", "i").test("test")));
+test(match("test", "e.*"));
+test(!match("test", "e.*"));
+test(match("test", "^e.*"));
+test(!match("test", "^e.*"));
+test(match("test", "x.*"));
+test(!match("test", "x.*"));
+test(__imatch("test", "EST"));
+test(__imatch("test", "EST"));
+test(!__imatch("test", "EST"));
 test(toString(1));
 test(toString(1.5));
 test(toString(true));

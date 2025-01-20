@@ -32,6 +32,7 @@ from two_factor.views.utils import (
     get_remember_device_cookie,
     validate_remember_device_cookie,
 )
+from django_otp.plugins.otp_static.models import StaticDevice
 
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.email import is_email_available
@@ -247,16 +248,25 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             )
 
         with transaction.atomic():
-            device = default_device(user)
-            is_allowed = device.verify_is_allowed()
-            if not is_allowed[0]:
-                raise serializers.ValidationError(detail="Too many attempts.", code="2fa_too_many_attempts")
-            if device.verify_token(request.data["token"]):
-                return self._token_is_valid(request, user, device)
+            # First try TOTP device
+            totp_device = default_device(user)
+            if totp_device:
+                is_allowed = totp_device.verify_is_allowed()
+                if not is_allowed[0]:
+                    raise serializers.ValidationError(detail="Too many attempts.", code="2fa_too_many_attempts")
+                if totp_device.verify_token(request.data["token"]):
+                    return self._token_is_valid(request, user, totp_device)
+                totp_device.throttle_increment()
 
-        # Failed attempt so increase throttle
-        device.throttle_increment()
-        raise serializers.ValidationError(detail="2FA token was not valid", code="2fa_invalid")
+            # Then try backup codes
+            # Backup codes are in place in case a user's device is lost or unavailable.
+            # They can be consumed in any order; each token will be removed from the
+            # database as soon as it is used.
+            static_device = StaticDevice.objects.filter(user=user).first()
+            if static_device and static_device.verify_token(request.data["token"]):
+                return self._token_is_valid(request, user, static_device)
+
+        raise serializers.ValidationError(detail="Invalid authentication code", code="2fa_invalid")
 
 
 class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):

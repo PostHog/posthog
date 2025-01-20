@@ -867,12 +867,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         char* set_operator;
         if (subsequent->UNION() && subsequent->ALL()) {
             set_operator = "UNION ALL";
+        } else if (subsequent->UNION() && subsequent->DISTINCT()) {
+            set_operator = "UNION DISTINCT";
+        } else if (subsequent->INTERSECT() && subsequent->DISTINCT()) {
+            set_operator = "INTERSECT DISTINCT";
         } else if (subsequent->INTERSECT()) {
             set_operator = "INTERSECT";
         } else if (subsequent->EXCEPT()) {
             set_operator = "EXCEPT";
         } else {
-            throw SyntaxError("Set operator must be one of UNION ALL, INTERSECT, and EXCEPT");
+            throw SyntaxError("Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT");
         }
         select_query = visitAsPyObject(subsequent->selectStmtWithParens());
         PyObject* query = build_ast_node("SelectSetNode", "{s:N,s:N}", "select_query", select_query, "set_operator", PyUnicode_FromString(set_operator));

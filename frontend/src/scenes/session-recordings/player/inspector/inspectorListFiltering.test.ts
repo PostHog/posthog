@@ -2,181 +2,138 @@ import { filterInspectorListItems } from 'scenes/session-recordings/player/inspe
 import { SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     InspectorListBrowserVisibility,
+    InspectorListItemComment,
     InspectorListItemDoctor,
     InspectorListItemEvent,
     InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { PerformanceEvent, SessionRecordingPlayerTab } from '~/types'
+import { FilterableInspectorListItemTypes, PerformanceEvent } from '~/types'
 
 describe('filtering inspector list items', () => {
-    describe('the all tab', () => {
-        it('includes browser visibility', () => {
-            expect(
-                filterInspectorListItems({
-                    allItems: [
-                        {
-                            type: 'browser-visibility',
-                        } as InspectorListBrowserVisibility,
-                    ],
-                    tab: SessionRecordingPlayerTab.ALL,
-                    miniFiltersByKey: { 'all-everything': { enabled: true } as unknown as SharedListMiniFilter },
-                    showOnlyMatching: false,
-                    showMatchingEventsFilter: false,
-                    windowIdFilter: null,
-                })
-            ).toHaveLength(1)
-        })
-
-        it('hides doctor items in everything mode', () => {
-            const filteredItems = filterInspectorListItems({
+    it('hides context events when no other events', () => {
+        expect(
+            filterInspectorListItems({
                 allItems: [
                     {
                         type: 'browser-visibility',
                     } as InspectorListBrowserVisibility,
                     {
-                        type: 'doctor',
-                    } as InspectorListItemDoctor,
+                        type: 'offline-status',
+                    } as unknown as InspectorListOfflineStatusChange,
+                    {
+                        type: 'comment',
+                    } as unknown as InspectorListItemComment,
                 ],
-                tab: SessionRecordingPlayerTab.ALL,
-                miniFiltersByKey: { 'all-everything': { enabled: true } as unknown as SharedListMiniFilter },
+                miniFiltersByKey: { 'events-posthog': { enabled: false } as unknown as SharedListMiniFilter },
                 showOnlyMatching: false,
-                showMatchingEventsFilter: false,
-                windowIdFilter: null,
+                allowMatchingEventsFilter: false,
+                trackedWindow: null,
             })
-            expect(filteredItems.map((item) => item.type)).toEqual(['browser-visibility'])
-        })
+        ).toHaveLength(0)
     })
 
-    describe('the events tab', () => {
-        it('filters by window id', () => {
-            expect(
-                filterInspectorListItems({
-                    allItems: [
-                        {
-                            type: SessionRecordingPlayerTab.EVENTS,
-                            windowId: 'this window',
-                            data: { event: '$exception' } as unknown as PerformanceEvent,
-                        } as unknown as InspectorListItemEvent,
-                        {
-                            type: SessionRecordingPlayerTab.EVENTS,
-                            windowId: 'a different window',
-                            data: { event: '$exception' } as unknown as PerformanceEvent,
-                        } as unknown as InspectorListItemEvent,
-                    ],
-                    tab: SessionRecordingPlayerTab.EVENTS,
-                    miniFiltersByKey: { 'events-all': { enabled: true } as unknown as SharedListMiniFilter },
-                    showOnlyMatching: false,
-                    showMatchingEventsFilter: false,
-                    windowIdFilter: 'a different window',
-                })
-            ).toHaveLength(1)
-        })
-
-        it('excludes browser visibility on console filter', () => {
-            expect(
-                filterInspectorListItems({
-                    allItems: [
-                        {
-                            type: 'browser-visibility',
-                        } as InspectorListBrowserVisibility,
-                    ],
-                    tab: SessionRecordingPlayerTab.EVENTS,
-                    miniFiltersByKey: { 'all-everything': { enabled: false } as unknown as SharedListMiniFilter },
-                    showOnlyMatching: false,
-                    showMatchingEventsFilter: false,
-                    windowIdFilter: null,
-                })
-            ).toHaveLength(0)
-        })
-
-        it('excludes browser visibility when show only matching', () => {
-            expect(
-                filterInspectorListItems({
-                    allItems: [
-                        {
-                            type: 'browser-visibility',
-                        } as InspectorListBrowserVisibility,
-                    ],
-                    tab: SessionRecordingPlayerTab.EVENTS,
-                    miniFiltersByKey: { 'all-everything': { enabled: true } as unknown as SharedListMiniFilter },
-                    showOnlyMatching: true,
-                    showMatchingEventsFilter: true,
-                    windowIdFilter: null,
-                })
-            ).toHaveLength(0)
-        })
+    it('shows context events when other events', () => {
+        expect(
+            filterInspectorListItems({
+                allItems: [
+                    {
+                        type: 'browser-visibility',
+                    } as InspectorListBrowserVisibility,
+                    {
+                        type: 'offline-status',
+                    } as unknown as InspectorListOfflineStatusChange,
+                    {
+                        type: 'comment',
+                    } as unknown as InspectorListItemComment,
+                    {
+                        data: { event: '$pageview' },
+                        type: 'events',
+                    } as InspectorListItemEvent,
+                ],
+                miniFiltersByKey: { 'events-pageview': { enabled: true } as unknown as SharedListMiniFilter },
+                showOnlyMatching: false,
+                allowMatchingEventsFilter: false,
+                trackedWindow: null,
+            }).map((item) => item.type)
+        ).toEqual(['browser-visibility', 'offline-status', 'comment', 'events'])
     })
 
-    describe('the doctor tab', () => {
-        it('ignores events that are not exceptions', () => {
-            expect(
-                filterInspectorListItems({
-                    allItems: [
-                        {
-                            type: SessionRecordingPlayerTab.EVENTS,
-                            data: { event: 'an event' } as unknown as PerformanceEvent,
-                        } as unknown as InspectorListItemEvent,
-                    ],
-                    tab: SessionRecordingPlayerTab.DOCTOR,
-                    miniFiltersByKey: {},
-                    showOnlyMatching: false,
-                    showMatchingEventsFilter: false,
-                    windowIdFilter: null,
-                })
-            ).toHaveLength(0)
+    it.each([
+        [true, 1],
+        [false, 0],
+    ])('hides/shows doctor items when %s', (enabled, expectedLength) => {
+        const filteredItems = filterInspectorListItems({
+            allItems: [
+                {
+                    type: 'doctor',
+                } as InspectorListItemDoctor,
+            ],
+            miniFiltersByKey: { doctor: { enabled } as unknown as SharedListMiniFilter },
+            showOnlyMatching: false,
+            allowMatchingEventsFilter: false,
+            trackedWindow: null,
         })
+        expect(filteredItems).toHaveLength(expectedLength)
+    })
 
-        it('includes events that are exceptions', () => {
-            expect(
-                filterInspectorListItems({
-                    allItems: [
-                        {
-                            type: SessionRecordingPlayerTab.EVENTS,
-                            data: { event: '$exception' } as unknown as PerformanceEvent,
-                        } as unknown as InspectorListItemEvent,
-                    ],
-                    tab: SessionRecordingPlayerTab.DOCTOR,
-                    miniFiltersByKey: {},
-                    showOnlyMatching: false,
-                    showMatchingEventsFilter: false,
-                    windowIdFilter: null,
-                })
-            ).toHaveLength(1)
-        })
+    it('filters by window id', () => {
+        expect(
+            filterInspectorListItems({
+                allItems: [
+                    {
+                        type: FilterableInspectorListItemTypes.EVENTS,
+                        windowId: 'this window',
+                        data: { event: '$exception' } as unknown as PerformanceEvent,
+                    } as unknown as InspectorListItemEvent,
+                    {
+                        type: FilterableInspectorListItemTypes.EVENTS,
+                        windowId: 'a different window',
+                        data: { event: '$exception' } as unknown as PerformanceEvent,
+                    } as unknown as InspectorListItemEvent,
+                ],
+                miniFiltersByKey: { 'events-exceptions': { enabled: true } as unknown as SharedListMiniFilter },
+                showOnlyMatching: false,
+                allowMatchingEventsFilter: false,
+                trackedWindow: 'a different window',
+            })
+        ).toHaveLength(1)
+    })
 
-        it('includes browser offline status', () => {
-            expect(
-                filterInspectorListItems({
-                    allItems: [
-                        {
-                            type: 'offline-status',
-                        } as unknown as InspectorListOfflineStatusChange,
-                    ],
-                    tab: SessionRecordingPlayerTab.DOCTOR,
-                    miniFiltersByKey: {},
-                    showOnlyMatching: false,
-                    showMatchingEventsFilter: false,
-                    windowIdFilter: null,
-                })
-            ).toHaveLength(1)
-        })
+    it('empty mini filters hides everything', () => {
+        expect(
+            filterInspectorListItems({
+                allItems: [
+                    {
+                        type: FilterableInspectorListItemTypes.EVENTS,
+                        data: { event: 'an event' } as unknown as PerformanceEvent,
+                    } as unknown as InspectorListItemEvent,
+                ],
+                miniFiltersByKey: {},
+                showOnlyMatching: false,
+                allowMatchingEventsFilter: false,
+                trackedWindow: null,
+            })
+        ).toHaveLength(0)
+    })
 
-        it('includes browser visibility status', () => {
-            expect(
-                filterInspectorListItems({
-                    allItems: [
-                        {
-                            type: 'browser-visibility',
-                        } as InspectorListBrowserVisibility,
-                    ],
-                    tab: SessionRecordingPlayerTab.DOCTOR,
-                    miniFiltersByKey: {},
-                    showOnlyMatching: false,
-                    showMatchingEventsFilter: false,
-                    windowIdFilter: null,
-                })
-            ).toHaveLength(1)
-        })
+    it.each([
+        [true, 1],
+        [false, 0],
+    ])('hides/shows exceptions when %s', (enabled, expectedLength) => {
+        expect(
+            filterInspectorListItems({
+                allItems: [
+                    {
+                        type: FilterableInspectorListItemTypes.EVENTS,
+                        data: { event: '$exception' } as unknown as PerformanceEvent,
+                    } as unknown as InspectorListItemEvent,
+                ],
+                miniFiltersByKey: { 'events-exceptions': { enabled } as unknown as SharedListMiniFilter },
+                showOnlyMatching: false,
+                allowMatchingEventsFilter: false,
+                trackedWindow: null,
+            })
+        ).toHaveLength(expectedLength)
     })
 })

@@ -9,6 +9,16 @@ from posthog.hogql_queries.experiments.trends_statistics import (
     calculate_credible_intervals,
     calculate_probabilities,
 )
+from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
+    are_results_significant_v2_count,
+    calculate_credible_intervals_v2_count,
+    calculate_probabilities_v2_count,
+)
+from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
+    are_results_significant_v2_continuous,
+    calculate_credible_intervals_v2_continuous,
+    calculate_probabilities_v2_continuous,
+)
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
@@ -19,20 +29,24 @@ from posthog.schema import (
     BreakdownFilter,
     CachedExperimentTrendsQueryResponse,
     ChartDisplayType,
+    DataWarehouseNode,
+    DataWarehousePropertyFilter,
     EventPropertyFilter,
     EventsNode,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
-    InsightDateRange,
+    DateRange,
     PropertyMathType,
+    PropertyOperator,
     TrendsFilter,
     TrendsQuery,
     TrendsQueryResponse,
 )
 from typing import Any, Optional
 import threading
+from datetime import datetime, timedelta, UTC
 
 
 class ExperimentTrendsQueryRunner(QueryRunner):
@@ -53,6 +67,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
         self.breakdown_key = f"$feature/{self.feature_flag.key}"
 
+        self.stats_version = self.experiment.get_stats_config("version") or 1
+
         self.prepared_count_query = self._prepare_count_query()
         self.prepared_exposure_query = self._prepare_exposure_query()
 
@@ -70,9 +86,9 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             math_keys.remove("sum")
         return any(entity.math in math_keys for entity in query.series)
 
-    def _get_insight_date_range(self) -> InsightDateRange:
+    def _get_date_range(self) -> DateRange:
         """
-        Returns an InsightDateRange object based on the experiment's start and end dates,
+        Returns an DateRange object based on the experiment's start and end dates,
         adjusted for the team's timezone if applicable.
         """
         if self.team.timezone:
@@ -83,16 +99,22 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             start_date = self.experiment.start_date
             end_date = self.experiment.end_date
 
-        return InsightDateRange(
+        return DateRange(
             date_from=start_date.isoformat() if start_date else None,
             date_to=end_date.isoformat() if end_date else None,
             explicitDate=True,
         )
 
-    def _get_breakdown_filter(self) -> BreakdownFilter:
+    def _get_event_breakdown_filter(self) -> BreakdownFilter:
         return BreakdownFilter(
             breakdown=self.breakdown_key,
             breakdown_type="event",
+        )
+
+    def _get_data_warehouse_breakdown_filter(self) -> BreakdownFilter:
+        return BreakdownFilter(
+            breakdown=f"events.properties.{self.breakdown_key}",
+            breakdown_type="data_warehouse",
         )
 
     def _prepare_count_query(self) -> TrendsQuery:
@@ -109,88 +131,72 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(prepared_count_query)
 
-        # :TRICKY: for `avg` aggregation, use `sum` data as an approximation
-        if prepared_count_query.series[0].math == PropertyMathType.AVG:
+        # Only SUM is supported now, but some earlier experiments AVG. That does not
+        # make sense as input for experiment analysis, so we'll swithc that to SUM here
+        if uses_math_aggregation:
             prepared_count_query.series[0].math = PropertyMathType.SUM
-        # TODO: revisit this; using the count data for the remaining aggregation types is likely wrong
-        elif uses_math_aggregation:
-            prepared_count_query.series[0].math = None
 
         prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
-        prepared_count_query.dateRange = self._get_insight_date_range()
-        prepared_count_query.breakdownFilter = self._get_breakdown_filter()
-        prepared_count_query.properties = [
-            EventPropertyFilter(
-                key=self.breakdown_key,
-                value=self.variants,
-                operator="exact",
-                type="event",
-            )
-        ]
+        prepared_count_query.dateRange = self._get_date_range()
+        if self._is_data_warehouse_query(prepared_count_query):
+            prepared_count_query.breakdownFilter = self._get_data_warehouse_breakdown_filter()
+            prepared_count_query.properties = [
+                DataWarehousePropertyFilter(
+                    key="events.event",
+                    value="$feature_flag_called",
+                    operator=PropertyOperator.EXACT,
+                    type="data_warehouse",
+                ),
+                DataWarehousePropertyFilter(
+                    key=f"events.properties.{self.breakdown_key}",
+                    value=self.variants,
+                    operator=PropertyOperator.EXACT,
+                    type="data_warehouse",
+                ),
+            ]
+        else:
+            prepared_count_query.breakdownFilter = self._get_event_breakdown_filter()
+            prepared_count_query.properties = [
+                EventPropertyFilter(
+                    key=self.breakdown_key,
+                    value=self.variants,
+                    operator=PropertyOperator.EXACT,
+                    type="event",
+                )
+            ]
 
         return prepared_count_query
 
     def _prepare_exposure_query(self) -> TrendsQuery:
         """
-        This method prepares the exposure query for the experiment analysis.
-
         Exposure is the count of users who have seen the experiment. This is necessary to calculate the statistical
         significance of the experiment.
 
-        There are 3 possible cases for the exposure query:
-        1. If math aggregation is used, we construct an implicit exposure query
-        2. Otherwise, if an exposure query is provided, we use it as is, adapting it to the experiment's duration and breakdown
-        3. Otherwise, we construct a default exposure query (the count of $feature_flag_called events)
+        There are 2 possible cases for the exposure query:
+        1. Otherwise, if an exposure query is provided, we use it as is, adapting it to the experiment's duration and breakdown
+        2. Otherwise, we construct a default exposure query (the count of $feature_flag_called events)
         """
 
-        # 1. If math aggregation is used, we construct an implicit exposure query: unique users for the count event
-        uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(self.query.count_query)
+        prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
 
-        if uses_math_aggregation:
-            prepared_exposure_query = TrendsQuery(**self.query.count_query.model_dump())
-            count_event = self.query.count_query.series[0]
-
-            if hasattr(count_event, "event"):
-                prepared_exposure_query.dateRange = self._get_insight_date_range()
-                prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
-                prepared_exposure_query.trendsFilter = TrendsFilter(
-                    display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
-                )
-                prepared_exposure_query.series = [
-                    EventsNode(
-                        event=count_event.event,
-                        math=BaseMathType.DAU,
-                    )
-                ]
-                prepared_exposure_query.properties = [
-                    EventPropertyFilter(
-                        key=self.breakdown_key,
-                        value=self.variants,
-                        operator="exact",
-                        type="event",
-                    )
-                ]
-            else:
-                raise ValueError("Expected first series item to have an 'event' attribute")
-
-        # 2. Otherwise, if an exposure query is provided, we use it as is, adapting the date range and breakdown
-        elif self.query.exposure_query:
+        # 1. If an exposure query is provided, we use it as is, adapting it to the experiment's duration and breakdown
+        if self.query.exposure_query and not self._is_data_warehouse_query(prepared_count_query):
             prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
-            prepared_exposure_query.dateRange = self._get_insight_date_range()
-            prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
+            prepared_exposure_query.dateRange = self._get_date_range()
             prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
+            prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()
             prepared_exposure_query.properties = [
                 EventPropertyFilter(
                     key=self.breakdown_key,
                     value=self.variants,
-                    operator="exact",
+                    operator=PropertyOperator.EXACT,
                     type="event",
                 )
             ]
-        # 3. Otherwise, we construct a default exposure query: unique users for the $feature_flag_called event
+        # 2. Otherwise, we construct a default exposure query: unique users for the $feature_flag_called event
         else:
             prepared_exposure_query = TrendsQuery(
-                dateRange=self._get_insight_date_range(),
+                dateRange=self._get_date_range(),
                 trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE),
                 breakdownFilter=BreakdownFilter(
                     breakdown="$feature_flag_response",
@@ -206,16 +212,17 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                     EventPropertyFilter(
                         key="$feature_flag_response",
                         value=self.variants,
-                        operator="exact",
+                        operator=PropertyOperator.EXACT,
                         type="event",
                     ),
                     EventPropertyFilter(
                         key="$feature_flag",
                         value=[self.feature_flag.key],
-                        operator="exact",
+                        operator=PropertyOperator.EXACT,
                         type="event",
                     ),
                 ],
+                filterTestAccounts=self.query.count_query.filterTestAccounts,
             )
 
         return prepared_exposure_query
@@ -258,13 +265,27 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         if count_result is None or exposure_result is None:
             raise ValueError("One or both query runners failed to produce a response")
 
-        self._validate_event_variants(count_result)
+        self._validate_event_variants(count_result, exposure_result)
 
         # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
-        probabilities = calculate_probabilities(control_variant, test_variants)
-        significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
-        credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+        if self.stats_version == 2:
+            if self.query.count_query.series[0].math:
+                probabilities = calculate_probabilities_v2_continuous(control_variant, test_variants)
+                significance_code, p_value = are_results_significant_v2_continuous(
+                    control_variant, test_variants, probabilities
+                )
+                credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
+            else:
+                probabilities = calculate_probabilities_v2_count(control_variant, test_variants)
+                significance_code, p_value = are_results_significant_v2_count(
+                    control_variant, test_variants, probabilities
+                )
+                credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
+        else:
+            probabilities = calculate_probabilities(control_variant, test_variants)
+            significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
+            credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
 
         return ExperimentTrendsQueryResponse(
             kind="ExperimentTrendsQuery",
@@ -278,6 +299,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             },
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
+            stats_version=self.stats_version,
             p_value=p_value,
             credible_intervals=credible_intervals,
         )
@@ -305,21 +327,21 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             count = result.get("count", 0)
             breakdown_value = result.get("breakdown_value")
             if breakdown_value == CONTROL_VARIANT_KEY:
+                absolute_exposure = exposure_counts.get(breakdown_value, 0)
                 control_variant = ExperimentVariantTrendsBaseStats(
                     key=breakdown_value,
                     count=count,
                     exposure=1,
-                    # TODO: in the absence of exposure data, we should throw rather than default to 1
-                    absolute_exposure=exposure_counts.get(breakdown_value, 1),
+                    absolute_exposure=absolute_exposure,
                 )
             else:
+                absolute_exposure = exposure_counts.get(breakdown_value, 0)
                 test_variants.append(
                     ExperimentVariantTrendsBaseStats(
                         key=breakdown_value,
                         count=count,
-                        # TODO: in the absence of exposure data, we should throw rather than default to 1
-                        exposure=exposure_ratios.get(breakdown_value, 1),
-                        absolute_exposure=exposure_counts.get(breakdown_value, 1),
+                        exposure=exposure_ratios.get(breakdown_value, 0),
+                        absolute_exposure=absolute_exposure,
                     )
                 )
 
@@ -328,13 +350,19 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         return control_variant, test_variants
 
-    def _validate_event_variants(self, count_result: TrendsQueryResponse):
+    def _validate_event_variants(self, count_result: TrendsQueryResponse, exposure_result: TrendsQueryResponse):
         errors = {
+            ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
             ExperimentNoResultsErrorKeys.NO_EVENTS: True,
             ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
             ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
             ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
         }
+
+        # Don't throw right away because we want to validate metric events too
+        # If metric events pass, the end of the function will still throw an error
+        if exposure_result.results:
+            errors[ExperimentNoResultsErrorKeys.NO_EXPOSURES] = False
 
         if not count_result.results or not count_result.results[0]:
             raise ValidationError(code="no-results", detail=json.dumps(errors))
@@ -362,5 +390,19 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         if has_errors:
             raise ValidationError(detail=json.dumps(errors))
 
+    def _is_data_warehouse_query(self, query: TrendsQuery) -> bool:
+        return isinstance(query.series[0], DataWarehouseNode)
+
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.count_query.kind} to query")
+
+    # Cache results for 24 hours
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        if last_refresh is None:
+            return None
+        return last_refresh + timedelta(hours=24)
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        if not last_refresh:
+            return True
+        return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)

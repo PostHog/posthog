@@ -21,6 +21,7 @@ class Migration(migrations.Migration):
                     ("google-cloud-storage", "Google Cloud Storage"),
                     ("google-ads", "Google Ads"),
                     ("linkedin-ads", "LinkedIn Ads"),
+                    ("snapchat", "Snapchat"),
                 ],
                 max_length=20,
             ),

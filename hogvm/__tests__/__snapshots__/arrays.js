@@ -11,15 +11,8 @@ function arrayPopFront (arr) { if (!Array.isArray(arr)) { return [] } return arr
 function arrayPopBack (arr) { if (!Array.isArray(arr)) { return [] } return arr.slice(0, arr.length - 1) }
 function arrayCount (func, arr) { let count = 0; for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { count = count + 1 } } return count }
 function __setProperty(objectOrArray, key, value) {
-    if (Array.isArray(objectOrArray)) {
-        if (key > 0) {
-            objectOrArray[key - 1] = value
-        } else {
-            objectOrArray[objectOrArray.length + key] = value
-        }
-    } else {
-        objectOrArray[key] = value
-    }
+    if (Array.isArray(objectOrArray)) { if (key > 0) { objectOrArray[key - 1] = value } else { objectOrArray[objectOrArray.length + key] = value } }
+    else { objectOrArray[key] = value }
     return objectOrArray
 }
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
@@ -52,11 +45,8 @@ function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
 function __getProperty(objectOrArray, key, nullish) {
     if ((nullish && !objectOrArray) || key === 0) { return null }
-    if (Array.isArray(objectOrArray)) {
-        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
-    } else {
-        return objectOrArray[key]
-    }
+    if (Array.isArray(objectOrArray)) { return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key] }
+    else { return objectOrArray[key] }
 }
 function __escapeString(value) {
     const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }

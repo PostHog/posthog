@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 
 from posthog.hogql import ast
@@ -12,7 +14,7 @@ from posthog.schema import (
     PropertyOperator,
     HogQLQuery,
     LifecycleQuery,
-    InsightDateRange,
+    DateRange,
     EventsNode,
     IntervalType,
     InsightActorsQuery,
@@ -66,19 +68,19 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery())
 
         query = runner.to_query()
-        query = clear_locations(query)
+        query = cast(ast.SelectQuery, clear_locations(query))
         expected = ast.SelectQuery(
             select=[
                 ast.Field(chain=["id"]),
                 ast.Field(chain=["id"]),
-                ast.Field(chain=["created_at"]),
                 ast.Constant(value=1),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
             where=None,
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")],
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["id"]), order="ASC")],
         )
-        assert clear_locations(query) == expected
+        query.settings = None
+        assert query == expected
         response = runner.calculate()
         assert len(response.results) == 10
 
@@ -225,7 +227,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
                 ],
                 interval=IntervalType.DAY,
-                dateRange=InsightDateRange(date_from="-7d"),
+                dateRange=DateRange(date_from="-7d"),
             )
             query = ActorsQuery(
                 select=["properties.email"],

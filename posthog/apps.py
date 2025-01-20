@@ -2,7 +2,7 @@ import os
 
 import posthoganalytics
 import structlog
-from django.apps import AppConfig
+from django.apps import AppConfig, apps
 from django.conf import settings
 from posthoganalytics.client import Client
 from posthoganalytics.exception_capture import Integrations
@@ -32,6 +32,8 @@ class PostHogConfig(AppConfig):
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True
         elif settings.DEBUG:
+            User = apps.get_model("posthog", "User")
+
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
                 # Sync all organization.available_product_features once on launch, in case plans changed
@@ -46,7 +48,13 @@ class PostHogConfig(AppConfig):
                     {"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
 
-            local_api_key = get_self_capture_api_token(None)
+            try:
+                user = User.objects.filter(last_login__isnull=False).order_by("-last_login").first()
+            except:
+                user = None
+
+            local_api_key = get_self_capture_api_token(user)
+
             if SELF_CAPTURE and local_api_key:
                 posthoganalytics.api_key = local_api_key
                 posthoganalytics.host = settings.SITE_URL

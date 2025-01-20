@@ -10,9 +10,12 @@ import uuid
 import aiohttp
 import pyarrow as pa
 import requests
+import structlog
 from django.conf import settings
 
 import posthog.temporal.common.asyncpa as asyncpa
+
+logger = structlog.get_logger()
 
 
 def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
@@ -76,6 +79,29 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             str_data = str(data)
             str_data = str_data.replace("\\", "\\\\").replace("'", "\\'")
             return f"{quote_char}{str_data}{quote_char}".encode()
+
+
+class ChunkBytesAsyncStreamIterator:
+    """Async iterator of HTTP chunk bytes.
+
+    Similar to the class provided by aiohttp, but this allows us to control
+    when to stop iteration.
+    """
+
+    def __init__(self, stream: aiohttp.StreamReader) -> None:
+        self._stream = stream
+
+    def __aiter__(self) -> "ChunkBytesAsyncStreamIterator":
+        return self
+
+    async def __anext__(self) -> bytes:
+        data, end_of_chunk = await self._stream.readchunk()
+
+        if data == b"" and end_of_chunk is False and self._stream.at_eof():
+            await logger.adebug("At EOF, stopping chunk iteration")
+            raise StopAsyncIteration
+
+        return data
 
 
 class ClickHouseClientNotConnected(Exception):
@@ -386,7 +412,7 @@ class ClickHouseClient:
         This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
         """
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
-            reader = asyncpa.AsyncRecordBatchReader(response.content.iter_chunks())
+            reader = asyncpa.AsyncRecordBatchReader(ChunkBytesAsyncStreamIterator(response.content))
             async for batch in reader:
                 yield batch
 
@@ -405,7 +431,7 @@ class ClickHouseClient:
         downstream consumer tasks process them from the queue.
         """
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
-            reader = asyncpa.AsyncRecordBatchProducer(response.content.iter_chunks())
+            reader = asyncpa.AsyncRecordBatchProducer(ChunkBytesAsyncStreamIterator(response.content))
             await reader.produce(queue=queue)
 
     async def __aenter__(self):
@@ -429,7 +455,7 @@ class ClickHouseClient:
 
 @contextlib.asynccontextmanager
 async def get_client(
-    *, team_id: typing.Optional[int] = None, **kwargs
+    *, team_id: typing.Optional[int] = None, clickhouse_url: str | None = None, **kwargs
 ) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an
@@ -438,7 +464,7 @@ async def get_client(
     Usage:
 
         async with get_client() as client:
-            await client.execute("SELECT 1")
+            await client.apost_query("SELECT 1")
 
     Note that this is not a connection pool, so you should not use this for
     queries that are run frequently.
@@ -463,14 +489,20 @@ async def get_client(
     timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=30, sock_read=None)
 
     if team_id is None:
-        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
+        default_max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
     else:
-        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES.get(
+        default_max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES.get(
             team_id, settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
         )
+    max_block_size = kwargs.pop("max_block_size", None) or default_max_block_size
+
+    if clickhouse_url is None:
+        url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
+    else:
+        url = clickhouse_url
 
     async with ClickHouseClient(
-        url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
+        url=url,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         database=settings.CLICKHOUSE_DATABASE,
@@ -479,7 +511,9 @@ async def get_client(
         max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
         max_memory_usage=settings.CLICKHOUSE_MAX_MEMORY_USAGE,
         max_block_size=max_block_size,
+        cancel_http_readonly_queries_on_client_close=1,
         output_format_arrow_string_as_string="true",
+        http_send_timeout=0,
         **kwargs,
     ) as client:
         yield client

@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Optional
 
 import posthoganalytics
+from pydantic import ValidationError
 
 from posthog.cloud_utils import is_cloud
 from posthog.schema import (
@@ -51,9 +52,16 @@ def create_default_modifiers_for_team(
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
             if getattr(modifiers, key) is None:
-                if key == "customChannelTypeRules" and isinstance(value, list):
-                    value = [CustomChannelRule(**rule) if isinstance(rule, dict) else rule for rule in value]
-                setattr(modifiers, key, value)
+                if key == "customChannelTypeRules":
+                    # don't break all queries if customChannelTypeRules are invalid
+                    try:
+                        if isinstance(value, list):
+                            value = [CustomChannelRule(**rule) if isinstance(rule, dict) else rule for rule in value]
+                            setattr(modifiers, key, value)
+                    except ValidationError:
+                        pass
+                else:
+                    setattr(modifiers, key, value)
 
     set_default_modifier_values(modifiers, team)
 

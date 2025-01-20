@@ -14,7 +14,7 @@ import django  # noqa: E402
 
 django.setup()
 
-from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns  # noqa: E402
+from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns  # noqa: E402
 from posthog import client  # noqa: E402
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries  # noqa: E402
 from posthog.models.utils import UUIDT  # noqa: E402

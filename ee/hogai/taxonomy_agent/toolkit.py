@@ -7,8 +7,8 @@ from typing import Literal, Optional, TypedDict, Union, cast
 
 from pydantic import BaseModel, Field, RootModel
 
-from ee.hogai.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from posthog.hogql.database.schema.channel_type import POSSIBLE_CHANNEL_TYPES
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -55,6 +55,7 @@ class SingleArgumentTaxonomyAgentTool(BaseModel):
         "retrieve_event_properties",
         "final_answer",
         "handle_incorrect_response",
+        "ask_user_for_help",
     ]
     arguments: str
 
@@ -145,6 +146,16 @@ class TaxonomyAgentToolkit(ABC):
                         property_name: The name of the property that you want to retrieve values for.
                 """,
             },
+            {
+                "name": "ask_user_for_help",
+                "signature": "(question: str)",
+                "description": """
+                    Use this tool to ask a question to the user. Your question must be concise and clear.
+
+                    Args:
+                        question: The question you want to ask.
+                """,
+            },
         ]
 
     def render_text_description(self) -> str:
@@ -169,7 +180,7 @@ class TaxonomyAgentToolkit(ABC):
 
     @property
     def _groups(self):
-        return GroupTypeMapping.objects.filter(team=self._team).order_by("group_type_index")
+        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
 
     @cached_property
     def _entity_names(self) -> list[str]:
@@ -353,7 +364,7 @@ class TaxonomyAgentToolkit(ABC):
 
         sample_values: list[str | int | float]
         if property_name == "$channel_type":
-            sample_values = cast(list[str | int | float], POSSIBLE_CHANNEL_TYPES.copy())
+            sample_values = cast(list[str | int | float], DEFAULT_CHANNEL_TYPES.copy())
             sample_count = len(sample_values)
             is_str = True
         elif (

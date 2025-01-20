@@ -30,14 +30,22 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
-import { DashboardFilter, DataVisualizationNode, HogQLVariable, NodeKind, RefreshType } from '~/queries/schema'
 import {
+    DashboardFilter,
+    DataVisualizationNode,
+    HogQLVariable,
+    NodeKind,
+    RefreshType,
+} from '~/queries/schema/schema-general'
+import {
+    ActivityScope,
     AnyPropertyFilter,
     Breadcrumb,
     DashboardLayoutSize,
@@ -248,6 +256,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             allVariables: values.variables,
         }),
         resetVariables: () => ({ variables: values.insightVariables }),
+        setAccessDeniedToDashboard: true,
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -293,6 +302,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } catch (error: any) {
                         if (error.status === 404) {
                             return null
+                        }
+                        if (error.status === 403 && error.code === 'permission_denied') {
+                            actions.setAccessDeniedToDashboard()
                         }
                         throw error
                     }
@@ -421,6 +433,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             true,
             {
                 setPageVisibility: (_, { visible }) => visible,
+            },
+        ],
+        accessDeniedToDashboard: [
+            false,
+            {
+                setAccessDeniedToDashboard: () => true,
             },
         ],
         dashboardFailedToLoad: [
@@ -991,6 +1009,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             ],
         ],
+
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.dashboard],
+            (dashboard): SidePanelSceneContext | null => {
+                return dashboard
+                    ? {
+                          activity_scope: ActivityScope.DASHBOARD,
+                          activity_item_id: `${dashboard.id}`,
+                          access_control_resource: 'dashboard',
+                          access_control_resource_id: `${dashboard.id}`,
+                      }
+                    : null
+            },
+        ],
+
         sortTilesByLayout: [
             (s) => [s.layoutForItem],
             (layoutForItem) => (tiles: Array<DashboardTile>) => {

@@ -5,6 +5,7 @@ use common_types::ClickHouseEvent;
 use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
 use issue_resolution::resolve_issue;
+use metric_consts::FRAME_RESOLUTION;
 use tracing::warn;
 use types::{Exception, RawErrProps, Stacktrace};
 
@@ -13,6 +14,7 @@ pub mod config;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;
+pub mod hack;
 pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;
@@ -52,14 +54,18 @@ pub async fn handle_event(
     props.exception_list = results;
     let fingerprinted = props.to_fingerprinted(fingerprint.clone());
 
-    let output = resolve_issue(&context.pool, event.team_id, fingerprinted).await?;
+    let mut output = resolve_issue(&context.pool, event.team_id, fingerprinted).await?;
+
+    // TODO - I'm not sure we actually want to do this? Maybe junk drawer stuff should end up in clickhouse, and
+    // be directly queryable by users? Stripping it for now, so it only ends up in postgres
+    output.strip_frame_junk();
 
     event.properties = Some(serde_json::to_string(&output).unwrap());
 
     Ok(event)
 }
 
-fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
+pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
     if event.event != "$exception" {
         return Err(EventError::WrongEventType(event.event.clone(), event.uuid));
     }
@@ -108,10 +114,14 @@ async fn process_exception(
         // process those groups in-order (but the individual frames in them can still be
         // thrown at the wall), with some cross-group concurrency.
         handles.push(tokio::spawn(async move {
-            context
+            context.worker_liveness.report_healthy().await;
+            metrics::counter!(FRAME_RESOLUTION).increment(1);
+            let res = context
                 .resolver
                 .resolve(&frame, team_id, &context.pool, &context.catalog)
-                .await
+                .await;
+            context.worker_liveness.report_healthy().await;
+            res
         }));
     }
 

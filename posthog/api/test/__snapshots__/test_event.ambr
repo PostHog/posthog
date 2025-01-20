@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestEvents.test_event_property_values
   '''
-  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
-  SELECT team_id,
-         date_diff('second', max(timestamp), now()) AS age
-  FROM events
-  WHERE timestamp > date_sub(DAY, 3, now())
-    AND timestamp < now()
-  GROUP BY team_id
-  ORDER BY age;
-  '''
-# ---
-# name: TestEvents.test_event_property_values.1
-  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
@@ -23,7 +11,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values.2
+# name: TestEvents.test_event_property_values.1
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
@@ -37,7 +25,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values.3
+# name: TestEvents.test_event_property_values.2
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
@@ -51,7 +39,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values.4
+# name: TestEvents.test_event_property_values.3
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
@@ -65,7 +53,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values.5
+# name: TestEvents.test_event_property_values.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
@@ -80,7 +68,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values.6
+# name: TestEvents.test_event_property_values.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
@@ -92,6 +80,21 @@
     AND (event = 'foo'
          OR event = 'random event')
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
+  order by length(replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', ''))
+  LIMIT 10
+  '''
+# ---
+# name: TestEvents.test_event_property_values.6
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
+  FROM events
+  WHERE team_id = 99999
+    AND JSONHas(properties, 'random_prop')
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+    AND (event = '404_i_dont_exist')
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
   order by length(replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', ''))
   LIMIT 10
   '''
@@ -113,18 +116,6 @@
 # ---
 # name: TestEvents.test_event_property_values_materialized
   '''
-  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
-  SELECT team_id,
-         date_diff('second', max(timestamp), now()) AS age
-  FROM events
-  WHERE timestamp > date_sub(DAY, 3, now())
-    AND timestamp < now()
-  GROUP BY team_id
-  ORDER BY age;
-  '''
-# ---
-# name: TestEvents.test_event_property_values_materialized.1
-  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
@@ -135,7 +126,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values_materialized.2
+# name: TestEvents.test_event_property_values_materialized.1
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
@@ -149,7 +140,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values_materialized.3
+# name: TestEvents.test_event_property_values_materialized.2
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
@@ -163,7 +154,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values_materialized.4
+# name: TestEvents.test_event_property_values_materialized.3
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
@@ -177,7 +168,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values_materialized.5
+# name: TestEvents.test_event_property_values_materialized.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
@@ -192,7 +183,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values_materialized.6
+# name: TestEvents.test_event_property_values_materialized.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
@@ -204,6 +195,21 @@
     AND (event = 'foo'
          OR event = 'random event')
     AND "mat_random_prop" ILIKE '%6%'
+  order by length("mat_random_prop")
+  LIMIT 10
+  '''
+# ---
+# name: TestEvents.test_event_property_values_materialized.6
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT "mat_random_prop"
+  FROM events
+  WHERE team_id = 99999
+    AND notEmpty("mat_random_prop")
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+    AND (event = '404_i_dont_exist')
+    AND "mat_random_prop" ILIKE '%qw%'
   order by length("mat_random_prop")
   LIMIT 10
   '''

@@ -1,5 +1,5 @@
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
-from ee.hogai.utils import dereference_schema
+from ee.hogai.utils.helpers import dereference_schema
 from posthog.schema import AssistantFunnelsQuery
 
 
@@ -62,15 +62,10 @@ def generate_funnel_schema() -> dict:
         "parameters": {
             "type": "object",
             "properties": {
-                "reasoning_steps": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "The reasoning steps leading to the final conclusion that will be shown to the user. Use 'you' if you want to refer to the user.",
-                },
-                "answer": dereference_schema(schema),
+                "query": dereference_schema(schema),
             },
             "additionalProperties": False,
-            "required": ["reasoning_steps", "answer"],
+            "required": ["query"],
         },
     }
 

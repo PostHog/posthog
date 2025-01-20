@@ -20,6 +20,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Team
 from posthog.models.action.action import Action
+from posthog.models.cohort.util import get_count_operator, get_count_operator_ast
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     ActionsNode,
@@ -87,46 +88,63 @@ class StickinessQueryRunner(QueryRunner):
 
         return ast.Field(chain=["e", "person_id"])
 
+    def _having_clause(self) -> ast.Expr:
+        if not (self.query.stickinessFilter and self.query.stickinessFilter.stickinessCriteria):
+            return parse_expr("count() > 0")
+        operator = self.query.stickinessFilter.stickinessCriteria.operator
+        value = ast.Constant(value=self.query.stickinessFilter.stickinessCriteria.value)
+        return parse_expr(f"""count() {get_count_operator(operator)} {{value}}""", {"value": value})
+
     def _events_query(self, series_with_extra: SeriesWithExtras) -> ast.SelectQuery:
-        num_intervals_column_expr = ast.Alias(
-            alias="num_intervals",
-            expr=ast.Call(
-                distinct=True,
-                name="count",
-                args=[self.query_date_range.date_to_start_of_interval_hogql(ast.Field(chain=["e", "timestamp"]))],
-            ),
-        )
-
-        aggregation = ast.Alias(
-            alias="aggregation_target", expr=self._aggregation_expressions(series_with_extra.series)
-        )
-
-        select_query = parse_select(
+        inner_query = parse_select(
             """
-                SELECT
-                    count(DISTINCT aggregation_target),
-                    num_intervals
-                FROM (
-                    SELECT {aggregation}, {num_intervals_column_expr}
-                    FROM events e
-                    SAMPLE {sample}
-                    WHERE {where_clause}
-                    GROUP BY aggregation_target
-                )
-                WHERE num_intervals <= {num_intervals}
-                GROUP BY num_intervals
-                ORDER BY num_intervals
-            """,
-            placeholders={
-                "where_clause": self.where_clause(series_with_extra),
-                "num_intervals": ast.Constant(value=self.intervals_num()),
+            SELECT
+                {aggregation} as aggregation_target,
+                {start_of_interval} as start_of_interval,
+            FROM events e
+            SAMPLE {sample}
+            WHERE {where_clause}
+            GROUP BY aggregation_target, start_of_interval
+            HAVING {having_clause}
+        """,
+            {
+                "aggregation": self._aggregation_expressions(series_with_extra.series),
+                "start_of_interval": self.query_date_range.date_to_start_of_interval_hogql(
+                    ast.Field(chain=["e", "timestamp"])
+                ),
                 "sample": self._sample_value(),
-                "num_intervals_column_expr": num_intervals_column_expr,
-                "aggregation": aggregation,
+                "where_clause": self.where_clause(series_with_extra),
+                "having_clause": self._having_clause(),
             },
         )
 
-        return cast(ast.SelectQuery, select_query)
+        middle_query = parse_select(
+            """
+            SELECT
+                aggregation_target,
+                count() as num_intervals
+            FROM
+                {inner_query}
+            GROUP BY
+                aggregation_target
+        """,
+            {"inner_query": inner_query},
+        )
+
+        outer_query = parse_select(
+            """
+            SELECT
+                count(DISTINCT aggregation_target) as num_actors,
+                num_intervals
+            FROM
+                {middle_query}
+            GROUP BY num_intervals
+            ORDER BY num_intervals
+            """,
+            {"middle_query": middle_query},
+        )
+
+        return cast(ast.SelectQuery, outer_query)
 
     def to_query(self) -> ast.SelectSetQuery:
         return ast.SelectSetQuery.create_from_queries(self.to_queries(), "UNION ALL")
@@ -145,12 +163,12 @@ class StickinessQueryRunner(QueryRunner):
             select_query = parse_select(
                 """
                     SELECT
-                        groupArray(aggregation_target) as counts,
+                        groupArray(num_actors) as counts,
                         groupArray(num_intervals) as intervals
                     FROM (
-                        SELECT sum(aggregation_target) as aggregation_target, num_intervals
+                        SELECT sum(num_actors) as num_actors, num_intervals
                         FROM (
-                            SELECT 0 as aggregation_target, (number + 1) as num_intervals
+                            SELECT 0 as num_actors, (number + 1) as num_intervals
                             FROM numbers(dateDiff({interval}, {date_from_start_of_interval}, {date_to_start_of_interval} + {interval_addition}))
                             UNION ALL
                             {events_query}
@@ -170,7 +188,9 @@ class StickinessQueryRunner(QueryRunner):
 
         return queries
 
-    def to_actors_query(self, interval_num: Optional[int] = None) -> ast.SelectQuery | ast.SelectSetQuery:
+    def to_actors_query(
+        self, interval_num: Optional[int] = None, operator: Optional[str] = None
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         queries: list[ast.SelectQuery] = []
 
         for series in self.series:
@@ -188,7 +208,7 @@ class StickinessQueryRunner(QueryRunner):
             if interval_num is not None:
                 events_query.where = ast.CompareOperation(
                     left=ast.Field(chain=["num_intervals"]),
-                    op=ast.CompareOperationOp.Eq,
+                    op=ast.CompareOperationOp.Eq if operator is None else get_count_operator_ast(operator),
                     right=ast.Constant(value=interval_num),
                 )
 

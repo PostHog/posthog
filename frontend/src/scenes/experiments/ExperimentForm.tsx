@@ -1,11 +1,10 @@
-import './Experiment.scss'
-
 import { IconMagicWand, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
-import { FEATURE_FLAGS, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -14,17 +13,16 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 
 import { experimentLogic } from './experimentLogic'
-import { ExperimentsDisabledBanner } from './Experiments'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, featureFlags, groupTypes, aggregationLabel, dynamicFeatureFlagKey } = useValues(experimentLogic)
+    const { experiment, groupTypes, aggregationLabel } = useValues(experimentLogic)
     const { addExperimentGroup, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
         useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
+    const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const { takenKeys } = useValues(experimentsLogic)
 
-    return featureFlags[FEATURE_FLAGS.EXPERIMENTS_MIGRATION_DISABLE_UI] ? (
-        <ExperimentsDisabledBanner />
-    ) : (
+    return (
         <div>
             <div className="space-y-8">
                 <div className="space-y-6 max-w-120">
@@ -43,12 +41,14 @@ const ExperimentFormFields = (): JSX.Element => {
                                     type="secondary"
                                     size="xsmall"
                                     tooltip={
-                                        dynamicFeatureFlagKey
-                                            ? "Use '" + dynamicFeatureFlagKey + "' as the feature flag key."
+                                        experiment.name
+                                            ? 'Generate a key from the experiment name'
                                             : 'Fill out the experiment name first.'
                                     }
                                     onClick={() => {
-                                        setExperiment({ feature_flag_key: dynamicFeatureFlagKey })
+                                        setExperiment({
+                                            feature_flag_key: generateFeatureFlagKey(experiment.name, takenKeys),
+                                        })
                                     }}
                                 >
                                     <IconMagicWand className="mr-1" /> Generate
@@ -106,40 +106,45 @@ const ExperimentFormFields = (): JSX.Element => {
                         />
                     </div>
                 )}
-                <div>
-                    <h3 className="mt-10">Participant type</h3>
-                    <div className="text-xs text-muted">
-                        The type on which to aggregate metrics. You can change this at any time during the experiment.
-                    </div>
-                    <LemonDivider />
-                    <LemonRadio
-                        value={
-                            experiment.parameters.aggregation_group_type_index != undefined
-                                ? experiment.parameters.aggregation_group_type_index
-                                : -1
-                        }
-                        onChange={(rawGroupTypeIndex) => {
-                            const groupTypeIndex = rawGroupTypeIndex !== -1 ? rawGroupTypeIndex : undefined
+                {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
+                    <div>
+                        <h3 className="mt-10">Participant type</h3>
+                        <div className="text-xs text-muted">
+                            The type on which to aggregate metrics. You can change this at any time during the
+                            experiment.
+                        </div>
+                        <LemonDivider />
+                        <LemonRadio
+                            value={
+                                experiment.parameters.aggregation_group_type_index != undefined
+                                    ? experiment.parameters.aggregation_group_type_index
+                                    : -1
+                            }
+                            onChange={(rawGroupTypeIndex) => {
+                                const groupTypeIndex = rawGroupTypeIndex !== -1 ? rawGroupTypeIndex : undefined
 
-                            setExperiment({
-                                parameters: {
-                                    ...experiment.parameters,
-                                    aggregation_group_type_index: groupTypeIndex ?? undefined,
-                                },
-                            })
-                        }}
-                        options={[
-                            { value: -1, label: 'Persons' },
-                            ...Array.from(groupTypes.values()).map((groupType) => ({
-                                value: groupType.group_type_index,
-                                label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                            })),
-                        ]}
-                    />
-                </div>
+                                setExperiment({
+                                    parameters: {
+                                        ...experiment.parameters,
+                                        aggregation_group_type_index: groupTypeIndex ?? undefined,
+                                    },
+                                })
+                            }}
+                            options={[
+                                { value: -1, label: 'Persons' },
+                                ...Array.from(groupTypes.values()).map((groupType) => ({
+                                    value: groupType.group_type_index,
+                                    label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                                })),
+                            ]}
+                        />
+                    </div>
+                )}
                 <div className="mt-10">
                     <h3 className="mb-1">Variants</h3>
-                    <div className="text-xs text-muted">Add up to 9 variants to test against your control.</div>
+                    <div className="text-xs text-muted">
+                        Add up to {MAX_EXPERIMENT_VARIANTS - 1} variants to test against your control.
+                    </div>
                     <LemonDivider />
                     <div className="grid grid-cols-2 gap-4 max-w-160">
                         <div className="max-w-60">
@@ -224,14 +229,12 @@ const ExperimentFormFields = (): JSX.Element => {
                         </div>
                     </div>
                 </div>
-                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS] && (
-                    <div>
-                        <h3>Holdout group</h3>
-                        <div className="text-xs text-muted">Exclude a stable group of users from the experiment.</div>
-                        <LemonDivider />
-                        <HoldoutSelector />
-                    </div>
-                )}
+                <div>
+                    <h3>Holdout group</h3>
+                    <div className="text-xs text-muted">Exclude a stable group of users from the experiment.</div>
+                    <LemonDivider />
+                    <HoldoutSelector />
+                </div>
             </div>
             <LemonButton
                 className="mt-2"
@@ -289,4 +292,20 @@ export function ExperimentForm(): JSX.Element {
             </Form>
         </div>
     )
+}
+
+const generateFeatureFlagKey = (name: string, takenKeys: string[]): string => {
+    const baseKey = name
+        .toLowerCase()
+        .replace(/[^A-Za-z0-9-_]+/g, '-')
+        .replace(/-+$/, '')
+        .replace(/^-+/, '')
+
+    let key = baseKey
+    let counter = 1
+    while (takenKeys.includes(key)) {
+        key = `${baseKey}-${counter}`
+        counter++
+    }
+    return key
 }

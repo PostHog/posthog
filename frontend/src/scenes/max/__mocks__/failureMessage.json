@@ -1,4 +1,5 @@
 {
     "type": "ai/failure",
-    "content": "Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?"
+    "content": "Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?",
+    "id": "test-failure-message"
 }

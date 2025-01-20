@@ -47,7 +47,7 @@ from posthog.temporal.data_imports.pipelines.vitally import (
 from posthog.temporal.data_imports.pipelines.zendesk import (
     validate_credentials as validate_zendesk_credentials,
 )
-from posthog.utils import get_instance_region
+from posthog.utils import get_instance_region, str_to_bool
 from posthog.warehouse.api.external_data_schema import (
     ExternalDataSchemaSerializer,
     SimpleExternalDataSchemaSerializer,
@@ -298,6 +298,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
+
+        # Strip leading and trailing whitespace
+        payload = request.data["payload"]
+        if payload is not None:
+            for key, value in payload.items():
+                if isinstance(value, str):
+                    payload[key] = value.strip()
 
         # TODO: remove dummy vars
         if source_type == ExternalDataSource.Type.STRIPE:
@@ -571,6 +578,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
         ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
+        using_ssl_str = payload.get("use_ssl", "1")
+        using_ssl = str_to_bool(using_ssl_str)
+
         if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
             raise InternalPostgresError()
 
@@ -596,6 +606,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "ssh_tunnel_auth_type_password": ssh_tunnel_auth_type_password,
                 "ssh_tunnel_auth_type_passphrase": ssh_tunnel_auth_type_passphrase,
                 "ssh_tunnel_auth_type_private_key": ssh_tunnel_auth_type_private_key,
+                "using_ssl": using_ssl,
             },
             prefix=prefix,
         )
@@ -620,6 +631,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             password,
             schema,
             ssh_tunnel,
+            using_ssl,
         )
 
         return new_source_model, list(schemas.keys())
@@ -635,9 +647,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         database = payload.get("database")
         warehouse = payload.get("warehouse")
         role = payload.get("role")
-        user = payload.get("user")
-        password = payload.get("password")
         schema = payload.get("schema")
+
+        auth_type_obj = payload.get("auth_type", {})
+        auth_type = auth_type_obj.get("selection", None)
+        auth_type_username = auth_type_obj.get("username", None)
+        auth_type_password = auth_type_obj.get("password", None)
+        auth_type_passphrase = auth_type_obj.get("passphrase", None)
+        auth_type_private_key = auth_type_obj.get("private_key", None)
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -651,14 +668,28 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "database": database,
                 "warehouse": warehouse,
                 "role": role,
-                "user": user,
-                "password": password,
                 "schema": schema,
+                "auth_type": auth_type,
+                "user": auth_type_username,
+                "password": auth_type_password,
+                "passphrase": auth_type_passphrase,
+                "private_key": auth_type_private_key,
             },
             prefix=prefix,
         )
 
-        schemas = get_snowflake_schemas(account_id, database, warehouse, user, password, schema, role)
+        schemas = get_snowflake_schemas(
+            account_id=account_id,
+            database=database,
+            warehouse=warehouse,
+            user=auth_type_username,
+            password=auth_type_password,
+            schema=schema,
+            role=role,
+            passphrase=auth_type_passphrase,
+            private_key=auth_type_private_key,
+            auth_type=auth_type,
+        )
 
         return new_source_model, list(schemas.keys())
 
@@ -677,6 +708,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         client_email = key_file.get("client_email")
         token_uri = key_file.get("token_uri")
 
+        temporary_dataset = request.data.get("temporary-dataset", {})
+        using_temporary_dataset = temporary_dataset.get("enabled", False)
+        temporary_dataset_id = temporary_dataset.get("temporary_dataset_id", None)
+
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
@@ -691,6 +726,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "private_key_id": private_key_id,
                 "client_email": client_email,
                 "token_uri": token_uri,
+                "using_temporary_dataset": using_temporary_dataset,
+                "temporary_dataset_id": temporary_dataset_id,
             },
             prefix=prefix,
         )
@@ -922,6 +959,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
             ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
+            using_ssl_str = request.data.get("use_ssl", "1")
+            using_ssl = str_to_bool(using_ssl_str)
+
             ssh_tunnel = SSHTunnel(
                 enabled=using_ssh_tunnel,
                 host=ssh_tunnel_host,
@@ -979,6 +1019,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     password,
                     schema,
                     ssh_tunnel,
+                    using_ssl,
                 )
                 if len(result.keys()) == 0:
                     return Response(
@@ -1053,20 +1094,48 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             database = request.data.get("database")
             warehouse = request.data.get("warehouse")
             role = request.data.get("role")
-            user = request.data.get("user")
-            password = request.data.get("password")
             schema = request.data.get("schema")
 
-            if not account_id or not warehouse or not database or not user or not password or not schema:
+            auth_type_obj = request.data.get("auth_type", {})
+            auth_type = auth_type_obj.get("selection", None)
+            auth_type_username = auth_type_obj.get("username", None)
+            auth_type_password = auth_type_obj.get("password", None)
+            auth_type_passphrase = auth_type_obj.get("passphrase", None)
+            auth_type_private_key = auth_type_obj.get("private_key", None)
+
+            if not account_id or not warehouse or not database or not schema:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": "Missing required parameters: account id, warehouse, database, user, password, schema"
-                    },
+                    data={"message": "Missing required parameters: account id, warehouse, database, schema"},
+                )
+
+            if auth_type == "password" and (not auth_type_username or not auth_type_password):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required parameters: username, password"},
+                )
+
+            if auth_type == "keypair" and (
+                not auth_type_passphrase or not auth_type_private_key or not auth_type_username
+            ):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required parameters: passphrase, private key"},
                 )
 
             try:
-                result = get_snowflake_schemas(account_id, database, warehouse, user, password, schema, role)
+                result = get_snowflake_schemas(
+                    account_id=account_id,
+                    database=database,
+                    warehouse=warehouse,
+                    user=auth_type_username,
+                    password=auth_type_password,
+                    schema=schema,
+                    role=role,
+                    passphrase=auth_type_passphrase,
+                    private_key=auth_type_private_key,
+                    auth_type=auth_type,
+                )
                 if len(result.keys()) == 0:
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
@@ -1167,7 +1236,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         after = request.query_params.get("after", None)
         before = request.query_params.get("before", None)
 
-        jobs = instance.jobs.prefetch_related("schema").order_by("-created_at")
+        jobs = (
+            instance.jobs.exclude(pipeline_version=ExternalDataJob.PipelineVersion.V2)
+            .prefetch_related("schema")
+            .order_by("-created_at")
+        )
 
         if after:
             after_date = parser.parse(after)

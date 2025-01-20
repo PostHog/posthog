@@ -24,6 +24,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
 
     return (
         <LemonTable
+            hideScrollbar
             dataSource={jobs}
             loading={jobsLoading}
             disableTableWhileLoading={false}

@@ -35,7 +35,8 @@ from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
-    CREATE_METHODS,
+    CREATE_ACTIONS,
+    AccessControlPermission,
     APIScopePermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
@@ -43,6 +44,8 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     get_organization_from_view,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
@@ -57,7 +60,7 @@ class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments."
 
     def has_permission(self, request: request.Request, view) -> bool:
-        if request.method in CREATE_METHODS:
+        if view.action in CREATE_ACTIONS:
             try:
                 organization = get_organization_from_view(view)
             except ValueError:
@@ -112,6 +115,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         model = Team
         fields = [
             "id",
+            "project_id",
             "uuid",
             "name",
             "api_token",
@@ -137,10 +141,12 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "surveys_opt_in",
             "heatmaps_opt_in",
             "capture_dead_clicks",
+            "flags_persistence_default",
         ]
+        read_only_fields = fields
 
 
-class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
+class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Optional[Team]
 
     effective_membership_level = serializers.SerializerMethodField()
@@ -196,6 +202,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "primary_dashboard",
             "live_events_columns",
             "recording_domains",
+            "cookieless_server_hash_mode",
+            "human_friendly_comparison_periods",
             "person_on_events_querying_enabled",
             "inject_web_apps",
             "extra_settings",
@@ -204,9 +212,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
+            "flags_persistence_default",
             "live_events_token",
             "product_intents",
             "capture_dead_clicks",
+            "user_access_level",
+            "default_data_theme",
         )
         read_only_fields = (
             "id",
@@ -222,13 +233,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "default_modifiers",
             "person_on_events_querying_enabled",
             "live_events_token",
+            "user_access_level",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
+        # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
-        return GroupTypeMapping.objects.filter(team_id=team.id).exists()
+        return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()
 
     def get_live_events_token(self, team: Team) -> Optional[str]:
         return encode_jwt(
@@ -444,7 +457,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return updated_team
 
 
-class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
     """
@@ -481,6 +494,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         permissions: list = [
             IsAuthenticated,
             APIScopePermission,
+            AccessControlPermission,
             PremiumMultiProjectPermissions,
             *self.permission_classes,
         ]
@@ -603,18 +617,28 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         product_type = request.data.get("product_type")
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
+        should_report_product_intent = False
 
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
-        if not created:
+
+        if created:
+            # For new intents, check activation immediately but skip reporting
+            was_already_activated = product_intent.check_and_update_activation(skip_reporting=True)
+            # Only report the action if they haven't already activated
+            if isinstance(user, User) and not was_already_activated:
+                should_report_product_intent = True
+        else:
             if not product_intent.activated_at:
-                product_intent.check_and_update_activation()
+                is_activated = product_intent.check_and_update_activation()
+                if not is_activated:
+                    should_report_product_intent = True
             product_intent.updated_at = datetime.now(tz=UTC)
             product_intent.save()
 
-        if isinstance(user, User) and not product_intent.activated_at:
+        if should_report_product_intent and isinstance(user, User):
             report_user_action(
                 user,
                 "user showed product intent",

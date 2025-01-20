@@ -26,7 +26,9 @@
     --insight-viz-min-height: min(calc(80vh - 6rem), 32rem);
 
     display: flex;
+    flex: 1;
     flex-direction: column;
+    min-height: 0;
 
     .NotebookNode &,
     .InsightCard &,

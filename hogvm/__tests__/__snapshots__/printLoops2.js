@@ -47,15 +47,8 @@ function __toHogDateTime(timestamp, zone) {
     return { __hogDateTime__: true, dt: timestamp, zone: zone || 'UTC' }; }
 function __toHogDate(year, month, day) { return { __hogDate__: true, year: year, month: month, day: day, } }
 function __setProperty(objectOrArray, key, value) {
-    if (Array.isArray(objectOrArray)) {
-        if (key > 0) {
-            objectOrArray[key - 1] = value
-        } else {
-            objectOrArray[objectOrArray.length + key] = value
-        }
-    } else {
-        objectOrArray[key] = value
-    }
+    if (Array.isArray(objectOrArray)) { if (key > 0) { objectOrArray[key - 1] = value } else { objectOrArray[objectOrArray.length + key] = value } }
+    else { objectOrArray[key] = value }
     return objectOrArray
 }
 function __newHogError(type, message, payload) {

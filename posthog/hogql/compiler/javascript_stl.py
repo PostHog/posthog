@@ -6,7 +6,11 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         ["__STLToString"],
     ],
     "match": [
-        "function match (str, pattern) { return new RegExp(pattern).test(str) }",
+        "function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }",
+        [],
+    ],
+    "__imatch": [
+        "function __imatch (str, pattern) { return !str || !pattern ? false : new RegExp(pattern, 'i').test(str) }",
         [],
     ],
     "like": [
@@ -49,6 +53,14 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     ],
     "ifNull": [
         "function ifNull (value, defaultValue) { return value !== null ? value : defaultValue } ",
+        [],
+    ],
+    "isNull": [
+        "function isNull (value) { return value === null || value === undefined }",
+        [],
+    ],
+    "isNotNull": [
+        "function isNotNull (value) { return value !== null && value !== undefined }",
         [],
     ],
     "length": [
@@ -825,11 +837,8 @@ function __like(str, pattern, caseInsensitive = false) {
         """
 function __getProperty(objectOrArray, key, nullish) {
     if ((nullish && !objectOrArray) || key === 0) { return null }
-    if (Array.isArray(objectOrArray)) {
-        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
-    } else {
-        return objectOrArray[key]
-    }
+    if (Array.isArray(objectOrArray)) { return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key] }
+    else { return objectOrArray[key] }
 }
 """,
         [],
@@ -837,15 +846,8 @@ function __getProperty(objectOrArray, key, nullish) {
     "__setProperty": [
         """
 function __setProperty(objectOrArray, key, value) {
-    if (Array.isArray(objectOrArray)) {
-        if (key > 0) {
-            objectOrArray[key - 1] = value
-        } else {
-            objectOrArray[objectOrArray.length + key] = value
-        }
-    } else {
-        objectOrArray[key] = value
-    }
+    if (Array.isArray(objectOrArray)) { if (key > 0) { objectOrArray[key - 1] = value } else { objectOrArray[objectOrArray.length + key] = value } }
+    else { objectOrArray[key] = value }
     return objectOrArray
 }
 """,
@@ -854,6 +856,474 @@ function __setProperty(objectOrArray, key, value) {
     "__lambda": [
         """function __lambda (fn) { return fn }""",
         [],
+    ],
+    "__toHogInterval": [
+        """function __toHogInterval(value, unit) {
+    return { __hogInterval__: true, value: value, unit: unit };
+}""",
+        [],
+    ],
+    "__isHogInterval": [
+        """function __isHogInterval(obj) { return obj && obj.__hogInterval__ === true }""",
+        [],
+    ],
+    "__applyIntervalToDateTime": [
+        """function __applyIntervalToDateTime(base, interval) {
+    // base can be HogDate or HogDateTime
+    if (!(__isHogDate(base) || __isHogDateTime(base))) {
+        throw new Error("Expected a HogDate or HogDateTime");
+    }
+
+    let zone = __isHogDateTime(base) ? (base.zone || 'UTC') : 'UTC';
+
+    function toDate(obj) {
+        if (__isHogDateTime(obj)) {
+            return new Date(obj.dt * 1000);
+        } else {
+            return new Date(Date.UTC(obj.year, obj.month - 1, obj.day));
+        }
+    }
+
+    const dt = toDate(base);
+    const value = interval.value;
+    let unit = interval.unit;
+
+    // Expand weeks/years if needed
+    if (unit === 'week') {
+        unit = 'day';
+        interval.value = value * 7;
+    } else if (unit === 'year') {
+        unit = 'month';
+        interval.value = value * 12;
+    }
+
+    let year = dt.getUTCFullYear();
+    let month = dt.getUTCMonth() + 1;
+    let day = dt.getUTCDate();
+    let hours = dt.getUTCHours();
+    let minutes = dt.getUTCMinutes();
+    let seconds = dt.getUTCSeconds();
+    let ms = dt.getUTCMilliseconds();
+
+    if (unit === 'day') {
+        day += interval.value;
+    } else if (unit === 'hour') {
+        hours += interval.value;
+    } else if (unit === 'minute') {
+        minutes += interval.value;
+    } else if (unit === 'second') {
+        seconds += interval.value;
+    } else if (unit === 'month') {
+        month += interval.value;
+        // Adjust year and month
+        year += Math.floor((month - 1) / 12);
+        month = ((month - 1) % 12) + 1;
+        // If day is invalid for the new month, clamp it
+        let maxDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+        if (day > maxDay) { day = maxDay; }
+    } else {
+        throw new Error("Unsupported interval unit: " + unit);
+    }
+
+    const newDt = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds, ms));
+
+    if (__isHogDate(base)) {
+        return __toHogDate(newDt.getUTCFullYear(), newDt.getUTCMonth() + 1, newDt.getUTCDate());
+    } else {
+        return __toHogDateTime(newDt.getTime() / 1000, zone);
+    }
+}""",
+        ["__isHogDate", "__isHogDateTime", "__toHogDate", "__toHogDateTime"],
+    ],
+    "JSONExtractArrayRaw": [
+        """function JSONExtractArrayRaw(obj, ...path) {
+    try {
+        if (typeof obj === 'string') { obj = JSON.parse(obj); }
+    } catch (e) { return null; }
+    const val = __getNestedValue(obj, path, true);
+    return Array.isArray(val) ? val : null;
+}""",
+        ["__getNestedValue"],
+    ],
+    "JSONExtractFloat": [
+        """function JSONExtractFloat(obj, ...path) {
+    try {
+        if (typeof obj === 'string') { obj = JSON.parse(obj); }
+    } catch (e) { return null; }
+    const val = __getNestedValue(obj, path, true);
+    const f = parseFloat(val);
+    return isNaN(f) ? null : f;
+}""",
+        ["__getNestedValue"],
+    ],
+    "JSONExtractInt": [
+        """function JSONExtractInt(obj, ...path) {
+    try {
+        if (typeof obj === 'string') { obj = JSON.parse(obj); }
+    } catch (e) { return null; }
+    const val = __getNestedValue(obj, path, true);
+    const i = parseInt(val);
+    return isNaN(i) ? null : i;
+}""",
+        ["__getNestedValue"],
+    ],
+    "JSONExtractString": [
+        """function JSONExtractString(obj, ...path) {
+    try {
+        if (typeof obj === 'string') { obj = JSON.parse(obj); }
+    } catch (e) { return null; }
+    const val = __getNestedValue(obj, path, true);
+    return val != null ? String(val) : null;
+}""",
+        ["__getNestedValue"],
+    ],
+    "addDays": [
+        """function addDays(dateOrDt, days) {
+    const interval = __toHogInterval(days, 'day');
+    return __applyIntervalToDateTime(dateOrDt, interval);
+}""",
+        ["__toHogInterval", "__applyIntervalToDateTime"],
+    ],
+    "assumeNotNull": [
+        """function assumeNotNull(value) {
+    if (value === null || value === undefined) {
+        throw new Error("Value is null in assumeNotNull");
+    }
+    return value;
+}""",
+        [],
+    ],
+    "coalesce": [
+        """function coalesce(...args) {
+    for (let a of args) {
+        if (a !== null && a !== undefined) return a;
+    }
+    return null;
+}""",
+        [],
+    ],
+    "dateAdd": [
+        """function dateAdd(unit, amount, datetime) {
+    // transform unit if needed (week -> day, year -> month)
+    if (unit === 'week') {
+        unit = 'day';
+        amount = amount * 7;
+    } else if (unit === 'year') {
+        unit = 'month';
+        amount = amount * 12;
+    }
+    const interval = __toHogInterval(amount, unit);
+    return __applyIntervalToDateTime(datetime, interval);
+}""",
+        ["__toHogInterval", "__applyIntervalToDateTime"],
+    ],
+    "dateDiff": [
+        """function dateDiff(unit, startVal, endVal) {
+    function toDateTime(obj) {
+        if (__isHogDateTime(obj)) {
+            return new Date(obj.dt * 1000);
+        } else if (__isHogDate(obj)) {
+            return new Date(Date.UTC(obj.year, obj.month - 1, obj.day));
+        } else {
+            return new Date(obj);
+        }
+    }
+    const start = toDateTime(startVal);
+    const end = toDateTime(endVal);
+    const diffMs = end - start;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (unit === 'day') {
+        return diffDays;
+    } else if (unit === 'hour') {
+        return Math.floor(diffMs / (1000 * 60 * 60));
+    } else if (unit === 'minute') {
+        return Math.floor(diffMs / (1000 * 60));
+    } else if (unit === 'second') {
+        return Math.floor(diffMs / 1000);
+    } else if (unit === 'week') {
+        return Math.floor(diffDays / 7);
+    } else if (unit === 'month') {
+        // Approx months difference
+        const sy = start.getUTCFullYear();
+        const sm = start.getUTCMonth() + 1;
+        const ey = end.getUTCFullYear();
+        const em = end.getUTCMonth() + 1;
+        return (ey - sy)*12 + (em - sm);
+    } else if (unit === 'year') {
+        return end.getUTCFullYear() - start.getUTCFullYear();
+    } else {
+        throw new Error("Unsupported unit for dateDiff: " + unit);
+    }
+}""",
+        ["__isHogDateTime", "__isHogDate"],
+    ],
+    "dateTrunc": [
+        """function dateTrunc(unit, val) {
+    if (!__isHogDateTime(val)) {
+        throw new Error('Expected a DateTime for dateTrunc');
+    }
+    const zone = val.zone || 'UTC';
+    const date = new Date(val.dt * 1000);
+    let year = date.getUTCFullYear();
+    let month = date.getUTCMonth();
+    let day = date.getUTCDate();
+    let hour = date.getUTCHours();
+    let minute = date.getUTCMinutes();
+    let second = 0;
+    let ms = 0;
+
+    if (unit === 'year') {
+        month = 0; day = 1; hour = 0; minute = 0; second = 0;
+    } else if (unit === 'month') {
+        day = 1; hour = 0; minute = 0; second = 0;
+    } else if (unit === 'day') {
+        hour = 0; minute = 0; second = 0;
+    } else if (unit === 'hour') {
+        minute = 0; second = 0;
+    } else if (unit === 'minute') {
+        second = 0;
+    } else {
+        throw new Error("Unsupported unit for dateTrunc: " + unit);
+    }
+
+    const truncated = new Date(Date.UTC(year, month, day, hour, minute, second, ms));
+    return { __hogDateTime__: true, dt: truncated.getTime()/1000, zone: zone };
+}""",
+        ["__isHogDateTime"],
+    ],
+    "equals": [
+        """function equals(a, b) { return a === b }""",
+        [],
+    ],
+    "extract": [
+        """function extract(part, val) {
+    function toDate(obj) {
+        if (__isHogDateTime(obj)) {
+            return new Date(obj.dt * 1000);
+        } else if (__isHogDate(obj)) {
+            return new Date(Date.UTC(obj.year, obj.month - 1, obj.day));
+        } else {
+            return new Date(obj);
+        }
+    }
+    const date = toDate(val);
+    if (part === 'year') return date.getUTCFullYear();
+    else if (part === 'month') return date.getUTCMonth() + 1;
+    else if (part === 'day') return date.getUTCDate();
+    else if (part === 'hour') return date.getUTCHours();
+    else if (part === 'minute') return date.getUTCMinutes();
+    else if (part === 'second') return date.getUTCSeconds();
+    else throw new Error("Unknown extract part: " + part);
+}""",
+        ["__isHogDateTime", "__isHogDate"],
+    ],
+    "floor": [
+        "function floor(a) { return Math.floor(a) }",
+        [],
+    ],
+    "greater": [
+        "function greater(a, b) { return a > b }",
+        [],
+    ],
+    "greaterOrEquals": [
+        "function greaterOrEquals(a, b) { return a >= b }",
+        [],
+    ],
+    "if": [
+        "function __x_if(condition, thenVal, elseVal) { return condition ? thenVal : elseVal }",
+        [],
+    ],
+    "in": [
+        """function __x_in(val, arr) {
+    if (Array.isArray(arr) || (arr && arr.__isHogTuple)) {
+        return arr.includes(val);
+    }
+    return false;
+}""",
+        [],
+    ],
+    "less": [
+        "function less(a, b) { return a < b }",
+        [],
+    ],
+    "lessOrEquals": [
+        "function lessOrEquals(a, b) { return a <= b }",
+        [],
+    ],
+    "min2": [
+        "function min2(a, b) { return a < b ? a : b }",
+        [],
+    ],
+    "minus": [
+        "function minus(a, b) { return a - b }",
+        [],
+    ],
+    "multiIf": [
+        """function multiIf(...args) {
+    // multiIf(cond1,val1, cond2,val2, ..., default)
+    const defaultVal = args[args.length-1];
+    const pairs = args.slice(0, -1);
+    for (let i=0; i<pairs.length; i+=2) {
+        if (pairs[i]) { return pairs[i+1]; }
+    }
+    return defaultVal;
+}""",
+        [],
+    ],
+    "not": [
+        "function not(a) { return !a }",
+        [],
+    ],
+    "notEquals": [
+        "function notEquals(a, b) { return a !== b }",
+        [],
+    ],
+    "and": [
+        "function and(...args) { return args.every(Boolean) }",
+        [],
+    ],
+    "or": [
+        "function or(...args) { return args.some(Boolean) }",
+        [],
+    ],
+    "plus": [
+        "function plus(a, b) { return a + b }",
+        [],
+    ],
+    "range": [
+        """function range(...args) {
+    if (args.length === 1) {
+        const end = args[0];
+        return Array.from({length:end}, (_,i)=>i);
+    } else {
+        const start = args[0];
+        const end = args[1];
+        return Array.from({length:end - start}, (_,i)=>start+i);
+    }
+}""",
+        [],
+    ],
+    "round": [
+        "function round(a) { return Math.round(a) }",
+        [],
+    ],
+    "startsWith": [
+        """function startsWith(str, prefix) {
+    return typeof str === 'string' && typeof prefix === 'string' && str.startsWith(prefix);
+}""",
+        [],
+    ],
+    "substring": [
+        """function substring(s, start, length) {
+    if (typeof s !== 'string') return '';
+    const startIdx = start - 1;
+    if (startIdx < 0 || length < 0) return '';
+    const endIdx = startIdx + length;
+    return startIdx < s.length ? s.slice(startIdx, endIdx) : '';
+}""",
+        [],
+    ],
+    "toIntervalDay": [
+        """function toIntervalDay(val) { return __toHogInterval(val, 'day') }""",
+        ["__toHogInterval"],
+    ],
+    "toIntervalHour": [
+        """function toIntervalHour(val) { return __toHogInterval(val, 'hour') }""",
+        ["__toHogInterval"],
+    ],
+    "toIntervalMinute": [
+        """function toIntervalMinute(val) { return __toHogInterval(val, 'minute') }""",
+        ["__toHogInterval"],
+    ],
+    "toIntervalMonth": [
+        """function toIntervalMonth(val) { return __toHogInterval(val, 'month') }""",
+        ["__toHogInterval"],
+    ],
+    "toMonth": [
+        "function toMonth(value) { return extract('month', value) }",
+        ["extract"],
+    ],
+    "toStartOfDay": [
+        """function toStartOfDay(value) {
+    if (!__isHogDateTime(value) && !__isHogDate(value)) {
+        throw new Error('Expected HogDate or HogDateTime for toStartOfDay');
+    }
+    if (__isHogDate(value)) {
+        value = __toHogDateTime(Date.UTC(value.year, value.month-1, value.day)/1000, 'UTC');
+    }
+    return dateTrunc('day', value);
+}""",
+        ["__isHogDateTime", "__isHogDate", "__toHogDateTime", "dateTrunc"],
+    ],
+    "toStartOfHour": [
+        """function toStartOfHour(value) {
+    if (!__isHogDateTime(value) && !__isHogDate(value)) {
+        throw new Error('Expected HogDate or HogDateTime for toStartOfHour');
+    }
+    if (__isHogDate(value)) {
+        value = __toHogDateTime(Date.UTC(value.year, value.month-1, value.day)/1000, 'UTC');
+    }
+    return dateTrunc('hour', value);
+}""",
+        ["__isHogDateTime", "__isHogDate", "__toHogDateTime", "dateTrunc"],
+    ],
+    "toStartOfMonth": [
+        """function toStartOfMonth(value) {
+    if (!__isHogDateTime(value) && !__isHogDate(value)) {
+        throw new Error('Expected HogDate or HogDateTime');
+    }
+    if (__isHogDate(value)) {
+        value = __toHogDateTime(Date.UTC(value.year, value.month-1, value.day)/1000, 'UTC');
+    }
+    return dateTrunc('month', value);
+}""",
+        ["__isHogDateTime", "__isHogDate", "__toHogDateTime", "dateTrunc"],
+    ],
+    "toStartOfWeek": [
+        """function toStartOfWeek(value) {
+    if (!__isHogDateTime(value) && !__isHogDate(value)) {
+        throw new Error('Expected HogDate or HogDateTime');
+    }
+    let d;
+    if (__isHogDate(value)) {
+        d = new Date(Date.UTC(value.year, value.month - 1, value.day));
+    } else {
+        d = new Date(value.dt * 1000);
+    }
+    // Monday=1,... Sunday=7
+    // getUTCDay(): Sunday=0,... Saturday=6
+    // We want ISO weekday: Monday=1,... Sunday=7
+    let dayOfWeek = d.getUTCDay(); // Sunday=0,...
+    let isoWeekday = dayOfWeek === 0 ? 7 : dayOfWeek;
+
+    // subtract isoWeekday-1 days
+    const start = new Date(d.getTime() - (isoWeekday - 1) * 24 * 3600 * 1000);
+
+    // Zero out hours, minutes, seconds, ms
+    start.setUTCHours(0, 0, 0, 0);
+
+    return { __hogDateTime__: true, dt: start.getTime() / 1000, zone: (__isHogDateTime(value) ? value.zone : 'UTC') };
+}""",
+        ["__isHogDateTime", "__isHogDate"],
+    ],
+    "toYYYYMM": [
+        """function toYYYYMM(value) {
+    const y = extract('year', value);
+    const m = extract('month', value);
+    return y*100 + m;
+}""",
+        ["extract"],
+    ],
+    "toYear": [
+        "function toYear(value) { return extract('year', value) }",
+        ["extract"],
+    ],
+    "today": [
+        """function today() {
+    const now = new Date();
+    return __toHogDate(now.getUTCFullYear(), now.getUTCMonth()+1, now.getUTCDate());
+}""",
+        ["__toHogDate"],
     ],
 }
 

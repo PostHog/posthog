@@ -8,6 +8,7 @@ from posthog.schema import (
     CustomChannelRule,
     CustomChannelOperator,
     CustomChannelField,
+    DefaultChannelTypes,
 )
 
 
@@ -32,6 +33,9 @@ class ChannelTypeExprs:
     medium: ast.Expr
     campaign: ast.Expr
     referring_domain: ast.Expr
+    url: ast.Expr
+    hostname: ast.Expr
+    pathname: ast.Expr
     gclid: ast.Expr
     gad_source: ast.Expr
 
@@ -67,6 +71,12 @@ def create_initial_channel_type(name: str, custom_rules: Optional[list[CustomCha
                 referring_domain=ast.Call(
                     name="toString", args=[ast.Field(chain=["properties", "$initial_referring_domain"])]
                 ),
+                url=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_url"])]),
+                hostname=ast.Call(
+                    name="domain",
+                    args=[ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_hostname"])])],
+                ),
+                pathname=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_pathname"])]),
                 gclid=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gclid"])]),
                 gad_source=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gad_source"])]),
             ),
@@ -147,13 +157,19 @@ def custom_condition_to_expr(
 
 def custom_rule_to_expr(custom_rule: CustomChannelRule, source_exprs: ChannelTypeExprs) -> ast.Expr:
     conditions: list[Union[ast.Expr | ast.Call]] = []
-    for condition in custom_rule.conditions:
+    for condition in custom_rule.items:
         if condition.key == CustomChannelField.UTM_SOURCE:
             expr = source_exprs.source
         elif condition.key == CustomChannelField.UTM_MEDIUM:
             expr = source_exprs.medium
         elif condition.key == CustomChannelField.UTM_CAMPAIGN:
             expr = source_exprs.campaign
+        elif condition.key == CustomChannelField.URL:
+            expr = source_exprs.url
+        elif condition.key == CustomChannelField.HOSTNAME:
+            expr = source_exprs.hostname
+        elif condition.key == CustomChannelField.PATHNAME:
+            expr = source_exprs.pathname
         elif condition.key == CustomChannelField.REFERRING_DOMAIN:
             expr = source_exprs.referring_domain
         else:
@@ -288,23 +304,4 @@ multiIf(
         return builtin_rules
 
 
-POSSIBLE_CHANNEL_TYPES = [
-    "Cross Network",
-    "Paid Search",
-    "Paid Social",
-    "Paid Video",
-    "Paid Shopping",
-    "Paid Unknown",
-    "Direct",
-    "Organic Search",
-    "Organic Social",
-    "Organic Video",
-    "Organic Shopping",
-    "Push",
-    "SMS",
-    "Audio",
-    "Email",
-    "Referral",
-    "Affiliate",
-    "Unknown",
-]
+DEFAULT_CHANNEL_TYPES = [entry.value for entry in DefaultChannelTypes]

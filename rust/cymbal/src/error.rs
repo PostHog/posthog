@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::hack::js_data::JsDataError;
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error(transparent)]
@@ -20,7 +22,7 @@ pub enum UnhandledError {
     KafkaError(#[from] KafkaError),
     #[error("Sqlx error: {0}")]
     SqlxError(#[from] sqlx::Error),
-    #[error(transparent)]
+    #[error("S3 error: {0}")]
     S3Error(#[from] Box<aws_sdk_s3::Error>),
     #[error(transparent)]
     ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
@@ -48,6 +50,9 @@ pub enum JsResolveErr {
     // We failed to parse a found source map
     #[error("Invalid source map: {0}")]
     InvalidSourceMap(String),
+    // We failed to parse a found source map cache
+    #[error("Invalid source map cache: {0}")]
+    InvalidSourceMapCache(String),
     // We found and parsed the source map, but couldn't find our frames token in it
     #[error("Token not found for frame: {0}:{1}:{2}")]
     TokenNotFound(String, u32, u32),
@@ -80,6 +85,8 @@ pub enum JsResolveErr {
     // For redirect loops or too many redirects
     #[error("Redirect error while fetching: {0}")]
     RedirectError(String),
+    #[error("JSDataError: {0}")]
+    JSDataError(#[from] JsDataError),
 }
 
 #[derive(Debug, Error)]

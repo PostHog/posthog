@@ -7,6 +7,12 @@
     font-weight: 500;
     line-height: 1.5rem;
 
+    &:has(:focus-visible) {
+        .LemonCheckbox__box {
+            outline: -webkit-focus-ring-color auto 1px;
+        }
+    }
+
     .LemonCheckbox__input {
         width: 0 !important;
         height: 0 !important;
@@ -101,6 +107,13 @@
             label {
                 min-height: 2rem;
                 padding: 0 0.5rem;
+            }
+        }
+
+        &.LemonCheckbox--xsmall {
+            label {
+                min-height: 1.625rem;
+                padding: 0 0.375rem;
             }
         }
 

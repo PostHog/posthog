@@ -4,8 +4,9 @@ import { useActions, useValues } from 'kea'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, PipelineStage } from '~/types'
+import { AvailableFeature, HogFunctionTypeType, PipelineStage } from '~/types'
 
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { DestinationsFilters } from './DestinationsFilters'
@@ -13,20 +14,25 @@ import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { DestinationTag } from './DestinationTag'
 import { newDestinationsLogic } from './newDestinationsLogic'
 
-export function NewDestinations(): JSX.Element {
+export interface NewDestinationsProps {
+    types: HogFunctionTypeType[]
+}
+
+export function NewDestinations({ types }: NewDestinationsProps): JSX.Element {
     return (
         <div className="space-y-2">
-            <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
-            <DestinationsFilters hideShowPaused />
-            <DestinationOptionsTable />
+            {types.includes('destination') ? <PayGateMini feature={AvailableFeature.DATA_PIPELINES} /> : null}
+            <DestinationsFilters types={types} hideShowPaused />
+            <DestinationOptionsTable types={types} />
         </div>
     )
 }
 
-export function DestinationOptionsTable(): JSX.Element {
-    const { loading, filteredDestinations, hiddenDestinations } = useValues(newDestinationsLogic)
+export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.Element {
+    const { loading, filteredDestinations, hiddenDestinations } = useValues(newDestinationsLogic({ types }))
     const { canEnableDestination } = useValues(pipelineAccessLogic)
-    const { resetFilters } = useActions(destinationsFiltersLogic)
+    const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
+    const { user } = useValues(userLogic)
 
     return (
         <>
@@ -71,15 +77,22 @@ export function DestinationOptionsTable(): JSX.Element {
                                     type="primary"
                                     data-attr={`new-${PipelineStage.Destination}`}
                                     icon={<IconPlusSmall />}
-                                    // Preserve hash params to pass config in
                                     to={target.url}
-                                    fullWidth
                                 >
                                     Create
                                 </LemonButton>
                             ) : (
-                                <span className="whitespace-nowrap">
+                                <span className="flex items-center gap-2 whitespace-nowrap">
                                     <PayGateButton feature={AvailableFeature.DATA_PIPELINES} type="secondary" />
+                                    {/* Allow staff users to create destinations */}
+                                    {user?.is_impersonated && (
+                                        <LemonButton
+                                            type="primary"
+                                            icon={<IconPlusSmall />}
+                                            tooltip="Staff users can create destinations as an override"
+                                            to={target.url}
+                                        />
+                                    )}
                                 </span>
                             )
                         },

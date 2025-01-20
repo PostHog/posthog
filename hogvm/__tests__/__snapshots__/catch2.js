@@ -2,11 +2,8 @@ function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function concat (...args) { return args.map((arg) => (arg === null ? '' : __STLToString(arg))).join('') }
 function __getProperty(objectOrArray, key, nullish) {
     if ((nullish && !objectOrArray) || key === 0) { return null }
-    if (Array.isArray(objectOrArray)) {
-        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
-    } else {
-        return objectOrArray[key]
-    }
+    if (Array.isArray(objectOrArray)) { return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key] }
+    else { return objectOrArray[key] }
 }
 function __STLToString(arg) {
     if (arg && __isHogDate(arg)) { return `${arg.year}-${arg.month.toString().padStart(2, '0')}-${arg.day.toString().padStart(2, '0')}`; }

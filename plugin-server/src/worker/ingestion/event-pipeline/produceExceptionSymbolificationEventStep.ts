@@ -9,7 +9,7 @@ export function produceExceptionSymbolificationEventStep(
     const ack = runner.hub.kafkaProducer
         .produce({
             topic: runner.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
-            key: event.uuid,
+            key: String(event.team_id),
             value: Buffer.from(JSON.stringify(event)),
             waitForAck: true,
         })

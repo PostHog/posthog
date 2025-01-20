@@ -24,6 +24,7 @@ from posthog.test.base import (
     QueryMatchingTest,
     snapshot_postgres_queries,
 )
+from ee.models.rbac.access_control import AccessControl
 
 valid_template: dict = {
     "template_name": "Sign up conversion template with variables",
@@ -267,19 +268,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            with self.assertNumQueries(11):
+            baseline = 3
+
+            with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(baseline + 10 + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(baseline + 10 + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(baseline + 10 + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -296,7 +299,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(9):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
@@ -304,7 +307,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(FuzzyInt(8, 9)):
+            with self.assertNumQueries(FuzzyInt(10, 11)):
                 self.dashboard_api.list_dashboards(query_params={"limit": 300})
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:
@@ -1311,7 +1314,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "effective_privilege_level": 37,
                     "effective_restriction_level": 21,
                     "favorited": False,
-                    "filters": {"filter_test_accounts": True},
+                    "filters": {},
                     "filters_hash": ANY,
                     "hasMore": None,
                     "id": ANY,
@@ -1339,6 +1342,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "tags": [],
                     "timezone": None,
                     "updated_at": ANY,
+                    "user_access_level": "editor",
                     "hogql": ANY,
                     "types": ANY,
                 },
@@ -1441,3 +1445,37 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert value["code_name"] == variable.code_name
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "some override value"
+
+    def test_dashboard_access_control_filtering(self) -> None:
+        """Test that dashboards are properly filtered based on access control."""
+
+        user2 = User.objects.create_and_join(self.organization, "test2@posthog.com", None)
+
+        visible_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Public Dashboard",
+            created_by=self.user,
+        )
+        hidden_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Hidden Dashboard",
+            created_by=self.user,
+        )
+        AccessControl.objects.create(
+            resource="dashboard", resource_id=hidden_dashboard.id, team=self.team, access_level="none"
+        )
+
+        # Verify we can access visible dashboards
+        self.client.force_login(user2)
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboards/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dashboard_ids = [dashboard["id"] for dashboard in response.json()["results"]]
+        self.assertIn(visible_dashboard.id, dashboard_ids)
+        self.assertNotIn(hidden_dashboard.id, dashboard_ids)
+
+        # Verify we can access all dashboards as creator
+        self.client.force_login(self.user)
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboards/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(visible_dashboard.id, [dashboard["id"] for dashboard in response.json()["results"]])
+        self.assertIn(hidden_dashboard.id, [dashboard["id"] for dashboard in response.json()["results"]])

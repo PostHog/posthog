@@ -22,7 +22,7 @@ jobs:
     posthog_build:
         name: Build and push PostHog
         if: github.repository == 'PostHog/posthog'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -30,12 +30,12 @@ jobs:
 
         steps:
             - name: Check out
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
               with:
                   fetch-depth: 2
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v2
+              uses: docker/setup-buildx-action@v3
 
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v3
@@ -134,7 +134,7 @@ jobs:
               run: |
                   echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/batch_exports|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$|^requirements.txt$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
-            - name: Trigger Batch Exports Temporal Worker Cloud deployment
+            - name: Trigger Batch Exports Sync Temporal Worker Cloud deployment
               if: steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@v3
               with:
@@ -149,6 +149,27 @@ jobs:
                           }
                         },
                         "release": "temporal-worker",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Trigger Batch Exports Temporal Worker Cloud deployment
+              if: steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-batch-exports",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
@@ -204,5 +225,52 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Trigger Data Warehouse V2 Temporal Worker Cloud deployment
+              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-data-warehouse-v2",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Check for changes that affect dagster code locations
+              id: check_changes_dagster_code_location
+              run: |
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^dags/' && echo true) || echo false)" >> $GITHUB_OUTPUT
+
+            - name: Trigger Dagster Code Location Reload
+              if: steps.check_changes_dagster_code_location.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: restart_dagster_code_location
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "dagster-code-location",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ toJson(steps.labels.outputs.labels) }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

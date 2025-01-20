@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use axum::async_trait;
 
-use ::sourcemap::SourceMap;
 use reqwest::Url;
+use sourcemap::OwnedSourceMapCache;
 
 use crate::error::Error;
 
@@ -50,18 +50,18 @@ pub trait Provider: Send + Sync + 'static {
 
 pub struct Catalog {
     // "source map provider"
-    pub smp: Box<dyn Provider<Ref = Url, Set = SourceMap>>,
+    pub smp: Box<dyn Provider<Ref = Url, Set = OwnedSourceMapCache>>,
 }
 
 impl Catalog {
-    pub fn new(smp: impl Provider<Ref = Url, Set = SourceMap>) -> Self {
+    pub fn new(smp: impl Provider<Ref = Url, Set = OwnedSourceMapCache>) -> Self {
         Self { smp: Box::new(smp) }
     }
 }
 
 #[async_trait]
-impl SymbolCatalog<Url, SourceMap> for Catalog {
-    async fn lookup(&self, team_id: i32, r: Url) -> Result<Arc<SourceMap>, Error> {
+impl SymbolCatalog<Url, OwnedSourceMapCache> for Catalog {
+    async fn lookup(&self, team_id: i32, r: Url) -> Result<Arc<OwnedSourceMapCache>, Error> {
         self.smp.lookup(team_id, r).await
     }
 }

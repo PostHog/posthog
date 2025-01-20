@@ -55,7 +55,7 @@ select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
 
-subsequentSelectSetClause: (EXCEPT | UNION ALL | INTERSECT) selectStmtWithParens;
+subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
 selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 
 selectStmt:

@@ -30,7 +30,7 @@ if E2E_TESTING:
     )
 
 IS_COLLECT_STATIC = len(sys.argv) > 1 and sys.argv[1] == "collectstatic"
-
+SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type_cast=str)
 
 if DEBUG and not TEST:
     logger.warning(

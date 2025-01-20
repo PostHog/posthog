@@ -142,6 +142,12 @@ export const Experiments = (): JSX.Element => {
     return <BasicTemplate menu="experiments" />
 }
 
+export const ExperimentsDisabledInParent = (): JSX.Element => {
+    // fake that the host site posthog config disables web experiments
+    window.parent.posthog = { config: { disable_web_experiments: true } }
+    return <BasicTemplate menu="experiments" />
+}
+
 // Dark theme
 export const DefaultDark = (): JSX.Element => {
     return <BasicTemplate theme="dark" />

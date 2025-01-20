@@ -65,7 +65,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                             setTeamPropertiesForProduct(product.type as ProductKey)
                             addProductIntent({
                                 product_type: product.type as ProductKey,
-                                intent_context: 'onboarding product selected',
+                                intent_context: 'onboarding product selected - primary',
                             })
                             goToNextStep()
                         }}
@@ -85,7 +85,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                             setTeamPropertiesForProduct(product.type as ProductKey)
                             addProductIntent({
                                 product_type: product.type as ProductKey,
-                                intent_context: 'onboarding product selected',
+                                intent_context: 'onboarding product selected - secondary',
                             })
                             completeOnboarding()
                         }}
@@ -100,7 +100,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                                 setTeamPropertiesForProduct(product.type as ProductKey)
                                 addProductIntent({
                                     product_type: product.type as ProductKey,
-                                    intent_context: 'onboarding product selected',
+                                    intent_context: 'onboarding product selected - secondary',
                                 })
                                 goToNextStep()
                             }}
@@ -195,7 +195,7 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
     return (
         <OnboardingStep title="Product Intro" stepKey={stepKey} continueOverride={<></>} hideHeader>
             {billingProduct ? (
-                <div className="unsubscribed-product-landing-page -m-6 -mt-8">
+                <div className="unsubscribed-product-landing-page -m-scene-padding -mt-8">
                     <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center p-8">
                         <div className="grid md:grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
                             <div className="">

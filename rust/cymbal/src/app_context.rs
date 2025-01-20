@@ -1,7 +1,7 @@
 use aws_config::{BehaviorVersion, Region};
 use common_kafka::{
-    kafka_consumer::SingleTopicConsumer, kafka_producer::create_kafka_producer,
-    kafka_producer::KafkaContext,
+    kafka_consumer::SingleTopicConsumer,
+    kafka_producer::{create_kafka_producer, KafkaContext},
 };
 use health::{HealthHandle, HealthRegistry};
 use rdkafka::producer::FutureProducer;
@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 use tracing::info;
 
 use crate::{
-    config::Config,
+    config::{init_global_state, Config},
     error::UnhandledError,
     frames::resolver::Resolver,
     symbol_store::{
@@ -36,6 +36,7 @@ pub struct AppContext {
 
 impl AppContext {
     pub async fn new(config: &Config) -> Result<Self, UnhandledError> {
+        init_global_state(config);
         let health_registry = HealthRegistry::new("liveness");
         let worker_liveness = health_registry
             .register("worker".to_string(), Duration::from_secs(60))

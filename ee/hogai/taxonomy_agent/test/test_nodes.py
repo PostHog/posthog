@@ -11,12 +11,14 @@ from ee.hogai.taxonomy_agent.nodes import (
     TaxonomyAgentPlannerToolsNode,
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
-from ee.hogai.utils import AssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from posthog.models import GroupTypeMapping
 from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
+    RouterMessage,
     VisualizationMessage,
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
@@ -35,7 +37,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def _get_node(self):
         class Node(TaxonomyAgentPlannerNode):
-            def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+            def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
                 prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages([("user", "test")])
                 toolkit = DummyToolkit(self._team)
                 return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
@@ -44,19 +46,20 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_agent_reconstructs_conversation(self):
         node = self._get_node()
-        history = node._construct_messages({"messages": [HumanMessage(content="Text")]})
+        history = node._construct_messages(AssistantState(messages=[HumanMessage(content="Text")]))
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].type, "human")
         self.assertIn("Text", history[0].content)
         self.assertNotIn(f"{{question}}", history[0].content)
 
         history = node._construct_messages(
-            {
-                "messages": [
-                    HumanMessage(content="Text"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan"),
-                ]
-            }
+            AssistantState(
+                messages=[
+                    HumanMessage(content="Text", id="0"),
+                    VisualizationMessage(answer=self.schema, plan="randomplan", id="1", initiator="0"),
+                ],
+                start_id="1",
+            )
         )
         self.assertEqual(len(history), 2)
         self.assertEqual(history[0].type, "human")
@@ -66,13 +69,14 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(history[1].content, "randomplan")
 
         history = node._construct_messages(
-            {
-                "messages": [
-                    HumanMessage(content="Text"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan"),
-                    HumanMessage(content="Text"),
-                ]
-            }
+            AssistantState(
+                messages=[
+                    HumanMessage(content="Text", id="0"),
+                    VisualizationMessage(answer=self.schema, plan="randomplan", id="1", initiator="0"),
+                    HumanMessage(content="Text", id="2"),
+                ],
+                start_id="2",
+            )
         )
         self.assertEqual(len(history), 3)
         self.assertEqual(history[0].type, "human")
@@ -87,12 +91,14 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
     def test_agent_reconstructs_conversation_and_omits_unknown_messages(self):
         node = self._get_node()
         history = node._construct_messages(
-            {
-                "messages": [
-                    HumanMessage(content="Text"),
-                    AssistantMessage(content="test"),
-                ]
-            }
+            AssistantState(
+                messages=[
+                    HumanMessage(content="Text", id="0"),
+                    RouterMessage(content="trends", id="1"),
+                    AssistantMessage(content="test", id="2"),
+                ],
+                start_id="0",
+            )
         )
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].type, "human")
@@ -102,18 +108,72 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
     def test_agent_reconstructs_conversation_with_failures(self):
         node = self._get_node()
         history = node._construct_messages(
-            {
-                "messages": [
+            AssistantState(
+                messages=[
                     HumanMessage(content="Text"),
                     FailureMessage(content="Error"),
                     HumanMessage(content="Text"),
-                ]
-            }
+                ],
+            )
         )
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].type, "human")
         self.assertIn("Text", history[0].content)
         self.assertNotIn("{{question}}", history[0].content)
+
+    def test_agent_reconstructs_typical_conversation(self):
+        node = self._get_node()
+        history = node._construct_messages(
+            AssistantState(
+                messages=[
+                    HumanMessage(content="Question 1", id="0"),
+                    RouterMessage(content="trends", id="1"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", id="2", initiator="0"),
+                    AssistantMessage(content="Summary 1", id="3"),
+                    HumanMessage(content="Question 2", id="4"),
+                    RouterMessage(content="funnel", id="5"),
+                    AssistantMessage(content="Loop 1", id="6"),
+                    HumanMessage(content="Loop Answer 1", id="7"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", id="8", initiator="4"),
+                    AssistantMessage(content="Summary 2", id="9"),
+                    HumanMessage(content="Question 3", id="10"),
+                    RouterMessage(content="funnel", id="11"),
+                ],
+                start_id="10",
+            )
+        )
+        self.assertEqual(len(history), 7)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("Question 1", history[0].content)
+        self.assertEqual(history[1].type, "ai")
+        self.assertEqual(history[1].content, "Plan 1")
+        self.assertEqual(history[2].type, "human")
+        self.assertIn("Question 2", history[2].content)
+        self.assertEqual(history[3].type, "ai")
+        self.assertEqual(history[3].content, "Loop 1")
+        self.assertEqual(history[4].type, "human")
+        self.assertEqual(history[4].content, "Loop Answer 1")
+        self.assertEqual(history[5].type, "ai")
+        self.assertEqual(history[5].content, "Plan 2")
+        self.assertEqual(history[6].type, "human")
+        self.assertIn("Question 3", history[6].content)
+
+    def test_agent_reconstructs_conversation_without_messages_after_parent(self):
+        node = self._get_node()
+        history = node._construct_messages(
+            AssistantState(
+                messages=[
+                    HumanMessage(content="Question 1", id="0"),
+                    RouterMessage(content="trends", id="1"),
+                    AssistantMessage(content="Loop 1", id="2"),
+                    HumanMessage(content="Loop Answer 1", id="3"),
+                ],
+                start_id="0",
+            )
+        )
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("Question 1", history[0].content)
 
     def test_agent_filters_out_low_count_events(self):
         _create_person(distinct_ids=["test"], team=self.team)
@@ -150,9 +210,9 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="I don't want to output an action.")),
         ):
             node = self._get_node()
-            state_update = node.run({"messages": [HumanMessage(content="Question")]}, {})
-            self.assertEqual(len(state_update["intermediate_steps"]), 1)
-            action, obs = state_update["intermediate_steps"][0]
+            state_update = node.run(AssistantState(messages=[HumanMessage(content="Question")]), {})
+            self.assertEqual(len(state_update.intermediate_steps), 1)
+            action, obs = state_update.intermediate_steps[0]
             self.assertIsNone(obs)
             self.assertIn("I don't want to output an action.", action.log)
             self.assertIn("Action:", action.log)
@@ -164,9 +224,9 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="Thought.\nAction: abc")),
         ):
             node = self._get_node()
-            state_update = node.run({"messages": [HumanMessage(content="Question")]}, {})
-            self.assertEqual(len(state_update["intermediate_steps"]), 1)
-            action, obs = state_update["intermediate_steps"][0]
+            state_update = node.run(AssistantState(messages=[HumanMessage(content="Question")]), {})
+            self.assertEqual(len(state_update.intermediate_steps), 1)
+            action, obs = state_update.intermediate_steps[0]
             self.assertIsNone(obs)
             self.assertIn("Thought.\nAction: abc", action.log)
             self.assertIn("action", action.tool_input)
@@ -188,39 +248,54 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             "retrieve_event_properties(event_name: str)", node._get_react_format_prompt(DummyToolkit(self.team))
         )
 
+    def test_property_filters_prompt(self):
+        GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="org", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="account", group_type_index=1)
+        node = self._get_node()
+        prompt = node._get_react_property_filters_prompt()
+        self.assertIn("org, account.", prompt)
+
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def _get_node(self):
         class Node(TaxonomyAgentPlannerToolsNode):
-            def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+            def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
                 toolkit = DummyToolkit(self._team)
                 return super()._run_with_toolkit(state, toolkit, config=config)
 
         return Node(self.team)
 
     def test_node_handles_action_name_validation_error(self):
-        state = {
-            "intermediate_steps": [(AgentAction(tool="does not exist", tool_input="input", log="log"), "test")],
-            "messages": [],
-        }
+        state = AssistantState(
+            intermediate_steps=[(AgentAction(tool="does not exist", tool_input="input", log="log"), "test")],
+            messages=[],
+        )
         node = self._get_node()
         state_update = node.run(state, {})
-        self.assertEqual(len(state_update["intermediate_steps"]), 1)
-        action, observation = state_update["intermediate_steps"][0]
+        self.assertEqual(len(state_update.intermediate_steps), 1)
+        action, observation = state_update.intermediate_steps[0]
         self.assertIsNotNone(observation)
         self.assertIn("<pydantic_exception>", observation)
 
     def test_node_handles_action_input_validation_error(self):
-        state = {
-            "intermediate_steps": [
+        state = AssistantState(
+            intermediate_steps=[
                 (AgentAction(tool="retrieve_entity_property_values", tool_input="input", log="log"), "test")
             ],
-            "messages": [],
-        }
+            messages=[],
+        )
         node = self._get_node()
         state_update = node.run(state, {})
-        self.assertEqual(len(state_update["intermediate_steps"]), 1)
-        action, observation = state_update["intermediate_steps"][0]
+        self.assertEqual(len(state_update.intermediate_steps), 1)
+        action, observation = state_update.intermediate_steps[0]
         self.assertIsNotNone(observation)
         self.assertIn("<pydantic_exception>", observation)
+
+    def test_router(self):
+        node = self._get_node()
+        self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Question")])), "continue")
+        self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Question")], plan="")), "continue")
+        self.assertEqual(
+            node.router(AssistantState(messages=[HumanMessage(content="Question")], plan="plan")), "plan_found"
+        )

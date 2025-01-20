@@ -16,6 +16,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
     "*": {
         "__dlt_id": StringDatabaseField(name="_dlt_id", hidden=True),
         "__dlt_load_id": StringDatabaseField(name="_dlt_load_id", hidden=True),
+        "__ph_debug": StringJSONDatabaseField(name="_ph_debug", hidden=True),
     },
     "stripe_account": {
         "id": StringDatabaseField(name="id"),
@@ -34,7 +35,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                        args=[ast.Field(chain=["__created"])],
                     )
                 ],
             ),
@@ -69,7 +70,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                        args=[ast.Field(chain=["__created"])],
                     )
                 ],
             ),
@@ -108,7 +109,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                        args=[ast.Field(chain=["__created"])],
                     )
                 ],
             ),
@@ -133,7 +134,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__period_start"])])],
+                        args=[ast.Field(chain=["__period_start"])],
                     )
                 ],
             ),
@@ -147,7 +148,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__period_end"])])],
+                        args=[ast.Field(chain=["__period_end"])],
                     )
                 ],
             ),
@@ -166,7 +167,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__effective_at"])])],
+                        args=[ast.Field(chain=["__effective_at"])],
                     )
                 ],
             ),
@@ -204,7 +205,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__webhooks_delivered_at"])])],
+                        args=[ast.Field(chain=["__webhooks_delivered_at"])],
                     )
                 ],
             ),
@@ -230,7 +231,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                        args=[ast.Field(chain=["__created"])],
                     )
                 ],
             ),
@@ -275,7 +276,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                        args=[ast.Field(chain=["__created"])],
                     )
                 ],
             ),
@@ -309,7 +310,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                        args=[ast.Field(chain=["__created"])],
                     )
                 ],
             ),
@@ -323,7 +324,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__updated"])])],
+                        args=[ast.Field(chain=["__updated"])],
                     )
                 ],
             ),
@@ -351,7 +352,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                        args=[ast.Field(chain=["__created"])],
                     )
                 ],
             ),
@@ -367,7 +368,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__ended_at"])])],
+                        args=[ast.Field(chain=["__ended_at"])],
                     )
                 ],
             ),
@@ -384,7 +385,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__start_date"])])],
+                        args=[ast.Field(chain=["__start_date"])],
                     )
                 ],
             ),
@@ -398,7 +399,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__canceled_at"])])],
+                        args=[ast.Field(chain=["__canceled_at"])],
                     )
                 ],
             ),
@@ -419,7 +420,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__current_period_start"])])],
+                        args=[ast.Field(chain=["__current_period_start"])],
                     )
                 ],
             ),
@@ -433,7 +434,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__current_period_end"])])],
+                        args=[ast.Field(chain=["__current_period_end"])],
                     )
                 ],
             ),
@@ -447,7 +448,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__billing_cycle_anchor"])])],
+                        args=[ast.Field(chain=["__billing_cycle_anchor"])],
                     )
                 ],
             ),
@@ -463,7 +464,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__trial_end"])])],
+                        args=[ast.Field(chain=["__trial_end"])],
                     )
                 ],
             ),
@@ -477,7 +478,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__trial_start"])])],
+                        args=[ast.Field(chain=["__trial_start"])],
                     )
                 ],
             ),
@@ -502,7 +503,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                        args=[ast.Field(chain=["__created"])],
                     )
                 ],
             ),
@@ -519,7 +520,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                 args=[
                     ast.Call(
                         name="toString",
-                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__available_on"])])],
+                        args=[ast.Field(chain=["__available_on"])],
                     )
                 ],
             ),
