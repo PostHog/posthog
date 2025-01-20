@@ -74,21 +74,21 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const destinationFilters: HogFunctionFiltersType | null =
         !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && showLinkedHogFunctions
             ? {
-                events: [
-                    {
-                        id: '$feature_enrollment_update',
-                        type: 'events',
-                        properties: [
-                            {
-                                key: '$feature_flag',
-                                value: [earlyAccessFeature.feature_flag.key],
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ],
-                    },
-                ],
-            }
+                  events: [
+                      {
+                          id: '$feature_enrollment_update',
+                          type: 'events',
+                          properties: [
+                              {
+                                  key: '$feature_flag',
+                                  value: [earlyAccessFeature.feature_flag.key],
+                                  operator: PropertyOperator.Exact,
+                                  type: PropertyFilterType.Event,
+                              },
+                          ],
+                      },
+                  ],
+              }
             : null
 
     return (
@@ -97,7 +97,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                 buttons={
                     !earlyAccessFeatureLoading ? (
                         earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability &&
-                            (isNewEarlyAccessFeature || isEditingFeature) ? (
+                        (isNewEarlyAccessFeature || isEditingFeature) ? (
                             <>
                                 <LemonButton
                                     type="secondary"
@@ -264,9 +264,9 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                             earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
                                                 ? 'warning'
                                                 : earlyAccessFeature.stage ===
-                                                    EarlyAccessFeatureStage.GeneralAvailability
-                                                    ? 'success'
-                                                    : 'default'
+                                                  EarlyAccessFeatureStage.GeneralAvailability
+                                                ? 'success'
+                                                : 'default'
                                         }
                                         className="mt-2 uppercase"
                                     >
