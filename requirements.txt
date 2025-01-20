@@ -559,7 +559,7 @@ pluggy==1.5.0
     # via dlt
 ply==3.11
     # via jsonpath-ng
-posthoganalytics==3.8.3
+posthoganalytics==3.8.4
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
