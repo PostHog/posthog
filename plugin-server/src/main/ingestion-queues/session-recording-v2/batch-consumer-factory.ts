@@ -27,7 +27,7 @@ export class DefaultBatchConsumerFactory implements BatchConsumerFactory {
         topic: string,
         eachBatch: EachBatchHandler
     ): Promise<BatchConsumer> {
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.kafkaConfig)
+        const connectionConfig = createRdConnectionConfigFromEnvVars(this.kafkaConfig, 'consumer')
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatch with context, then commits offsets for the batch.
         // the batch consumer reads from the session replay kafka cluster
