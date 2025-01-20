@@ -354,12 +354,12 @@
             "prettier --write"
         ],
         "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache frontend/**/src/**/* -c .eslintrc.js --fix",
-            "prettier --write"
+            "eslint --cache -c .eslintrc.js --fix frontend/src",
+            "prettier --write \"frontend/src/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
         ],
         "products/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache products/**/frontend/**/* -c .eslintrc.js --fix",
-            "prettier --write products"
+            "eslint --cache -c .eslintrc.js --fix products/**/frontend",
+            "prettier --write \"products/**/frontend/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
         ],
         "frontend/*.mjs": [
             "eslint -c .eslintrc.js --fix",
