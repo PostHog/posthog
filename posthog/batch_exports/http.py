@@ -423,8 +423,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         else:
             end_at = None
 
-        if start_at is not None:
-            # testing
+        if start_at is not None or end_at is not None:
             earliest_backfill_start_at = fetch_earliest_backfill_start_at(
                 team_id=self.team_id,
                 model=batch_export.model,
@@ -440,7 +439,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
                     f"{earliest_backfill_start_at.strftime('%Y-%m-%d %H:%M:%S')}",
                 )
 
-            if start_at < earliest_backfill_start_at:
+            if start_at is not None and start_at < earliest_backfill_start_at:
                 logger.info(
                     "Backfill start_at '%s' is before the earliest possible backfill start_at '%s', setting start_at "
                     "to earliest_backfill_start_at",
