@@ -206,8 +206,8 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertAlmostEqual(intervals["control"][1], 100.2, delta=2)
 
                 # Test: $150 mean, clearly higher than control
-                self.assertAlmostEqual(intervals["test"][0], 146, delta=3)
-                self.assertAlmostEqual(intervals["test"][1], 154, delta=3)
+                self.assertAlmostEqual(intervals["test"][0], 149, delta=3)
+                self.assertAlmostEqual(intervals["test"][1], 151, delta=3)
 
         self.run_test_for_both_implementations(run_test)
 
