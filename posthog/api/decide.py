@@ -254,7 +254,8 @@ def get_decide(request: HttpRequest):
                 request,
                 generate_exception_response(
                     "decide",
-                    f"Team with ID {team.id} cannot access the /decide endpoint. Please contact us at hey@posthog.com",
+                    f"Team with ID {team.id} cannot access the /decide endpoint."
+                    f"Please contact us at hey@posthog.com",
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 ),
             )
