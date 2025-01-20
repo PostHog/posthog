@@ -17,7 +17,7 @@
         "typescript:compile": "tsc -b",
         "typescript:check": "tsc --noEmit -p .",
         "compile": "pnpm typescript:compile",
-        "lint": "eslint .",
+        "lint": "nx lint",
         "lint:fix": "eslint --fix .",
         "prettier": "prettier --write .",
         "prettier:check": "prettier --check .",

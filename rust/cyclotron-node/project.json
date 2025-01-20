@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json.schemastore.org/nx",
+    "name": "cyclotron-node",
+    "sourceRoot": "./src",
+    "projectType": "library",
+    "targets": {
+        "build": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": [
+                    "npm run build"
+                ]
+            },
+            "outputs": [
+                "dist"
+            ]
+        }
+    }
+}

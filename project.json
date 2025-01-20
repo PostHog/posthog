@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json.schemastore.org/nx",
+    "name": "posthog-django",
+    "root": ".",
+    "projectType": "application",
+    "implicitDependencies": ["ee", "frontend", "plugin-transpiler", "hogvm-py", "hogql_parser"],
+    "targets": {
+        "serve": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": ["python manage.py runserver 0.0.0.0:8000"]
+            }
+        },
+        "test": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": ["python manage.py test"]
+            }
+        }
+    }
+}
