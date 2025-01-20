@@ -266,7 +266,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 Edit SQL directly
                                             </LemonButton>
                                         )}
-                                    {showCohortButton && (
+                                    {hogQL && showCohortButton && (
                                         <LemonButton
                                             data-attr="edit-insight-sql"
                                             onClick={() => {
