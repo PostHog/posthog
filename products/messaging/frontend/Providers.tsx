@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FunctionsTable } from './FunctionsTable'
-import { MessagingTabs } from './MessagingTabs'
-import { providersLogic } from './providersLogic'
 import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
 import { HogFunctionTemplateList } from 'scenes/pipeline/hogfunctions/list/HogFunctionTemplateList'
 import { SceneExport } from 'scenes/sceneTypes'
+
+import { FunctionsTable } from './FunctionsTable'
+import { MessagingTabs } from './MessagingTabs'
+import { providersLogic } from './providersLogic'
 
 export function Providers(): JSX.Element {
     const { providerId, templateId } = useValues(providersLogic)
