@@ -859,7 +859,10 @@ def fetch_earliest_backfill_start_at(
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
 ) -> dt.datetime:
-    """Get the earliest start_at for a batch export backfill."""
+    """Get the earliest start_at for a batch export backfill.
+
+    Note that this query will return the unix epoch if no events or persons exist.
+    """
     interval_seconds = interval_time_delta.total_seconds()
     if model == "events":
         exclude_events = exclude_events or []
