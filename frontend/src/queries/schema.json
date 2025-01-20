@@ -4396,6 +4396,16 @@
         "DashboardFilter": {
             "additionalProperties": false,
             "properties": {
+                "breakdown_filter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BreakdownFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "date_from": {
                     "type": ["string", "null"]
                 },
