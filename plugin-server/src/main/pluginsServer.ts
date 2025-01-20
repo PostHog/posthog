@@ -14,7 +14,6 @@ import { CdpApi } from '../cdp/cdp-api'
 import {
     CdpCyclotronWorker,
     CdpCyclotronWorkerFetch,
-    CdpFunctionCallbackConsumer,
     CdpInternalEventsConsumer,
     CdpProcessedEventsConsumer,
 } from '../cdp/cdp-consumers'
@@ -457,15 +456,8 @@ export async function startPluginsServer(
             const consumer = new CdpInternalEventsConsumer(hub)
             await consumer.start()
             services.push(consumer.service)
-        }
 
-        if (capabilities.cdpFunctionCallbacks) {
-            const hub = await setupHub()
-            const consumer = new CdpFunctionCallbackConsumer(hub)
-            await consumer.start()
-            services.push(consumer.service)
-
-            // NOTE: The function callback service is more idle so can handle http requests as well
+            // NOTE: This processor is generally very idle so doubles as our api
             if (capabilities.http) {
                 const api = new CdpApi(hub, consumer)
                 expressApp.use('/', api.router())

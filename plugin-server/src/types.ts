@@ -85,7 +85,6 @@ export enum PluginServerMode {
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     cdp_processed_events = 'cdp-processed-events',
     cdp_internal_events = 'cdp-internal-events',
-    cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     functional_tests = 'functional-tests',
 }
@@ -117,7 +116,6 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
-    CDP_CYCLOTRON_ENABLED_TEAMS: string
     CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_REDIS_HOST: string
