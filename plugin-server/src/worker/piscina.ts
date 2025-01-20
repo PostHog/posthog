@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/node'
-import { Hub, PluginsServerConfig } from 'types'
+
+import { Hub, PluginsServerConfig } from '~/src/types'
 
 import { createWorker } from './worker'
 

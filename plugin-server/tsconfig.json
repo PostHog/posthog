@@ -19,9 +19,12 @@
         "noImplicitAny": true,
         "useUnknownInCatchVariables": false,
         "paths": {
-            "~/*": ["./*"]
+            "~/*": ["./*"],
+            "main/*": ["./src/main/*"],
+            "worker/*": ["./src/worker/*"],
+            "utils/*": ["./src/utils/*"]
         }
     },
-    "include": ["src", "tests"],
+    "include": ["src"],
     "exclude": ["node_modules", "dist", "bin"]
 }
