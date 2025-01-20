@@ -3,6 +3,7 @@ import { HogWatcherState } from '../../src/cdp/hog-watcher'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
+import { getProducedKafkaMessages, mockProducer } from '../helpers/mocks/producer.mock'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './fixtures'
@@ -44,35 +45,9 @@ jest.mock('../../src/utils/fetch', () => {
     }
 })
 
-jest.mock('../../src/utils/db/kafka-producer-wrapper', () => {
-    const mockKafkaProducer = {
-        producer: {
-            connect: jest.fn(),
-        },
-        disconnect: jest.fn(),
-        produce: jest.fn(() => Promise.resolve()),
-    }
-    return {
-        KafkaProducerWrapper: jest.fn(() => mockKafkaProducer),
-    }
-})
-
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
-const mockProducer = require('../../src/utils/db/kafka-producer-wrapper').KafkaProducerWrapper()
-
 jest.setTimeout(1000)
-
-const decodeKafkaMessage = (message: any): any => {
-    return {
-        ...message,
-        value: JSON.parse(message.value.toString()),
-    }
-}
-
-const decodeAllKafkaMessages = (): any[] => {
-    return mockProducer.produce.mock.calls.map((x) => decodeKafkaMessage(x[0]))
-}
 
 /**
  * NOTE: The internal and normal events consumers are very similar so we can test them together
@@ -98,6 +73,8 @@ describe.each([
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
+        hub.kafkaProducer = mockProducer
+
         team = await getFirstTeam(hub)
 
         processor = new Consumer(hub)
@@ -170,7 +147,7 @@ describe.each([
                     matchInvocation(fnPrinterPageviewFilters, globals),
                 ])
 
-                expect(decodeAllKafkaMessages()).toMatchObject([
+                expect(getProducedKafkaMessages()).toMatchObject([
                     {
                         topic: 'log_entries_test',
                         value: {
@@ -262,7 +239,6 @@ describe.each([
                             state: expect.any(String),
                         },
                         key: expect.stringContaining(fnFetchNoFilters.id.toString()),
-                        waitForAck: true,
                     },
                 ])
             })
@@ -275,7 +251,7 @@ describe.each([
                 expect(invocations).toHaveLength(1)
                 expect(invocations).toMatchObject([matchInvocation(fnFetchNoFilters, globals)])
 
-                expect(decodeAllKafkaMessages()).toMatchObject([
+                expect(getProducedKafkaMessages()).toMatchObject([
                     {
                         key: expect.any(String),
                         topic: 'clickhouse_app_metrics2_test',
@@ -314,9 +290,9 @@ describe.each([
                 const invocations = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(0)
-                expect(mockProducer.produce).toHaveBeenCalledTimes(2)
+                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
 
-                expect(decodeAllKafkaMessages()).toMatchObject([
+                expect(getProducedKafkaMessages()).toMatchObject([
                     {
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
@@ -369,7 +345,7 @@ describe.each([
                     ...HOG_FILTERS_EXAMPLES.broken_filters,
                 })
                 await processor.processBatch([globals])
-                expect(decodeAllKafkaMessages()).toMatchObject([
+                expect(getProducedKafkaMessages()).toMatchObject([
                     {
                         key: expect.any(String),
                         topic: 'clickhouse_app_metrics2_test',

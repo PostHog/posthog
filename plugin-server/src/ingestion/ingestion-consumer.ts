@@ -4,6 +4,7 @@ import { Histogram } from 'prom-client'
 
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
+import { KafkaProducerWrapper } from '../kafka/producer'
 import { IngestionOverflowMode } from '../main/ingestion-queues/batch-processing/each-batch-ingestion'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
@@ -15,8 +16,6 @@ import {
 } from '../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
-import { createKafkaProducerWrapper } from '../utils/db/hub'
-import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { normalizeEvent } from '../utils/event'
 import { status } from '../utils/status'
 import { ConfiguredLimiter, LoggingLimiter } from '../utils/token-bucket'
@@ -49,21 +48,33 @@ const KNOWN_SET_EVENTS = new Set([
     'survey sent',
 ])
 
-abstract class IngestionConsumer {
+export class IngestionConsumer {
+    protected name = 'ingestion-consumer'
+    protected groupId: string
+    protected topic: string
+    protected dlqTopic: string
+    protected overflowTopic?: string
+
     batchConsumer?: BatchConsumer
     isStopping = false
-    protected kafkaProducer?: KafkaProducerWrapper
-    protected abstract name: string
     protected heartbeat = () => {}
     protected promises: Set<Promise<any>> = new Set()
+    protected kafkaProducer?: KafkaProducerWrapper
 
-    protected scheduleWork<T>(promise: Promise<T>): Promise<T> {
-        this.promises.add(promise)
-        void promise.finally(() => this.promises.delete(promise))
-        return promise
+    private tokensToDrop: string[] = []
+    private tokenDistinctIdsToDrop: string[] = []
+
+    constructor(private hub: Hub) {
+        // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
+        this.groupId = hub.INGESTION_CONSUMER_GROUP_ID
+        this.topic = hub.INGESTION_CONSUMER_CONSUME_TOPIC
+        this.overflowTopic = hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
+        this.dlqTopic = hub.INGESTION_CONSUMER_DLQ_TOPIC
+        this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',').filter((x) => !!x)
+        this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
+
+        this.name = `ingestion-consumer-${this.topic}`
     }
-
-    constructor(protected hub: Hub) {}
 
     public get service(): PluginServerService {
         return {
@@ -74,84 +85,16 @@ abstract class IngestionConsumer {
         }
     }
 
-    protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
-        // Helper function to ensure that looping over lots of hog functions doesn't block up the thread, killing the consumer
-        const res = await func()
-        this.heartbeat()
-        await new Promise((resolve) => process.nextTick(resolve))
-
-        return res
-    }
-
-    protected async runManyWithHeartbeat<T, R>(items: T[], func: (item: T) => Promise<R> | R): Promise<R[]> {
-        // Helper function to ensure that looping over lots of hog functions doesn't block up the event loop, leading to healthcheck failures
-        const results = []
-
-        for (const item of items) {
-            results.push(await this.runWithHeartbeat(() => func(item)))
-        }
-        return results
-    }
-
-    protected async startKafkaConsumer(options: {
-        topic: string
-        groupId: string
-        handleBatch: (messages: Message[]) => Promise<void>
-    }): Promise<void> {
-        this.batchConsumer = await startBatchConsumer({
-            ...options,
-            connectionConfig: createRdConnectionConfigFromEnvVars(this.hub),
-            autoCommit: true,
-            sessionTimeout: this.hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
-            maxPollIntervalMs: this.hub.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
-            consumerMaxBytes: this.hub.KAFKA_CONSUMPTION_MAX_BYTES,
-            consumerMaxBytesPerPartition: this.hub.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
-            consumerMaxWaitMs: this.hub.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            consumerErrorBackoffMs: this.hub.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            fetchBatchSize: this.hub.INGESTION_BATCH_SIZE,
-            batchingTimeoutMs: this.hub.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
-            topicCreationTimeoutMs: this.hub.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
-            topicMetadataRefreshInterval: this.hub.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
-            eachBatch: async (messages, { heartbeat }) => {
-                status.info('🔁', `${this.name} - handling batch`, {
-                    size: messages.length,
-                })
-
-                this.heartbeat = heartbeat
-
-                histogramKafkaBatchSize.observe(messages.length)
-                histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
-
-                return await runInstrumentedFunction({
-                    statsKey: `ingestionConsumer.handleEachBatch`,
-                    sendTimeoutGuardToSentry: false,
-                    func: async () => {
-                        await options.handleBatch(messages)
-                    },
-                })
-            },
-            callEachBatchWhenEmpty: false,
-        })
-
-        addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
-
-        this.batchConsumer.consumer.on('disconnected', async (err) => {
-            if (!this.isStopping) {
-                return
-            }
-            // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
-            // we need to listen to disconnect and make sure we're stopped
-            status.info('🔁', `${this.name} batch consumer disconnected, cleaning up`, { err })
-            await this.stop()
-        })
-    }
-
     public async start(): Promise<void> {
-        // NOTE: This is only for starting shared services
         await Promise.all([
-            createKafkaProducerWrapper(this.hub).then((producer) => {
+            KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()
+            }),
+            this.startKafkaConsumer({
+                topic: this.topic,
+                groupId: this.groupId,
+                handleBatch: async (messages) => this.handleKafkaBatch(messages),
             }),
         ])
     }
@@ -172,33 +115,23 @@ abstract class IngestionConsumer {
     public isHealthy() {
         return this.batchConsumer?.isHealthy()
     }
-}
 
-/**
- * This consumer handles incoming events from the main kafka ingestion topic
- */
-export class EventsIngestionConsumer extends IngestionConsumer {
-    protected name = 'EventsIngestionConsumer'
-    protected groupId: string
-    protected topic: string
-    protected dlqTopic: string
-    protected overflowTopic?: string
+    private scheduleWork<T>(promise: Promise<T>): Promise<T> {
+        this.promises.add(promise)
+        void promise.finally(() => this.promises.delete(promise))
+        return promise
+    }
 
-    private tokensToDrop: string[] = []
-    private tokenDistinctIdsToDrop: string[] = []
-
-    constructor(hub: Hub) {
-        super(hub)
-
-        // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
-        this.groupId = hub.INGESTION_CONSUMER_GROUP_ID
-        this.topic = hub.INGESTION_CONSUMER_CONSUME_TOPIC
-        this.overflowTopic = hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
-        this.dlqTopic = hub.INGESTION_CONSUMER_DLQ_TOPIC
-        this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',')
-        this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',')
-
-        this.name = `ingestion-consumer-${this.topic}`
+    public async handleKafkaBatch(messages: Message[]) {
+        const parsedMessages = await this.parseKafkaBatch(messages)
+        await this.processBatch(parsedMessages)
+        for (const message of messages) {
+            if (message.timestamp) {
+                latestOffsetTimestampGauge
+                    .labels({ partition: message.partition, topic: message.topic, groupId: this.groupId })
+                    .set(message.timestamp)
+            }
+        }
     }
 
     public async processBatch(groupedIncomingEvents: GroupedIncomingEvents): Promise<void> {
@@ -263,104 +196,7 @@ export class EventsIngestionConsumer extends IngestionConsumer {
         }
     }
 
-    private async handleProcessingError(error: any, message: Message, event: PipelineEvent) {
-        // TODO: Carefully re-evaluate this logic. Are we sure we don't want to just throw properly?
-        // In theory anything that could go wrong we should have handled. Isn't it better if we crash out
-        // and are forced to fix than just writing to the DLQ 🧐
-
-        // If the error is a non-retriable error, push to the dlq and commit the offset. Else raise the
-        // error.
-        // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
-        // fact that node-rdkafka adheres to the `isRetriable` interface.
-
-        if (error?.isRetriable === false) {
-            const sentryEventId = Sentry.captureException(error)
-            const headers: MessageHeader[] = message.headers ?? []
-            headers.push({ ['sentry-event-id']: sentryEventId })
-            headers.push({ ['event-id']: event.uuid })
-            try {
-                await this.kafkaProducer!.produce({
-                    topic: this.dlqTopic,
-                    value: message.value,
-                    key: message.key ?? null, // avoid undefined, just to be safe
-                    headers: headers,
-                    waitForAck: true,
-                })
-            } catch (error) {
-                // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
-                // offset and move on.
-                if (error?.isRetriable === false) {
-                    status.error('🔥', `Error pushing to DLQ`, {
-                        stack: error.stack,
-                        error: error,
-                    })
-                    return
-                }
-
-                // If we can't send to the DLQ and it is retriable, raise the error.
-                throw error
-            }
-        } else {
-            throw error
-        }
-    }
-
-    private logDroppedEvent(token?: string, distinctId?: string) {
-        status.debug('🔁', `Dropped event`, {
-            token,
-            distinctId,
-        })
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'blocked_token',
-            })
-            .inc()
-    }
-
-    private shouldDropEvent(token?: string, distinctId?: string) {
-        return (
-            (token && this.tokensToDrop.includes(token)) ||
-            (distinctId && this.tokenDistinctIdsToDrop.includes(`${token}:${distinctId}`))
-        )
-    }
-
-    private overflowEnabled() {
-        return !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC && this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
-    }
-
-    private async emitToOverflow(kafkaMessages: Message[]) {
-        const overflowTopic = this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
-        if (!overflowTopic) {
-            throw new Error('No overflow topic configured')
-        }
-
-        ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
-
-        const overflowMode = this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
-            ? IngestionOverflowMode.Reroute
-            : IngestionOverflowMode.RerouteRandomly
-
-        const useRandomPartitioning = overflowMode === IngestionOverflowMode.RerouteRandomly
-
-        await Promise.all(
-            kafkaMessages.map((message) =>
-                this.kafkaProducer!.produce({
-                    topic: this.overflowTopic!,
-                    value: message.value,
-                    // ``message.key`` should not be undefined here, but in the
-                    // (extremely) unlikely event that it is, set it to ``null``
-                    // instead as that behavior is safer.
-                    key: useRandomPartitioning ? null : message.key ?? null,
-                    headers: message.headers,
-                    waitForAck: true,
-                })
-            )
-        )
-    }
-
-    // This consumer always parses from kafka
-    public _parseKafkaBatch(messages: Message[]): Promise<GroupedIncomingEvents> {
+    private parseKafkaBatch(messages: Message[]): Promise<GroupedIncomingEvents> {
         return runInstrumentedFunction({
             statsKey: `ingestionConsumer.handleEachBatch.parseKafkaMessages`,
             func: () => {
@@ -414,22 +250,169 @@ export class EventsIngestionConsumer extends IngestionConsumer {
         })
     }
 
-    public async start(): Promise<void> {
-        await super.start()
-        await this.startKafkaConsumer({
-            topic: this.topic,
-            groupId: this.groupId,
-            handleBatch: async (messages) => {
-                const invocationGlobals = await this._parseKafkaBatch(messages)
-                await this.processBatch(invocationGlobals)
-                for (const message of messages) {
-                    if (message.timestamp) {
-                        latestOffsetTimestampGauge
-                            .labels({ partition: message.partition, topic: message.topic, groupId: this.groupId })
-                            .set(message.timestamp)
-                    }
-                }
+    private async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
+        // Helper function to ensure that looping over lots of hog functions doesn't block up the thread, killing the consumer
+        const res = await func()
+        this.heartbeat()
+        await new Promise((resolve) => process.nextTick(resolve))
+
+        return res
+    }
+
+    private async runManyWithHeartbeat<T, R>(items: T[], func: (item: T) => Promise<R> | R): Promise<R[]> {
+        // Helper function to ensure that looping over lots of hog functions doesn't block up the event loop, leading to healthcheck failures
+        const results = []
+
+        for (const item of items) {
+            results.push(await this.runWithHeartbeat(() => func(item)))
+        }
+        return results
+    }
+
+    private async startKafkaConsumer(options: {
+        topic: string
+        groupId: string
+        handleBatch: (messages: Message[]) => Promise<void>
+    }): Promise<void> {
+        this.batchConsumer = await startBatchConsumer({
+            ...options,
+            connectionConfig: createRdConnectionConfigFromEnvVars(this.hub, 'consumer'),
+            autoCommit: true,
+            sessionTimeout: this.hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
+            maxPollIntervalMs: this.hub.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
+            consumerMaxBytes: this.hub.KAFKA_CONSUMPTION_MAX_BYTES,
+            consumerMaxBytesPerPartition: this.hub.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
+            consumerMaxWaitMs: this.hub.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+            consumerErrorBackoffMs: this.hub.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
+            fetchBatchSize: this.hub.INGESTION_BATCH_SIZE,
+            batchingTimeoutMs: this.hub.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+            topicCreationTimeoutMs: this.hub.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
+            topicMetadataRefreshInterval: this.hub.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
+            eachBatch: async (messages, { heartbeat }) => {
+                status.info('🔁', `${this.name} - handling batch`, {
+                    size: messages.length,
+                })
+
+                this.heartbeat = heartbeat
+
+                histogramKafkaBatchSize.observe(messages.length)
+                histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
+
+                return await runInstrumentedFunction({
+                    statsKey: `ingestionConsumer.handleEachBatch`,
+                    sendTimeoutGuardToSentry: false,
+                    func: async () => {
+                        await options.handleBatch(messages)
+                    },
+                })
             },
+            callEachBatchWhenEmpty: false,
         })
+
+        addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
+
+        this.batchConsumer.consumer.on('disconnected', async (err) => {
+            if (!this.isStopping) {
+                return
+            }
+            // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
+            // we need to listen to disconnect and make sure we're stopped
+            status.info('🔁', `${this.name} batch consumer disconnected, cleaning up`, { err })
+            await this.stop()
+        })
+    }
+
+    private async handleProcessingError(error: any, message: Message, event: PipelineEvent) {
+        // TODO: Carefully re-evaluate this logic. Are we sure we don't want to just throw properly?
+        // In theory anything that could go wrong we should have handled. Isn't it better if we crash out
+        // and are forced to fix than just writing to the DLQ 🧐
+
+        // If the error is a non-retriable error, push to the dlq and commit the offset. Else raise the
+        // error.
+        // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
+        // fact that node-rdkafka adheres to the `isRetriable` interface.
+
+        if (error?.isRetriable === false) {
+            const sentryEventId = Sentry.captureException(error)
+            const headers: MessageHeader[] = message.headers ?? []
+            headers.push({ ['sentry-event-id']: sentryEventId })
+            headers.push({ ['event-id']: event.uuid })
+            try {
+                await this.kafkaProducer!.produce({
+                    topic: this.dlqTopic,
+                    value: message.value,
+                    key: message.key ?? null, // avoid undefined, just to be safe
+                    headers: headers,
+                })
+            } catch (error) {
+                // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
+                // offset and move on.
+                if (error?.isRetriable === false) {
+                    status.error('🔥', `Error pushing to DLQ`, {
+                        stack: error.stack,
+                        error: error,
+                    })
+                    return
+                }
+
+                // If we can't send to the DLQ and it is retriable, raise the error.
+                throw error
+            }
+        } else {
+            throw error
+        }
+    }
+
+    private logDroppedEvent(token?: string, distinctId?: string) {
+        status.debug('🔁', `Dropped event`, {
+            token,
+            distinctId,
+        })
+        eventDroppedCounter
+            .labels({
+                event_type: 'analytics',
+                drop_cause: 'blocked_token',
+            })
+            .inc()
+    }
+
+    private shouldDropEvent(token?: string, distinctId?: string) {
+        return (
+            (token && this.tokensToDrop.includes(token)) ||
+            (token && distinctId && this.tokenDistinctIdsToDrop.includes(`${token}:${distinctId}`))
+        )
+    }
+
+    private overflowEnabled() {
+        return !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC && this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
+    }
+
+    private async emitToOverflow(kafkaMessages: Message[]) {
+        const overflowTopic = this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
+        if (!overflowTopic) {
+            throw new Error('No overflow topic configured')
+        }
+
+        ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
+
+        const overflowMode = this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
+            ? IngestionOverflowMode.Reroute
+            : IngestionOverflowMode.RerouteRandomly
+
+        const useRandomPartitioning = overflowMode === IngestionOverflowMode.RerouteRandomly
+
+        await Promise.all(
+            kafkaMessages.map((message) =>
+                this.kafkaProducer!.produce({
+                    topic: this.overflowTopic!,
+                    value: message.value,
+                    // ``message.key`` should not be undefined here, but in the
+                    // (extremely) unlikely event that it is, set it to ``null``
+                    // instead as that behavior is safer.
+                    key: useRandomPartitioning ? null : message.key ?? null,
+                    headers: message.headers,
+                })
+            )
+        )
     }
 }

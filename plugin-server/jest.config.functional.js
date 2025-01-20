@@ -18,4 +18,8 @@ module.exports = {
     testTimeout: 60000,
     maxConcurrency: 10,
     maxWorkers: 6,
+
+    moduleNameMapper: {
+        '^~/(.*)$': '<rootDir>/$1',
+    },
 }

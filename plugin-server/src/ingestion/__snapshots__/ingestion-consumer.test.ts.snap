@@ -1,0 +1,49 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`IngestionConsumer general should process a standard event 1`] = `
+[
+  {
+    "key": "<REPLACED-UUID-0>",
+    "topic": "clickhouse_events_json_test",
+    "value": {
+      "created_at": "2025-01-31 23:00:00.000",
+      "distinct_id": "user-1",
+      "elements_chain": "",
+      "event": "$pageview",
+      "person_created_at": "2025-01-31 23:00:00",
+      "person_id": "<REPLACED-UUID-1>",
+      "person_mode": "full",
+      "person_properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-2>","$initial_current_url":"http://localhost:8000"}",
+      "project_id": 2,
+      "properties": "{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}",
+      "team_id": 2,
+      "timestamp": "2025-01-31 23:00:00.000",
+      "uuid": "<REPLACED-UUID-1>",
+    },
+  },
+  {
+    "key": null,
+    "topic": "clickhouse_person_test",
+    "value": {
+      "created_at": "2025-01-31 23:00:00",
+      "id": "<REPLACED-UUID-2>",
+      "is_deleted": 0,
+      "is_identified": 0,
+      "properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-2>","$initial_current_url":"http://localhost:8000"}",
+      "team_id": 2,
+      "version": 0,
+    },
+  },
+  {
+    "key": null,
+    "topic": "clickhouse_person_distinct_id_test",
+    "value": {
+      "distinct_id": "user-1",
+      "is_deleted": 0,
+      "person_id": "<REPLACED-UUID-2>",
+      "team_id": 2,
+      "version": 0,
+    },
+  },
+]
+`;
