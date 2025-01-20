@@ -12,10 +12,7 @@ import {
     IconServer,
     IconShieldLock,
 } from '@posthog/icons'
-import { LemonButtonPropsBase } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
-import { ProfilePicture } from '@posthog/lemon-ui'
-import { UploadedLogo } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonPropsBase, ProfilePicture, UploadedLogo } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'

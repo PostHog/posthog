@@ -1,6 +1,5 @@
 import { IconGear, IconSearch, IconToolbar, IconWarning } from '@posthog/icons'
-import { Popover } from '@posthog/lemon-ui'
-import { ProfilePicture } from '@posthog/lemon-ui'
+import { Popover, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'

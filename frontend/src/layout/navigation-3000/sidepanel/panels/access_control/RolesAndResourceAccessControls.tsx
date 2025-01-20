@@ -2,6 +2,7 @@ import { IconPlus } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
+    LemonField,
     LemonInput,
     LemonInputSelect,
     LemonModal,
@@ -11,7 +12,6 @@ import {
     ProfileBubbles,
     ProfilePicture,
 } from '@posthog/lemon-ui'
-import { LemonField } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, Form } from 'kea-forms'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'

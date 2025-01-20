@@ -1,6 +1,5 @@
 import { IconGear, IconPlus } from '@posthog/icons'
-import { LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
-import { UploadedLogo } from '@posthog/lemon-ui'
+import { LemonInput, LemonTag, Spinner, UploadedLogo } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'

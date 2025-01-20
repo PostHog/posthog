@@ -1,6 +1,5 @@
 import { IconCheckCircle, IconX } from '@posthog/icons'
-import { LemonButton, LemonButtonWithSideActionProps } from '@posthog/lemon-ui'
-import { LemonProgressCircle } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithSideActionProps, LemonProgressCircle } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProfessorHog } from 'lib/components/hedgehogs'
 import { LemonIconProps } from 'lib/lemon-ui/icons'

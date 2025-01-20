@@ -8,9 +8,10 @@ import {
     LemonSelect,
     LemonSelectProps,
     LemonTable,
+    LemonTableColumns,
+    ProfileBubbles,
+    ProfilePicture,
 } from '@posthog/lemon-ui'
-import { LemonTableColumns } from '@posthog/lemon-ui'
-import { ProfileBubbles, ProfilePicture } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'

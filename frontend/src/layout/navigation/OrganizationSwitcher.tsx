@@ -1,6 +1,5 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'

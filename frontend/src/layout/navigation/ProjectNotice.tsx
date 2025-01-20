@@ -1,7 +1,5 @@
 import { IconGear, IconPlus } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'

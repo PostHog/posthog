@@ -1,5 +1,4 @@
-import { LemonInput } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonInput, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { LogicWrapper, useActions, useValues } from 'kea'
 import React, { useRef, useState } from 'react'
