@@ -1514,8 +1514,8 @@ export function RGBToHSL(r: number, g: number, b: number): { h: number; s: numbe
 
     // Calculate lightness
     let h = 0,
-        s = 0,
-        l = (max + min) / 2
+        s = 0
+    const l = (max + min) / 2
 
     if (delta !== 0) {
         // Calculate saturation

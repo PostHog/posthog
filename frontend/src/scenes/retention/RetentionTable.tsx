@@ -23,6 +23,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
         <table
             className={clsx('RetentionTable', { 'RetentionTable--small-layout': retentionVizOptions?.useSmallLayout })}
             data-attr="retention-table"
+            // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
                     '--retention-table-color': backgroundColor,

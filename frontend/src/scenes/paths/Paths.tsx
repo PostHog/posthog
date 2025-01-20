@@ -67,6 +67,7 @@ export function Paths(): JSX.Element {
                 ref={canvasRef}
                 className="Paths"
                 data-attr="paths-viz"
+                // eslint-disable-next-line react/forbid-dom-props
                 style={
                     {
                         '--paths-node': theme?.['preset-1'] || '#000000',
