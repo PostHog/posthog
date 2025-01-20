@@ -587,16 +587,21 @@ class Producer:
             # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
             # may not be able to handle the load from all batch exports
             if is_5_min_batch_export(full_range=full_range) and not is_backfill:
+                self.logger.info("Using events_recent table for 5 min batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
             # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
             # which is a distributed table that sits in front of the `events_recent` table
             elif use_distributed_events_recent_table(is_backfill=is_backfill, team_id=team_id):
+                self.logger.info("Using distributed_events_recent table for batch export")
                 query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+                self.logger.info("Using events_batch_export_unbounded view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
             elif is_backfill:
+                self.logger.info("Using events_batch_export_backfill view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
             else:
+                self.logger.info("Using events_batch_export view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW
                 lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
                     team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
