@@ -167,8 +167,22 @@ class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest
                 (
                     "distinct_id_1",
                     [
-                        ("2025-01-10", f"/path{idx}", 50)
+                        ("2025-01-10", f"/path/a/{idx}", 50)
                         for idx in range(30)  # Creating 30, but should be limited to 20
+                    ],
+                ),
+                (
+                    "distinct_id_1",
+                    [
+                        ("2025-01-10", f"/path/b/{idx}", 150)
+                        for idx in range(25)  # Creating 25, but should be limited to 20
+                    ],
+                ),
+                (
+                    "distinct_id_1",
+                    [
+                        ("2025-01-10", f"/path/c/{idx}", 499)
+                        for idx in range(5)  # Creating only 5, return these 5
                     ],
                 ),
             ],
@@ -184,8 +198,8 @@ class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest
         ).results
 
         self.assertEqual(20, len(results[0].good))
-        self.assertEqual(0, len(results[0].needs_improvements))
-        self.assertEqual(0, len(results[0].poor))
+        self.assertEqual(20, len(results[0].needs_improvements))
+        self.assertEqual(5, len(results[0].poor))
 
     def test_percentile_is_applied(self):
         self._create_events(
