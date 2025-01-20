@@ -482,7 +482,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Web analytics',
                             icon: <IconPieChart />,
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
-                            sideAction: featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS]
+                            sideAction: featureFlags[FEATURE_FLAGS.WEB_VITALS]
                                 ? {
                                       identifier: 'web-analytics-dropdown',
                                       dropdown: {
@@ -492,8 +492,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                       {
                                                           items: [
                                                               {
-                                                                  label: 'Core web vitals',
-                                                                  to: urls.webAnalyticsCoreWebVitals(),
+                                                                  label: 'Web vitals',
+                                                                  to: urls.webAnalyticsWebVitals(),
                                                                   tag: 'beta' as const,
                                                               },
                                                           ],

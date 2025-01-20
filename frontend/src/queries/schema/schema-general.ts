@@ -88,13 +88,13 @@ export enum NodeKind {
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
     FunnelCorrelationQuery = 'FunnelCorrelationQuery',
 
-    // Web analytics + Core Web Vitals queries
+    // Web analytics + Web Vitals queries
     WebOverviewQuery = 'WebOverviewQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
-    CoreWebVitalsQuery = 'CoreWebVitalsQuery',
-    CoreWebVitalsPathBreakdownQuery = 'CoreWebVitalsPathBreakdownQuery',
+    WebVitalsQuery = 'WebVitalsQuery',
+    WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
 
     // Experiment queries
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
@@ -128,8 +128,8 @@ export type AnyDataNode =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
-    | CoreWebVitalsQuery
-    | CoreWebVitalsPathBreakdownQuery
+    | WebVitalsQuery
+    | WebVitalsPathBreakdownQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
@@ -160,13 +160,13 @@ export type QuerySchema =
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
 
-    // Web Analytics + Core Web Vitals
+    // Web Analytics + Web Vitals
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
-    | CoreWebVitalsQuery
-    | CoreWebVitalsPathBreakdownQuery
+    | WebVitalsQuery
+    | WebVitalsPathBreakdownQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -638,8 +638,8 @@ export interface DataTableNode
                     | WebStatsTableQuery
                     | WebExternalClicksTableQuery
                     | WebGoalsQuery
-                    | CoreWebVitalsQuery
-                    | CoreWebVitalsPathBreakdownQuery
+                    | WebVitalsQuery
+                    | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
@@ -661,8 +661,8 @@ export interface DataTableNode
         | WebStatsTableQuery
         | WebExternalClicksTableQuery
         | WebGoalsQuery
-        | CoreWebVitalsQuery
-        | CoreWebVitalsPathBreakdownQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
@@ -1550,33 +1550,32 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase<unknow
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
-export type CoreWebVitalsMetric = 'INP' | 'LCP' | 'CLS' | 'FCP'
-export type CoreWebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
-export type CoreWebVitalsMetricBand = 'good' | 'needs_improvements' | 'poor'
+export type WebVitalsMetric = 'INP' | 'LCP' | 'CLS' | 'FCP'
+export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
+export type WebVitalsMetricBand = 'good' | 'needs_improvements' | 'poor'
 
-export interface CoreWebVitalsQuery<T = InsightQueryNode> extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
-    kind: NodeKind.CoreWebVitalsQuery
+export interface WebVitalsQuery<T = InsightQueryNode> extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
+    kind: NodeKind.WebVitalsQuery
     source: T
 }
 
-export interface CoreWebVitalsItemAction {
-    custom_name: CoreWebVitalsMetric
-    math: CoreWebVitalsPercentile
+export interface WebVitalsItemAction {
+    custom_name: WebVitalsMetric
+    math: WebVitalsPercentile
 }
-export interface CoreWebVitalsItem {
+export interface WebVitalsItem {
     data: number[]
     days: string[]
-    action: CoreWebVitalsItemAction
+    action: WebVitalsItemAction
 }
 
-export type CoreWebVitalsQueryResponse = AnalyticsQueryResponseBase<CoreWebVitalsItem[]>
-export type CachedCoreWebVitalsQueryResponse = CachedQueryResponse<CoreWebVitalsQueryResponse>
+export type WebVitalsQueryResponse = AnalyticsQueryResponseBase<WebVitalsItem[]>
+export type CachedWebVitalsQueryResponse = CachedQueryResponse<WebVitalsQueryResponse>
 
-export interface CoreWebVitalsPathBreakdownQuery
-    extends WebAnalyticsQueryBase<CoreWebVitalsPathBreakdownQueryResponse> {
-    kind: NodeKind.CoreWebVitalsPathBreakdownQuery
-    percentile: CoreWebVitalsPercentile
-    metric: CoreWebVitalsMetric
+export interface WebVitalsPathBreakdownQuery extends WebAnalyticsQueryBase<WebVitalsPathBreakdownQueryResponse> {
+    kind: NodeKind.WebVitalsPathBreakdownQuery
+    percentile: WebVitalsPercentile
+    metric: WebVitalsMetric
 
     // Threshold for this specific metric, these are stored in the frontend only
     // so let's send them back to the backend to be used in the query
@@ -1585,13 +1584,13 @@ export interface CoreWebVitalsPathBreakdownQuery
     thresholds: [number, number]
 }
 
-export type CoreWebVitalsPathBreakdownResultItem = { path: string; value: number }
-export type CoreWebVitalsPathBreakdownResult = Record<CoreWebVitalsMetricBand, CoreWebVitalsPathBreakdownResultItem[]>
+export type WebVitalsPathBreakdownResultItem = { path: string; value: number }
+export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitalsPathBreakdownResultItem[]>
 
 // NOTE: The response is an array of results because pydantic requires it, but this will always have a single entry
 // hence the tuple type rather than a single object.
-export type CoreWebVitalsPathBreakdownQueryResponse = AnalyticsQueryResponseBase<[CoreWebVitalsPathBreakdownResult]>
-export type CachedCoreWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<CoreWebVitalsPathBreakdownQueryResponse>
+export type WebVitalsPathBreakdownQueryResponse = AnalyticsQueryResponseBase<[WebVitalsPathBreakdownResult]>
+export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 
 export enum SessionAttributionGroupBy {
     ChannelType = 'ChannelType',

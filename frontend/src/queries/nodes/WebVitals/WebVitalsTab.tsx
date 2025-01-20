@@ -1,40 +1,40 @@
-import './CoreWebVitalsTab.scss'
+import './WebVitalsTab.scss'
 
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { CORE_WEB_VITALS_THRESHOLDS } from 'scenes/web-analytics/webAnalyticsLogic'
+import { WEB_VITALS_THRESHOLDS } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { CoreWebVitalsMetric } from '~/queries/schema'
+import { WebVitalsMetric } from '~/queries/schema'
 
-import { CoreWebVitalsProgressBar } from './CoreWebVitalsProgressBar'
 import { getThresholdColor, getValueWithUnit } from './definitions'
+import { WebVitalsProgressBar } from './WebVitalsProgressBar'
 
-type CoreWebVitalsTabProps = {
+type WebVitalsTabProps = {
     value: number | undefined
     label: string
-    metric: CoreWebVitalsMetric
+    metric: WebVitalsMetric
     isActive: boolean
     setTab?: () => void
     inSeconds?: boolean
 }
 
-export function CoreWebVitalsTab({
+export function WebVitalsTab({
     value,
     label,
     metric,
     isActive,
     setTab,
     inSeconds = false,
-}: CoreWebVitalsTabProps): JSX.Element {
+}: WebVitalsTabProps): JSX.Element {
     const { value: parsedValue, unit } = getValueWithUnit(value, inSeconds)
 
-    const threshold = CORE_WEB_VITALS_THRESHOLDS[metric]
+    const threshold = WEB_VITALS_THRESHOLDS[metric]
     const thresholdColor = getThresholdColor(value, threshold)
 
     return (
         <div
             onClick={setTab}
-            className="CoreWebVitals__CoreWebVitalsTab flex flex-1 flex-row sm:flex-col justify-around sm:justify-start items-center sm:items-start p-4"
+            className="WebVitals__WebVitalsTab flex flex-1 flex-row sm:flex-col justify-around sm:justify-start items-center sm:items-start p-4"
             data-active={isActive ? 'true' : 'false'}
         >
             <span className="text-sm hidden sm:block">{label}</span>
@@ -50,7 +50,7 @@ export function CoreWebVitalsTab({
             </div>
 
             <div className="w-full mt-2 hidden sm:block">
-                <CoreWebVitalsProgressBar value={value} threshold={threshold} />
+                <WebVitalsProgressBar value={value} threshold={threshold} />
             </div>
         </div>
     )

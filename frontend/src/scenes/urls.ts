@@ -112,7 +112,7 @@ export const urls = {
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
 
     webAnalytics: (): string => `/web`,
-    webAnalyticsCoreWebVitals: (): string => `/web/core-web-vitals`,
+    webAnalyticsWebVitals: (): string => `/web/web-vitals`,
 
     replay: (
         tab?: ReplayTabs,
