@@ -14,7 +14,7 @@
         "start:devNoWatch": "NODE_ENV=dev BASE_DIR=.. node -r @swc-node/register src/index.ts",
         "build": "pnpm clean && pnpm typescript:compile",
         "clean": "rm -rf dist/* && rm -rf ../rust/cyclotron-node/index.node",
-        "typescript:compile": "tsc -b",
+        "typescript:compile": "tsc -b && mv dist/src/** dist/",
         "typescript:check": "tsc --noEmit -p .",
         "lint": "eslint .",
         "lint:fix": "eslint --fix .",
