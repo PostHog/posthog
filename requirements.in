@@ -121,5 +121,3 @@ grpcio~=1.63.2 # Version constrained so that `deepeval` can be installed in in d
 tenacity~=8.4.2  # Version constrained so that `deepeval` can be installed in in dev
 markdown-it-py~=3.0.0
 tzlocal~=5.1
-channels==4.2.0
-daphne==4.1.2
