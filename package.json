@@ -350,15 +350,15 @@
             "prettier --write"
         ],
         "cypress/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix cypress",
+            "eslint -c .eslintrc.js --fix cypress/**/*",
             "prettier --write \"cypress/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
         ],
         "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix frontend/src",
+            "eslint --cache -c .eslintrc.js --fix frontend/src/**/*",
             "prettier --write \"frontend/src/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
         ],
         "products/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix products/**/frontend",
+            "eslint --cache -c .eslintrc.js --fix products/**/frontend/**/*",
             "prettier --write \"products/**/frontend/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
         ],
         "frontend/*.mjs": [
@@ -366,7 +366,7 @@
             "prettier --write frontend/*.mjs"
         ],
         "ee/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix ee/frontend",
+            "eslint -c .eslintrc.js --fix ee/frontend/**/*",
             "prettier --write \"ee/frontend/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
         ],
         "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [
