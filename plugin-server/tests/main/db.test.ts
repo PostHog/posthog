@@ -422,7 +422,9 @@ describe('DB', () => {
                 const team = await getFirstTeam(hub)
                 // :TRICKY: We explicitly don't create distinct_ids here to keep the deletion process simpler.
                 const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
-                await delayUntilEventIngested(fetchPersonsRows, 1)
+                await delayUntilEventIngested(fetchPersonsRows, {
+                    minLength: 1,
+                })
 
                 // We do an update to verify
                 const [_p, updatePersonKafkaMessages] = await db.updatePersonDeprecated(person, {
@@ -433,13 +435,17 @@ describe('DB', () => {
                     waitForAck: true,
                 })
                 await db.kafkaProducer.flush()
-                await delayUntilEventIngested(fetchPersonsRows, 2)
+                await delayUntilEventIngested(fetchPersonsRows, {
+                    minLength: 2,
+                })
 
                 const kafkaMessages = await db.deletePerson(person)
                 await db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
                 await db.kafkaProducer.flush()
 
-                const persons = await delayUntilEventIngested(fetchPersonsRows, 3)
+                const persons = await delayUntilEventIngested(fetchPersonsRows, {
+                    minLength: 3,
+                })
 
                 expect(persons).toEqual(
                     expect.arrayContaining([
