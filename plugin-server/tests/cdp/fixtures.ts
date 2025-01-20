@@ -170,18 +170,15 @@ export const createInvocation = (
     // Add the source of the trigger to the globals
 
     const globals = createHogExecutionGlobals(_globals)
-    const globalsWithInputs: HogFunctionInvocationGlobalsWithInputs = {
-        ...globals,
-        source: {
-            name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-            url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
-        },
-        inputs: {},
+    globals.source = {
+        name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+        url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
     }
 
     return {
         id: new UUIDT().toString(),
-        globals: globalsWithInputs,
+        // NOTE: This is due to some legacy code that checks for inputs and uses it. BW will fix later.
+        globals: globals as HogFunctionInvocationGlobalsWithInputs,
         teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',
