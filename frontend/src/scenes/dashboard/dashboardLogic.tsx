@@ -1455,6 +1455,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setDates: () => {
             actions.loadDashboard({ action: 'preview' })
         },
+        setBreakdownFilter: () => {
+            actions.loadDashboard({ action: 'preview' })
+        },
         overrideVariableValue: () => {
             actions.setDashboardMode(DashboardMode.Edit, null)
             actions.loadDashboard({ action: 'preview' })
