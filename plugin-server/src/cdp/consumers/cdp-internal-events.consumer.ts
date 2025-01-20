@@ -1,13 +1,19 @@
 import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
 
 import { KAFKA_CDP_INTERNAL_EVENTS } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { status } from '../../utils/status'
-import { counterParseError } from '../metrics/metrics'
 import { CdpInternalEventSchema } from '../schema'
 import { HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
 import { CdpProcessedEventsConsumer } from './cdp-processed-events.consumer'
+
+export const counterParseError = new Counter({
+    name: 'cdp_function_parse_error',
+    help: 'A function invocation was parsed with an error',
+    labelNames: ['error'],
+})
 
 /**
  * This consumer handles incoming events from the main clickhouse topic

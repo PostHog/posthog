@@ -1,11 +1,23 @@
 import { CyclotronJob, CyclotronWorker } from '@posthog/cyclotron'
+import { Counter, Gauge } from 'prom-client'
 
 import { runInstrumentedFunction } from '../../main/utils'
 import { status } from '../../utils/status'
 import { CdpConsumerBase } from '../consumers/cdp-base.consumer'
-import { counterJobsProcessed, gaugeBatchUtilization } from '../metrics/metrics'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
+
+export const gaugeBatchUtilization = new Gauge({
+    name: 'cdp_cyclotron_batch_utilization',
+    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
+    labelNames: ['queue'],
+})
+
+export const counterJobsProcessed = new Counter({
+    name: 'cdp_cyclotron_jobs_processed',
+    help: 'The number of jobs we are managing to process',
+    labelNames: ['queue'],
+})
 
 /**
  * The future of the CDP consumer. This will be the main consumer that will handle all hog jobs from Cyclotron

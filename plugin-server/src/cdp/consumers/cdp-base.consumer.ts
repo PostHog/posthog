@@ -1,4 +1,6 @@
 import { Message } from 'node-rdkafka'
+import { Histogram } from 'prom-client'
+import { Counter } from 'prom-client'
 
 import { FetchExecutor } from '../../cdp/executors/fetch.executor'
 import { HogFunctionManager } from '../../cdp/managers/hog-function.manager'
@@ -23,7 +25,6 @@ import { HogExecutor } from '../executors/hog.executor'
 import { GroupsManager } from '../groups-manager'
 import { HogMasker } from '../hog-masker'
 import { HogWatcher } from '../hog-watcher'
-import { counterFunctionInvocation, histogramKafkaBatchSize, histogramKafkaBatchSizeKb } from '../metrics/metrics'
 import { CdpRedis, createCdpRedisPool } from '../redis'
 import {
     HogFunctionAppMetric,
@@ -38,6 +39,24 @@ import {
 } from '../types'
 import { fixLogDeduplication, gzipObject } from '../utils'
 import { convertToCaptureEvent } from '../utils'
+
+export const histogramKafkaBatchSize = new Histogram({
+    name: 'cdp_function_executor_batch_size',
+    help: 'The size of the batches we are receiving from Kafka',
+    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
+})
+
+export const histogramKafkaBatchSizeKb = new Histogram({
+    name: 'cdp_function_executor_batch_size_kb',
+    help: 'The size in kb of the batches we are receiving from Kafka',
+    buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
+})
+
+export const counterFunctionInvocation = new Counter({
+    name: 'cdp_function_invocation',
+    help: 'A function invocation was evaluated with an outcome',
+    labelNames: ['outcome'], // One of 'failed', 'succeeded', 'overflowed', 'disabled', 'filtered'
+})
 
 export abstract class CdpConsumerBase {
     batchConsumer?: BatchConsumer
