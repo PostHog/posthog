@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react'
 import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 import { SymbolSetUploadModal } from './SymbolSetUploadModal'
 
-export function SymbolSets(): JSX.Element {
+export function ErrorTrackingSymbolSets(): JSX.Element {
     const logic = errorTrackingSymbolSetLogic()
     const { missingSymbolSets, validSymbolSets } = useValues(logic)
     const { loadSymbolSets } = useActions(logic)
