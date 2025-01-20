@@ -62,7 +62,7 @@ function MessageDisplay({ message, isOutput }: { message: CompatMessage; isOutpu
     const [isRenderingMarkdown, setIsRenderingMarkdown] = useState(!!message.content)
 
     const { role, content, ...additionalKwargs } = message
-    const additionalKwargsEntries = Object.entries(additionalKwargs)
+    const additionalKwargsEntries = Object.entries(additionalKwargs).filter(([, value]) => value !== undefined)
 
     return (
         <div
@@ -97,22 +97,19 @@ function MessageDisplay({ message, isOutput }: { message: CompatMessage; isOutpu
             )}
             {!!additionalKwargsEntries && additionalKwargsEntries.length > 0 && (
                 <div className="p-2 text-xs border-t">
-                    {additionalKwargsEntries.map(
-                        ([key, value]) =>
-                            typeof value !== 'undefined' && (
-                                <JSONViewer
-                                    key={key}
-                                    name={key}
-                                    src={value}
-                                    collapseStringsAfterLength={200}
-                                    displayDataTypes={false}
-                                    // shouldCollapse limits depth shown at first. `> 4` is chosen so that we do show
-                                    // function arguments in `tool_calls`, but if an argument is an object,
-                                    // its child objects are collapsed by default
-                                    shouldCollapse={({ namespace }) => namespace.length > 5}
-                                />
-                            )
-                    )}
+                    {additionalKwargsEntries.map(([key, value]) => (
+                        <JSONViewer
+                            key={key}
+                            name={key}
+                            src={value}
+                            collapseStringsAfterLength={200}
+                            displayDataTypes={false}
+                            // shouldCollapse limits depth shown at first. `> 4` is chosen so that we do show
+                            // function arguments in `tool_calls`, but if an argument is an object,
+                            // its child objects are collapsed by default
+                            shouldCollapse={({ namespace }) => namespace.length > 5}
+                        />
+                    ))}
                 </div>
             )}
         </div>
