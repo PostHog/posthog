@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, InsightType, ItemMode } from '~/types'
 

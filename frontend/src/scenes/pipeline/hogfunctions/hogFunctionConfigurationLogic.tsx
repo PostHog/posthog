@@ -18,7 +18,14 @@ import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
-import { ActorsQuery, DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema'
+import {
+    ActorsQuery,
+    DataTableNode,
+    EventsNode,
+    EventsQuery,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQlIdentifier, hogql } from '~/queries/utils'
 import {
     AnyPersonScopeFilter,
@@ -483,6 +490,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
             },
         ],
+        hasGroupsAddon: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => {
+                return hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)
+            },
+        ],
         showPaygate: [
             (s) => [s.template, s.hasAddon],
             (template, hasAddon) => {
@@ -491,7 +504,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
         useMapping: [
             (s) => [s.hogFunction, s.template],
-            (hogFunction, template) => (hogFunction ?? template)?.type === 'site_destination',
+            // If the function has mappings, or the template has mapping templates, we use mappings
+            (hogFunction, template) => Array.isArray(hogFunction?.mappings) || template?.mapping_templates?.length,
         ],
         defaultFormState: [
             (s) => [s.template, s.hogFunction],
@@ -832,6 +846,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         mappingTemplates: [
             (s) => [s.hogFunction, s.template],
             (hogFunction, template) => template?.mapping_templates ?? hogFunction?.template?.mapping_templates ?? [],
+        ],
+
+        usesGroups: [
+            (s) => [s.configuration],
+            (configuration) => {
+                // NOTE: Bit hacky but works good enough...
+                const configStr = JSON.stringify(configuration)
+                return configStr.includes('groups.') || configStr.includes('{groups}')
+            },
         ],
     })),
 

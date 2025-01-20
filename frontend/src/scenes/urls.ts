@@ -35,6 +35,8 @@ import { SurveysTabs } from './surveys/surveysLogic'
  * Sync the paths with AutoProjectMiddleware!
  */
 
+export type LLMObservabilityTab = 'dashboard' | 'traces' | 'generations'
+
 export const urls = {
     absolute: (path = ''): string => window.location.origin + path,
     default: (): string => '/',
@@ -259,4 +261,8 @@ export const urls = {
     insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
+    llmObservability: (tab?: LLMObservabilityTab): string =>
+        `/llm-observability${tab !== 'dashboard' ? '/' + tab : ''}`,
+    llmObservabilityTrace: (id: string, eventId?: string): string =>
+        `/llm-observability/traces/${id}${eventId ? `?event=${eventId}` : ''}`,
 }

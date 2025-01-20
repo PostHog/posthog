@@ -127,7 +127,6 @@ export type CdpConfig = {
 }
 
 export interface PluginsServerConfig extends CdpConfig {
-    WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
@@ -150,8 +149,6 @@ export interface PluginsServerConfig extends CdpConfig {
     CLICKHOUSE_PASSWORD: string | null
     CLICKHOUSE_CA: string | null // ClickHouse CA certs
     CLICKHOUSE_SECURE: boolean // whether to secure ClickHouse connection
-    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean // whether to disallow external schemas like protobuf for clickhouse kafka engine
-    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events for clickhouse ingestion
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data for clickhouse ingestion
     EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
@@ -233,7 +230,6 @@ export interface PluginsServerConfig extends CdpConfig {
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
-    APP_METRICS_GATHERED_FOR_ALL: boolean // whether to gather app metrics for all teams
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
@@ -1266,6 +1262,7 @@ export type AppMetric2Type = {
         | 'disabled_permanently'
         | 'masked'
         | 'filtering_failed'
+        | 'inputs_failed'
         | 'fetch'
     count: number
 }

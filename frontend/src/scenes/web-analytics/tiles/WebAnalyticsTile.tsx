@@ -15,13 +15,20 @@ import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/Worl
 import { languageCodeToFlag, languageCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind, QuerySchema, WebStatsBreakdown } from '~/queries/schema'
+import {
+    CoreWebVitalsQuery,
+    DataTableNode,
+    InsightVizNode,
+    NodeKind,
+    QuerySchema,
+    WebStatsBreakdown,
+} from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, GraphPointPayload, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
 const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -363,26 +370,19 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
     },
 }
 
+type QueryWithInsightProps<Q extends QuerySchema> = { query: Q; insightProps: InsightLogicProps }
+
 export const WebStatsTrendTile = ({
     query,
     showIntervalTile,
     insightProps,
-}: {
-    query: InsightVizNode
-    showIntervalTile?: boolean
-    insightProps: InsightLogicProps
-}): JSX.Element => {
+}: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
     const { togglePropertyFilter, setInterval } = useActions(webAnalyticsLogic)
     const {
         hasCountryFilter,
-        deviceTab,
-        hasDeviceTypeFilter,
-        hasBrowserFilter,
-        hasOSFilter,
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
-    const deviceTypePropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.DeviceType)?.key
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -394,42 +394,6 @@ export const WebStatsTrendTile = ({
             })
         },
         [togglePropertyFilter, worldMapPropertyName]
-    )
-
-    const onDeviceTilePieChartClick = useCallback(
-        (graphPoint: GraphPointPayload) => {
-            if (graphPoint.seriesId == null) {
-                return
-            }
-            const dataset = graphPoint.crossDataset?.[graphPoint.seriesId]
-            if (!dataset) {
-                return
-            }
-
-            const breakdownValues = dataset.breakdownValues?.[graphPoint.index]
-            const breakdownValue = Array.isArray(breakdownValues) ? breakdownValues[0] : breakdownValues
-            if (!breakdownValue) {
-                return
-            }
-            if (!deviceTypePropertyName) {
-                return
-            }
-
-            // switch to a different tab if we can, try them in this order: DeviceType Browser OS
-            let newTab: DeviceTab | undefined = undefined
-            if (deviceTab !== DeviceTab.DEVICE_TYPE && !hasDeviceTypeFilter) {
-                newTab = DeviceTab.DEVICE_TYPE
-            } else if (deviceTab !== DeviceTab.BROWSER && !hasBrowserFilter) {
-                newTab = DeviceTab.BROWSER
-            } else if (deviceTab !== DeviceTab.OS && !hasOSFilter) {
-                newTab = DeviceTab.OS
-            }
-
-            togglePropertyFilter(PropertyFilterType.Event, deviceTypePropertyName, breakdownValue, {
-                deviceTab: newTab,
-            })
-        },
-        [togglePropertyFilter, deviceTypePropertyName, deviceTab, hasDeviceTypeFilter, hasBrowserFilter, hasOSFilter]
     )
 
     const context = useMemo((): QueryContext => {
@@ -445,9 +409,6 @@ export const WebStatsTrendTile = ({
                                     : undefined,
                         }
                     },
-                },
-                [ChartDisplayType.ActionsPie]: {
-                    onSegmentClick: onDeviceTilePieChartClick,
                 },
             },
             insightProps: {
@@ -486,10 +447,8 @@ export const WebStatsTableTile = ({
     breakdownBy,
     insightProps,
     control,
-}: {
-    query: DataTableNode
+}: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
-    insightProps: InsightLogicProps
     control?: JSX.Element
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
@@ -587,13 +546,7 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
     return breakdownValue
 }
 
-export const WebGoalsTile = ({
-    query,
-    insightProps,
-}: {
-    query: DataTableNode
-    insightProps: InsightLogicProps
-}): JSX.Element | null => {
+export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<DataTableNode>): JSX.Element | null => {
     const { actions, actionsLoading } = useValues(actionsModel)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
@@ -632,10 +585,7 @@ export const WebGoalsTile = ({
 export const WebExternalClicksTile = ({
     query,
     insightProps,
-}: {
-    query: DataTableNode
-    insightProps: InsightLogicProps
-}): JSX.Element | null => {
+}: QueryWithInsightProps<DataTableNode>): JSX.Element | null => {
     const { shouldStripQueryParams } = useValues(webAnalyticsLogic)
     const { setShouldStripQueryParams } = useActions(webAnalyticsLogic)
     return (
@@ -655,16 +605,21 @@ export const WebExternalClicksTile = ({
     )
 }
 
+export const CoreWebVitalsQueryTile = ({
+    query,
+    insightProps,
+}: QueryWithInsightProps<CoreWebVitalsQuery>): JSX.Element => {
+    return <Query query={query} readOnly context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
+}
+
 export const WebQuery = ({
     query,
     showIntervalSelect,
     control,
     insightProps,
-}: {
-    query: QuerySchema
+}: QueryWithInsightProps<QuerySchema> & {
     showIntervalSelect?: boolean
     control?: JSX.Element
-    insightProps: InsightLogicProps
 }): JSX.Element => {
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
         return (
@@ -676,13 +631,21 @@ export const WebQuery = ({
             />
         )
     }
+
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebExternalClicksTableQuery) {
         return <WebExternalClicksTile query={query} insightProps={insightProps} />
     }
+
     if (query.kind === NodeKind.InsightVizNode) {
         return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} insightProps={insightProps} />
-    } else if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebGoalsQuery) {
+    }
+
+    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebGoalsQuery) {
         return <WebGoalsTile query={query} insightProps={insightProps} />
+    }
+
+    if (query.kind === NodeKind.CoreWebVitalsQuery) {
+        return <CoreWebVitalsQueryTile query={query} insightProps={insightProps} />
     }
 
     return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />

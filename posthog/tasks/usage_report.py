@@ -314,7 +314,7 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     except Exception as err:
         logger.exception(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
         capture_exception(err)
-        pha_client = Client("sTMFPsFhdP1Ssg")
+        pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
         capture_event(
             pha_client=pha_client,
             name=f"organization usage report to billing service failure",
@@ -665,7 +665,7 @@ def capture_report(
 ) -> None:
     if not org_id and not team_id:
         raise ValueError("Either org_id or team_id must be provided")
-    pha_client = Client("sTMFPsFhdP1Ssg")
+    pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
     try:
         capture_event(
             pha_client=pha_client,
@@ -687,7 +687,6 @@ def capture_report(
             team_id=team_id,
             properties={"error": str(err)},
         )
-    pha_client.flush()
 
 
 # extend this with future usage based products
@@ -1044,6 +1043,14 @@ def send_all_org_usage_reports(
     skip_capture_event: bool = False,
     only_organization_id: Optional[str] = None,
 ) -> None:
+    import posthoganalytics
+    from sentry_sdk import capture_message
+
+    are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
+    if are_usage_reports_disabled:
+        capture_message(f"Usage reports are disabled for {at}")
+        return
+
     capture_event_name = capture_event_name or "organization usage report"
 
     at_date = parser.parse(at) if at else None

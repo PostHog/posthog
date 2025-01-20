@@ -87,4 +87,6 @@ export const appScenes: Record<Scene, () => any> = {
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.MessagingProviders]: () => import('./messaging/Providers'),
     [Scene.MessagingBroadcasts]: () => import('./messaging/Broadcasts'),
+    [Scene.LLMObservability]: () => import('./llm-observability/LLMObservabilityScene'),
+    [Scene.LLMObservabilityTrace]: () => import('./llm-observability/LLMObservabilityTraceScene'),
 }

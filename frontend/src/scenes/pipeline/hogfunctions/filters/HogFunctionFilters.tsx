@@ -9,7 +9,7 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, EntityTypes, FilterType, HogFunctionFiltersType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
@@ -93,6 +93,12 @@ export function HogFunctionFilters(): JSX.Element {
                     const filters = (value ?? {}) as HogFunctionFiltersType
                     return (
                         <>
+                            {useMapping && (
+                                <p className="mb-0 text-sm text-muted-alt">
+                                    Filters here apply for all events that could trigger this function, regardless of
+                                    mappings.
+                                </p>
+                            )}
                             <TestAccountFilterSwitch
                                 checked={filters?.filter_test_accounts ?? false}
                                 onChange={(filter_test_accounts) => onChange({ ...filters, filter_test_accounts })}

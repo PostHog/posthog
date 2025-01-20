@@ -29,6 +29,8 @@ export enum Scene {
     ReplayPlaylist = 'ReplayPlaylist',
     ReplayFilePlayback = 'ReplayFilePlayback',
     CustomCss = 'CustomCss',
+    LLMObservability = 'LLMObservability',
+    LLMObservabilityTrace = 'LLMObservabilityTrace',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
     PipelineNodeNew = 'PipelineNodeNew',
@@ -137,7 +139,7 @@ export interface SceneConfig {
      * If `plain`, there's no navigation present, and the scene has no padding.
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'app-canvas' | 'app-container' | 'app-raw-no-header' | 'plain'
+    layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Hides billing notice (BillingAlertsV2.tsx). */
