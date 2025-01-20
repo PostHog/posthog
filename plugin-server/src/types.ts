@@ -17,6 +17,8 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
+import { BatchConsumer } from '~/src/kafka/batch-consumer'
+
 import { EncryptedFields } from './cdp/encryption-utils'
 import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
