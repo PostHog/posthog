@@ -113,15 +113,13 @@ pub const fn newline_delim<T: Send>(
             cursor += 1;
         }
 
+        let remainder = std::str::from_utf8(&data[last_consumed_byte..])?;
+
         let mut output = Vec::with_capacity(lines.len());
-        let mut intermediate: Vec<_> = lines
+        let intermediate: Vec<_> = lines
             .into_par_iter()
             .map(|(end_byte_idx, line)| (end_byte_idx, inner(line)))
             .collect();
-
-        let Some(last) = intermediate.pop() else {
-            return Err(Error::msg("No data found"));
-        };
 
         let mut last_validly_consumed_byte = 0;
         for (byte_idx, res) in intermediate.into_iter() {
@@ -139,11 +137,15 @@ pub const fn newline_delim<T: Send>(
             }
         }
 
+        let remainder = inner(remainder);
+
         // If we managed to parse the last line, add it too, but if we didn't, assume it's due to this chunk being partway through the file,
         // and carry on.
-        if let Ok(parsed) = last.1 {
+        if let Ok(parsed) = remainder {
             output.push(parsed);
-            last_validly_consumed_byte = last.0;
+            // -1 because at this point the cursor is pointing at the end of the data,
+            // and we want to point at the last byte we actually consumed
+            last_validly_consumed_byte = cursor - 1;
         }
 
         let parsed = Parsed {

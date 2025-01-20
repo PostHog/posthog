@@ -141,7 +141,7 @@ mod test {
 
     use crate::source::{url_list::UrlList, DataSource};
 
-    const TEST_CONTENTS: &str = include_str!("../../tests/birdbuddy_export_example.json");
+    const TEST_CONTENTS: &str = include_str!("../../tests/capture_request_dump.jsonl");
 
     #[tokio::test]
     async fn test_url_list_creation() {
@@ -236,10 +236,10 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source = UrlList::new(urls, true, Duration::from_secs(10))
+        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10))
             .await
             .unwrap();
-        let size = source.size("1").await.unwrap();
+        let size = source.size(&urls[0]).await.unwrap();
 
         assert_eq!(size, TEST_CONTENTS.len());
     }
@@ -248,18 +248,24 @@ mod test {
     async fn test_get_first_100_bytes() {
         let server = MockServer::start();
         let _ = server.mock(|when, then| {
+            when.method(httpmock::Method::HEAD);
+            then.status(200)
+                .header("accept-ranges", "bytes")
+                .header("content-length", TEST_CONTENTS.len().to_string());
+        });
+        let _ = server.mock(|when, then| {
             when.method(httpmock::Method::GET);
             then.status(200)
                 .header("accept-ranges", "bytes")
-                .header("content-length", TEST_CONTENTS.len().to_string())
-                .body(TEST_CONTENTS);
+                .header("content-length", 100.to_string())
+                .body(&TEST_CONTENTS[0..100]);
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source = UrlList::new(urls, true, Duration::from_secs(10))
+        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10))
             .await
             .unwrap();
-        let chunk = source.get_chunk("/1", 0, 100).await.unwrap();
+        let chunk = source.get_chunk(&urls[0], 0, 100).await.unwrap();
 
         assert_eq!(chunk.len(), 100);
         assert_eq!(&chunk, &TEST_CONTENTS.as_bytes()[0..100]);
