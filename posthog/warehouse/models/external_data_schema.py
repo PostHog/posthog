@@ -325,19 +325,27 @@ def get_postgres_row_count(
         sslkey="/tmp/no.txt",
     )
 
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT relname as table_name, n_live_tup as estimated_row_count FROM pg_stat_user_tables WHERE schemaname = %(schema)s ORDER BY table_name ASC",
-            {"schema": schema},
-        )
-        row_count_result = cursor.fetchall()
-        row_counts = defaultdict(int)
-        for row in row_count_result:
-            row_counts[row[0]] = row[1]
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s",
+                {"schema": schema},
+            )
+            tables = cursor.fetchall()
 
-    connection.close()
+            if not tables:
+                return {}
+            union = [
+                f"SELECT '{table[0]}' AS table_name, COUNT(*) AS row_count FROM {schema}.{table[0]}" for table in tables
+            ]
+            all_counts = " UNION ALL ".join(union)
 
-    return row_counts
+            cursor.execute(all_counts)
+            row_count_result = cursor.fetchall()
+            row_counts = {row[0]: row[1] for row in row_count_result}
+        return row_counts
+    finally:
+        connection.close()
 
 
 def get_postgres_schemas(

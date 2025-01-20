@@ -43,12 +43,11 @@ export default function SchemaForm(): JSX.Element {
                                 },
                             },
                             {
-                                title: 'Estimated rows',
-                                key: 'estimated_rows',
-                                tooltip:
-                                    'Database engines can provide an estimate of the number of rows in a table. This number can be inaccurate, especially for very small tables.',
-                                render: function RenderEstimatedRows(_, schema) {
-                                    return schema.estimated_rows != null ? schema.estimated_rows : 'Unknown'
+                                title: 'Rows',
+                                key: 'rows',
+                                is_disabled: !databaseSchema.some((schema) => schema.rows),
+                                render: (_, schema) => {
+                                    return schema.rows != null ? schema.rows : 'Unknown'
                                 },
                             },
 
