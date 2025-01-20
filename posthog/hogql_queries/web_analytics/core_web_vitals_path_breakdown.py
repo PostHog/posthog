@@ -29,73 +29,47 @@ class CoreWebVitalsPathBreakdownQueryRunner(WebAnalyticsQueryRunner):
 
     def to_query(self):
         return parse_select(
-            "SELECT * FROM {good_query} UNION ALL {needs_improvements_query} UNION ALL {poor_query}",
+            """
+SELECT * FROM (
+    SELECT multiIf(
+        value <= {good_threshold}, 'good',
+        value <= {needs_improvements_threshold}, 'needs_improvements',
+        'poor'
+    ) AS band,
+    path,
+    value
+    FROM {inner_query}
+)
+ORDER BY value ASC, path ASC
+LIMIT 20 BY band
+""",
             timings=self.timings,
             placeholders={
-                "good_query": self._select_by_band(CoreWebVitalsMetricBand.GOOD),
-                "needs_improvements_query": self._select_by_band(CoreWebVitalsMetricBand.NEEDS_IMPROVEMENTS),
-                "poor_query": self._select_by_band(CoreWebVitalsMetricBand.POOR),
+                "inner_query": self._inner_query(),
+                "good_threshold": ast.Constant(value=self.query.thresholds[0]),
+                "needs_improvements_threshold": ast.Constant(value=self.query.thresholds[1]),
             },
         )
 
-    # KLUDGE: There's a hack here to get around the fact that we can't return an empty result from this
-    # subquery or else Clickhouse will be very sad and throw an error along these lines:
-    # `Scalar subquery returned empty result of type Tuple(String, Nullable(String), Nullable(Float64)) which cannot be Nullable.`
-    #
     # NOTE: Hardcoded to return at most 20 results per band, but we can change that if needed
-    def _select_by_band(self, band: CoreWebVitalsMetricBand):
+    def _inner_query(self):
         return parse_select(
             """
-SELECT band, path, value FROM (
-    SELECT
-        {band} AS band,
-        {breakdown_by} AS path,
-        {percentile} AS value
-    FROM events
-    WHERE and(event == '$web_vitals', path IS NOT NULL, {inside_periods_expr}, {event_properties_expr})
-    GROUP BY path
-    HAVING {thresholds_expr}
-    ORDER BY value ASC, path ASC
-    LIMIT 20
-) UNION ALL (
-    SELECT 'dummy' AS band, 'dummy' AS path, 0 AS value
-)
+SELECT
+    {breakdown_by} AS path,
+    {percentile} AS value
+FROM events
+WHERE and(event == '$web_vitals', path IS NOT NULL, {inside_periods_expr}, {event_properties_expr})
+GROUP BY path
+HAVING value >= 0
             """,
             timings=self.timings,
             placeholders={
-                "band": ast.Constant(value=band.value),
                 "breakdown_by": self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"])),
                 "percentile": self._percentile_expr(),
                 "inside_periods_expr": self._periods_expression(),
                 "event_properties_expr": self._event_properties(),
-                "thresholds_expr": self._thresholds_for_band(band),
             },
-        )
-
-    def _thresholds_for_band(self, band: CoreWebVitalsMetricBand) -> ast.Expr:
-        thresholds = {
-            CoreWebVitalsMetricBand.GOOD: (-1, self.query.thresholds[0]),
-            CoreWebVitalsMetricBand.NEEDS_IMPROVEMENTS: (self.query.thresholds[0], self.query.thresholds[1]),
-            CoreWebVitalsMetricBand.POOR: (
-                self.query.thresholds[1],
-                100_000_000,
-            ),  # Virtually infinity for the purposes of this query
-        }
-
-        threshold = thresholds[band]
-        return ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Gt,
-                    left=ast.Field(chain=["value"]),
-                    right=ast.Constant(value=threshold[0]),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["value"]),
-                    right=ast.Constant(value=threshold[1]),
-                ),
-            ]
         )
 
     def _event_properties(self) -> ast.Expr:
@@ -120,7 +94,7 @@ SELECT band, path, value FROM (
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
-        assert response.results
+        assert response.results is not None
 
         # Return a list because Pydantic is boring, but it will always be a single entry
         return CoreWebVitalsPathBreakdownQueryResponse(
