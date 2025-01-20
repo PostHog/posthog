@@ -13,10 +13,11 @@ import {
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
-import { BatchConsumer } from 'kafka/batch-consumer'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { VM } from 'vm2'
+
+import { BatchConsumer } from '~/src/kafka/batch-consumer'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { ObjectStorage } from './main/services/object_storage'
