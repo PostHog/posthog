@@ -262,18 +262,20 @@ export function DashboardHeader(): JSX.Element | null {
                                                 Create notebook from dashboard
                                             </LemonButton>
 
-                                            <AccessControlledLemonButton
-                                                userAccessLevel={dashboard.user_access_level}
-                                                minAccessLevel="editor"
-                                                resourceType="dashboard"
-                                                onClick={() => {
-                                                    showDeleteDashboardModal(dashboard.id)
-                                                }}
-                                                status="danger"
-                                                fullWidth
-                                            >
-                                                Delete dashboard
-                                            </AccessControlledLemonButton>
+                                            {canEditDashboard && (
+                                                <AccessControlledLemonButton
+                                                    userAccessLevel={dashboard.user_access_level}
+                                                    minAccessLevel="editor"
+                                                    resourceType="dashboard"
+                                                    onClick={() => {
+                                                        showDeleteDashboardModal(dashboard.id)
+                                                    }}
+                                                    status="danger"
+                                                    fullWidth
+                                                >
+                                                    Delete dashboard
+                                                </AccessControlledLemonButton>
+                                            )}
                                         </>
                                     ) : undefined
                                 }
