@@ -182,7 +182,6 @@ pub async fn event(
             .await
             {
                 let cause = match err {
-                    CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
                     CaptureError::MissingEventName => "missing_event_name",
                     _ => "process_events_error",
@@ -234,7 +233,6 @@ pub async fn recording(
             let count = events.len() as u64;
             if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
                 let cause = match err {
-                    CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
                     CaptureError::MissingSessionId => "missing_session_id",
                     CaptureError::MissingWindowId => "missing_window_id",
