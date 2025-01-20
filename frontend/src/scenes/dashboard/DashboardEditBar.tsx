@@ -80,6 +80,7 @@ export function DashboardEditBar(): JSX.Element {
                     insightProps={insightProps}
                     breakdownFilter={temporaryFilters.breakdown_filter}
                     isTrends={false}
+                    showLabel={false}
                     updateBreakdownFilter={(breakdown_filter) => {
                         if (dashboardMode !== DashboardMode.Edit) {
                             setDashboardMode(DashboardMode.Edit, null)
@@ -92,6 +93,7 @@ export function DashboardEditBar(): JSX.Element {
                         setBreakdownFilter(saved_breakdown_filter)
                     }}
                     updateDisplay={() => {}}
+                    size="small"
                 />
             </BindLogic>
         </div>
