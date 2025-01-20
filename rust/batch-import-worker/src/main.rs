@@ -10,7 +10,7 @@ use batch_import_worker::{
 use common_metrics::{serve, setup_metrics_routes};
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -54,19 +54,29 @@ pub async fn main() -> Result<(), Error> {
     let config = Config::init_from_env().unwrap();
     let context = Arc::new(AppContext::new(&config).await.unwrap());
 
+    context.clone().spawn_shutdown_listener();
+
     start_health_liveness_server(&config, context.clone());
 
-    loop {
+    while context.is_running() {
         let Some(model) = JobModel::claim_next_job(context.clone()).await? else {
+            if !context.is_running() {
+                break;
+            }
             info!("No available job found, sleeping");
             tokio::time::sleep(Duration::from_secs(5)).await;
             continue;
         };
 
-        debug!("Claimed job: {:?}", model);
+        info!("Claimed job: {:?}", model.id);
 
         let mut next_step = Some(Job::new(model, context.clone()).await?);
         while let Some(job) = next_step {
+            if !context.is_running() {
+                // if we're shutting down, we just drop the job - it'll remain leased for a few minutes, then another
+                // worker will come along and pick it up
+                break;
+            }
             next_step = match job.process().await {
                 Ok(next) => next,
                 Err(e) => {
@@ -83,4 +93,8 @@ pub async fn main() -> Result<(), Error> {
         }
         info!("Finished with job, waiting for the next one");
     }
+
+    info!("Shutting down");
+
+    Ok(())
 }
