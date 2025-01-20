@@ -2,7 +2,7 @@ import { IconLock } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -187,70 +187,57 @@ export function OverViewTab({
                                     Copy feature flag key
                                 </LemonButton>
 
-                                <AccessControlAction
+                                <AccessControlledLemonButton
                                     userAccessLevel={featureFlag.user_access_level}
-                                    requiredLevels={['admin', 'editor']}
+                                    minAccessLevel="editor"
                                     resourceType="feature flag"
+                                    data-attr={`feature-flag-${featureFlag.key}-switch`}
+                                    onClick={() => {
+                                        const newValue = !featureFlag.active
+                                        LemonDialog.open({
+                                            title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
+                                            description: `This flag will be immediately ${
+                                                newValue === true ? 'rolled out to' : 'rolled back from'
+                                            } the users matching the release conditions.`,
+                                            primaryButton: {
+                                                children: 'Confirm',
+                                                type: 'primary',
+                                                onClick: () => {
+                                                    featureFlag.id
+                                                        ? updateFeatureFlag({
+                                                              id: featureFlag.id,
+                                                              payload: { active: newValue },
+                                                          })
+                                                        : null
+                                                },
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                    }}
+                                    id={`feature-flag-${featureFlag.id}-switch`}
+                                    fullWidth
                                 >
-                                    {({ disabledReason: accessControlDisabledReason }) => (
-                                        <LemonButton
-                                            data-attr={`feature-flag-${featureFlag.key}-switch`}
-                                            onClick={() => {
-                                                const newValue = !featureFlag.active
-                                                LemonDialog.open({
-                                                    title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
-                                                    description: `This flag will be immediately ${
-                                                        newValue === true ? 'rolled out to' : 'rolled back from'
-                                                    } the users matching the release conditions.`,
-                                                    primaryButton: {
-                                                        children: 'Confirm',
-                                                        type: 'primary',
-                                                        onClick: () => {
-                                                            featureFlag.id
-                                                                ? updateFeatureFlag({
-                                                                      id: featureFlag.id,
-                                                                      payload: { active: newValue },
-                                                                  })
-                                                                : null
-                                                        },
-                                                        size: 'small',
-                                                    },
-                                                    secondaryButton: {
-                                                        children: 'Cancel',
-                                                        type: 'tertiary',
-                                                        size: 'small',
-                                                    },
-                                                })
-                                            }}
-                                            id={`feature-flag-${featureFlag.id}-switch`}
-                                            disabledReason={accessControlDisabledReason}
-                                            fullWidth
-                                        >
-                                            {featureFlag.active ? 'Disable' : 'Enable'} feature flag
-                                        </LemonButton>
-                                    )}
-                                </AccessControlAction>
+                                    {featureFlag.active ? 'Disable' : 'Enable'} feature flag
+                                </AccessControlledLemonButton>
 
                                 {featureFlag.id && (
-                                    <AccessControlAction
+                                    <AccessControlledLemonButton
                                         userAccessLevel={featureFlag.user_access_level}
-                                        requiredLevels={['admin', 'editor']}
+                                        minAccessLevel="editor"
                                         resourceType="feature flag"
+                                        fullWidth
+                                        disabled={!featureFlag.can_edit}
+                                        onClick={() =>
+                                            featureFlag.id && router.actions.push(urls.featureFlag(featureFlag.id))
+                                        }
                                     >
-                                        {({ disabledReason: accessControlDisabledReason }) => (
-                                            <LemonButton
-                                                fullWidth
-                                                disabled={!featureFlag.can_edit}
-                                                onClick={() =>
-                                                    featureFlag.id &&
-                                                    router.actions.push(urls.featureFlag(featureFlag.id))
-                                                }
-                                                disabledReason={accessControlDisabledReason}
-                                            >
-                                                Edit
-                                            </LemonButton>
-                                        )}
-                                    </AccessControlAction>
+                                        Edit
+                                    </AccessControlledLemonButton>
                                 )}
 
                                 <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth>
@@ -260,37 +247,31 @@ export function OverViewTab({
                                 <LemonDivider />
 
                                 {featureFlag.id && (
-                                    <AccessControlAction
+                                    <AccessControlledLemonButton
                                         userAccessLevel={featureFlag.user_access_level}
-                                        requiredLevels={['admin', 'editor']}
+                                        minAccessLevel="editor"
                                         resourceType="feature flag"
+                                        status="danger"
+                                        onClick={() => {
+                                            void deleteWithUndo({
+                                                endpoint: `projects/${currentProjectId}/feature_flags`,
+                                                object: { name: featureFlag.key, id: featureFlag.id },
+                                                callback: loadFeatureFlags,
+                                            }).catch((e) => {
+                                                lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
+                                            })
+                                        }}
+                                        disabledReason={
+                                            (featureFlag.features?.length || 0) > 0
+                                                ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                : (featureFlag.experiment_set?.length || 0) > 0
+                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                : null
+                                        }
+                                        fullWidth
                                     >
-                                        {({ disabledReason: accessControlDisabledReason }) => (
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={() => {
-                                                    void deleteWithUndo({
-                                                        endpoint: `projects/${currentProjectId}/feature_flags`,
-                                                        object: { name: featureFlag.key, id: featureFlag.id },
-                                                        callback: loadFeatureFlags,
-                                                    }).catch((e) => {
-                                                        lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
-                                                    })
-                                                }}
-                                                disabledReason={
-                                                    accessControlDisabledReason ||
-                                                    ((featureFlag.features?.length || 0) > 0
-                                                        ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                        : (featureFlag.experiment_set?.length || 0) > 0
-                                                        ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                                        : null)
-                                                }
-                                                fullWidth
-                                            >
-                                                Delete feature flag
-                                            </LemonButton>
-                                        )}
-                                    </AccessControlAction>
+                                        Delete feature flag
+                                    </AccessControlledLemonButton>
                                 )}
                             </>
                         }

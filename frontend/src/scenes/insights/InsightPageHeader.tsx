@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { AlertsButton } from 'lib/components/Alerts/AlertsButton'
@@ -322,31 +322,25 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {hasDashboardItemId && (
                                         <>
                                             <LemonDivider />
-                                            <AccessControlAction
+                                            <AccessControlledLemonButton
                                                 userAccessLevel={insight.user_access_level}
-                                                requiredLevels={['admin', 'editor']}
+                                                minAccessLevel="editor"
                                                 resourceType="insight"
+                                                status="danger"
+                                                onClick={() =>
+                                                    void deleteInsightWithUndo({
+                                                        object: insight as QueryBasedInsightModel,
+                                                        endpoint: `projects/${currentProjectId}/insights`,
+                                                        callback: () => {
+                                                            loadInsights()
+                                                            push(urls.savedInsights())
+                                                        },
+                                                    })
+                                                }
+                                                fullWidth
                                             >
-                                                {({ disabledReason: accessControlDisabledReason }) => (
-                                                    <LemonButton
-                                                        status="danger"
-                                                        onClick={() =>
-                                                            void deleteInsightWithUndo({
-                                                                object: insight as QueryBasedInsightModel,
-                                                                endpoint: `projects/${currentProjectId}/insights`,
-                                                                callback: () => {
-                                                                    loadInsights()
-                                                                    push(urls.savedInsights())
-                                                                },
-                                                            })
-                                                        }
-                                                        fullWidth
-                                                        disabledReason={accessControlDisabledReason}
-                                                    >
-                                                        Delete insight
-                                                    </LemonButton>
-                                                )}
-                                            </AccessControlAction>
+                                                Delete insight
+                                            </AccessControlledLemonButton>
                                         </>
                                     )}
                                 </>
@@ -391,22 +385,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
-                                <AccessControlAction
+                                <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    requiredLevels={['admin', 'editor']}
+                                    minAccessLevel="editor"
                                     resourceType="insight"
+                                    type="primary"
+                                    onClick={() => setInsightMode(ItemMode.Edit, null)}
+                                    data-attr="insight-edit-button"
                                 >
-                                    {({ disabledReason: accessControlDisabledReason }) => (
-                                        <LemonButton
-                                            type="primary"
-                                            onClick={() => setInsightMode(ItemMode.Edit, null)}
-                                            data-attr="insight-edit-button"
-                                            disabledReason={accessControlDisabledReason}
-                                        >
-                                            Edit
-                                        </LemonButton>
-                                    )}
-                                </AccessControlAction>
+                                    Edit
+                                </AccessControlledLemonButton>
                             )
                         ) : (
                             <InsightSaveButton

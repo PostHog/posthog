@@ -17,7 +17,6 @@ import {
     APIScopeObject,
     OrganizationMemberType,
     RoleType,
-    WithAccessControl,
 } from '~/types'
 
 import type { accessControlLogicType } from './accessControlLogicType'
@@ -242,21 +241,6 @@ export const accessControlLogic = kea<accessControlLogicType>([
                       )
                     : []
             },
-        ],
-
-        hasResourceAccess: [
-            () => [],
-            () =>
-                ({
-                    userAccessLevel,
-                    requiredLevels,
-                }: {
-                    userAccessLevel?: WithAccessControl['user_access_level']
-                    requiredLevels: WithAccessControl['user_access_level'][]
-                }) => {
-                    // Fallback to true if userAccessLevel is not set
-                    return userAccessLevel ? requiredLevels.includes(userAccessLevel) : true
-                },
         ],
     }),
     afterMount(({ actions }) => {

@@ -1,29 +1,42 @@
-import { useValues } from 'kea'
-
-import { accessControlLogic } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlLogic'
-
-import { WithAccessControl } from '../../types'
+type AccessControlLevelNone = 'none'
+type AccessControlLevelMember = AccessControlLevelNone | 'member' | 'admin'
+type AccessControlLevelResource = AccessControlLevelNone | 'viewer' | 'editor'
+type AccessControlLevel = AccessControlLevelMember | AccessControlLevelResource
 
 interface AccessControlActionProps {
     children: (props: { disabled: boolean; disabledReason: string | null }) => React.ReactElement
-    userAccessLevel?: WithAccessControl['user_access_level']
-    requiredLevels: WithAccessControl['user_access_level'][]
-    resourceType?: string
+    userAccessLevel?: AccessControlLevel
+    minAccessLevel: AccessControlLevel
+    resourceType: string
 }
 
+const orderedAccessLevels = (resourceType: string): AccessControlLevel[] => {
+    if (resourceType === 'project' || resourceType === 'organization') {
+        return ['none', 'member', 'admin']
+    }
+    return ['none', 'viewer', 'editor']
+}
+
+const accessLevelSatisfied = (
+    resourceType: string,
+    currentLevel: AccessControlLevel,
+    requiredLevel: AccessControlLevel
+): boolean => {
+    const levels = orderedAccessLevels(resourceType)
+    return levels.indexOf(currentLevel) >= levels.indexOf(requiredLevel)
+}
+
+// This is a wrapper around a component that checks if the user has access to the resource
+// and if not, it disables the component and shows a reason why
 export const AccessControlAction = ({
     children,
     userAccessLevel,
-    requiredLevels,
+    minAccessLevel,
     resourceType = 'resource',
 }: AccessControlActionProps): JSX.Element => {
-    const { hasResourceAccess } = useValues(accessControlLogic)
-
-    const hasAccess = hasResourceAccess({ userAccessLevel, requiredLevels })
+    const hasAccess = userAccessLevel ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel) : false
     const disabledReason = !hasAccess
-        ? `You don't have sufficient permissions for this ${resourceType}. Your access level (${userAccessLevel}) doesn't meet the required level (${requiredLevels.join(
-              ' or '
-          )}).`
+        ? `You don't have sufficient permissions for this ${resourceType}. Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
         : null
 
     return children({

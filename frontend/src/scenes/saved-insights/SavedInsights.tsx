@@ -24,7 +24,7 @@ import {
 } from '@posthog/icons'
 import { LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
@@ -487,36 +487,25 @@ export function SavedInsights(): JSX.Element {
                                 <>
                                     {name || <i>{summarizeInsight(insight.query)}</i>}
 
-                                    <AccessControlAction
+                                    <AccessControlledLemonButton
                                         userAccessLevel={insight.user_access_level}
-                                        requiredLevels={['admin', 'editor']}
+                                        minAccessLevel="editor"
                                         resourceType="insight"
-                                    >
-                                        {({ disabled }) =>
-                                            disabled ? (
-                                                <></>
+                                        className="ml-1"
+                                        size="xsmall"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            updateFavoritedInsight(insight, !insight.favorited)
+                                        }}
+                                        icon={
+                                            insight.favorited ? (
+                                                <IconStarFilled className="text-warning" />
                                             ) : (
-                                                <LemonButton
-                                                    className="ml-1"
-                                                    size="xsmall"
-                                                    onClick={(e) => {
-                                                        e.preventDefault()
-                                                        updateFavoritedInsight(insight, !insight.favorited)
-                                                    }}
-                                                    icon={
-                                                        insight.favorited ? (
-                                                            <IconStarFilled className="text-warning" />
-                                                        ) : (
-                                                            <IconStar className="text-muted" />
-                                                        )
-                                                    }
-                                                    tooltip={`${
-                                                        insight.favorited ? 'Remove from' : 'Add to'
-                                                    } favorite insights`}
-                                                />
+                                                <IconStar className="text-muted" />
                                             )
                                         }
-                                    </AccessControlAction>
+                                        tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
+                                    />
                                 </>
                             }
                             description={insight.description}
@@ -569,38 +558,26 @@ export function SavedInsights(): JSX.Element {
 
                                 <LemonDivider />
 
-                                <AccessControlAction
+                                <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    requiredLevels={['admin', 'editor']}
+                                    minAccessLevel="editor"
                                     resourceType="insight"
+                                    to={urls.insightEdit(insight.short_id)}
+                                    fullWidth
                                 >
-                                    {({ disabledReason: accessControlDisabledReason }) => (
-                                        <LemonButton
-                                            to={urls.insightEdit(insight.short_id)}
-                                            fullWidth
-                                            disabledReason={accessControlDisabledReason}
-                                        >
-                                            Edit
-                                        </LemonButton>
-                                    )}
-                                </AccessControlAction>
+                                    Edit
+                                </AccessControlledLemonButton>
 
-                                <AccessControlAction
+                                <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    requiredLevels={['admin', 'editor']}
+                                    minAccessLevel="editor"
                                     resourceType="insight"
+                                    onClick={() => renameInsight(insight)}
+                                    data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
+                                    fullWidth
                                 >
-                                    {({ disabledReason: accessControlDisabledReason }) => (
-                                        <LemonButton
-                                            onClick={() => renameInsight(insight)}
-                                            data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
-                                            fullWidth
-                                            disabledReason={accessControlDisabledReason}
-                                        >
-                                            Rename
-                                        </LemonButton>
-                                    )}
-                                </AccessControlAction>
+                                    Rename
+                                </AccessControlledLemonButton>
 
                                 <LemonButton
                                     onClick={() => duplicateInsight(insight)}
@@ -612,29 +589,23 @@ export function SavedInsights(): JSX.Element {
 
                                 <LemonDivider />
 
-                                <AccessControlAction
+                                <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    requiredLevels={['admin', 'editor']}
+                                    minAccessLevel="editor"
                                     resourceType="insight"
+                                    status="danger"
+                                    onClick={() =>
+                                        void deleteInsightWithUndo({
+                                            object: insight,
+                                            endpoint: `projects/${currentProjectId}/insights`,
+                                            callback: loadInsights,
+                                        })
+                                    }
+                                    data-attr={`insight-item-${insight.short_id}-dropdown-remove`}
+                                    fullWidth
                                 >
-                                    {({ disabledReason: accessControlDisabledReason }) => (
-                                        <LemonButton
-                                            status="danger"
-                                            onClick={() =>
-                                                void deleteInsightWithUndo({
-                                                    object: insight,
-                                                    endpoint: `projects/${currentProjectId}/insights`,
-                                                    callback: loadInsights,
-                                                })
-                                            }
-                                            data-attr={`insight-item-${insight.short_id}-dropdown-remove`}
-                                            fullWidth
-                                            disabledReason={accessControlDisabledReason}
-                                        >
-                                            Delete insight
-                                        </LemonButton>
-                                    )}
-                                </AccessControlAction>
+                                    Delete insight
+                                </AccessControlledLemonButton>
                             </>
                         }
                     />
