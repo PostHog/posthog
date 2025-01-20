@@ -105,10 +105,10 @@ impl Job {
     }
 
     pub async fn process(self) -> Result<Option<Self>, Error> {
-        let next_chunk_handle = self.get_next_chunk();
-        let next_commit_handle = self.do_commit();
+        let next_chunk_fut = self.get_next_chunk();
+        let next_commit_fut = self.do_commit();
 
-        let (next_chunk, next_commit) = tokio::join!(next_chunk_handle, next_commit_handle);
+        let (next_chunk, next_commit) = tokio::join!(next_chunk_fut, next_commit_fut);
 
         if let Err(e) = next_commit {
             // If we fail to commit, we just log and bail out - the job will be paused if it needs to be,
