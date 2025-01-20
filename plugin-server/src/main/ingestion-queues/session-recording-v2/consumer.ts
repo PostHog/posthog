@@ -20,6 +20,7 @@ import { KafkaMetrics } from './kafka/metrics'
 import { KafkaParser } from './kafka/parser'
 import { SessionRecordingMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
+import { BlackholeFlusher } from './sessions/blackhole-flusher'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { TeamFilter } from './teams/team-filter'
@@ -63,7 +64,7 @@ export class SessionRecordingIngester {
         this.batchConsumerFactory = batchConsumerFactory
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 0) * 1024,
-            createBatch: () => new SessionBatchRecorder(),
+            createBatch: () => new SessionBatchRecorder(new BlackholeFlusher()),
         })
 
         const teamFilter = new TeamFilter(teamService, kafkaParser)

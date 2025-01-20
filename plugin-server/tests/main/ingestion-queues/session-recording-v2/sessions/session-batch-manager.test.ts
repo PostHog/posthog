@@ -4,7 +4,7 @@ import { SessionBatchRecorder } from '../../../../../src/main/ingestion-queues/s
 const createMockBatch = (): jest.Mocked<SessionBatchRecorder> => {
     return {
         record: jest.fn(),
-        dump: jest.fn(),
+        flush: jest.fn().mockResolvedValue(undefined),
         get size() {
             return 0
         },
@@ -15,9 +15,14 @@ describe('SessionBatchManager', () => {
     let manager: SessionBatchManager
     let executionOrder: number[]
     let createBatchMock: jest.Mock<SessionBatchRecorder>
+    let currentBatch: jest.Mocked<SessionBatchRecorder>
 
     beforeEach(() => {
-        createBatchMock = jest.fn().mockImplementation(createMockBatch)
+        currentBatch = createMockBatch()
+        createBatchMock = jest.fn().mockImplementation(() => {
+            currentBatch = createMockBatch()
+            return currentBatch
+        })
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             createBatch: createBatchMock,
@@ -144,57 +149,54 @@ describe('SessionBatchManager', () => {
             return Promise.resolve()
         })
     })
+
+    it('should flush the current batch before creating a new one', async () => {
+        const firstBatch = currentBatch
+
+        await manager.flush()
+
+        expect(firstBatch.flush).toHaveBeenCalled()
+        expect(createBatchMock).toHaveBeenCalledTimes(2)
+    })
+
     it('should flush when buffer is full', async () => {
-        let firstBatch: SessionBatchRecorder | null = null
-        let secondBatch: SessionBatchRecorder | null = null
-
-        expect(createBatchMock).toHaveBeenCalledTimes(1)
-
-        // Get reference to first batch
-        await manager.withBatch(async (batch) => {
-            firstBatch = batch
-            // Mock the size to be over limit
-            jest.spyOn(batch, 'size', 'get').mockReturnValue(150)
-            return Promise.resolve()
-        })
+        const firstBatch = currentBatch
+        jest.spyOn(firstBatch, 'size', 'get').mockReturnValue(150)
 
         await manager.flushIfFull()
 
-        expect(createBatchMock).toHaveBeenCalledTimes(2)
-
-        // Get reference to second batch
-        await manager.withBatch(async (batch) => {
-            secondBatch = batch
-            return Promise.resolve()
-        })
-
-        expect(secondBatch).not.toBe(firstBatch)
+        expect(firstBatch.flush).toHaveBeenCalled()
         expect(createBatchMock).toHaveBeenCalledTimes(2)
     })
 
     it('should not flush when buffer is under limit', async () => {
-        let firstBatch: SessionBatchRecorder | null = null
-        let secondBatch: SessionBatchRecorder | null = null
-
-        expect(createBatchMock).toHaveBeenCalledTimes(1)
-
-        // Get reference to first batch
-        await manager.withBatch(async (batch) => {
-            firstBatch = batch
-            // Mock the size to be under limit
-            jest.spyOn(batch, 'size', 'get').mockReturnValue(50)
-            return Promise.resolve()
-        })
+        const firstBatch = currentBatch
+        jest.spyOn(firstBatch, 'size', 'get').mockReturnValue(50)
 
         await manager.flushIfFull()
 
-        // Get reference to second batch
-        await manager.withBatch(async (batch) => {
-            secondBatch = batch
+        expect(firstBatch.flush).not.toHaveBeenCalled()
+        expect(createBatchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('should execute callbacks sequentially including flushes', async () => {
+        const firstBatch = currentBatch
+
+        const promise1 = manager.withBatch(async () => {
+            executionOrder.push(1)
             return Promise.resolve()
         })
 
-        expect(secondBatch).toBe(firstBatch)
-        expect(createBatchMock).toHaveBeenCalledTimes(1)
+        const flushPromise = manager.flush()
+
+        const promise2 = manager.withBatch(async () => {
+            executionOrder.push(2)
+            return Promise.resolve()
+        })
+
+        await Promise.all([promise1, flushPromise, promise2])
+
+        expect(executionOrder).toEqual([1, 2])
+        expect(firstBatch.flush).toHaveBeenCalled()
     })
 })

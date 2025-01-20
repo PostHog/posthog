@@ -25,19 +25,17 @@ export class SessionBatchManager {
 
     public async flush(): Promise<void> {
         return this.queue.add(async () => {
-            // TODO: Process the last batch, for now we just throw it away
+            await this.currentBatch.flush()
             this.currentBatch = this.createBatch()
-            return Promise.resolve()
         })
     }
 
     public async flushIfFull(): Promise<void> {
         return this.queue.add(async () => {
             if (this.currentBatch.size >= this.maxBatchSizeBytes) {
-                // TODO: Process the last batch, for now we just throw it away
+                await this.currentBatch.flush()
                 this.currentBatch = this.createBatch()
             }
-            return Promise.resolve()
         })
     }
 }

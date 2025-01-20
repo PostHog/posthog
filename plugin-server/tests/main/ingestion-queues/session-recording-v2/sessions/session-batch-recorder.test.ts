@@ -1,6 +1,9 @@
 import { PassThrough } from 'stream'
 
-import { SessionBatchRecorder } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
+import {
+    SessionBatchFlusher,
+    SessionBatchRecorder,
+} from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
 import { MessageWithTeam } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/types'
 
 // RRWeb event type constants
@@ -21,9 +24,16 @@ interface RRWebEvent {
 
 describe('SessionBatchRecorder', () => {
     let recorder: SessionBatchRecorder
+    let mockFlusher: jest.Mocked<SessionBatchFlusher>
+    let mockStream: PassThrough
 
     beforeEach(() => {
-        recorder = new SessionBatchRecorder()
+        mockStream = new PassThrough()
+        mockFlusher = {
+            open: jest.fn().mockResolvedValue(mockStream),
+            finish: jest.fn().mockResolvedValue(undefined),
+        }
+        recorder = new SessionBatchRecorder(mockFlusher)
     })
 
     const createMessage = (sessionId: string, events: RRWebEvent[]): MessageWithTeam => ({
@@ -58,18 +68,20 @@ describe('SessionBatchRecorder', () => {
             .map((line) => JSON.parse(line))
     }
 
-    const captureOutput = async (recorder: SessionBatchRecorder): Promise<string> => {
-        const stream = new PassThrough()
-        let streamData = ''
-        stream.on('data', (chunk) => {
-            streamData += chunk
+    const captureOutput = (): Promise<string> => {
+        return new Promise<string>((resolve) => {
+            let streamData = ''
+            mockStream.on('data', (chunk) => {
+                streamData += chunk
+            })
+            mockStream.on('end', () => {
+                resolve(streamData)
+            })
         })
-        await recorder.dump(stream)
-        return streamData
     }
 
-    describe('recording and dumping', () => {
-        it('should process and dump a single session', async () => {
+    describe('recording and flushing', () => {
+        it('should process and flush a single session', async () => {
             const message = createMessage('session1', [
                 {
                     type: EventType.FullSnapshot,
@@ -79,8 +91,13 @@ describe('SessionBatchRecorder', () => {
             ])
 
             recorder.record(message)
+            const outputPromise = captureOutput()
+            await recorder.flush()
 
-            const output = await captureOutput(recorder)
+            expect(mockFlusher.open).toHaveBeenCalled()
+            expect(mockFlusher.finish).toHaveBeenCalled()
+
+            const output = await outputPromise
             const lines = parseLines(output)
             expect(lines).toEqual([['window1', message.message.eventsByWindowId.window1[0]]])
             expect(output.endsWith('\n')).toBe(true)
@@ -105,8 +122,13 @@ describe('SessionBatchRecorder', () => {
             ]
 
             messages.forEach((message) => recorder.record(message))
+            const outputPromise = captureOutput()
+            await recorder.flush()
 
-            const output = await captureOutput(recorder)
+            expect(mockFlusher.open).toHaveBeenCalled()
+            expect(mockFlusher.finish).toHaveBeenCalled()
+
+            const output = await outputPromise
             const lines = parseLines(output)
             expect(lines).toEqual([
                 ['window1', messages[0].message.eventsByWindowId.window1[0]],
@@ -134,8 +156,13 @@ describe('SessionBatchRecorder', () => {
             ]
 
             messages.forEach((message) => recorder.record(message))
+            const outputPromise = captureOutput()
+            await recorder.flush()
 
-            const output = await captureOutput(recorder)
+            expect(mockFlusher.open).toHaveBeenCalled()
+            expect(mockFlusher.finish).toHaveBeenCalled()
+
+            const output = await outputPromise
             const lines = parseLines(output)
             expect(lines).toEqual([
                 ['window1', messages[0].message.eventsByWindowId.window1[0]],
@@ -148,7 +175,13 @@ describe('SessionBatchRecorder', () => {
             const message = createMessage('session1', [])
             const bytesWritten = recorder.record(message)
 
-            const output = await captureOutput(recorder)
+            const outputPromise = captureOutput()
+            await recorder.flush()
+
+            expect(mockFlusher.open).toHaveBeenCalled()
+            expect(mockFlusher.finish).toHaveBeenCalled()
+
+            const output = await outputPromise
             expect(output).toBe('')
             expect(bytesWritten).toBe(0)
         })
@@ -187,8 +220,13 @@ describe('SessionBatchRecorder', () => {
 
             // Record events in interleaved order
             messages.forEach((message) => recorder.record(message))
+            const outputPromise = captureOutput()
+            await recorder.flush()
 
-            const output = await captureOutput(recorder)
+            expect(mockFlusher.open).toHaveBeenCalled()
+            expect(mockFlusher.finish).toHaveBeenCalled()
+
+            const output = await outputPromise
             const lines = parseLines(output)
 
             // Events should be grouped by session, maintaining chronological order within each session
