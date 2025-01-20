@@ -2,6 +2,7 @@
 const config = {
     content: ['./frontend/src/**/*.{ts,tsx}', './ee/frontend/**/*.{ts,tsx}', './frontend/src/index.html'],
     important: true, // Basically this: https://sebastiandedeyne.com/why-we-use-important-with-tailwind
+    darkMode: ['selector', '[theme="dark"]'],
     theme: {
         colors: {
             // TODO: Move all colors over to Tailwind

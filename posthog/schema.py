@@ -989,6 +989,7 @@ class LLMGeneration(BaseModel):
     inputTokens: Optional[float] = None
     latency: float
     model: Optional[str] = None
+    modelParameters: Optional[dict[str, Any]] = None
     output: Optional[Any] = None
     outputCost: Optional[float] = None
     outputTokens: Optional[float] = None
