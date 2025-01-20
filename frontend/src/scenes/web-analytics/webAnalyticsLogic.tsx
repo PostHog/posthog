@@ -157,9 +157,9 @@ export interface ErrorTrackingTile extends BaseTile {
     query: QuerySchema
 }
 
-export type WebDashboardTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
+export type WebAnalyticsTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
 
-export interface WebDashboardModalQuery {
+export interface WebAnalyticsModalQuery {
     tileId: TileId
     tabId?: string
     title?: string
@@ -627,7 +627,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 featureFlags,
                 isGreaterThanMd
-            ): WebDashboardTile[] => {
+            ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
@@ -877,7 +877,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ]
                 }
 
-                const allTiles: (WebDashboardTile | null)[] = [
+                const allTiles: (WebAnalyticsTile | null)[] = [
                     {
                         kind: 'query',
                         tileId: TileId.OVERVIEW,
@@ -1601,12 +1601,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         modal: [
             (s) => [s.tiles, s._modalTileAndTab],
-            (tiles, modalTileAndTab): WebDashboardModalQuery | null => {
+            (tiles, modalTileAndTab): WebAnalyticsModalQuery | null => {
                 if (!modalTileAndTab) {
                     return null
                 }
                 const { tileId, tabId } = modalTileAndTab
-                const tile: WebDashboardTile | undefined = tiles.find((tile) => tile.tileId === tileId)
+                const tile: WebAnalyticsTile | undefined = tiles.find((tile) => tile.tileId === tileId)
                 if (!tile) {
                     return null
                 }
@@ -1813,7 +1813,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         return query
                     }
 
-                    const tile: WebDashboardTile | undefined = tiles.find((tile) => tile.tileId === tileId)
+                    const tile: WebAnalyticsTile | undefined = tiles.find((tile) => tile.tileId === tileId)
                     if (!tile) {
                         return undefined
                     }

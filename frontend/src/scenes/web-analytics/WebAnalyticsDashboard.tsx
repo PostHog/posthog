@@ -6,10 +6,10 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -359,9 +359,6 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
-    const { isWindowLessThan } = useWindowSize()
-    const isMobile = isWindowLessThan('sm')
-
     const { productTab } = useValues(webAnalyticsLogic)
     const { setProductTab } = useActions(webAnalyticsLogic)
 
@@ -373,26 +370,18 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
-                    <div className="flex flex-col sm:flex-row gap-2 justify-between items-center sm:items-start w-full border-b pb-2 mb-2 sm:mb-0">
-                        <div>
-                            <WebAnalyticsLiveUserCount />
-                        </div>
+                    {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
+                        <LemonTabs<ProductTab>
+                            activeKey={productTab}
+                            onChange={setProductTab}
+                            tabs={[
+                                { key: ProductTab.ANALYTICS, label: 'Web analytics' },
+                                { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
+                            ]}
+                        />
+                    )}
 
-                        {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
-                            <LemonSegmentedSelect
-                                shrinkOn={3}
-                                size="small"
-                                value={productTab}
-                                fullWidth={isMobile}
-                                dropdownMatchSelectWidth={false}
-                                onChange={setProductTab}
-                                options={[
-                                    { value: ProductTab.ANALYTICS, label: 'Web analytics' },
-                                    { value: ProductTab.WEB_VITALS, label: 'Web vitals' },
-                                ]}
-                            />
-                        )}
-                    </div>
+                    <WebAnalyticsLiveUserCount />
 
                     <Filters />
                     <WebAnalyticsHealthCheck />
