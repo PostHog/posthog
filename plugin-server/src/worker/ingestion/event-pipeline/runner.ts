@@ -27,6 +27,7 @@ import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
+import { transformEventStep } from './transformEventStep'
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
@@ -222,9 +223,12 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
         }
 
+        // Transform step (Alpha feature - controlled by HOG_TRANSFORMATIONS_ALPHA env var)
+        const transformedEvent = await this.runStep(transformEventStep, [this.hub, processedEvent], event.team_id)
+
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,
-            [processedEvent, processPerson],
+            [transformedEvent, processPerson],
             event.team_id
         )
 
