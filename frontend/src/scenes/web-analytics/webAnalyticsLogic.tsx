@@ -417,7 +417,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         isPathCleaningEnabled: [
-            null as boolean | null,
+            true as boolean,
             persistConfig,
             {
                 setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
@@ -794,7 +794,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 />
                             </div>
                         }
-                        checked={!!isPathCleaningEnabled}
+                        checked={isPathCleaningEnabled}
                         onChange={(value) => actions.setIsPathCleaningEnabled(value)}
                         className="h-full"
                     />
@@ -857,7 +857,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 properties: webAnalyticsFilters,
                                 percentile: webVitalsPercentile,
                                 metric: webVitalsTab,
-                                doPathCleaning: !!isPathCleaningEnabled,
+                                doPathCleaning: isPathCleaningEnabled,
                                 thresholds: [
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].good,
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
@@ -983,7 +983,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           {
                                               includeScrollDepth: false, // TODO needs some perf work before it can be enabled
                                               includeBounceRate: true,
-                                              doPathCleaning: !!isPathCleaningEnabled,
+                                              doPathCleaning: isPathCleaningEnabled,
                                           },
                                           {
                                               control: pathCleaningControl,
@@ -1027,7 +1027,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           {
                                               includeBounceRate: true,
                                               includeScrollDepth: false,
-                                              doPathCleaning: !!isPathCleaningEnabled,
+                                              doPathCleaning: isPathCleaningEnabled,
                                           },
                                           {
                                               control: pathCleaningControl,
@@ -1061,7 +1061,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           {
                                               includeBounceRate: false,
                                               includeScrollDepth: false,
-                                              doPathCleaning: !!isPathCleaningEnabled,
+                                              doPathCleaning: isPathCleaningEnabled,
                                           },
                                           {
                                               control: pathCleaningControl,
@@ -2022,6 +2022,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setCompareFilter: stateToUrl,
             setProductTab: stateToUrl,
             setWebVitalsPercentile: stateToUrl,
+            setIsPathCleaningEnabled: stateToUrl,
         }
     }),
 
