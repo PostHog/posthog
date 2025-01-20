@@ -10,7 +10,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), 0), plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-02-15 23:59:59', 6, 'UTC')), 0), toIntervalWeek(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), 0), plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-02-15 23:59:59', 6, 'UTC')), 0), toIntervalWeek(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -151,7 +151,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -197,7 +197,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), toIntervalDay(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -243,7 +243,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), 0), plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-02-15 23:59:59', 6, 'UTC')), 0), toIntervalWeek(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), 0), plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-02-15 23:59:59', 6, 'UTC')), 0), toIntervalWeek(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -428,7 +428,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -496,7 +496,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -553,7 +553,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 20:00:00', 6, 'UTC'))), toIntervalHour(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 20:00:00', 6, 'UTC'))), toIntervalHour(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -704,7 +704,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM

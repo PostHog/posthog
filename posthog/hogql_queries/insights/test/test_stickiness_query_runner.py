@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.action.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -34,6 +35,7 @@ from posthog.schema import (
     StickinessQuery,
     StickinessQueryResponse,
     CompareFilter,
+    StickinessActorsQuery,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import APIBaseTest, _create_event, _create_person, ClickhouseTestMixin
@@ -196,16 +198,16 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-    def _run_query(
+    def _get_query(
         self,
         series: Optional[list[EventsNode | ActionsNode]] = None,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
         interval: Optional[IntervalType] = None,
+        intervalCount: Optional[int] = None,
         properties: Optional[StickinessProperties] = None,
         filters: Optional[StickinessFilter] = None,
         filter_test_accounts: Optional[bool] = False,
-        limit_context: Optional[LimitContext] = None,
         compare_filters: Optional[CompareFilter] = None,
     ):
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
@@ -217,11 +219,16 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=query_series,
             dateRange=DateRange(date_from=query_date_from, date_to=query_date_to),
             interval=query_interval,
+            intervalCount=intervalCount,
             properties=properties,
             stickinessFilter=filters,
             compareFilter=compare_filters,
             filterTestAccounts=filter_test_accounts,
         )
+        return query
+
+    def _run_query(self, limit_context: Optional[LimitContext] = None, **kwargs):
+        query = self._get_query(**kwargs)
         return StickinessQueryRunner(team=self.team, query=query, limit_context=limit_context).calculate()
 
     def test_stickiness_runs(self):
@@ -346,6 +353,99 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             1,
             0,
         ]
+
+    def test_interval_2_day(self):
+        self._create_test_events()
+
+        response = self._run_query(interval=IntervalType.DAY, intervalCount=2)
+
+        result = response.results[0]
+
+        assert result["label"] == "$pageview"
+        assert result["labels"] == [
+            "1 day",
+            "2 days",
+            "3 days",
+            "4 days",
+            "5 days",
+        ]
+        assert result["days"] == [1, 2, 3, 4, 5]
+        assert result["data"] == [
+            0,
+            0,
+            0,
+            0,
+            2,
+        ]
+
+    def test_interval_2_day_filtering(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                # Day 1
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                # Day 2
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-14T12:00:00Z",
+                                # Day 3
+                                "2020-01-15T12:00:00Z",
+                                "2020-01-16T12:00:00Z",
+                                # Day 4
+                                "2020-01-17T12:00:00Z",
+                                "2020-01-18T12:00:00Z",
+                                # Day 5
+                                "2020-01-19T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-15T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Firefox", "prop": 10, "bool_field": False, "$group_0": "org:1"},
+                ),
+            ]
+        )
+
+        response = self._run_query(interval=IntervalType.DAY, intervalCount=2)
+
+        result = response.results[0]
+
+        assert result["label"] == "$pageview"
+        assert result["labels"] == [
+            "1 day",
+            "2 days",
+            "3 days",
+            "4 days",
+            "5 days",
+        ]
+        assert result["days"] == [1, 2, 3, 4, 5]
+        assert result["data"] == [0, 0, 1, 0, 1]
+
+        # Test Actors
+        query = self._get_query(interval=IntervalType.DAY, intervalCount=2)
+        runner = get_query_runner(query=StickinessActorsQuery(source=query, day=1, operator="exact"), team=self.team)
+        actors = runner.calculate()
+        assert 0 == len(actors.results)
+        runner = get_query_runner(query=StickinessActorsQuery(source=query, day=3, operator="gte"), team=self.team)
+        actors = runner.calculate()
+        assert 2 == len(actors.results)
 
     def test_interval_week(self):
         self._create_test_events()

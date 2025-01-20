@@ -73,7 +73,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+            data={"name": "whatever", "groups": [{"properties": {"team_id": "5"}}]},
         )
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
@@ -90,7 +90,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                     "values": [
                         {
                             "type": "AND",
-                            "values": [{"key": "team_id", "value": 5, "type": "person"}],
+                            "values": [{"key": "team_id", "value": "5", "type": "person"}],
                         }
                     ],
                 },
@@ -105,7 +105,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 data={
                     "name": "whatever2",
                     "description": "A great cohort!",
-                    "groups": [{"properties": {"team_id": 6}}],
+                    "groups": [{"properties": {"team_id": "6"}}],
                     "created_by": "something something",
                     "last_calculation": "some random date",
                     "errors_calculating": 100,
@@ -128,7 +128,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                     "values": [
                         {
                             "type": "AND",
-                            "values": [{"key": "team_id", "value": 6, "type": "person"}],
+                            "values": [{"key": "team_id", "value": "6", "type": "person"}],
                         }
                     ],
                 },
@@ -166,7 +166,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             steps_json=[
                 {
                     "event": "$pageview",
-                    "properties": [{"key": "team_id", "type": "person", "value": 5}],
+                    "properties": [{"key": "team_id", "type": "person", "value": "5"}],
                 }
             ],
         )
@@ -404,7 +404,7 @@ email@example.org,
 
         self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "whatever", "groups": [{"properties": {"prop": 5}}]},
+            data={"name": "whatever", "groups": [{"properties": {"prop": "5"}}]},
         )
 
         cohort = Cohort.objects.filter(team=self.team).last()
@@ -426,7 +426,7 @@ email@example.org,
 
         self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
-            data={"name": "woohoo", "groups": [{"properties": {"prop": 6}}]},
+            data={"name": "woohoo", "groups": [{"properties": {"prop": "6"}}]},
         )
         cohort.refresh_from_db()
         assert cohort.name == "woohoo"
@@ -460,12 +460,12 @@ email@example.org,
                                         "end_date": None,
                                         "event_id": None,
                                         "action_id": None,
-                                        "properties": [{"key": "prop", "type": "person", "value": 5}],
+                                        "properties": [{"key": "prop", "type": "person", "value": "5"}],
                                         "start_date": None,
                                         "count_operator": None,
                                     }
                                 ],
-                                "after": [{"properties": [{"key": "prop", "type": "person", "value": 6}]}],
+                                "after": [{"properties": [{"key": "prop", "type": "person", "value": "6"}]}],
                             },
                         ],
                         "trigger": None,
@@ -1555,7 +1555,7 @@ email@example.org,
 
         self.assertEqual(len(AsyncDeletion.objects.all()), 1)
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at, None)
 
@@ -1563,7 +1563,7 @@ email@example.org,
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at, None)
 
@@ -1581,7 +1581,7 @@ email@example.org,
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 
@@ -1742,14 +1742,14 @@ email@example.org,
         self.assertEqual(len(AsyncDeletion.objects.all()), 3)
         async_deletion_keys = {async_del.key for async_del in AsyncDeletion.objects.all()}
         async_deletion_type = {async_del.deletion_type for async_del in AsyncDeletion.objects.all()}
-        self.assertEqual(async_deletion_keys, {f"{cohort_id}_2", f"{cohort_id}_3", f"{cohort_id}_4"})
+        self.assertEqual(async_deletion_keys, {f"{cohort_id}_4", f"{cohort_id}_6", f"{cohort_id}_8"})
         self.assertEqual(async_deletion_type - {DeletionType.Cohort_stale}, set())
 
         # now let's run async deletions
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at, None)
 
@@ -1769,7 +1769,7 @@ email@example.org,
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 

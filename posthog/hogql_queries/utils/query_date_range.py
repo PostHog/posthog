@@ -99,17 +99,20 @@ class QueryDateRange:
     def now_with_timezone(self) -> datetime:
         return self._now_without_timezone.astimezone(ZoneInfo(self._team.timezone))
 
+    def format_date(self, datetime) -> str:
+        return datetime.strftime("%Y-%m-%d %H:%M:%S")
+
     @cached_property
     def date_to_str(self) -> str:
-        return self.date_to().strftime("%Y-%m-%d %H:%M:%S")
+        return self.format_date(self.date_to())
 
     @cached_property
     def date_from_str(self) -> str:
-        return self.date_from().strftime("%Y-%m-%d %H:%M:%S")
+        return self.format_date(self.date_from())
 
     @cached_property
     def previous_period_date_from_str(self) -> str:
-        return self.previous_period_date_from.strftime("%Y-%m-%d %H:%M:%S")
+        return self.format_date(self.previous_period_date_from)
 
     @cached_property
     def interval_type(self) -> IntervalType:
