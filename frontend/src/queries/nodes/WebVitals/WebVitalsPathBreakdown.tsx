@@ -159,8 +159,10 @@ const Content = ({
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ width, backgroundColor: 'var(--neutral-250)', opacity: 0.5 }}
                                 />
-                                <span className="relative z-10">{path}</span>
-                                <span className="relative z-10">
+                                <span title={path} className="relative z-10 truncate mr-2 flex-1">
+                                    {path}
+                                </span>
+                                <span className="relative z-10 flex-shrink-0">
                                     {value >= 1 ? value.toFixed(0) : value.toFixed(2)}
                                 </span>
                             </div>
