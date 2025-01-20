@@ -1,4 +1,4 @@
-import { CdpInternalEventsConsumer } from '../../src/cdp/cdp-consumers'
+import { CdpInternalEventsConsumer } from '../../src/cdp/consumers/cdp-internal-events.consumer'
 import { HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
