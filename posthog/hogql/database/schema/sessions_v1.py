@@ -124,6 +124,7 @@ class RawSessionsTableV1(Table):
             "initial_utm_content",
             "initial_referring_domain",
             "initial_gclid",
+            "initial_fbclid",
             "initial_gad_source",
         ]
 
