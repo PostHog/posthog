@@ -1,8 +1,8 @@
 import { CyclotronJob, CyclotronWorker } from '@posthog/cyclotron'
-import { CdpConsumerBase } from 'cdp/consumers/cdp-base.consumer'
 
 import { runInstrumentedFunction } from '../../main/utils'
 import { status } from '../../utils/status'
+import { CdpConsumerBase } from '../consumers/cdp-base.consumer'
 import { counterJobsProcessed, gaugeBatchUtilization } from '../metrics/metrics'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
