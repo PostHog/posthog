@@ -509,7 +509,7 @@ export const redirects: Record<
     ...productRedirects,
 }
 
-export const routes: Record<string, [Scene, string]> = {
+export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],

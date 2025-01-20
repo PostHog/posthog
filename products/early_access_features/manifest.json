@@ -15,8 +15,8 @@
         }
     },
     "routes": {
-        "/early_access_features": "EarlyAccessFeatures",
-        "/early_access_features/:id": "EarlyAccessFeature"
+        "/early_access_features": ["EarlyAccessFeatures", "earlyAccessFeatures"],
+        "/early_access_features/:id": ["EarlyAccessFeature", "earlyAccessFeature"]
     },
     "redirects": {}
 }

@@ -13,13 +13,13 @@
         }
     },
     "routes": {
-        "/messaging/providers": "MessagingProviders",
-        "/messaging/providers/:id": "MessagingProviders",
-        "/messaging/providers/new": "MessagingProviders",
-        "/messaging/providers/new/*": "MessagingProviders",
-        "/messaging/broadcasts": "MessagingBroadcasts",
-        "/messaging/broadcasts/:id": "MessagingBroadcasts",
-        "/messaging/broadcasts/new": "MessagingBroadcasts"
+        "/messaging/providers": ["MessagingProviders", "messagingProviders"],
+        "/messaging/providers/:id": ["MessagingProviders", "messagingProvider"],
+        "/messaging/providers/new": ["MessagingProviders", "messagingProviderNew"],
+        "/messaging/providers/new/*": ["MessagingProviders", "messagingProviderNew"],
+        "/messaging/broadcasts": ["MessagingBroadcasts", "messagingBroadcasts"],
+        "/messaging/broadcasts/:id": ["MessagingBroadcasts", "messagingBroadcast"],
+        "/messaging/broadcasts/new": ["MessagingBroadcasts", "messagingBroadcastNew"]
     },
     "redirects": {
         "/messaging": "/messaging/broadcasts"

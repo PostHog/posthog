@@ -1,4 +1,5 @@
 // import { LLMObservabilityTab } from "scenes/urls";
+// TODO: get the enum back
 
 export const urls = {
     llmObservability: (tab?: 'dashboard' | 'traces' | 'generations'): string =>

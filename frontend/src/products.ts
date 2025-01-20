@@ -9,18 +9,19 @@ export const productScenes: Record<string, any> = {
     MessagingProviders: (): any => import('../../products/messaging/frontend/Providers'),
 }
 
-export const productRoutes: Record<string, string> = {
-    '/early_access_features': 'EarlyAccessFeatures',
-    '/early_access_features/:id': 'EarlyAccessFeature',
-    '/llmObservability': 'LLMObservability',
-    '/llmObservability/:tab': 'LLMObservability',
-    '/messaging/providers': 'MessagingProviders',
-    '/messaging/providers/:id': 'MessagingProviders',
-    '/messaging/providers/new': 'MessagingProviders',
-    '/messaging/providers/new/*': 'MessagingProviders',
-    '/messaging/broadcasts': 'MessagingBroadcasts',
-    '/messaging/broadcasts/:id': 'MessagingBroadcasts',
-    '/messaging/broadcasts/new': 'MessagingBroadcasts',
+export const productRoutes: Record<string, [string, string]> = {
+    '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
+    '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
+    '/llm-observability': ['LLMObservability', 'llmObservability'],
+    '/llm-observability/:tab': ['LLMObservability', 'llmObservability'],
+    '/llm-observability/traces/:id': ['LLMObservabilityTrace', 'llmObservability'],
+    '/messaging/providers': ['MessagingProviders', 'messagingProviders'],
+    '/messaging/providers/:id': ['MessagingProviders', 'messagingProvider'],
+    '/messaging/providers/new': ['MessagingProviders', 'messagingProviderNew'],
+    '/messaging/providers/new/*': ['MessagingProviders', 'messagingProviderNew'],
+    '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
+    '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
+    '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
 }
 
 export const productRedirects: Record<string, string> = { '/messaging': '/messaging/broadcasts' }
@@ -59,7 +60,7 @@ export const productConfiguration: Record<string, any> = {
 export const productUrls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
-    llmObservability: (tab?: LLMObservabilityTab): string =>
+    llmObservability: (tab?: 'dashboard' | 'traces' | 'generations'): string =>
         `/llm-observability${tab !== 'dashboard' ? '/' + tab : ''}`,
     llmObservabilityTrace: (id: string, eventId?: string): string =>
         `/llm-observability/traces/${id}${eventId ? `?event=${eventId}` : ''}`,
