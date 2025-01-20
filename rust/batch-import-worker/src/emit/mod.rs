@@ -4,6 +4,8 @@ use common_types::InternallyCapturedEvent;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
+pub mod kafka;
+
 #[async_trait]
 pub trait Emitter: Send + Sync {
     async fn begin_write(&mut self) -> Result<(), Error> {

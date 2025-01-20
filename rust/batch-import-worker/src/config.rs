@@ -3,7 +3,7 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
-    // 100MB
+    // ~100MB
     #[envconfig(default = "100000000")]
     pub chunk_size: usize,
 

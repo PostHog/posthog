@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use anyhow::Error;
 use common_types::{InternallyCapturedEvent, RawEvent};
+use rayon::iter::IntoParallelIterator;
+use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{context::AppContext, job::model::JobModel};
@@ -14,7 +16,7 @@ use super::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum FormatConfig {
     JsonLines {
         skip_blanks: bool,
@@ -22,7 +24,8 @@ pub enum FormatConfig {
     },
 }
 
-pub type ParserFn = Box<dyn Fn(Vec<u8>) -> Result<Parsed<Vec<InternallyCapturedEvent>>, Error>>;
+pub type ParserFn =
+    Box<dyn Fn(Vec<u8>) -> Result<Parsed<Vec<InternallyCapturedEvent>>, Error> + Send + Sync>;
 
 impl FormatConfig {
     pub async fn get_parser(
@@ -49,7 +52,7 @@ impl FormatConfig {
                     let parsed: Parsed<Vec<MixpanelEvent>> = format_parse(data)?;
                     let consumed = parsed.consumed;
                     let result: Result<_, Error> =
-                        parsed.data.into_iter().map(&event_transform).collect();
+                        parsed.data.into_par_iter().map(&event_transform).collect();
                     Ok(Parsed {
                         data: result?,
                         consumed,
@@ -65,7 +68,7 @@ impl FormatConfig {
                     let parsed: Parsed<Vec<RawEvent>> = format_parse(data)?;
                     let consumed = parsed.consumed;
                     let result: Result<_, Error> =
-                        parsed.data.into_iter().map(&event_transform).collect();
+                        parsed.data.into_par_iter().map(&event_transform).collect();
                     Ok(Parsed {
                         data: result?,
                         consumed,
@@ -80,15 +83,15 @@ impl FormatConfig {
 
 const NEWLINE_DELIM: u8 = b'\n';
 
-pub const fn newline_delim<T>(
+pub const fn newline_delim<T: Send>(
     skip_blank_lines: bool,
-    inner: impl Fn(&str) -> Result<T, Error>,
+    inner: impl Fn(&str) -> Result<T, Error> + Sync,
 ) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error> {
     let out = move |data: Vec<u8>| {
-        let mut out = Vec::new();
-
         let mut cursor = 0;
         let mut last_consumed_byte = 0;
+
+        let mut lines = Vec::new();
 
         // TODO - I'm reasonably sure this is actually invalid in the face of utf-8 encoding... we should immediately parse the
         // data as utf-8, and then consume character-by-character, marking how many bytes we consume as we go. I could redesign
@@ -102,22 +105,7 @@ pub const fn newline_delim<T>(
             if data[cursor] == NEWLINE_DELIM && cursor != 0 {
                 let line = std::str::from_utf8(&data[last_consumed_byte..cursor])?;
                 if !skip_blank_lines || !line.trim().is_empty() {
-                    out.push(inner(line.trim())?);
-                }
-                last_consumed_byte = cursor;
-            }
-
-            // If we're at the end of the chunk, and we didn't just consume a line, we should try to parse the last line,
-            // under the assumption its the final line of the overall file
-            if cursor == data.len() - 1 && last_consumed_byte < cursor {
-                let line = std::str::from_utf8(&data[last_consumed_byte..cursor + 1])?;
-                if !skip_blank_lines || !line.trim().is_empty() {
-                    let Ok(t) = inner(line.trim()) else {
-                        // A failure here generally indicates we're just at the end of the chunk, rather than the end of the file,
-                        // so we should just return the parsed data we have so far
-                        break;
-                    };
-                    out.push(t);
+                    lines.push((cursor, line.trim()));
                 }
                 last_consumed_byte = cursor;
             }
@@ -125,9 +113,42 @@ pub const fn newline_delim<T>(
             cursor += 1;
         }
 
+        let mut output = Vec::with_capacity(lines.len());
+        let mut intermediate: Vec<_> = lines
+            .into_par_iter()
+            .map(|(end_byte_idx, line)| (end_byte_idx, inner(line)))
+            .collect();
+
+        let Some(last) = intermediate.pop() else {
+            return Err(Error::msg("No data found"));
+        };
+
+        let mut last_validly_consumed_byte = 0;
+        for (byte_idx, res) in intermediate.into_iter() {
+            match res {
+                Ok(parsed) => {
+                    output.push(parsed);
+                    last_validly_consumed_byte = byte_idx;
+                }
+                Err(e) => {
+                    return Err(e.context(format!(
+                        "Starting at byte {} of current chunk",
+                        last_validly_consumed_byte
+                    )));
+                }
+            }
+        }
+
+        // If we managed to parse the last line, add it too, but if we didn't, assume it's due to this chunk being partway through the file,
+        // and carry on.
+        if let Ok(parsed) = last.1 {
+            output.push(parsed);
+            last_validly_consumed_byte = last.0;
+        }
+
         let parsed = Parsed {
-            data: out,
-            consumed: last_consumed_byte + 1,
+            data: output,
+            consumed: last_validly_consumed_byte + 1,
         };
 
         Ok(parsed)
@@ -136,7 +157,9 @@ pub const fn newline_delim<T>(
     out
 }
 
-pub const fn json_nd<T>(skip_blank_lines: bool) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error>
+pub const fn json_nd<T: Send>(
+    skip_blank_lines: bool,
+) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error>
 where
     T: DeserializeOwned,
 {
