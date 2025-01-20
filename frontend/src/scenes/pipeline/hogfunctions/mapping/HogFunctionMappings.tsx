@@ -9,10 +9,10 @@ import {
     LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { memo, useEffect, useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'

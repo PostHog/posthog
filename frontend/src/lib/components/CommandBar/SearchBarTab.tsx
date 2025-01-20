@@ -1,5 +1,5 @@
+import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { RefObject } from 'react'
 
@@ -48,7 +48,6 @@ const Count = ({ tab }: CountProps): JSX.Element | null => {
         return <Spinner className="ml-0.5" />
     } else if (!isLoading && tabsCount[tab] != null) {
         return <span className="ml-1 text-xxs text-muted-3000">{tabsCount[tab]}</span>
-    } else {
-        return null
     }
+    return null
 }

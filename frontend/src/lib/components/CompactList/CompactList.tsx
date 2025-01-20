@@ -1,10 +1,8 @@
 import './CompactList.scss'
 
+import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 

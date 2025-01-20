@@ -1,7 +1,17 @@
 import './FeatureFlag.scss'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonSnack, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonField,
+    LemonInput,
+    LemonSelect,
+    LemonSlider,
+    LemonSnack,
+    Link,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -12,11 +22,6 @@ import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'

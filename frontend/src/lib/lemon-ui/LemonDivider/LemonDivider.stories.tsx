@@ -1,6 +1,5 @@
+import { LemonButton, LemonRow } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
 
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import { ProfileBubbles } from '../ProfilePicture'

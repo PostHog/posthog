@@ -1,9 +1,9 @@
 import './CodeSnippet.scss'
 
 import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useState } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'

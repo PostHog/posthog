@@ -1,3 +1,4 @@
+import { Link } from '@posthog/lemon-ui'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -9,7 +10,6 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { Link } from 'lib/lemon-ui/Link'
 import { isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 

@@ -1,5 +1,13 @@
 import { IconInfo, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonCheckbox, LemonDialog, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonDialog,
+    LemonField,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -8,10 +16,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActionHogFunctions } from 'scenes/actions/ActionHogFunctions'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'

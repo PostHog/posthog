@@ -1,6 +1,6 @@
 import { IconRevert, IconX } from '@posthog/icons'
+import { LemonBanner } from '@posthog/lemon-ui'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useState } from 'react'
 import { SettingsBar, SettingsButton } from 'scenes/session-recordings/components/PanelSettings'
 

@@ -1,14 +1,19 @@
 import { IconMagicWand, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonField,
+    LemonInput,
+    LemonRadio,
+    LemonSelect,
+    LemonTextArea,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 

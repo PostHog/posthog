@@ -1,7 +1,6 @@
+import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'

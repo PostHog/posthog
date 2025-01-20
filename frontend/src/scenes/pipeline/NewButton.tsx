@@ -1,5 +1,5 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { PipelineStage } from '~/types'

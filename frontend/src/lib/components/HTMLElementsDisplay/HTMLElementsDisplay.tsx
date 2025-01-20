@@ -1,8 +1,8 @@
+import { LemonBanner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { htmlElementsDisplayLogic } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useState } from 'react'
 
 import { ElementType } from '~/types'

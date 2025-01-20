@@ -1,5 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Tooltip } from '@posthog/lemon-ui'
 
 export function DuplicateStepIndicator(): JSX.Element {
     return (

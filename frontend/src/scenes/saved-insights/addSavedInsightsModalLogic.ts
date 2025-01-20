@@ -1,7 +1,7 @@
+import { Sorting } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'

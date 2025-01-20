@@ -9,15 +9,12 @@ import {
     IconPlusSquare,
     IconWarning,
 } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link, LoadingBar, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
-import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'

@@ -1,12 +1,10 @@
 import './PlayerMeta.scss'
 
-import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectOption, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { isObject, percentage } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'

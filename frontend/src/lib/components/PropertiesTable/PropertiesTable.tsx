@@ -1,12 +1,22 @@
 import './PropertiesTable.scss'
 
 import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDialog,
+    LemonInput,
+    LemonMenu,
+    LemonTable,
+    LemonTableColumns,
+    LemonTableProps,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import {
     CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,

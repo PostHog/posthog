@@ -1,7 +1,6 @@
-import { LemonButton, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonField, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useEffect } from 'react'
 
 import { SocialLoginButtons, SSOEnforcedLoginButton } from '../SocialLoginButton/SocialLoginButton'

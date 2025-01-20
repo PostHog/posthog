@@ -1,10 +1,10 @@
 import './InsightTooltip.scss'
 
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { IconHandClick } from 'lib/lemon-ui/icons'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { shortTimeZone } from 'lib/utils'
 import { ReactNode } from 'react'
 import { formatAggregationValue } from 'scenes/insights/utils'

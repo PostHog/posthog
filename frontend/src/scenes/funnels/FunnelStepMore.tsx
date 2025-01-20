@@ -1,5 +1,5 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useCallback } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'

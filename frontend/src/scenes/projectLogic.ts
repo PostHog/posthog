@@ -1,7 +1,7 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiConfig } from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { identifierToHuman, isUserLoggedIn } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getAppContext } from 'lib/utils/getAppContext'

@@ -1,5 +1,4 @@
-import { LemonInput } from '@posthog/lemon-ui'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField, LemonInput } from '@posthog/lemon-ui'
 
 export default function SignupReferralSource({ disabled }: { disabled: boolean }): JSX.Element {
     return (

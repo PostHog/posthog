@@ -1,5 +1,5 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { FeatureManagementDetail } from './FeatureManagementDetail'

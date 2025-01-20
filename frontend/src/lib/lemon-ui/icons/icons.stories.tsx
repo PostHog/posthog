@@ -1,8 +1,6 @@
 import { IconDashboard } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import * as React from 'react'
 
 import * as icons from './icons'

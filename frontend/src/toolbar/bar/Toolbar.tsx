@@ -13,11 +13,11 @@ import {
     IconToggle,
     IconX,
 } from '@posthog/icons'
+import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 

@@ -1,5 +1,5 @@
+import { Link } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { Link } from 'lib/lemon-ui/Link'
 import notFoundAstrohog from 'public/not-found-astrohog.png'
 
 import { supportLogic } from '../Support/supportLogic'

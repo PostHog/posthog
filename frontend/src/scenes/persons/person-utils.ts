@@ -1,7 +1,7 @@
 import './PersonDisplay.scss'
 
+import { ProfilePictureProps } from '@posthog/lemon-ui'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
-import { ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
 import { midEllipsis } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'

@@ -1,4 +1,4 @@
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ReactNode } from 'react'
 import { insightTypeURL } from 'scenes/insights/utils'

@@ -1,9 +1,8 @@
 import './LemonTag.scss'
 
 import { IconEllipsis, IconX } from '@posthog/icons'
+import { LemonButton, LemonButtonDropdown, LemonButtonWithDropdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton'
 import { forwardRef } from 'react'
 
 export type LemonTagType =

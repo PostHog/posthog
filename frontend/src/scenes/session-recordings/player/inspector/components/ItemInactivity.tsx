@@ -1,5 +1,5 @@
 import { IconClock } from '@posthog/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { humanFriendlyDuration } from 'lib/utils'
 import { InspectorListItemInactivity } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 

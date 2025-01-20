@@ -1,7 +1,7 @@
+import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
 import { actions, kea, path, reducers, selectors, useActions, useValues } from 'kea'
 import { urlToAction } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'

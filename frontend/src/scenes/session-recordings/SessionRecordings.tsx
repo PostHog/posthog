@@ -1,6 +1,6 @@
 import { IconEllipsis, IconGear } from '@posthog/icons'
 import { IconOpenSidebar } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { LemonBadge, LemonBanner, LemonButton, LemonMenu, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import {
@@ -14,8 +14,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'

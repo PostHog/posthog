@@ -1,7 +1,6 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSlider, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 

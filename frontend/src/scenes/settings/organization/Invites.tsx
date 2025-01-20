@@ -1,15 +1,19 @@
 import { IconX } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    LemonTag,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { OrganizationInviteType } from '~/types'

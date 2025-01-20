@@ -1,7 +1,6 @@
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Link } from 'lib/lemon-ui/Link'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'

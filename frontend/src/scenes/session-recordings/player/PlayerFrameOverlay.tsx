@@ -1,10 +1,10 @@
 import './PlayerFrameOverlay.scss'
 
 import { IconPlay } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconErrorOutline, IconSync } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'

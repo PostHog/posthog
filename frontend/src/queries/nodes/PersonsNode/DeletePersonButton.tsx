@@ -1,6 +1,6 @@
 import { IconTrash } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'

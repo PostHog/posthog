@@ -1,7 +1,6 @@
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 import { AddSavedInsightsToDashboard } from 'scenes/saved-insights/AddSavedInsightsToDashboard'
 import { urls } from 'scenes/urls'

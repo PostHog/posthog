@@ -1,6 +1,5 @@
-import { LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { LemonField } from '../LemonField'
 import { LemonDialog, LemonDialogProps, LemonFormDialog, LemonFormDialogProps } from './LemonDialog'

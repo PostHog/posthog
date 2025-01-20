@@ -1,5 +1,5 @@
 import { IconLock } from '@posthog/icons'
-import { Link } from 'lib/lemon-ui/Link'
+import { Link } from '@posthog/lemon-ui'
 
 export function GroupsIntroductionOption(): JSX.Element {
     return (

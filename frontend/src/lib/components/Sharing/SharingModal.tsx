@@ -1,7 +1,16 @@
 import './SharingModal.scss'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonField,
+    LemonModal,
+    LemonSkeleton,
+    LemonSwitch,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -10,10 +19,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useState } from 'react'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'

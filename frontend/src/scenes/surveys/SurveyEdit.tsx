@@ -17,6 +17,7 @@ import {
     Link,
     Popover,
 } from '@posthog/lemon-ui'
+import { LemonField, LemonRadio, LemonRadioOption, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
@@ -24,9 +25,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconCancel } from 'lib/lemon-ui/icons'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { formatDate } from 'lib/utils'
 import { useMemo, useState } from 'react'

@@ -1,6 +1,6 @@
 import { IconClock, IconFilter, IconTrending } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSelect } from '@posthog/lemon-ui'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 import { FunnelsFilter } from '~/queries/schema'

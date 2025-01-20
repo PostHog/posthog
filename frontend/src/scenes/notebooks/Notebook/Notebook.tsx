@@ -1,11 +1,11 @@
 import './Notebook.scss'
 
+import { LemonBanner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useEffect } from 'react'
 import { notebookLogic, NotebookLogicProps } from 'scenes/notebooks/Notebook/notebookLogic'
 

@@ -1,8 +1,7 @@
-import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonField, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AvailableFeature, SurveyAppearance as SurveyAppearanceType } from '~/types'
 

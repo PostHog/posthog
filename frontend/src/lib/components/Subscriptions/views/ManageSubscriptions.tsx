@@ -1,10 +1,7 @@
 import { IconEllipsis } from '@posthog/icons'
+import { LemonButton, LemonModal, LemonSkeleton, ProfileBubbles } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconSlack } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 
 import { SubscriptionType } from '~/types'

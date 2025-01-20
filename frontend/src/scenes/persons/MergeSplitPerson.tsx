@@ -1,6 +1,5 @@
-import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { pluralize } from 'lib/utils'
 
 import { PersonType } from '~/types'

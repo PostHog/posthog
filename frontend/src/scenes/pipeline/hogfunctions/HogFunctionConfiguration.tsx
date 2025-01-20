@@ -12,6 +12,7 @@ import {
     Link,
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -21,7 +22,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
 

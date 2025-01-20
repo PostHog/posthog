@@ -1,12 +1,8 @@
-import { Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonField, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 

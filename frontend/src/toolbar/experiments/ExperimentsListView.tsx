@@ -1,6 +1,5 @@
-import { Link } from '@posthog/lemon-ui'
+import { Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'

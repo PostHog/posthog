@@ -1,6 +1,5 @@
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 import api from 'lib/api'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Link } from 'lib/lemon-ui/Link'
 import { useMemo } from 'react'
 
 import { HogFunctionInputSchemaType, IntegrationType } from '~/types'

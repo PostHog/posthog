@@ -1,5 +1,5 @@
+import { LemonCheckbox } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { insightLogic } from '../insightLogic'

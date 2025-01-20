@@ -1,15 +1,22 @@
 import { IconCrown, IconLeave, IconLock, IconUnlock } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSelectOption, LemonSnack, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonSelect,
+    LemonSelectOption,
+    LemonSnack,
+    LemonSwitch,
+    LemonTable,
+    LemonTableColumns,
+    ProfilePicture,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import {
     getReasonForAccessLevelChangeProhibition,

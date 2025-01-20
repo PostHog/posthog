@@ -1,9 +1,8 @@
 import './BreakdownTagMenu.scss'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { GlobalBreakdownOptionsMenu } from './GlobalBreakdownOptionsMenu'

@@ -1,6 +1,6 @@
+import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import {
     CohortEventFiltersField,
     CohortNumberField,

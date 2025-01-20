@@ -1,7 +1,7 @@
+import { LemonBanner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'

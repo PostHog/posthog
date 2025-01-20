@@ -1,4 +1,15 @@
-import { lemonToast } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonWithDropdown,
+    LemonDivider,
+    LemonMarkdown,
+    lemonToast,
+    Link,
+    Spinner,
+    Splotch,
+    SplotchColor,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
@@ -6,14 +17,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
-import { Link } from 'lib/lemon-ui/Link'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'

@@ -1,6 +1,5 @@
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+import { LemonDialog, LemonField, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path } from 'kea'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'

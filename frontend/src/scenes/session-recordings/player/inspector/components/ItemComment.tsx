@@ -1,5 +1,5 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { InspectorListItemComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 

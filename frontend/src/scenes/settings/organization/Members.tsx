@@ -1,17 +1,21 @@
-import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonInput,
+    LemonSwitch,
+    LemonTable,
+    LemonTableColumns,
+    ProfilePicture,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, fullName } from 'lib/utils'
 import {
     getReasonForAccessLevelChangeProhibition,

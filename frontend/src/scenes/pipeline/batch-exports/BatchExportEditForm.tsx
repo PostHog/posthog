@@ -9,9 +9,9 @@ import {
     LemonSelect,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { BatchExportConfigurationForm } from './types'

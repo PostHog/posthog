@@ -1,12 +1,12 @@
 import './LemonTable.scss'
 
 import { IconInfo } from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'

@@ -1,6 +1,6 @@
+import { LemonTable } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { PROPERTIES_ICON_MAP, PropertyIcon } from 'lib/components/PropertyIcon'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 
 type Story = StoryObj<typeof PropertyIcon>

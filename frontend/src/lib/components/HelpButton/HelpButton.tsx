@@ -2,10 +2,10 @@ import './HelpButton.scss'
 
 import { Placement } from '@floating-ui/react'
 import { IconBug, IconChevronDown, IconDocument, IconQuestion, IconSupport } from '@posthog/icons'
+import { LemonMenu } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { actions, connect, kea, key, listeners, path, props, reducers, useActions, useValues } from 'kea'
 import { IconFeedback, IconQuestionAnswer } from 'lib/lemon-ui/icons'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 

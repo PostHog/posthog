@@ -1,8 +1,8 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonDivider, LemonTag, LemonSkeleton } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 

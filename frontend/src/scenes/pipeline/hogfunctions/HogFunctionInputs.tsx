@@ -14,8 +14,8 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { LemonField } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline, CodeEditorInlineProps } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter } from 'lib/utils'

@@ -22,7 +22,19 @@ import {
     IconVideoCamera,
     IconWarning,
 } from '@posthog/icons'
-import { LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonSegmentedButton,
+    LemonSelectOptions,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    LemonTabs,
+    LemonTag,
+    PaginationControl,
+    usePagination,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
@@ -32,15 +44,9 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNonEmptyObject } from 'lib/utils'

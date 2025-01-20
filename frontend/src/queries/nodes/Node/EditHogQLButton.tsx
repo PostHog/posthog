@@ -1,5 +1,5 @@
+import { LemonButton, LemonButtonWithoutSideActionProps } from '@posthog/lemon-ui'
 import { IconQueryEditor } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'

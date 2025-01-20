@@ -1,6 +1,6 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { formatDate } from 'lib/utils'

@@ -1,6 +1,6 @@
 import { IconBuilding, IconPerson } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { IconCohort, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { PropertyFilterType } from '~/types'
 

@@ -1,10 +1,9 @@
 import './NotebookScene.scss'
 
 import { IconClock, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'

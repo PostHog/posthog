@@ -1,6 +1,6 @@
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useMemo, useState } from 'react'
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 

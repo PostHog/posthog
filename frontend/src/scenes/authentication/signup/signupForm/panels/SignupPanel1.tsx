@@ -1,10 +1,8 @@
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonField, LemonInput, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 

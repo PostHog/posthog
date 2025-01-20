@@ -1,7 +1,6 @@
 import { IconPlus } from '@posthog/icons'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { ReplayTabs } from '~/types'
 

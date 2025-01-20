@@ -1,7 +1,6 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonWidget } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, useActions, useValues } from 'kea'
-import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
 import { useEffect, useRef, useState } from 'react'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'

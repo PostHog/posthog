@@ -1,7 +1,4 @@
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonBanner, LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
 import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
 import { urls } from 'scenes/urls'
 

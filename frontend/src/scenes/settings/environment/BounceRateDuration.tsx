@@ -1,7 +1,6 @@
 import { IconX } from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import React, { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 

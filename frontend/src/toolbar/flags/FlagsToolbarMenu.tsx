@@ -1,12 +1,8 @@
+import { LemonInput, LemonRadio, LemonSwitch, Link, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { Link } from 'lib/lemon-ui/Link'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 

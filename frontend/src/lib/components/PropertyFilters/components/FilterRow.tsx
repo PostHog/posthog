@@ -1,9 +1,9 @@
 import './FilterRow.scss'
 
 import { IconPlus, IconTrash, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import React, { useState } from 'react'
 

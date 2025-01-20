@@ -1,12 +1,10 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { AccessLevel, AvailableFeature, Resource, RoleType } from '~/types'

@@ -2,9 +2,9 @@ import './LemonInput.scss'
 
 import { useMergeRefs } from '@floating-ui/react'
 import { IconEye, IconSearch, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React, { useRef, useState } from 'react'
 
 import { RawInputAutosize } from './RawInputAutosize'

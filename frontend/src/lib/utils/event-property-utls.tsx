@@ -1,4 +1,4 @@
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { ElementType } from '~/types'
 

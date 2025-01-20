@@ -1,8 +1,7 @@
+import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { Experiment } from '~/types'
 

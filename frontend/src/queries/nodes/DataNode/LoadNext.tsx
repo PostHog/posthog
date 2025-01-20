@@ -1,5 +1,5 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode } from '~/queries/schema'

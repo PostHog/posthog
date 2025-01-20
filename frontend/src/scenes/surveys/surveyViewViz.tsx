@@ -8,14 +8,11 @@ import {
     IconThumbsUpFilled,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonTable, Popover, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonMarkdown, LemonTable, Popover, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'

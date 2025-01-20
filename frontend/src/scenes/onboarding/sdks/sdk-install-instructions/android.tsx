@@ -1,7 +1,6 @@
-import { Link } from '@posthog/lemon-ui'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 

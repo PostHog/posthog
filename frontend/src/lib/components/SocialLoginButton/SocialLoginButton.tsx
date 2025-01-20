@@ -1,9 +1,8 @@
+import { LemonButton, LemonButtonWithoutSideActionProps, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
-import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { SSOProvider } from '~/types'

@@ -1,6 +1,6 @@
 import './PersonDisplay.scss'
 
-import { Link } from 'lib/lemon-ui/Link'
+import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { GroupActorType } from '~/types'

@@ -1,3 +1,4 @@
+import { Link } from '@posthog/lemon-ui'
 import {
     actions,
     connect,
@@ -19,7 +20,6 @@ import { DashboardPrivilegeLevel, OrganizationMembershipLevel } from 'lib/consta
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, isAbortedRequest, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'

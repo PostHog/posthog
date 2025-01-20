@@ -1,8 +1,7 @@
 import './PropertyKeyInfo.scss'
 
-import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
+import { LemonDivider, Popover, TooltipProps } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { Popover } from 'lib/lemon-ui/Popover'
 import { getCoreFilterDefinition, PropertyKey } from 'lib/taxonomy'
 import React, { useState } from 'react'
 

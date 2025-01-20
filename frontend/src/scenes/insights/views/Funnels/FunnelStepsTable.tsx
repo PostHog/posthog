@@ -1,11 +1,16 @@
 import { IconFlag } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonRow,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumnGroup,
+    Lettermark,
+    LettermarkColor,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
-import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'

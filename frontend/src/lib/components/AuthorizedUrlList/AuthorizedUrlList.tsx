@@ -1,15 +1,12 @@
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonField, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { ExperimentIdType } from '~/types'
 

@@ -1,4 +1,4 @@
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 export function NotebookLoadingState(): JSX.Element {
     return (

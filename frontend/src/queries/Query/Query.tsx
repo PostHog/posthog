@@ -1,4 +1,4 @@
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useEffect, useState } from 'react'
 import { HogDebug } from 'scenes/debug/HogDebug'
 

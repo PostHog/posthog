@@ -1,8 +1,7 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { IconCalculate } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { EditorFilterProps } from '~/types'

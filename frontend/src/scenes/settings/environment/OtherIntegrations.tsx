@@ -1,9 +1,8 @@
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { IntegrationType } from '~/types'
 

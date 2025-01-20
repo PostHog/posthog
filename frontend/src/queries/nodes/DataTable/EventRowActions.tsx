@@ -1,6 +1,6 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'

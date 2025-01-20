@@ -3,13 +3,13 @@ import './LoadingBar.scss'
 import { useEffect, useState } from 'react'
 import { twMerge } from 'tailwind-merge'
 
-export interface SpinnerProps {
+export interface LoadingBarProps {
     textColored?: boolean
     className?: string
 }
 
 /** Smoothly animated spinner for loading states. It does not indicate progress, only that something's happening. */
-export function LoadingBar({ className }: SpinnerProps): JSX.Element {
+export function LoadingBar({ className }: LoadingBarProps): JSX.Element {
     const [progress, setProgress] = useState(0)
 
     useEffect(() => {

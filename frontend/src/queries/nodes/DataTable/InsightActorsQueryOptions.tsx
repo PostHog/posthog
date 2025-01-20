@@ -1,5 +1,5 @@
+import { LemonSelect } from '@posthog/lemon-ui'
 import { useMountedLogic, useValues } from 'kea'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { cleanedInsightActorsQueryOptions } from 'scenes/trends/persons-modal/persons-modal-utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'

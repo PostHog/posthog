@@ -1,12 +1,11 @@
 import './ToolbarLaunch.scss'
 
 import { IconFlag, IconSearch } from '@posthog/icons'
+import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 

@@ -1,10 +1,6 @@
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTag, Link, ProfileBubbles } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
