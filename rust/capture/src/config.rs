@@ -96,4 +96,6 @@ pub struct KafkaConfig {
     pub kafka_metadata_max_age_ms: u32,
     #[envconfig(default = "2")]
     pub kafka_producer_max_retries: u32,
+    #[envconfig(default = "all")]
+    pub kafka_producer_acks: String,
 }

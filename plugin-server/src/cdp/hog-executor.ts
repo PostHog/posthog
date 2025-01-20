@@ -327,7 +327,10 @@ export class HogExecutor {
         }
     }
 
-    execute(invocation: HogFunctionInvocation): HogFunctionInvocationResult {
+    execute(
+        invocation: HogFunctionInvocation,
+        options: { functions?: Record<string, (args: unknown[]) => unknown> } = {}
+    ): HogFunctionInvocationResult {
         const loggingContext = {
             invocationId: invocation.id,
             hogFunctionId: invocation.hogFunction.id,
@@ -458,6 +461,7 @@ export class HogExecutor {
 
             try {
                 let hogLogs = 0
+
                 execRes = execHog(invocationInput, {
                     globals: invocation.functionToExecute ? undefined : globals,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
@@ -465,39 +469,6 @@ export class HogExecutor {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
                     },
-                    // importBytecode: (module) => {
-                    //     // TODO: more than one hardcoded module
-                    //     if (module === 'provider/email') {
-                    //         const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
-                    //         if (!provider) {
-                    //             throw new Error('No email provider configured')
-                    //         }
-                    //         try {
-                    //             const providerGlobals = this.buildHogFunctionGlobals({
-                    //                 id: '',
-                    //                 teamId: invocation.teamId,
-                    //                 hogFunction: provider,
-                    //                 globals: {} as any,
-                    //                 queue: 'hog',
-                    //                 timings: [],
-                    //                 priority: 0,
-                    //             } satisfies HogFunctionInvocation)
-
-                    //             return {
-                    //                 bytecode: provider.bytecode,
-                    //                 globals: providerGlobals,
-                    //             }
-                    //         } catch (e) {
-                    //             result.logs.push({
-                    //                 level: 'error',
-                    //                 timestamp: DateTime.now(),
-                    //                 message: `Error building inputs: ${e}`,
-                    //             })
-                    //             throw e
-                    //         }
-                    //     }
-                    //     throw new Error(`Can't import unknown module: ${module}`)
-                    // },
                     functions: {
                         print: (...args) => {
                             hogLogs++
@@ -552,6 +523,7 @@ export class HogExecutor {
                                 },
                             })
                         },
+                        ...(options.functions ?? {}),
                     },
                 })
                 if (execRes.error) {
