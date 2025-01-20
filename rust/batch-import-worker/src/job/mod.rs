@@ -35,7 +35,8 @@ pub struct Job {
     // We keep a mutex here so we can mutably borrow this and the job state at the same time
     pub sink: Mutex<Box<dyn Emitter>>,
 
-    // Sheesh
+    // We want to fetch data and send it at the same time, and this acts as a temporary store
+    // for the data we've fetched, but not yet sent
     checkpoint: Mutex<Option<Checkpoint>>,
 }
 
