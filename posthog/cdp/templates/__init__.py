@@ -75,7 +75,7 @@ HOG_FUNCTION_TEMPLATES = [
     discord,
     engage,
     gleap,
-    # google_ads,
+    google_ads,
     google_cloud_storage,
     google_pubsub,
     hubspot,
