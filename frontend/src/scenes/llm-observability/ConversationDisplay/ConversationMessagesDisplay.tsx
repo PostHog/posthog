@@ -17,8 +17,8 @@ export function ConversationMessagesDisplay({
 }: {
     eventProperties: EventType['properties']
 }): JSX.Element {
-    const input = normalizeMessages(eventProperties.$ai_input)
-    const output = normalizeMessages(eventProperties.$ai_output_choices || eventProperties.$ai_output)
+    const input = normalizeMessages(eventProperties.$ai_input, 'user')
+    const output = normalizeMessages(eventProperties.$ai_output_choices || eventProperties.$ai_output, 'assistant')
     const { $ai_http_status: httpStatus } = eventProperties
 
     return (

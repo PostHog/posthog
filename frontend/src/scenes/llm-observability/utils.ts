@@ -4,6 +4,7 @@ import {
     AnthropicInputMessage,
     AnthropicTextMessage,
     AnthropicToolCallMessage,
+    AnthropicToolResultMessage,
     CompatMessage,
     CompatToolCall,
     OpenAICompletionMessage,
@@ -57,7 +58,13 @@ export function isOpenAICompatToolCallsArray(input: any): input is OpenAIToolCal
 }
 
 export function isOpenAICompatMessage(output: unknown): output is OpenAICompletionMessage {
-    return !!output && typeof output === 'object' && 'role' in output && 'content' in output
+    return (
+        !!output &&
+        typeof output === 'object' &&
+        'role' in output &&
+        'content' in output &&
+        typeof output.content === 'string'
+    )
 }
 
 export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCall[] {
@@ -83,11 +90,30 @@ export function isAnthropicToolCallMessage(output: unknown): output is Anthropic
     return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_use'
 }
 
-export function isAnthropicRoleBasedMessage(input: unknown): input is AnthropicInputMessage {
-    return !!input && typeof input === 'object' && 'role' in input && 'content' in input
+export function isAnthropicToolResultMessage(output: unknown): output is AnthropicToolResultMessage {
+    return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_result'
 }
 
-export function normalizeOutputMessage(output: unknown): CompatMessage[] {
+export function isAnthropicRoleBasedMessage(input: unknown): input is AnthropicInputMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'role' in input &&
+        'content' in input &&
+        (typeof input.content === 'string' || Array.isArray(input.content))
+    )
+}
+
+/**
+ * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Observability schema.
+ *
+ * @param output - Original message from an LLM provider.
+ * @param defaultRole - Optional default role to use if the message doesn't have one.
+ * @returns The normalized message.
+ */
+export function normalizeMessage(output: unknown, defaultRole?: string): CompatMessage[] {
+    const role = defaultRole || 'assistant'
+
     // OpenAI
     if (isOpenAICompatMessage(output)) {
         return [
@@ -98,17 +124,17 @@ export function normalizeOutputMessage(output: unknown): CompatMessage[] {
                 tool_calls: isOpenAICompatToolCallsArray(output.tool_calls)
                     ? parseOpenAIToolCalls(output.tool_calls)
                     : undefined,
+                tool_call_id: output.tool_call_id,
             },
         ]
     }
 
     // Anthropic
-    // Normal completion
+    // Text object
     if (isAnthropicTextMessage(output)) {
         return [
             {
-                ...output,
-                role: 'assistant',
+                role,
                 content: output.text,
             },
         ]
@@ -118,8 +144,7 @@ export function normalizeOutputMessage(output: unknown): CompatMessage[] {
     if (isAnthropicToolCallMessage(output)) {
         return [
             {
-                ...output,
-                role: 'assistant',
+                role,
                 content: '',
                 tool_calls: [
                     {
@@ -135,16 +160,36 @@ export function normalizeOutputMessage(output: unknown): CompatMessage[] {
         ]
     }
 
-    // Input message
-    if (isAnthropicRoleBasedMessage(output)) {
-        // Content is a nested array (tool responses, etc.)
+    // Tool result completion
+    if (isAnthropicToolResultMessage(output)) {
         if (Array.isArray(output.content)) {
-            return output.content.map(normalizeOutputMessage).flat()
+            return output.content
+                .map((content) => normalizeMessage(content, role))
+                .flat()
+                .map((message) => ({
+                    ...message,
+                    tool_call_id: output.tool_use_id,
+                }))
         }
 
         return [
             {
-                ...output,
+                role,
+                content: output.content,
+                tool_call_id: output.tool_use_id,
+            },
+        ]
+    }
+
+    // Input message
+    if (isAnthropicRoleBasedMessage(output)) {
+        // Content is a nested array (tool responses, etc.)
+        if (Array.isArray(output.content)) {
+            return output.content.map((content) => normalizeMessage(content, output.role)).flat()
+        }
+
+        return [
+            {
                 role: output.role,
                 content: output.content,
             },
@@ -154,23 +199,23 @@ export function normalizeOutputMessage(output: unknown): CompatMessage[] {
     // Unsupported message.
     return [
         {
-            role: 'assistant',
+            role: 'message',
             content: typeof output === 'string' ? output : JSON.stringify(output),
         },
     ]
 }
 
-export function normalizeMessages(output: unknown): CompatMessage[] | null {
+export function normalizeMessages(output: unknown, defaultRole?: string): CompatMessage[] | null {
     if (!output) {
         return null
     }
 
     if (Array.isArray(output)) {
-        return output.map(normalizeOutputMessage).flat()
+        return output.map((message) => normalizeMessage(message, defaultRole)).flat()
     }
 
     if (typeof output === 'object' && 'choices' in output && Array.isArray(output.choices)) {
-        return output.choices.map(normalizeOutputMessage).flat()
+        return output.choices.map((message) => normalizeMessage(message, defaultRole)).flat()
     }
 
     return null

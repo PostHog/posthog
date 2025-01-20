@@ -57,4 +57,5 @@ export interface CompatToolCall {
 export interface CompatMessage extends RoleBasedMessage {
     tool_calls?: CompatToolCall[]
     [additionalKey: string]: any
+    tool_call_id?: string
 }
