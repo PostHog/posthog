@@ -18,7 +18,7 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
-import { EncryptedFields } from './cdp/encryption-utils'
+import { EncryptedFields } from './cdp/services/encryption-utils.service'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ObjectStorage } from './main/services/object_storage'
 import { Celery } from './utils/db/celery'

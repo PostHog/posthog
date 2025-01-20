@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { HogExecutor } from '../../src/cdp/executors/hog.executor'
-import { HogFunctionManager } from '../../src/cdp/managers/hog-function.manager'
+import { HogExecutor } from '../../src/cdp/services/hog-executor.service'
+import { HogFunctionManager } from '../../src/cdp/services/hog-function-manager.service'
 import { HogFunctionInvocation, HogFunctionType } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'

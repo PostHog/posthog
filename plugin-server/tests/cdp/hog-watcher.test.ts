@@ -3,8 +3,8 @@ jest.mock('../../src/utils/now', () => {
         now: jest.fn(() => Date.now()),
     }
 })
-import { BASE_REDIS_KEY, CELERY_TASK_ID, HogWatcher, HogWatcherState } from '../../src/cdp/hog-watcher'
 import { CdpRedis, createCdpRedisPool } from '../../src/cdp/redis'
+import { BASE_REDIS_KEY, CELERY_TASK_ID, HogWatcher, HogWatcherState } from '../../src/cdp/services/hog-watcher.service'
 import { HogFunctionInvocationResult } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'

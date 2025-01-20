@@ -2,8 +2,6 @@ import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 import { Counter } from 'prom-client'
 
-import { FetchExecutor } from '../../cdp/executors/fetch.executor'
-import { HogFunctionManager } from '../../cdp/managers/hog-function.manager'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_FUNCTION_CALLBACKS,
@@ -21,11 +19,13 @@ import { safeClickhouseString } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 import { RustyHook } from '../../worker/rusty-hook'
-import { HogExecutor } from '../executors/hog.executor'
-import { GroupsManager } from '../groups-manager'
-import { HogMasker } from '../hog-masker'
-import { HogWatcher } from '../hog-watcher'
 import { CdpRedis, createCdpRedisPool } from '../redis'
+import { FetchExecutor } from '../services/fetch-executor.service'
+import { GroupsManager } from '../services/groups-manager.service'
+import { HogExecutor } from '../services/hog-executor.service'
+import { HogFunctionManager } from '../services/hog-function-manager.service'
+import { HogMasker } from '../services/hog-masker.service'
+import { HogWatcher } from '../services/hog-watcher.service'
 import {
     HogFunctionAppMetric,
     HogFunctionInvocation,

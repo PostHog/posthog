@@ -1,6 +1,6 @@
 import { Hub } from 'types'
 
-import { HogFunctionManager } from './hog-function.manager'
+import { HogFunctionManager } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
     let hub: Hub

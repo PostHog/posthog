@@ -8,7 +8,7 @@ import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
-import { EncryptedFields } from '../../cdp/encryption-utils'
+import { EncryptedFields } from '../../cdp/services/encryption-utils.service'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
