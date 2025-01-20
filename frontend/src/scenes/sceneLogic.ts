@@ -36,7 +36,7 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
 export const sceneLogic = kea<sceneLogicType>([
     props(
         {} as {
-            scenes?: Record<Scene, () => any>
+            scenes?: Record<string, () => any>
         }
     ),
     path(['scenes', 'sceneLogic']),
@@ -64,21 +64,21 @@ export const sceneLogic = kea<sceneLogicType>([
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
         else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
-        openScene: (scene: Scene, sceneKey: string | null, params: SceneParams, method: string) => ({
+        openScene: (scene: string, sceneKey: string | null, params: SceneParams, method: string) => ({
             scene,
             sceneKey,
             params,
             method,
         }),
         // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
-        loadScene: (scene: Scene, sceneKey: string | null, params: SceneParams, method: string) => ({
+        loadScene: (scene: string, sceneKey: string | null, params: SceneParams, method: string) => ({
             scene,
             sceneKey,
             params,
             method,
         }),
         // 3. Set the `scene` reducer
-        setScene: (scene: Scene, sceneKey: string | null, params: SceneParams, scrollToTop: boolean = false) => ({
+        setScene: (scene: string, sceneKey: string | null, params: SceneParams, scrollToTop: boolean = false) => ({
             scene,
             sceneKey,
             params,
@@ -91,7 +91,7 @@ export const sceneLogic = kea<sceneLogicType>([
     }),
     reducers({
         scene: [
-            null as Scene | null,
+            null as string | null,
             {
                 setScene: (_, payload) => payload.scene,
             },
@@ -119,7 +119,7 @@ export const sceneLogic = kea<sceneLogicType>([
             },
         ],
         loadingScene: [
-            null as Scene | null,
+            null as string | null,
             {
                 loadScene: (_, { scene }) => scene,
                 setScene: () => null,

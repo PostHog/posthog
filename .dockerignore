@@ -17,6 +17,7 @@
 !.kearc
 !.storybook
 !tsconfig.json
+!products
 !frontend/@posthog
 !frontend/src
 !frontend/types

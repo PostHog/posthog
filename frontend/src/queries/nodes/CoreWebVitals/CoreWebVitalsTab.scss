@@ -1,8 +1,0 @@
-// NOTE: This only exists because we're using `!important` by default in Tailwind
-// which makes it impossible to override the border-bottom color for the active tab
-// inside the CoreWebVitalsTab component.
-//
-// To workaround that we need an extremely specific selector
-div.CoreWebVitals__CoreWebVitalsTab[data-active='true']:not([data-active='false']) {
-    border-bottom: 2px solid var(--primary) !important;
-}

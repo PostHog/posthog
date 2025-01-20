@@ -45,10 +45,9 @@ const Filters = (): JSX.Element => {
         dateFilter: { dateTo, dateFrom },
         compareFilter,
         productTab,
-        coreWebVitalsPercentile,
+        webVitalsPercentile,
     } = useValues(webAnalyticsLogic)
-    const { setWebAnalyticsFilters, setDates, setCompareFilter, setCoreWebVitalsPercentile } =
-        useActions(webAnalyticsLogic)
+    const { setWebAnalyticsFilters, setDates, setCompareFilter, setWebVitalsPercentile } = useActions(webAnalyticsLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -72,8 +71,8 @@ const Filters = (): JSX.Element => {
                 ) : (
                     <LemonSegmentedSelect
                         size="small"
-                        value={coreWebVitalsPercentile}
-                        onChange={setCoreWebVitalsPercentile}
+                        value={webVitalsPercentile}
+                        onChange={setWebVitalsPercentile}
                         options={[
                             { value: PropertyMathType.P75, label: 'P75' },
                             {
@@ -239,7 +238,7 @@ export const WebTabs = ({
         title: string
         linkText: string
         content: React.ReactNode
-        canOpenModal: boolean
+        canOpenModal?: boolean
         canOpenInsight: boolean
         query: QuerySchema
         docs:
@@ -379,7 +378,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                             <WebAnalyticsLiveUserCount />
                         </div>
 
-                        {featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && (
+                        {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
                             <LemonSegmentedSelect
                                 shrinkOn={3}
                                 size="small"
@@ -388,8 +387,8 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                                 dropdownMatchSelectWidth={false}
                                 onChange={setProductTab}
                                 options={[
-                                    { value: ProductTab.ANALYTICS, label: 'Web Analytics' },
-                                    { value: ProductTab.CORE_WEB_VITALS, label: 'Core Web Vitals' },
+                                    { value: ProductTab.ANALYTICS, label: 'Web analytics' },
+                                    { value: ProductTab.WEB_VITALS, label: 'Web vitals' },
                                 ]}
                             />
                         )}

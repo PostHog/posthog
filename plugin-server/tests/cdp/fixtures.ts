@@ -5,6 +5,7 @@ import { CdpInternalEvent } from '../../src/cdp/schema'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
     IntegrationType,
 } from '../../src/cdp/types'
@@ -167,18 +168,20 @@ export const createInvocation = (
 ): HogFunctionInvocation => {
     const hogFunction = createHogFunction(_hogFunction)
     // Add the source of the trigger to the globals
-    let globals = createHogExecutionGlobals(_globals)
-    globals = {
+
+    const globals = createHogExecutionGlobals(_globals)
+    const globalsWithInputs: HogFunctionInvocationGlobalsWithInputs = {
         ...globals,
         source: {
             name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
             url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
         },
+        inputs: {},
     }
 
     return {
         id: new UUIDT().toString(),
-        globals,
+        globals: globalsWithInputs,
         teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',
