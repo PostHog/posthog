@@ -60,6 +60,7 @@ DECIDE_SESSION_REPLAY_QUOTA_CHECK = get_from_env("DECIDE_SESSION_REPLAY_QUOTA_CH
 # Application definition
 
 INSTALLED_APPS = [
+    "daphne",
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
     "django.contrib.admin",
     "django.contrib.auth",
@@ -87,6 +88,7 @@ INSTALLED_APPS = [
     "products.early_access_features",
 ]
 
+ASGI_APPLICATION = "posthog.asgi.application"
 
 MIDDLEWARE = [
     "posthog.middleware.PrometheusBeforeMiddlewareWithTeamIds",

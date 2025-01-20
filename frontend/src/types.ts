@@ -1822,7 +1822,7 @@ export interface TextModel {
     last_modified_at: string
 }
 
-export interface InsightModel extends Cacheable {
+export interface InsightModel extends Cacheable, WithAccessControl {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -1861,7 +1861,7 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface DashboardBasicType {
+export interface DashboardBasicType extends WithAccessControl {
     id: number
     name: string
     description: string

@@ -82,7 +82,7 @@ export async function startPluginsServer(
     }
 
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
-    status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
+    status.info('ℹ️', `${serverConfig.TASKS_PER_WORKER} tasks per worker`)
     runStartupProfiles(serverConfig)
 
     // Used to trigger reloads of plugin code/config

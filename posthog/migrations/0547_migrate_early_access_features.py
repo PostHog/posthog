@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0544_team_flags_persistence_default"),
+        ("posthog", "0546_update_creation_mode_on_generated_dashboards"),
     ]
 
     # No operations here, since we don't want to delete the table

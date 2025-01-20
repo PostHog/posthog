@@ -64,12 +64,23 @@ export const sceneLogic = kea<sceneLogicType>([
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
         else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
-        openScene: (scene: string, params: SceneParams, method: string) => ({ scene, params, method }),
-        // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
-        loadScene: (scene: string, params: SceneParams, method: string) => ({ scene, params, method }),
-        // 3. Set the `scene` reducer
-        setScene: (scene: string, params: SceneParams, scrollToTop: boolean = false) => ({
+        openScene: (scene: string, sceneKey: string | null, params: SceneParams, method: string) => ({
             scene,
+            sceneKey,
+            params,
+            method,
+        }),
+        // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
+        loadScene: (scene: string, sceneKey: string | null, params: SceneParams, method: string) => ({
+            scene,
+            sceneKey,
+            params,
+            method,
+        }),
+        // 3. Set the `scene` reducer
+        setScene: (scene: string, sceneKey: string | null, params: SceneParams, scrollToTop: boolean = false) => ({
+            scene,
+            sceneKey,
             params,
             scrollToTop,
         }),
@@ -83,6 +94,12 @@ export const sceneLogic = kea<sceneLogicType>([
             null as string | null,
             {
                 setScene: (_, payload) => payload.scene,
+            },
+        ],
+        sceneKey: [
+            null as string | null,
+            {
+                setScene: (_, payload) => payload.sceneKey,
             },
         ],
         loadedScenes: [
@@ -161,7 +178,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 window.scrollTo(0, 0)
             }
         },
-        openScene: ({ scene, params, method }) => {
+        openScene: ({ scene, sceneKey, params, method }) => {
             const sceneConfig = sceneConfigurations[scene] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
@@ -304,17 +321,17 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             }
 
-            actions.loadScene(scene, params, method)
+            actions.loadScene(scene, sceneKey, params, method)
         },
-        loadScene: async ({ scene, params, method }, breakpoint) => {
+        loadScene: async ({ scene, sceneKey, params, method }, breakpoint) => {
             const clickedLink = method === 'PUSH'
             if (values.scene === scene) {
-                actions.setScene(scene, params, clickedLink)
+                actions.setScene(scene, sceneKey, params, clickedLink)
                 return
             }
 
             if (!props.scenes?.[scene]) {
-                actions.setScene(Scene.Error404, emptySceneParams, clickedLink)
+                actions.setScene(Scene.Error404, null, emptySceneParams, clickedLink)
                 return
             }
 
@@ -323,7 +340,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
             if (!loadedScene) {
                 // if we can't load the scene in a second, show a spinner
-                const timeout = window.setTimeout(() => actions.setScene(scene, params, true), 500)
+                const timeout = window.setTimeout(() => actions.setScene(scene, sceneKey, params, true), 500)
                 let importedScene
                 try {
                     window.ESBUILD_LOAD_CHUNKS?.(scene)
@@ -339,7 +356,7 @@ export const sceneLogic = kea<sceneLogicType>([
                             parseInt(String(values.lastReloadAt)) > new Date().valueOf() - 20000
                         ) {
                             console.error('App assets regenerated. Showing error page.')
-                            actions.setScene(Scene.ErrorNetwork, emptySceneParams, clickedLink)
+                            actions.setScene(Scene.ErrorNetwork, null, emptySceneParams, clickedLink)
                         } else {
                             console.error('App assets regenerated. Reloading this page.')
                             actions.reloadBrowserDueToImportError()
@@ -392,7 +409,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                 }
             }
-            actions.setScene(scene, params, clickedLink || wasNotLoaded)
+            actions.setScene(scene, sceneKey, params, clickedLink || wasNotLoaded)
         },
         reloadBrowserDueToImportError: () => {
             window.location.reload()
@@ -444,13 +461,13 @@ export const sceneLogic = kea<sceneLogicType>([
                 )
             }
         }
-        for (const [path, scene] of Object.entries(routes)) {
+        for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
             mapping[path] = (params, searchParams, hashParams, { method }) =>
-                actions.openScene(scene, { params, searchParams, hashParams }, method)
+                actions.openScene(scene, sceneKey, { params, searchParams, hashParams }, method)
         }
 
         mapping['/*'] = (_, __, { method }) => {
-            return actions.loadScene(Scene.Error404, emptySceneParams, method)
+            return actions.loadScene(Scene.Error404, null, emptySceneParams, method)
         }
 
         return mapping
