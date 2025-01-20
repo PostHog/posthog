@@ -6,7 +6,7 @@ describe('SessionBatchManager', () => {
     let executionOrder: number[]
 
     beforeEach(() => {
-        manager = new SessionBatchManager()
+        manager = new SessionBatchManager({ maxBatchSizeBytes: 100 })
         executionOrder = []
     })
     const waitForNextTick = () => new Promise((resolve) => process.nextTick(resolve))
@@ -128,5 +128,53 @@ describe('SessionBatchManager', () => {
             expect(batch).not.toBe(firstBatch)
             return Promise.resolve()
         })
+    })
+
+    it('should flush when buffer is full', async () => {
+        const manager = new SessionBatchManager({ maxBatchSizeBytes: 100 })
+        let firstBatch: SessionBatchRecorder | null = null
+        let secondBatch: SessionBatchRecorder | null = null
+
+        // Get reference to first batch
+        await manager.withBatch(async (batch) => {
+            firstBatch = batch
+            // Mock the size to be over limit
+            jest.spyOn(batch, 'size', 'get').mockReturnValue(150)
+            return Promise.resolve()
+        })
+
+        await manager.flushIfFull()
+
+        // Get reference to second batch
+        await manager.withBatch(async (batch) => {
+            secondBatch = batch
+            return Promise.resolve()
+        })
+
+        expect(secondBatch).not.toBe(firstBatch)
+    })
+
+    it('should not flush when buffer is under limit', async () => {
+        const manager = new SessionBatchManager({ maxBatchSizeBytes: 1000 })
+        let firstBatch: SessionBatchRecorder | null = null
+        let secondBatch: SessionBatchRecorder | null = null
+
+        // Get reference to first batch
+        await manager.withBatch(async (batch) => {
+            firstBatch = batch
+            // Mock the size to be under limit
+            jest.spyOn(batch, 'size', 'get').mockReturnValue(50)
+            return Promise.resolve()
+        })
+
+        await manager.flushIfFull()
+
+        // Get reference to second batch
+        await manager.withBatch(async (batch) => {
+            secondBatch = batch
+            return Promise.resolve()
+        })
+
+        expect(secondBatch).toBe(firstBatch)
     })
 })

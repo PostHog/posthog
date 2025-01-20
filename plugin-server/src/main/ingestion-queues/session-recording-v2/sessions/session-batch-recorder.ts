@@ -5,7 +5,7 @@ import { SessionRecorder } from './recorder'
 
 export class SessionBatchRecorder {
     private readonly sessions: Map<string, SessionRecorder> = new Map()
-    private totalBytesWritten: number = 0
+    private _size: number = 0
 
     public record(message: MessageWithTeam): number {
         const sessionId = message.message.session_id
@@ -16,7 +16,7 @@ export class SessionBatchRecorder {
 
         const recorder = this.sessions.get(sessionId)!
         const bytesWritten = recorder.recordMessage(message.message)
-        this.totalBytesWritten += bytesWritten
+        this._size += bytesWritten
         return bytesWritten
     }
 
@@ -24,5 +24,9 @@ export class SessionBatchRecorder {
         for (const recorder of this.sessions.values()) {
             await recorder.dump(stream)
         }
+    }
+
+    public get size(): number {
+        return this._size
     }
 }

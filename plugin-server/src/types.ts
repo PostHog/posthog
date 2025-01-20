@@ -309,6 +309,8 @@ export interface PluginsServerConfig extends CdpConfig {
 
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
+
+    SESSION_RECORDING_MAX_BATCH_SIZE_KB: number | undefined
 }
 
 export interface Hub extends PluginsServerConfig {

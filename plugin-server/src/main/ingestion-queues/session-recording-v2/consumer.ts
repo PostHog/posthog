@@ -61,7 +61,9 @@ export class SessionRecordingIngester {
         this.metrics = SessionRecordingMetrics.getInstance()
         this.promiseScheduler = new PromiseScheduler()
         this.batchConsumerFactory = batchConsumerFactory
-        this.sessionBatchManager = new SessionBatchManager()
+        this.sessionBatchManager = new SessionBatchManager({
+            maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 0) * 1024,
+        })
 
         const teamFilter = new TeamFilter(teamService, kafkaParser)
 
@@ -121,17 +123,16 @@ export class SessionRecordingIngester {
         await this.sessionBatchManager.flush()
     }
 
-    private async processMessages(parsedMessages: MessageWithTeam[]): Promise<void> {
+    private async processMessages(parsedMessages: MessageWithTeam[]) {
         await this.sessionBatchManager.withBatch(async (batch) => {
-            // TODO: Implement parallel consumption once consuming is async again
-            // if (this.config.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
-            //     await Promise.all(parsedMessages.map((m) => this.consume(m, batch)))
-            // } else {
-            for (const message of parsedMessages) {
-                this.consume(message, batch)
+            if (this.config.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
+                await Promise.all(parsedMessages.map((m) => this.consume(m, batch)))
+            } else {
+                for (const message of parsedMessages) {
+                    await this.consume(message, batch)
+                }
+                return Promise.resolve()
             }
-            return Promise.resolve()
-            // }
         })
     }
 
@@ -242,7 +243,7 @@ export class SessionRecordingIngester {
         return this.assignedTopicPartitions.map((x) => x.partition)
     }
 
-    private consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
+    private async consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
         // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
         this.metrics.resetSessionsRevoked()
@@ -271,6 +272,7 @@ export class SessionRecordingIngester {
 
         this.metrics.observeSessionInfo(parsedMessage.metadata.rawSize)
         batch.record(message)
+        await this.sessionBatchManager.flushIfFull()
     }
 
     private async onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
