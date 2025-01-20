@@ -160,7 +160,9 @@ const Content = ({
                                     style={{ width, backgroundColor: 'var(--neutral-250)', opacity: 0.5 }}
                                 />
                                 <span className="relative z-10">{path}</span>
-                                <span className="relative z-10">{value}</span>
+                                <span className="relative z-10">
+                                    {value >= 1 ? value.toFixed(0) : value.toFixed(2)}
+                                </span>
                             </div>
                         )
                     })
