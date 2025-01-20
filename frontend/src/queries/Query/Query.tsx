@@ -20,9 +20,11 @@ import {
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
+import { CoreWebVitalsPathBreakdown } from '../nodes/CoreWebVitals/CoreWebVitalsPathBreakdown'
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import {
+    isCoreWebVitalsPathBreakdownQuery,
     isCoreWebVitalsQuery,
     isDataTableNode,
     isDataVisualizationNode,
@@ -138,7 +140,11 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isCoreWebVitalsQuery(query)) {
-        return <CoreWebVitals query={query} cachedResults={props.cachedResults} context={queryContext} />
+        component = <CoreWebVitals query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else if (isCoreWebVitalsPathBreakdownQuery(query)) {
+        component = (
+            <CoreWebVitalsPathBreakdown query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
     } else if (isHogQuery(query)) {
         component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
     } else {

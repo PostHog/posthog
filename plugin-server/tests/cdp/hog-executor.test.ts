@@ -693,6 +693,41 @@ describe('Hog Executor', () => {
                 'Error executing function on event uuid: HogVMException: Exceeded maximum number of async steps: 5',
             ])
         })
+
+        it('adds secret headers for certain endpoints', () => {
+            hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
+
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                inputs: {
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs,
+                    url: {
+                        value: 'https://googleads.googleapis.com/1234',
+                        bytecode: ['_h', 32, 'https://googleads.googleapis.com/1234'],
+                    },
+                },
+            })
+
+            const invocation = createInvocation(fn)
+            const result1 = executor.execute(invocation)
+            expect((result1.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
+                {
+                  "developer-token": "ADWORDS_TOKEN",
+                  "version": "v=1.2.3",
+                }
+            `)
+            // Check it doesn't do it for redirect
+            fn.inputs!.url.bytecode = ['_h', 32, 'https://nasty.com?redirect=https://googleads.googleapis.com/1234']
+            const invocation2 = createInvocation(fn)
+            const result2 = executor.execute(invocation2)
+            expect((result2.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
+                {
+                  "version": "v=1.2.3",
+                }
+            `)
+        })
     })
 
     describe('slow functions', () => {

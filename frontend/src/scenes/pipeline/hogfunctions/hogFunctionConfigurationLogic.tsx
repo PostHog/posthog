@@ -17,6 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
 import {
     ActorsQuery,
@@ -227,6 +228,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
         setSampleGlobals: (sampleGlobals: HogFunctionInvocationGlobals | null) => ({ sampleGlobals }),
+        setShowEventsList: (showEventsList: boolean) => ({ showEventsList }),
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
@@ -264,6 +266,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             {
                 loadSampleGlobals: () => null,
                 setSampleGlobalsError: (_, { error }) => error,
+            },
+        ],
+        showEventsList: [
+            false,
+            {
+                setShowEventsList: (_, { showEventsList }) => showEventsList,
             },
         ],
     })),
@@ -504,7 +512,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
         useMapping: [
             (s) => [s.hogFunction, s.template],
-            (hogFunction, template) => (hogFunction ?? template)?.type === 'site_destination',
+            // If the function has mappings, or the template has mapping templates, we use mappings
+            (hogFunction, template) => Array.isArray(hogFunction?.mappings) || template?.mapping_templates?.length,
         ],
         defaultFormState: [
             (s) => [s.template, s.hogFunction],
@@ -807,7 +816,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             { resultEqualityCheck: equal },
         ],
 
-        lastEventQuery: [
+        baseEventsQuery: [
             (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.type],
             (configuration, matchingFilters, groupTypes, type): EventsQuery | null => {
                 if (!TYPES_WITH_GLOBALS.includes(type)) {
@@ -819,7 +828,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     fixedProperties: [matchingFilters],
                     select: ['*', 'person'],
                     after: '-7d',
-                    limit: 1,
                     orderBy: ['timestamp DESC'],
                 }
                 groupTypes.forEach((groupType) => {
@@ -829,6 +837,29 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     )
                 })
                 return query
+            },
+            { resultEqualityCheck: equal },
+        ],
+
+        eventsDataTableNode: [
+            (s) => [s.baseEventsQuery],
+            (baseEventsQuery): DataTableNode | null => {
+                return baseEventsQuery
+                    ? {
+                          kind: NodeKind.DataTableNode,
+                          source: {
+                              ...baseEventsQuery,
+                              select: defaultDataTableColumns(NodeKind.EventsQuery),
+                          },
+                      }
+                    : null
+            },
+        ],
+
+        lastEventQuery: [
+            (s) => [s.baseEventsQuery],
+            (baseEventsQuery): EventsQuery | null => {
+                return baseEventsQuery ? { ...baseEventsQuery, limit: 1 } : null
             },
             { resultEqualityCheck: equal },
         ],

@@ -1,13 +1,11 @@
 import { IconNotification } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonButton,
     LemonSelect,
     LemonSelectOption,
     LemonSkeleton,
     LemonSwitch,
     LemonTabs,
-    Link,
     Spinner,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -21,7 +19,6 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useRef } from 'react'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -168,14 +165,6 @@ export const SidePanelActivity = (): JSX.Element => {
                     {/* Controls */}
                     {activeTab === SidePanelActivityTab.Unread ? (
                         <div className="px-2 pb-2 space-y-2 shrink-0">
-                            <LemonBanner type="info" dismissKey="notifications-introduction">
-                                Notifications shows you changes others make to{' '}
-                                <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
-                                <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come join{' '}
-                                <Link to="https://posthog.com/community">our community forum</Link> and tell us what
-                                else should be here!
-                            </LemonBanner>
-
                             <div className="flex items-center justify-between gap-2">
                                 {toggleExtendedDescription}
                                 {hasUnread ? (

@@ -33,7 +33,7 @@ export const settingsLogic = kea<settingsLogicType>([
     actions({
         selectSection: (section: SettingSectionId, level: SettingLevelId) => ({ section, level }),
         selectLevel: (level: SettingLevelId) => ({ level }),
-        selectSetting: (setting: string) => ({ setting }),
+        selectSetting: (setting: SettingId) => ({ setting }),
         openCompactNavigation: true,
         closeCompactNavigation: true,
     }),
@@ -53,6 +53,12 @@ export const settingsLogic = kea<settingsLogicType>([
                 selectSection: (_, { section }) => section,
             },
         ],
+        selectedSettingRaw: [
+            (props.settingId ?? null) as SettingId | null,
+            {
+                selectSetting: (_, { setting }) => setting,
+            },
+        ],
 
         isCompactNavigationOpen: [
             false,
@@ -61,6 +67,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 closeCompactNavigation: () => false,
                 selectLevel: () => false,
                 selectSection: () => false,
+                selectSetting: () => false,
             },
         ],
     })),
@@ -142,6 +149,12 @@ export const settingsLogic = kea<settingsLogicType>([
             (s) => [s.sections, s.selectedSectionId],
             (sections, selectedSectionId): SettingSection | null => {
                 return sections.find((x) => x.id === selectedSectionId) ?? null
+            },
+        ],
+        selectedSettingId: [
+            (s) => [s.settings, s.settingId],
+            (settings, settingId): Setting['id'] | null => {
+                return settings.find((s) => s.id === settingId)?.id ?? null
             },
         ],
         settings: [

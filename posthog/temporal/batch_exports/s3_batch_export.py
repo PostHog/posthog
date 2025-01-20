@@ -32,7 +32,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     execute_batch_export_insert_activity,
     get_data_interval,
     start_batch_export_run,
-    wait_for_delta_past_data_interval_end,
 )
 from posthog.temporal.batch_exports.heartbeat import (
     BatchExportRangeHeartbeatDetails,
@@ -53,7 +52,6 @@ from posthog.temporal.batch_exports.temporary_file import (
     WriterFormat,
 )
 from posthog.temporal.batch_exports.utils import set_status_to_running_task
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
     bind_temporal_worker_logger,
@@ -141,10 +139,14 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
     }
 
 
+def get_s3_key_prefix(inputs: S3InsertInputs) -> str:
+    template_variables = get_allowed_template_variables(inputs)
+    return inputs.prefix.format(**template_variables)
+
+
 def get_s3_key(inputs: S3InsertInputs, file_number: int = 0) -> str:
     """Return an S3 key given S3InsertInputs."""
-    template_variables = get_allowed_template_variables(inputs)
-    key_prefix = inputs.prefix.format(**template_variables)
+    key_prefix = get_s3_key_prefix(inputs)
 
     try:
         file_extension = FILE_FORMAT_EXTENSIONS[inputs.file_format]
@@ -167,6 +169,11 @@ def get_s3_key(inputs: S3InsertInputs, file_number: int = 0) -> str:
         key = posixpath.relpath(key, "/")
 
     return key
+
+
+def get_manifest_key(inputs: S3InsertInputs) -> str:
+    key_prefix = get_s3_key_prefix(inputs)
+    return posixpath.join(key_prefix, f"{inputs.data_interval_start}-{inputs.data_interval_end}_manifest.json")
 
 
 class InvalidS3Key(Exception):
@@ -538,7 +545,6 @@ class S3Consumer(Consumer):
         data_interval_start: dt.datetime | str | None,
         data_interval_end: dt.datetime | str,
         writer_format: WriterFormat,
-        s3_upload: S3MultiPartUpload,
         s3_inputs: S3InsertInputs,
     ):
         super().__init__(
@@ -549,9 +555,10 @@ class S3Consumer(Consumer):
             writer_format=writer_format,
         )
         self.heartbeat_details: S3HeartbeatDetails = heartbeat_details
-        self.s3_upload: S3MultiPartUpload | None = s3_upload
+        self.s3_upload: S3MultiPartUpload | None = None
         self.s3_inputs = s3_inputs
         self.file_number = 0
+        self.files_uploaded: list[str] = []
 
     async def flush(
         self,
@@ -597,6 +604,7 @@ class S3Consumer(Consumer):
                 await s3_upload.complete()
 
         if is_last:
+            self.files_uploaded.append(s3_upload.key)
             self.s3_upload = None
             self.heartbeat_details.mark_file_upload_as_complete()
             self.file_number += 1
@@ -613,6 +621,14 @@ class S3Consumer(Consumer):
             )
             await self.s3_upload.complete()
             self.heartbeat_details.mark_file_upload_as_complete()
+            self.files_uploaded.append(self.s3_upload.key)
+
+        # If using max file size (and therefore potentially expecting more than one file) upload a manifest file
+        # containing the list of files.  This is used to check if the export is complete.
+        if self.s3_inputs.max_file_size_mb:
+            manifest_key = get_manifest_key(self.s3_inputs)
+            await self.logger.ainfo("Uploading manifest file %s", manifest_key)
+            await upload_manifest_file(self.s3_inputs, self.files_uploaded, manifest_key)
 
 
 async def initialize_and_resume_multipart_upload(
@@ -667,6 +683,22 @@ def initialize_upload(inputs: S3InsertInputs, file_number: int) -> S3MultiPartUp
     )
 
 
+async def upload_manifest_file(inputs: S3InsertInputs, files_uploaded: list[str], manifest_key: str):
+    session = aioboto3.Session()
+    async with session.client(
+        "s3",
+        region_name=inputs.region,
+        aws_access_key_id=inputs.aws_access_key_id,
+        aws_secret_access_key=inputs.aws_secret_access_key,
+        endpoint_url=inputs.endpoint_url,
+    ) as client:
+        await client.put_object(
+            Bucket=inputs.bucket_name,
+            Key=manifest_key,
+            Body=json.dumps({"files": files_uploaded}),
+        )
+
+
 def s3_default_fields() -> list[BatchExportField]:
     """Default fields for an S3 batch export.
 
@@ -704,31 +736,10 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         get_s3_key(inputs),
     )
 
-    start_at = dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start is not None else None
-    end_at = dt.datetime.fromisoformat(inputs.data_interval_end)
-
-    if start_at:
-        is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
-    else:
-        is_5_min_batch_export = False
-
-    if is_5_min_batch_export:
-        clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
-    else:
-        clickhouse_url = None
-
     async with (
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
-        get_client(team_id=inputs.team_id, clickhouse_url=clickhouse_url) as client,
     ):
-        if is_5_min_batch_export:
-            await wait_for_delta_past_data_interval_end(end_at)
-
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
-        s3_upload = initialize_upload(inputs, 0)
         details = S3HeartbeatDetails()
         done_ranges: list[DateRange] = details.done_ranges
 
@@ -758,7 +769,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer(clickhouse_client=client)
+        producer = Producer()
         producer_task = producer.start(
             queue=queue,
             model_name=model_name,
@@ -794,7 +805,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             data_interval_end=data_interval_end,
             data_interval_start=data_interval_start,
             writer_format=WriterFormat.from_str(inputs.file_format, "S3"),
-            s3_upload=s3_upload,
             s3_inputs=inputs,
         )
         await run_consumer(

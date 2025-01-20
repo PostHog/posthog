@@ -33,6 +33,7 @@ from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
+from posthog.temporal.batch_exports.sql import SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -199,6 +200,7 @@ SETTINGS
 """
 )
 
+
 SELECT_FROM_EVENTS_VIEW_BACKFILL = Template(
     """
 SELECT
@@ -348,8 +350,14 @@ async def iter_records_from_model_view(
         else:
             is_5_min_batch_export = False
 
+        # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
+        # may not be able to handle the load from all batch exports
         if is_5_min_batch_export and not is_backfill:
             query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+        # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+        # which is a distributed table that sits in front of the `events_recent` table
+        elif use_distributed_events_recent_table(is_backfill=is_backfill, team_id=team_id):
+            query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
         elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
             query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
         elif is_backfill:
@@ -447,107 +455,6 @@ class TaskNotDoneError(Exception):
 
     def __init__(self, task: str):
         super().__init__(f"Expected task '{task}' to be done by now")
-
-
-def start_produce_batch_export_record_batches(
-    client: ClickHouseClient,
-    model_name: str,
-    is_backfill: bool,
-    team_id: int,
-    full_range: tuple[dt.datetime | None, dt.datetime],
-    done_ranges: list[tuple[dt.datetime, dt.datetime]],
-    fields: list[BatchExportField] | None = None,
-    destination_default_fields: list[BatchExportField] | None = None,
-    # TODO - remove this once all batch exports are using the latest schema
-    use_latest_schema: bool = False,
-    **parameters,
-):
-    """Start producing batch export record batches from a model query.
-
-    Depending on the model, we issue a query to ClickHouse and initialize a
-    producer to stream record batches to a queue. Callers can then consume from
-    this queue as the record batches arrive. The producer runs asynchronously as
-    a background task, which is returned.
-
-    Returns:
-        A tuple containing the record batch queue, an event used by the producer
-        to indicate there is nothing more to produce, and a reference to the
-        producer task
-    """
-    if fields is None:
-        if destination_default_fields is None:
-            fields = default_fields()
-        else:
-            fields = destination_default_fields
-
-    if model_name == "persons":
-        if is_backfill and full_range[0] is None:
-            if use_latest_schema:
-                view = SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW
-            else:
-                view = SELECT_FROM_PERSONS_VIEW_BACKFILL
-        else:
-            if use_latest_schema:
-                view = SELECT_FROM_PERSONS_VIEW_NEW
-            else:
-                view = SELECT_FROM_PERSONS_VIEW
-
-    else:
-        if parameters.get("exclude_events", None):
-            parameters["exclude_events"] = list(parameters["exclude_events"])
-        else:
-            parameters["exclude_events"] = []
-
-        if parameters.get("include_events", None):
-            parameters["include_events"] = list(parameters["include_events"])
-        else:
-            parameters["include_events"] = []
-
-        start_at, end_at = full_range
-
-        if start_at:
-            is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
-        else:
-            is_5_min_batch_export = False
-
-        if is_5_min_batch_export and not is_backfill:
-            query_template = SELECT_FROM_EVENTS_VIEW_RECENT
-        if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-            query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
-        elif is_backfill:
-            query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
-        else:
-            query_template = SELECT_FROM_EVENTS_VIEW
-            lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
-            parameters["lookback_days"] = lookback_days
-
-        if "_inserted_at" not in [field["alias"] for field in fields]:
-            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
-        else:
-            control_fields = []
-
-        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
-
-        view = query_template.substitute(fields=query_fields)
-
-    parameters["team_id"] = team_id
-
-    extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
-    parameters = {**parameters, **extra_query_parameters}
-
-    queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BUFFER_QUEUE_MAX_SIZE_BYTES)
-    produce_task = asyncio.create_task(
-        produce_batch_export_record_batches_from_range(
-            client=client,
-            query=view,
-            full_range=full_range,
-            done_ranges=done_ranges,
-            queue=queue,
-            query_parameters=parameters,
-        )
-    )
-
-    return queue, produce_task
 
 
 async def produce_batch_export_record_batches_from_range(
@@ -653,6 +560,21 @@ async def raise_on_produce_task_failure(produce_task: asyncio.Task) -> None:
     raise RecordBatchProducerError() from exc
 
 
+def use_distributed_events_recent_table(is_backfill: bool, team_id: int) -> bool:
+    if is_backfill:
+        return False
+
+    events_recent_rollout: float = settings.BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT
+    # sanity check
+    if events_recent_rollout < 0:
+        events_recent_rollout = 0
+    elif events_recent_rollout > 1:
+        events_recent_rollout = 1
+
+    bucket = team_id % 10
+    return bucket < events_recent_rollout * 10
+
+
 def iter_records(
     client: ClickHouseClient,
     team_id: int,
@@ -723,8 +645,14 @@ def iter_records(
     else:
         is_5_min_batch_export = False
 
+    # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
+    # may not be able to handle the load from all batch exports
     if is_5_min_batch_export and not is_backfill:
         query = SELECT_FROM_EVENTS_VIEW_RECENT
+    # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+    # which is a distributed table that sits in front of the `events_recent` table
+    elif use_distributed_events_recent_table(is_backfill=is_backfill, team_id=team_id):
+        query = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
     elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
     elif is_backfill:

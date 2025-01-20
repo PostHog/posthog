@@ -52,7 +52,6 @@ from posthog.temporal.batch_exports.temporary_file import (
     WriterFormat,
 )
 from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
 
@@ -357,11 +356,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
     async with (
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
-        get_client(team_id=inputs.team_id) as client,
     ):
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
         _, details = await should_resume_from_activity_heartbeat(activity, RedshiftHeartbeatDetails)
         if details is None:
             details = RedshiftHeartbeatDetails()
@@ -394,7 +389,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer(clickhouse_client=client)
+        producer = Producer()
         producer_task = producer.start(
             queue=queue,
             model_name=model_name,
