@@ -32,7 +32,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     execute_batch_export_insert_activity,
     get_data_interval,
     start_batch_export_run,
-    wait_for_delta_past_data_interval_end,
 )
 from posthog.temporal.batch_exports.heartbeat import (
     BatchExportRangeHeartbeatDetails,
@@ -53,7 +52,6 @@ from posthog.temporal.batch_exports.temporary_file import (
     WriterFormat,
 )
 from posthog.temporal.batch_exports.utils import set_status_to_running_task
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
     bind_temporal_worker_logger,
@@ -738,30 +736,10 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         get_s3_key(inputs),
     )
 
-    start_at = dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start is not None else None
-    end_at = dt.datetime.fromisoformat(inputs.data_interval_end)
-
-    if start_at:
-        is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
-    else:
-        is_5_min_batch_export = False
-
-    if is_5_min_batch_export:
-        clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
-    else:
-        clickhouse_url = None
-
     async with (
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
-        get_client(team_id=inputs.team_id, clickhouse_url=clickhouse_url) as client,
     ):
-        if is_5_min_batch_export:
-            await wait_for_delta_past_data_interval_end(end_at)
-
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
         details = S3HeartbeatDetails()
         done_ranges: list[DateRange] = details.done_ranges
 
@@ -791,7 +769,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer(clickhouse_client=client)
+        producer = Producer()
         producer_task = producer.start(
             queue=queue,
             model_name=model_name,
