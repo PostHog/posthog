@@ -59,6 +59,7 @@ pub async fn main() -> Result<(), Error> {
     start_health_liveness_server(&config, context.clone());
 
     while context.is_running() {
+        info!("Looking for next job");
         let Some(model) = JobModel::claim_next_job(context.clone()).await? else {
             if !context.is_running() {
                 break;
@@ -73,6 +74,7 @@ pub async fn main() -> Result<(), Error> {
         let mut next_step = Some(Job::new(model, context.clone()).await?);
         while let Some(job) = next_step {
             if !context.is_running() {
+                info!("Shutting down, dropping job");
                 // if we're shutting down, we just drop the job - it'll remain leased for a few minutes, then another
                 // worker will come along and pick it up
                 break;
@@ -89,9 +91,7 @@ pub async fn main() -> Result<(), Error> {
                     None
                 }
             };
-            info!("Processed chunk, starting on next one");
         }
-        info!("Finished with job, waiting for the next one");
     }
 
     info!("Shutting down");
