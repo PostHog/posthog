@@ -1,7 +1,7 @@
-import { FetchExecutor } from 'cdp/executors/fetch.executor'
-import { HogFunctionManager } from 'cdp/managers/hog-function.manager'
 import { Message } from 'node-rdkafka'
 
+import { FetchExecutor } from '../../cdp/executors/fetch.executor'
+import { HogFunctionManager } from '../../cdp/managers/hog-function.manager'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_FUNCTION_CALLBACKS,
