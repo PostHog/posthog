@@ -1,12 +1,12 @@
 import '../helpers/mocks/producer.mock'
 
-import { CdpInternalEventsConsumer } from '../../src/cdp/consumers/cdp-internal-events.consumer'
-import { HogFunctionType } from '../../src/cdp/types'
-import { Hub, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
-import { createInternalEvent, createKafkaMessage, insertHogFunction as _insertHogFunction } from './fixtures'
+import { CdpInternalEventsConsumer } from '../../../src/cdp/consumers/cdp-internal-events.consumer'
+import { HogFunctionType } from '../../../src/cdp/types'
+import { Hub, Team } from '../../../src/types'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../examples'
+import { createInternalEvent, createKafkaMessage, insertHogFunction as _insertHogFunction } from '../fixtures'
 
 describe('CDP Internal Events Consumer', () => {
     let processor: CdpInternalEventsConsumer
