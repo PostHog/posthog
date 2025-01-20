@@ -1192,7 +1192,7 @@ class QueryResponseAlternative5(BaseModel):
     stdout: Optional[str] = None
 
 
-class QueryResponseAlternative37(BaseModel):
+class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3964,28 +3964,6 @@ class CoreWebVitalsItem(BaseModel):
     days: list[str]
 
 
-class CoreWebVitalsPathBreakdownQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compareFilter: Optional[CompareFilter] = None
-    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
-    dateRange: Optional[DateRange] = None
-    doPathCleaning: Optional[bool] = None
-    filterTestAccounts: Optional[bool] = None
-    kind: Literal["CoreWebVitalsPathBreakdownQuery"] = "CoreWebVitalsPathBreakdownQuery"
-    metric: CoreWebVitalsMetric
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    percentile: CoreWebVitalsPercentile
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
-    response: Optional[WebGoalsQueryResponse] = None
-    sampling: Optional[Sampling] = None
-    thresholds: list[float] = Field(..., max_length=2, min_length=2)
-    useSessionsTable: Optional[bool] = None
-
-
 class CoreWebVitalsPathBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4163,6 +4141,27 @@ class Response7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[CoreWebVitalsPathBreakdownResult] = Field(..., max_length=1, min_length=1)
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class Response8(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     columns: Optional[list] = None
     error: Optional[str] = Field(
         default=None,
@@ -4185,7 +4184,7 @@ class Response7(BaseModel):
     types: Optional[list] = None
 
 
-class Response11(BaseModel):
+class Response12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5167,6 +5166,27 @@ class QueryResponseAlternative17(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[CoreWebVitalsPathBreakdownResult] = Field(..., max_length=1, min_length=1)
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative18(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     columns: list
     error: Optional[str] = Field(
         default=None,
@@ -5189,7 +5209,7 @@ class QueryResponseAlternative17(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative18(BaseModel):
+class QueryResponseAlternative19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5216,7 +5236,7 @@ class QueryResponseAlternative18(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative19(BaseModel):
+class QueryResponseAlternative20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5246,7 +5266,7 @@ class QueryResponseAlternative19(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative20(BaseModel):
+class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5270,7 +5290,7 @@ class QueryResponseAlternative20(BaseModel):
     )
 
 
-class QueryResponseAlternative21(BaseModel):
+class QueryResponseAlternative22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5297,7 +5317,28 @@ class QueryResponseAlternative21(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative24(BaseModel):
+class QueryResponseAlternative25(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[CoreWebVitalsPathBreakdownResult] = Field(..., max_length=1, min_length=1)
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative26(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5323,7 +5364,7 @@ class QueryResponseAlternative24(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative25(BaseModel):
+class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5348,7 +5389,7 @@ class QueryResponseAlternative25(BaseModel):
     )
 
 
-class QueryResponseAlternative28(BaseModel):
+class QueryResponseAlternative30(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5373,7 +5414,7 @@ class QueryResponseAlternative28(BaseModel):
     )
 
 
-class QueryResponseAlternative29(BaseModel):
+class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5395,7 +5436,7 @@ class QueryResponseAlternative29(BaseModel):
     )
 
 
-class QueryResponseAlternative30(BaseModel):
+class QueryResponseAlternative32(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5417,7 +5458,7 @@ class QueryResponseAlternative30(BaseModel):
     )
 
 
-class QueryResponseAlternative32(BaseModel):
+class QueryResponseAlternative34(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5438,7 +5479,7 @@ class QueryResponseAlternative32(BaseModel):
     )
 
 
-class QueryResponseAlternative35(BaseModel):
+class QueryResponseAlternative37(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5464,7 +5505,7 @@ class QueryResponseAlternative35(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative38(BaseModel):
+class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5485,7 +5526,7 @@ class QueryResponseAlternative38(BaseModel):
     )
 
 
-class QueryResponseAlternative39(BaseModel):
+class QueryResponseAlternative41(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5506,7 +5547,7 @@ class QueryResponseAlternative39(BaseModel):
     )
 
 
-class QueryResponseAlternative40(BaseModel):
+class QueryResponseAlternative42(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5527,7 +5568,7 @@ class QueryResponseAlternative40(BaseModel):
     )
 
 
-class QueryResponseAlternative41(BaseModel):
+class QueryResponseAlternative43(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6015,6 +6056,28 @@ class CachedRetentionQueryResponse(BaseModel):
     )
 
 
+class CoreWebVitalsPathBreakdownQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    kind: Literal["CoreWebVitalsPathBreakdownQuery"] = "CoreWebVitalsPathBreakdownQuery"
+    metric: CoreWebVitalsMetric
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    percentile: CoreWebVitalsPercentile
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[CoreWebVitalsPathBreakdownQueryResponse] = None
+    sampling: Optional[Sampling] = None
+    thresholds: list[float] = Field(..., max_length=2, min_length=2)
+    useSessionsTable: Optional[bool] = None
+
+
 class Response2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6045,7 +6108,7 @@ class Response2(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class Response8(BaseModel):
+class Response9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6154,7 +6217,7 @@ class PropertyGroupFilter(BaseModel):
     values: list[PropertyGroupFilterValue]
 
 
-class QueryResponseAlternative31(BaseModel):
+class QueryResponseAlternative33(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6409,7 +6472,7 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
-class Response10(BaseModel):
+class Response11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6903,7 +6966,7 @@ class QueryResponseAlternative12(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
-class QueryResponseAlternative26(BaseModel):
+class QueryResponseAlternative28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6919,7 +6982,7 @@ class QueryResponseAlternative26(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
-class QueryResponseAlternative27(BaseModel):
+class QueryResponseAlternative29(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7005,7 +7068,7 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
-class Response9(BaseModel):
+class Response10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7143,7 +7206,7 @@ class PathsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
-class QueryResponseAlternative36(BaseModel):
+class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7177,13 +7240,13 @@ class QueryResponseAlternative(
             QueryResponseAlternative12,
             QueryResponseAlternative13,
             QueryResponseAlternative14,
-            Any,
             QueryResponseAlternative17,
+            Any,
             QueryResponseAlternative18,
             QueryResponseAlternative19,
             QueryResponseAlternative20,
             QueryResponseAlternative21,
-            QueryResponseAlternative24,
+            QueryResponseAlternative22,
             QueryResponseAlternative25,
             QueryResponseAlternative26,
             QueryResponseAlternative27,
@@ -7192,13 +7255,15 @@ class QueryResponseAlternative(
             QueryResponseAlternative30,
             QueryResponseAlternative31,
             QueryResponseAlternative32,
-            QueryResponseAlternative35,
-            QueryResponseAlternative36,
+            QueryResponseAlternative33,
+            QueryResponseAlternative34,
             QueryResponseAlternative37,
             QueryResponseAlternative38,
             QueryResponseAlternative39,
             QueryResponseAlternative40,
             QueryResponseAlternative41,
+            QueryResponseAlternative42,
+            QueryResponseAlternative43,
         ]
     ]
 ):
@@ -7218,13 +7283,13 @@ class QueryResponseAlternative(
         QueryResponseAlternative12,
         QueryResponseAlternative13,
         QueryResponseAlternative14,
-        Any,
         QueryResponseAlternative17,
+        Any,
         QueryResponseAlternative18,
         QueryResponseAlternative19,
         QueryResponseAlternative20,
         QueryResponseAlternative21,
-        QueryResponseAlternative24,
+        QueryResponseAlternative22,
         QueryResponseAlternative25,
         QueryResponseAlternative26,
         QueryResponseAlternative27,
@@ -7233,13 +7298,15 @@ class QueryResponseAlternative(
         QueryResponseAlternative30,
         QueryResponseAlternative31,
         QueryResponseAlternative32,
-        QueryResponseAlternative35,
-        QueryResponseAlternative36,
+        QueryResponseAlternative33,
+        QueryResponseAlternative34,
         QueryResponseAlternative37,
         QueryResponseAlternative38,
         QueryResponseAlternative39,
         QueryResponseAlternative40,
         QueryResponseAlternative41,
+        QueryResponseAlternative42,
+        QueryResponseAlternative43,
     ]
 
 
@@ -7479,6 +7546,7 @@ class DataTableNode(BaseModel):
             Response9,
             Response10,
             Response11,
+            Response12,
         ]
     ] = None
     showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")

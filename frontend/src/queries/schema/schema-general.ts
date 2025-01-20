@@ -1572,7 +1572,8 @@ export interface CoreWebVitalsItem {
 export type CoreWebVitalsQueryResponse = AnalyticsQueryResponseBase<CoreWebVitalsItem[]>
 export type CachedCoreWebVitalsQueryResponse = CachedQueryResponse<CoreWebVitalsQueryResponse>
 
-export interface CoreWebVitalsPathBreakdownQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
+export interface CoreWebVitalsPathBreakdownQuery
+    extends WebAnalyticsQueryBase<CoreWebVitalsPathBreakdownQueryResponse> {
     kind: NodeKind.CoreWebVitalsPathBreakdownQuery
     percentile: CoreWebVitalsPercentile
     metric: CoreWebVitalsMetric
