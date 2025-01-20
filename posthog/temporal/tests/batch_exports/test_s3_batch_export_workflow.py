@@ -160,6 +160,10 @@ async def minio_client(bucket_name):
 
 async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file_format, compression, json_columns):
     """Assert that there are files in S3 under key_prefix and return the combined contents, and the keys of files found."""
+    expected_file_extension = FILE_FORMAT_EXTENSIONS[file_format]
+    if compression is not None:
+        expected_file_extension = f"{expected_file_extension}.{COMPRESSION_EXTENSIONS[compression]}"
+
     objects = await s3_compatible_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
 
     s3_data = []
@@ -168,7 +172,9 @@ async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file
     assert "Contents" in objects
     for obj in objects["Contents"]:
         key = obj.get("Key")
-        assert key
+        if not key.endswith(expected_file_extension):
+            continue
+
         keys.append(key)
 
         if file_format == "Parquet":
@@ -191,6 +197,13 @@ async def assert_file_in_s3(s3_compatible_client, bucket_name, key_prefix, file_
     )
     assert len(keys) == 1
     return s3_data
+
+
+async def read_json_file_from_s3(s3_compatible_client, bucket_name, key) -> list | dict:
+    s3_object: dict = await s3_compatible_client.get_object(Bucket=bucket_name, Key=key)
+    data = await s3_object["Body"].read()
+    data = read_s3_data_as_json(data, None)
+    return data[0]
 
 
 async def assert_clickhouse_records_in_s3(
@@ -544,18 +557,28 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     else:
         assert num_files > 1
 
-    for i in range(num_files):
-        assert (
-            expected_s3_key(
-                file_number=i,
-                data_interval_start=data_interval_start,
-                data_interval_end=data_interval_end,
-                file_format=file_format,
-                compression=compression,
-                max_file_size_mb=max_file_size_mb,
-            )
-            in s3_keys
+    expected_keys = [
+        expected_s3_key(
+            file_number=i,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            file_format=file_format,
+            compression=compression,
+            max_file_size_mb=max_file_size_mb,
         )
+        for i in range(num_files)
+    ]
+    assert set(expected_keys) == set(s3_keys)
+
+    manifest_key = f"{prefix}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}_manifest.json"
+    # we only expect a manifest file if we have set a max file size
+    if max_file_size_mb is None:
+        with pytest.raises(minio_client.exceptions.NoSuchKey):
+            await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
+    else:
+        manifest_data: dict | list = await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
+        assert isinstance(manifest_data, dict)
+        assert manifest_data["files"] == expected_keys
 
     # check heartbeat details
     assert len(heartbeat_details) > 0
