@@ -14,9 +14,13 @@ from posthog.test.base import APIBaseTest
 from flaky import flaky
 
 
-def create_variant(key: str, mean: float, exposure: float, absolute_exposure: int) -> ExperimentVariantTrendsBaseStats:
+def create_variant(
+    key: str, total_sum: float, exposure: float, absolute_exposure: int
+) -> ExperimentVariantTrendsBaseStats:
     # Note: We use the count field to store the mean value for continuous metrics
-    return ExperimentVariantTrendsBaseStats(key=key, count=mean, exposure=exposure, absolute_exposure=absolute_exposure)
+    return ExperimentVariantTrendsBaseStats(
+        key=key, count=total_sum, exposure=exposure, absolute_exposure=absolute_exposure
+    )
 
 
 class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
@@ -45,11 +49,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
             control_absolute_exposure = 100
-            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            control_mean = 100.0
+            control = create_variant(
+                "control",
+                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                exposure=1,
+                absolute_exposure=control_absolute_exposure,
+            )
             test_absolute_exposure = 100
+            test_mean = 105.0
             test = create_variant(
                 "test",
-                mean=105.0,
+                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -93,11 +104,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
             control_absolute_exposure = 10000
-            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            control_mean = 100.0
+            control = create_variant(
+                "control",
+                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                exposure=1,
+                absolute_exposure=control_absolute_exposure,
+            )
             test_absolute_exposure = 10000
+            test_mean = 120.0
             test = create_variant(
                 "test",
-                mean=120.0,
+                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -143,11 +161,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
             control_absolute_exposure = 10000
-            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            control_mean = 100.0
+            control = create_variant(
+                "control",
+                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                exposure=1,
+                absolute_exposure=control_absolute_exposure,
+            )
             test_absolute_exposure = 10000
+            test_mean = 150.0
             test = create_variant(
                 "test",
-                mean=150.0,
+                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -189,25 +214,34 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
             control_absolute_exposure = 1000
-            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            control_mean = 100.0
+            control = create_variant(
+                "control",
+                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                exposure=1,
+                absolute_exposure=control_absolute_exposure,
+            )
             test_a_absolute_exposure = 1000
+            test_a_mean = 98.0
             test_a = create_variant(
                 "test_a",
-                mean=98.0,
+                total_sum=test_a_mean * (1 if stats_version == 1 else test_a_absolute_exposure),
                 exposure=test_a_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_a_absolute_exposure,
             )
             test_b_absolute_exposure = 1000
+            test_b_mean = 102.0
             test_b = create_variant(
                 "test_b",
-                mean=102.0,
+                total_sum=test_b_mean * (1 if stats_version == 1 else test_b_absolute_exposure),
                 exposure=test_b_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_b_absolute_exposure,
             )
             test_c_absolute_exposure = 1000
+            test_c_mean = 101.0
             test_c = create_variant(
                 "test_c",
-                mean=101.0,
+                total_sum=test_c_mean * (1 if stats_version == 1 else test_c_absolute_exposure),
                 exposure=test_c_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_c_absolute_exposure,
             )
@@ -269,25 +303,34 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
             control_absolute_exposure = 10000
-            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            control_mean = 100.0
+            control = create_variant(
+                "control",
+                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                exposure=1,
+                absolute_exposure=control_absolute_exposure,
+            )
             test_a_absolute_exposure = 10000
+            test_a_mean = 105.0
             test_a = create_variant(
                 "test_a",
-                mean=105.0,
+                total_sum=test_a_mean * (1 if stats_version == 1 else test_a_absolute_exposure),
                 exposure=test_a_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_a_absolute_exposure,
             )
             test_b_absolute_exposure = 10000
+            test_b_mean = 150.0
             test_b = create_variant(
                 "test_b",
-                mean=150.0,
+                total_sum=test_b_mean * (1 if stats_version == 1 else test_b_absolute_exposure),
                 exposure=test_b_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_b_absolute_exposure,
             )
             test_c_absolute_exposure = 10000
+            test_c_mean = 110.0
             test_c = create_variant(
                 "test_c",
-                mean=110.0,
+                total_sum=test_c_mean * (1 if stats_version == 1 else test_c_absolute_exposure),
                 exposure=test_c_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_c_absolute_exposure,
             )
@@ -339,11 +382,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
             control_absolute_exposure = 50
-            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            control_mean = 100.0
+            control = create_variant(
+                "control",
+                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                exposure=1,
+                absolute_exposure=control_absolute_exposure,
+            )
             test_absolute_exposure = 50
+            test_mean = 120.0
             test = create_variant(
                 "test",
-                mean=120.0,
+                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -386,11 +436,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
             control_absolute_exposure = 1000
-            control = create_variant("control", mean=0.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            control_mean = 0.0
+            control = create_variant(
+                "control",
+                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                exposure=1,
+                absolute_exposure=control_absolute_exposure,
+            )
             test_absolute_exposure = 1000
+            test_mean = 0.0
             test = create_variant(
                 "test",
-                mean=0.0,
+                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -435,16 +492,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
             # Using very small positive values instead of exact zeros
             control_absolute_exposure = 1000
+            control_mean = 0.0001
             control = create_variant(
                 "control",
-                mean=0.0001,
+                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
                 exposure=1,
                 absolute_exposure=control_absolute_exposure,
             )
             test_absolute_exposure = 1000
+            test_mean = 0.0001
             test = create_variant(
                 "test",
-                mean=0.0001,
+                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -490,11 +549,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
             control_absolute_exposure = 600
-            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            control_mean = 100.0
+            control = create_variant(
+                "control",
+                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                exposure=1,
+                absolute_exposure=control_absolute_exposure,
+            )
             test_absolute_exposure = 600
+            test_mean = 120.0
             test = create_variant(
                 "test",
-                mean=120.0,  # Slightly higher mean
+                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
@@ -520,11 +586,18 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
         def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
             control_absolute_exposure = 10000
-            control = create_variant("control", mean=100.0, exposure=1, absolute_exposure=control_absolute_exposure)
+            control_mean = 100.0
+            control = create_variant(
+                "control",
+                total_sum=control_mean * (1 if stats_version == 1 else control_absolute_exposure),
+                exposure=1,
+                absolute_exposure=control_absolute_exposure,
+            )
             test_absolute_exposure = 10000
+            test_mean = 200.0
             test = create_variant(
                 "test",
-                mean=200.0,  # Much higher mean
+                total_sum=test_mean * (1 if stats_version == 1 else test_absolute_exposure),
                 exposure=test_absolute_exposure / control_absolute_exposure,
                 absolute_exposure=test_absolute_exposure,
             )
