@@ -1,12 +1,27 @@
 import { SessionBatchManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-manager'
 import { SessionBatchRecorder } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
 
+const createMockBatch = (): jest.Mocked<SessionBatchRecorder> => {
+    return {
+        record: jest.fn(),
+        dump: jest.fn(),
+        get size() {
+            return 0
+        },
+    } as unknown as jest.Mocked<SessionBatchRecorder>
+}
+
 describe('SessionBatchManager', () => {
     let manager: SessionBatchManager
     let executionOrder: number[]
+    let createBatchMock: jest.Mock<SessionBatchRecorder>
 
     beforeEach(() => {
-        manager = new SessionBatchManager({ maxBatchSizeBytes: 100 })
+        createBatchMock = jest.fn().mockImplementation(createMockBatch)
+        manager = new SessionBatchManager({
+            maxBatchSizeBytes: 100,
+            createBatch: createBatchMock,
+        })
         executionOrder = []
     })
     const waitForNextTick = () => new Promise((resolve) => process.nextTick(resolve))
@@ -129,11 +144,11 @@ describe('SessionBatchManager', () => {
             return Promise.resolve()
         })
     })
-
     it('should flush when buffer is full', async () => {
-        const manager = new SessionBatchManager({ maxBatchSizeBytes: 100 })
         let firstBatch: SessionBatchRecorder | null = null
         let secondBatch: SessionBatchRecorder | null = null
+
+        expect(createBatchMock).toHaveBeenCalledTimes(1)
 
         // Get reference to first batch
         await manager.withBatch(async (batch) => {
@@ -145,6 +160,8 @@ describe('SessionBatchManager', () => {
 
         await manager.flushIfFull()
 
+        expect(createBatchMock).toHaveBeenCalledTimes(2)
+
         // Get reference to second batch
         await manager.withBatch(async (batch) => {
             secondBatch = batch
@@ -152,12 +169,14 @@ describe('SessionBatchManager', () => {
         })
 
         expect(secondBatch).not.toBe(firstBatch)
+        expect(createBatchMock).toHaveBeenCalledTimes(2)
     })
 
     it('should not flush when buffer is under limit', async () => {
-        const manager = new SessionBatchManager({ maxBatchSizeBytes: 1000 })
         let firstBatch: SessionBatchRecorder | null = null
         let secondBatch: SessionBatchRecorder | null = null
+
+        expect(createBatchMock).toHaveBeenCalledTimes(1)
 
         // Get reference to first batch
         await manager.withBatch(async (batch) => {
@@ -176,5 +195,6 @@ describe('SessionBatchManager', () => {
         })
 
         expect(secondBatch).toBe(firstBatch)
+        expect(createBatchMock).toHaveBeenCalledTimes(1)
     })
 })

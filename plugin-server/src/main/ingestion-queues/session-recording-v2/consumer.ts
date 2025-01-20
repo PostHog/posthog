@@ -63,6 +63,7 @@ export class SessionRecordingIngester {
         this.batchConsumerFactory = batchConsumerFactory
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 0) * 1024,
+            createBatch: () => new SessionBatchRecorder(),
         })
 
         const teamFilter = new TeamFilter(teamService, kafkaParser)
