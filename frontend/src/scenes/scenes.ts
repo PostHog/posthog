@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
+import { productConfiguration, productRedirects, productRoutes } from '~/products'
 import { EventsQuery } from '~/queries/schema'
 import {
     ActivityScope,
@@ -41,7 +42,7 @@ export const preloadedScenes: Record<string, LoadedScene> = {
     },
 }
 
-export const sceneConfigurations: Record<Scene, SceneConfig> = {
+export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Error404]: {
         name: 'Not found',
         projectBased: true,
@@ -87,11 +88,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
     },
-    [Scene.WebAnalyticsCoreWebVitals]: {
+    [Scene.WebAnalyticsWebVitals]: {
         projectBased: true,
-        name: 'Core Web Vitals',
+        name: 'Web vitals',
         layout: 'app-container',
-        defaultDocsPath: '/docs/web-analytics/core-web-vitals', // TODO: Add docs
+        defaultDocsPath: '/docs/web-analytics/web-vitals',
     },
     [Scene.Cohort]: {
         projectBased: true,
@@ -280,28 +281,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Data warehouse table',
         defaultDocsPath: '/docs/data-warehouse',
     },
-    [Scene.LLMObservability]: {
-        projectBased: true,
-        name: 'LLM observability',
-        layout: 'app-container',
-        defaultDocsPath: '/docs/ai-engineering/observability',
-    },
-    [Scene.LLMObservabilityTrace]: {
-        projectBased: true,
-        name: 'LLM observability trace',
-        layout: 'app-container',
-        defaultDocsPath: '/docs/ai-engineering/observability',
-    },
-    [Scene.EarlyAccessFeatures]: {
-        projectBased: true,
-        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-        activityScope: ActivityScope.EARLY_ACCESS_FEATURE,
-    },
-    [Scene.EarlyAccessFeature]: {
-        projectBased: true,
-        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-        activityScope: ActivityScope.EARLY_ACCESS_FEATURE,
-    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
@@ -457,14 +436,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Session attribution explorer (beta)',
     },
-    [Scene.MessagingBroadcasts]: {
-        projectBased: true,
-        name: 'Broadcasts',
-    },
-    [Scene.MessagingProviders]: {
-        projectBased: true,
-        name: 'Providers',
-    },
+    ...productConfiguration,
 }
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
@@ -534,9 +506,10 @@ export const redirects: Record<
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
     '/messaging': urls.messagingBroadcasts(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
+    ...productRedirects,
 }
 
-export const routes: Record<string, [Scene, string]> = {
+export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
@@ -558,7 +531,7 @@ export const routes: Record<string, [Scene, string]> = {
     [urls.insightSharing(':shortId' as InsightShortId)]: [Scene.Insight, 'insightSharing'],
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
-    [urls.webAnalyticsCoreWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsCoreWebVitals'],
+    [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.actions()]: [Scene.DataManagement, 'actions'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
     [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],
@@ -596,8 +569,6 @@ export const routes: Record<string, [Scene, string]> = {
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
-    [urls.earlyAccessFeatures()]: [Scene.EarlyAccessFeatures, 'earlyAccessFeatures'],
-    [urls.earlyAccessFeature(':id')]: [Scene.EarlyAccessFeature, 'earlyAccessFeature'],
     [urls.errorTracking()]: [Scene.ErrorTracking, 'errorTracking'],
     [urls.errorTrackingConfiguration()]: [Scene.ErrorTrackingConfiguration, 'errorTrackingConfiguration'],
     [urls.errorTrackingIssue(':id')]: [Scene.ErrorTrackingIssue, 'errorTrackingIssue'],
@@ -660,15 +631,5 @@ export const routes: Record<string, [Scene, string]> = {
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
-    [urls.messagingProviders()]: [Scene.MessagingProviders, 'messagingProviders'],
-    [urls.messagingProvider(':id')]: [Scene.MessagingProviders, 'messagingProvider'],
-    [urls.messagingProviderNew()]: [Scene.MessagingProviders, 'messagingProviderNew'],
-    [urls.messagingProviderNew(':template')]: [Scene.MessagingProviders, 'messagingProviderNewWithTemplate'],
-    [urls.messagingBroadcasts()]: [Scene.MessagingBroadcasts, 'messagingBroadcasts'],
-    [urls.messagingBroadcast(':id')]: [Scene.MessagingBroadcasts, 'messagingBroadcast'],
-    [urls.messagingBroadcastNew()]: [Scene.MessagingBroadcasts, 'messagingBroadcastNew'],
-    [urls.llmObservability('dashboard')]: [Scene.LLMObservability, 'llmObservabilityDashboard'],
-    [urls.llmObservability('generations')]: [Scene.LLMObservability, 'llmObservabilityGenerations'],
-    [urls.llmObservability('traces')]: [Scene.LLMObservability, 'llmObservabilityTraces'],
-    [urls.llmObservabilityTrace(':id')]: [Scene.LLMObservabilityTrace, 'llmObservabilityTrace'],
+    ...productRoutes,
 }
