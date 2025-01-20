@@ -5,7 +5,7 @@ use anyhow::{Context, Error};
 use common_types::InternallyCapturedEvent;
 use model::{JobModel, JobState, PartState};
 use tokio::sync::Mutex;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     context::AppContext,
@@ -205,6 +205,7 @@ impl Job {
     }
 
     async fn do_commit(&self) -> Result<(), Error> {
+        self.shutdown_guard()?;
         let mut checkpoint_lock = self.checkpoint.lock().await;
 
         let Some(checkpoint) = checkpoint_lock.take() else {
@@ -216,11 +217,14 @@ impl Job {
 
         info!("Committing part {} consumed {} bytes", key, parsed.consumed);
         info!("Committing {} events", parsed.data.len());
+
         let mut sink = self.sink.lock().await;
+        self.shutdown_guard()?;
         // If this fails, we just bail out, and then eventually someone else will pick up the job again and re-process this chunk
         sink.begin_write().await?;
         info!("Writing {} events", parsed.data.len());
         // If this fails, as above
+        self.shutdown_guard()?;
         sink.emit(&parsed.data).await?;
         // This is where things get tricky - if we fail to commit the chunk to the sink in the next step, and we've told PG we've
         // committed the chunk, we'll bail out, and whoever comes next will end up skipping this chunk. To prevent this, we do a two
@@ -228,6 +232,7 @@ impl Job {
         // such that if we get interrupted between the two, the job will be paused, and manual intervention will be required to resume it.
         // This operator can then confirm whether the sink commit succeeded or not (by looking at the last event written, or by
         // looking at logs, or both). The jobs status message is set to enable this kind of debugging.
+        self.shutdown_guard()?; // This is the last time we call this during the commit - if we get this far, we want to commit fully if at all possible
         info!("Beginning PG part commit");
         self.begin_part_commit(&key, parsed.consumed).await?;
         info!("Beginning emitter part commit");
@@ -271,5 +276,17 @@ impl Job {
     async fn complete_commit(&self) -> Result<(), Error> {
         let mut model = self.model.lock().await;
         model.unpause(self.context.clone()).await
+    }
+
+    // Used during the commit operations as a shorthand way to bail before an operation if we get a shutdown signal
+    fn shutdown_guard(&self) -> Result<(), Error> {
+        if !self.context.is_running() {
+            warn!("Running flag set to flase during job processing, bailing");
+            Err(Error::msg(
+                "Running flag set to flase during job processing, bailing",
+            ))
+        } else {
+            Ok(())
+        }
     }
 }
