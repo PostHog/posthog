@@ -432,6 +432,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
                 exclude_events=batch_export.destination.config.get("exclude_events", []),
                 include_events=batch_export.destination.config.get("include_events", []),
             )
+            earliest_backfill_start_at = earliest_backfill_start_at.astimezone(self.team.timezone_info)
 
             if end_at is not None and end_at < earliest_backfill_start_at:
                 raise ValidationError(
