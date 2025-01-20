@@ -1,4 +1,4 @@
-import { TZLabel } from '@posthog/apps-common'
+import { Link, TZLabel, urls } from '@posthog/apps-common'
 import { useActions, useValues } from 'kea'
 import { llmObservabilityLogic } from 'scenes/llm-observability/llmObservabilityLogic'
 
@@ -6,6 +6,8 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { LLMTrace } from '~/queries/schema'
 import { QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
+
+import { formatLLMCost, formatLLMUsage } from './utils'
 
 export function LLMObservabilityTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
@@ -27,6 +29,7 @@ export function LLMObservabilityTraces(): JSX.Element {
                 columns: {
                     id: {
                         title: 'ID',
+                        render: IDColumn,
                     },
                     timestamp: {
                         title: 'Time',
@@ -54,6 +57,15 @@ export function LLMObservabilityTraces(): JSX.Element {
     )
 }
 
+const IDColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    return (
+        <Link className="ph-no-capture font-semibold" to={urls.llmObservabilityTrace(row.id)}>
+            {row.id}
+        </Link>
+    )
+}
+
 const TimestampColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     return <TZLabel time={row.createdAt} />
@@ -71,22 +83,15 @@ LatencyColumn.displayName = 'LatencyColumn'
 
 const UsageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
-    if (typeof row.inputTokens === 'number') {
-        return (
-            <>
-                {row.inputTokens} → {row.outputTokens || 0} (∑ {row.inputTokens + (row.outputTokens || 0)})
-            </>
-        )
-    }
-
-    return <>–</>
+    const usage = formatLLMUsage(row)
+    return <>{usage || '–'}</>
 }
 UsageColumn.displayName = 'UsageColumn'
 
 const CostColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     if (typeof row.totalCost === 'number') {
-        return <>${row.totalCost}</>
+        return <>{formatLLMCost(row.totalCost)}</>
     }
     return <>–</>
 }
