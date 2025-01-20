@@ -3,9 +3,9 @@ import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
-import { CORE_WEB_VITALS_THRESHOLDS, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { WEB_VITALS_THRESHOLDS, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { CoreWebVitalsQueryResponse } from '~/queries/schema'
+import { WebVitalsQueryResponse } from '~/queries/schema'
 
 import {
     EXPERIENCE_PER_BAND,
@@ -21,22 +21,22 @@ import {
     VALUES_PER_BAND,
 } from './definitions'
 
-type CoreWebVitalsContentProps = {
-    coreWebVitalsQueryResponse?: CoreWebVitalsQueryResponse
+type WebVitalsContentProps = {
+    webVitalsQueryResponse?: WebVitalsQueryResponse
 }
 
-export const CoreWebVitalsContent = ({ coreWebVitalsQueryResponse }: CoreWebVitalsContentProps): JSX.Element => {
-    const { coreWebVitalsTab, coreWebVitalsPercentile } = useValues(webAnalyticsLogic)
+export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentProps): JSX.Element => {
+    const { webVitalsTab, webVitalsPercentile } = useValues(webAnalyticsLogic)
 
     const value = useMemo(
-        () => getMetric(coreWebVitalsQueryResponse?.results, coreWebVitalsTab, coreWebVitalsPercentile),
-        [coreWebVitalsQueryResponse, coreWebVitalsPercentile, coreWebVitalsTab]
+        () => getMetric(webVitalsQueryResponse?.results, webVitalsTab, webVitalsPercentile),
+        [webVitalsQueryResponse, webVitalsPercentile, webVitalsTab]
     )
 
     const withMilliseconds = (values: number[]): string =>
-        coreWebVitalsTab === 'CLS' ? values.join(' and ') : values.map((value) => `${value}ms`).join(' and ')
+        webVitalsTab === 'CLS' ? values.join(' and ') : values.map((value) => `${value}ms`).join(' and ')
 
-    const threshold = CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab]
+    const threshold = WEB_VITALS_THRESHOLDS[webVitalsTab]
     const color = getThresholdColor(value, threshold)
     const band = getMetricBand(value, threshold)
 
@@ -56,13 +56,13 @@ export const CoreWebVitalsContent = ({ coreWebVitalsQueryResponse }: CoreWebVita
     const positioning = POSITIONING_PER_BAND[band]
     const values = withMilliseconds(VALUES_PER_BAND[band](threshold))
 
-    const quantifier = QUANTIFIER_PER_BAND[band](coreWebVitalsPercentile)
+    const quantifier = QUANTIFIER_PER_BAND[band](webVitalsPercentile)
     const experience = EXPERIENCE_PER_BAND[band]
 
     return (
         <div className="w-full border rounded p-6 md:w-[30%] flex flex-col gap-2">
             <span className="text-lg">
-                <strong>{LONG_METRIC_NAME[coreWebVitalsTab]}</strong>
+                <strong>{LONG_METRIC_NAME[webVitalsTab]}</strong>
             </span>
 
             <div className="flex flex-col">
@@ -91,7 +91,7 @@ export const CoreWebVitalsContent = ({ coreWebVitalsQueryResponse }: CoreWebVita
 
             <hr className="my-2" />
 
-            <span>{METRIC_DESCRIPTION[coreWebVitalsTab]}</span>
+            <span>{METRIC_DESCRIPTION[webVitalsTab]}</span>
         </div>
     )
 }

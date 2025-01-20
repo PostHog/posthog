@@ -2,17 +2,13 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useMemo, useState } from 'react'
-import {
-    CORE_WEB_VITALS_COLORS,
-    CORE_WEB_VITALS_THRESHOLDS,
-    webAnalyticsLogic,
-} from 'scenes/web-analytics/webAnalyticsLogic'
+import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import {
     AnyResponseType,
-    CoreWebVitalsMetricBand,
-    CoreWebVitalsPathBreakdownQuery,
-    CoreWebVitalsPathBreakdownQueryResponse,
+    WebVitalsMetricBand,
+    WebVitalsPathBreakdownQuery,
+    WebVitalsPathBreakdownQueryResponse,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
@@ -20,13 +16,13 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { getValueWithUnit, ICON_PER_BAND } from './definitions'
 
 let uniqueNode = 0
-export function CoreWebVitalsPathBreakdown(props: {
-    query: CoreWebVitalsPathBreakdownQuery
+export function WebVitalsPathBreakdown(props: {
+    query: WebVitalsPathBreakdownQuery
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `CoreWebVitalsPathBreakdown.${uniqueNode++}`)
+    const [key] = useState(() => `WebVitalsPathBreakdown.${uniqueNode++}`)
 
     const logic = dataNodeLogic({
         query: props.query,
@@ -40,40 +36,40 @@ export function CoreWebVitalsPathBreakdown(props: {
     const { response, responseLoading } = useValues(logic)
 
     // Properly type it before passing to Content
-    const coreWebVitalsQueryResponse = response as CoreWebVitalsPathBreakdownQueryResponse | undefined
+    const webVitalsQueryResponse = response as WebVitalsPathBreakdownQueryResponse | undefined
 
     return (
         <div className="border rounded bg-bg-muted flex-1 flex flex-col min-h-60 h-full">
             <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x h-full">
                 <div className="p-4">
                     <Header band="good" label="Good" />
-                    <Content band="good" response={coreWebVitalsQueryResponse} responseLoading={responseLoading} />
+                    <Content band="good" response={webVitalsQueryResponse} responseLoading={responseLoading} />
                 </div>
                 <div className="p-4">
                     <Header band="needs_improvements" label="Needs Improvements" />
                     <Content
                         band="needs_improvements"
-                        response={coreWebVitalsQueryResponse}
+                        response={webVitalsQueryResponse}
                         responseLoading={responseLoading}
                     />
                 </div>
                 <div className="p-4">
                     <Header band="poor" label="Poor" />
-                    <Content band="poor" response={coreWebVitalsQueryResponse} responseLoading={responseLoading} />
+                    <Content band="poor" response={webVitalsQueryResponse} responseLoading={responseLoading} />
                 </div>
             </div>
         </div>
     )
 }
 
-const Header = ({ band, label }: { band: CoreWebVitalsMetricBand; label: string }): JSX.Element => {
-    const { coreWebVitalsTab } = useValues(webAnalyticsLogic)
+const Header = ({ band, label }: { band: WebVitalsMetricBand; label: string }): JSX.Element => {
+    const { webVitalsTab } = useValues(webAnalyticsLogic)
 
     const Icon = ICON_PER_BAND[band]
 
     const thresholdText = useMemo(() => {
-        const threshold = CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab]
-        const inSeconds = coreWebVitalsTab !== 'CLS'
+        const threshold = WEB_VITALS_THRESHOLDS[webVitalsTab]
+        const inSeconds = webVitalsTab !== 'CLS'
 
         const { value: poorValue, unit: poorUnit } = getValueWithUnit(threshold.poor, inSeconds)
         const { value: goodValue, unit: goodUnit } = getValueWithUnit(threshold.good, inSeconds)
@@ -107,12 +103,12 @@ const Header = ({ band, label }: { band: CoreWebVitalsMetricBand; label: string 
         }
 
         return null
-    }, [band, coreWebVitalsTab])
+    }, [band, webVitalsTab])
 
     return (
         <div className="flex flex-row justify-between">
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <span className="flex flex-row gap-1 items-center" style={{ color: CORE_WEB_VITALS_COLORS[band] }}>
+            <span className="flex flex-row gap-1 items-center" style={{ color: WEB_VITALS_COLORS[band] }}>
                 <Icon />
                 {label}
             </span>
@@ -132,14 +128,14 @@ const Content = ({
     response,
     responseLoading,
 }: {
-    band: CoreWebVitalsMetricBand
-    response: CoreWebVitalsPathBreakdownQueryResponse | undefined
+    band: WebVitalsMetricBand
+    response: WebVitalsPathBreakdownQueryResponse | undefined
     responseLoading: boolean
 }): JSX.Element => {
-    const { coreWebVitalsTab } = useValues(webAnalyticsLogic)
+    const { webVitalsTab } = useValues(webAnalyticsLogic)
 
     const values = response?.results[0][band]
-    const threshold = CORE_WEB_VITALS_THRESHOLDS[coreWebVitalsTab]
+    const threshold = WEB_VITALS_THRESHOLDS[webVitalsTab]
 
     const loadedValues = values != null
     const hasNoValues = values?.length === 0

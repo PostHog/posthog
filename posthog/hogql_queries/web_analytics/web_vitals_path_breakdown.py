@@ -9,11 +9,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
 from posthog.schema import (
     CachedWebStatsTableQueryResponse,
-    CoreWebVitalsPathBreakdownQuery,
-    CoreWebVitalsPathBreakdownQueryResponse,
-    CoreWebVitalsPathBreakdownResult,
-    CoreWebVitalsPathBreakdownResultItem,
-    CoreWebVitalsMetricBand,
+    WebVitalsPathBreakdownQuery,
+    WebVitalsPathBreakdownQueryResponse,
+    WebVitalsPathBreakdownResult,
+    WebVitalsPathBreakdownResultItem,
+    WebVitalsMetricBand,
 )
 from posthog.hogql.property import (
     property_to_expr,
@@ -22,9 +22,9 @@ from posthog.hogql.property import (
 from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS
 
 
-class CoreWebVitalsPathBreakdownQueryRunner(WebAnalyticsQueryRunner):
-    query: CoreWebVitalsPathBreakdownQuery
-    response: CoreWebVitalsPathBreakdownQueryResponse
+class WebVitalsPathBreakdownQueryRunner(WebAnalyticsQueryRunner):
+    query: WebVitalsPathBreakdownQuery
+    response: WebVitalsPathBreakdownQueryResponse
     cached_response: CachedWebStatsTableQueryResponse
 
     def to_query(self):
@@ -87,7 +87,7 @@ HAVING value >= 0
     def calculate(self):
         query = self.to_query()
         response = execute_hogql_query(
-            query_type="core_web_vitals_path_breakdown_query",
+            query_type="web_vitals_path_breakdown_query",
             query=query,
             team=self.team,
             timings=self.timings,
@@ -97,14 +97,14 @@ HAVING value >= 0
         assert response.results is not None
 
         # Return a list because Pydantic is boring, but it will always be a single entry
-        return CoreWebVitalsPathBreakdownQueryResponse(
+        return WebVitalsPathBreakdownQueryResponse(
             results=[
-                CoreWebVitalsPathBreakdownResult(
-                    good=self._get_results_for_band(response.results, CoreWebVitalsMetricBand.GOOD),
+                WebVitalsPathBreakdownResult(
+                    good=self._get_results_for_band(response.results, WebVitalsMetricBand.GOOD),
                     needs_improvements=self._get_results_for_band(
-                        response.results, CoreWebVitalsMetricBand.NEEDS_IMPROVEMENTS
+                        response.results, WebVitalsMetricBand.NEEDS_IMPROVEMENTS
                     ),
-                    poor=self._get_results_for_band(response.results, CoreWebVitalsMetricBand.POOR),
+                    poor=self._get_results_for_band(response.results, WebVitalsMetricBand.POOR),
                 )
             ],
             timings=response.timings,
@@ -113,8 +113,6 @@ HAVING value >= 0
         )
 
     def _get_results_for_band(
-        self, results: list[tuple[str, str, float]], band: CoreWebVitalsMetricBand
-    ) -> list[CoreWebVitalsPathBreakdownResultItem]:
-        return [
-            CoreWebVitalsPathBreakdownResultItem(path=row[1], value=row[2]) for row in results if row[0] == band.value
-        ]
+        self, results: list[tuple[str, str, float]], band: WebVitalsMetricBand
+    ) -> list[WebVitalsPathBreakdownResultItem]:
+        return [WebVitalsPathBreakdownResultItem(path=row[1], value=row[2]) for row in results if row[0] == band.value]

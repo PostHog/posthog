@@ -87,11 +87,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
     },
-    [Scene.WebAnalyticsCoreWebVitals]: {
+    [Scene.WebAnalyticsWebVitals]: {
         projectBased: true,
-        name: 'Core web vitals',
+        name: 'Web vitals',
         layout: 'app-container',
-        defaultDocsPath: '/docs/web-analytics/core-web-vitals', // TODO: Add docs
+        defaultDocsPath: '/docs/web-analytics/web-vitals',
     },
     [Scene.Cohort]: {
         projectBased: true,
@@ -558,7 +558,7 @@ export const routes: Record<string, [Scene, string]> = {
     [urls.insightSharing(':shortId' as InsightShortId)]: [Scene.Insight, 'insightSharing'],
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
-    [urls.webAnalyticsCoreWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsCoreWebVitals'],
+    [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.actions()]: [Scene.DataManagement, 'actions'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
     [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],

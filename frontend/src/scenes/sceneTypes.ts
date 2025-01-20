@@ -16,7 +16,7 @@ export enum Scene {
     Dashboard = 'Dashboard',
     Insight = 'Insight',
     WebAnalytics = 'WebAnalytics',
-    WebAnalyticsCoreWebVitals = 'WebAnalyticsCoreWebVitals',
+    WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     Cohort = 'Cohort',
     Activity = 'Activity',
     DataManagement = 'DataManagement',

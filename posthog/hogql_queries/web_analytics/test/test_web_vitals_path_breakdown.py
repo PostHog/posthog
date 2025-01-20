@@ -1,11 +1,11 @@
-from posthog.hogql_queries.web_analytics.core_web_vitals_path_breakdown import CoreWebVitalsPathBreakdownQueryRunner
+from posthog.hogql_queries.web_analytics.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
 from posthog.schema import (
     DateRange,
-    CoreWebVitalsMetric,
+    WebVitalsMetric,
     PropertyMathType,
-    CoreWebVitalsPathBreakdownQuery,
-    CoreWebVitalsPathBreakdownResult,
-    CoreWebVitalsPathBreakdownResultItem,
+    WebVitalsPathBreakdownQuery,
+    WebVitalsPathBreakdownResult,
+    WebVitalsPathBreakdownResultItem,
     EventPropertyFilter,
     PropertyOperator,
 )
@@ -17,8 +17,8 @@ from posthog.test.base import (
 )
 
 
-class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    def _create_events(self, data, metric: CoreWebVitalsMetric = CoreWebVitalsMetric.INP):
+class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    def _create_events(self, data, metric: WebVitalsMetric = WebVitalsMetric.INP):
         for distinct_id, timestamps in data:
             for timestamp, path, value in timestamps:
                 _create_event(
@@ -34,16 +34,16 @@ class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest
 
         flush_persons_and_events()
 
-    def _run_core_web_vitals_path_breakdown_query(
+    def _run_web_vitals_path_breakdown_query(
         self,
         date_from,
         date_to,
         thresholds: tuple[float, float],
-        metric: CoreWebVitalsMetric = CoreWebVitalsMetric.INP,
+        metric: WebVitalsMetric = WebVitalsMetric.INP,
         percentile: PropertyMathType = PropertyMathType.P75,
         properties=None,
     ):
-        query = CoreWebVitalsPathBreakdownQuery(
+        query = WebVitalsPathBreakdownQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             metric=metric,
             percentile=percentile,
@@ -51,19 +51,19 @@ class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest
             properties=properties or [],
         )
 
-        runner = CoreWebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
+        runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
         return runner.calculate()
 
     def test_no_crash_when_no_data(self):
-        results = self._run_core_web_vitals_path_breakdown_query(
+        results = self._run_web_vitals_path_breakdown_query(
             "2025-01-08",
             "2025-01-15",
             (100, 200),
-            CoreWebVitalsMetric.INP,
+            WebVitalsMetric.INP,
             PropertyMathType.P75,
         ).results
 
-        self.assertEqual([CoreWebVitalsPathBreakdownResult(good=[], needs_improvements=[], poor=[])], results)
+        self.assertEqual([WebVitalsPathBreakdownResult(good=[], needs_improvements=[], poor=[])], results)
 
     def test_no_data_for_different_metric(self):
         self._create_events(
@@ -76,18 +76,18 @@ class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest
                     ],
                 ),
             ],
-            CoreWebVitalsMetric.INP,
+            WebVitalsMetric.INP,
         )
 
-        results = self._run_core_web_vitals_path_breakdown_query(
+        results = self._run_web_vitals_path_breakdown_query(
             "2025-01-08",
             "2025-01-15",
             (100, 200),
-            CoreWebVitalsMetric.LCP,
+            WebVitalsMetric.LCP,
             PropertyMathType.P75,
         ).results
 
-        self.assertEqual([CoreWebVitalsPathBreakdownResult(good=[], needs_improvements=[], poor=[])], results)
+        self.assertEqual([WebVitalsPathBreakdownResult(good=[], needs_improvements=[], poor=[])], results)
 
     def test_no_data_for_different_period(self):
         self._create_events(
@@ -100,18 +100,18 @@ class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest
                     ],
                 ),
             ],
-            CoreWebVitalsMetric.INP,
+            WebVitalsMetric.INP,
         )
 
-        results = self._run_core_web_vitals_path_breakdown_query(
+        results = self._run_web_vitals_path_breakdown_query(
             "2025-01-08",
             "2025-01-15",
             (100, 200),
-            CoreWebVitalsMetric.INP,
+            WebVitalsMetric.INP,
             PropertyMathType.P75,
         ).results
 
-        self.assertEqual([CoreWebVitalsPathBreakdownResult(good=[], needs_improvements=[], poor=[])], results)
+        self.assertEqual([WebVitalsPathBreakdownResult(good=[], needs_improvements=[], poor=[])], results)
 
     def test_data_correctly_split_between_bands(self):
         self._create_events(
@@ -130,31 +130,31 @@ class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest
                     ],
                 ),
             ],
-            CoreWebVitalsMetric.INP,
+            WebVitalsMetric.INP,
         )
 
-        results = self._run_core_web_vitals_path_breakdown_query(
+        results = self._run_web_vitals_path_breakdown_query(
             "2025-01-08",
             "2025-01-15",
             (100, 200),
-            CoreWebVitalsMetric.INP,
+            WebVitalsMetric.INP,
             PropertyMathType.P75,
         ).results
 
         self.assertEqual(
             [
-                CoreWebVitalsPathBreakdownResult(
+                WebVitalsPathBreakdownResult(
                     good=[
-                        CoreWebVitalsPathBreakdownResultItem(path="/path1", value=50),
-                        CoreWebVitalsPathBreakdownResultItem(path="/path2", value=100),
+                        WebVitalsPathBreakdownResultItem(path="/path1", value=50),
+                        WebVitalsPathBreakdownResultItem(path="/path2", value=100),
                     ],
                     needs_improvements=[
-                        CoreWebVitalsPathBreakdownResultItem(path="/path3", value=150),
-                        CoreWebVitalsPathBreakdownResultItem(path="/path4", value=200),
+                        WebVitalsPathBreakdownResultItem(path="/path3", value=150),
+                        WebVitalsPathBreakdownResultItem(path="/path4", value=200),
                     ],
                     poor=[
-                        CoreWebVitalsPathBreakdownResultItem(path="/path5", value=250),
-                        CoreWebVitalsPathBreakdownResultItem(path="/path6", value=300),
+                        WebVitalsPathBreakdownResultItem(path="/path5", value=250),
+                        WebVitalsPathBreakdownResultItem(path="/path6", value=300),
                     ],
                 )
             ],
@@ -186,14 +186,14 @@ class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest
                     ],
                 ),
             ],
-            CoreWebVitalsMetric.INP,
+            WebVitalsMetric.INP,
         )
 
-        results = self._run_core_web_vitals_path_breakdown_query(
+        results = self._run_web_vitals_path_breakdown_query(
             "2025-01-08",
             "2025-01-15",
             (100, 200),
-            CoreWebVitalsMetric.INP,
+            WebVitalsMetric.INP,
             PropertyMathType.P75,
         ).results
 
@@ -216,7 +216,7 @@ class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest
                     ],
                 ),
             ],
-            CoreWebVitalsMetric.INP,
+            WebVitalsMetric.INP,
         )
 
         for percentile, value in [
@@ -224,20 +224,20 @@ class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest
             (PropertyMathType.P90, 275.0),
             (PropertyMathType.P99, 297.5),
         ]:
-            results = self._run_core_web_vitals_path_breakdown_query(
+            results = self._run_web_vitals_path_breakdown_query(
                 "2025-01-08",
                 "2025-01-15",
                 (100, 200),
-                CoreWebVitalsMetric.INP,
+                WebVitalsMetric.INP,
                 percentile,
             ).results
 
             self.assertEqual(
                 [
-                    CoreWebVitalsPathBreakdownResult(
+                    WebVitalsPathBreakdownResult(
                         good=[],
                         needs_improvements=[],
-                        poor=[CoreWebVitalsPathBreakdownResultItem(path="/path1", value=value)],
+                        poor=[WebVitalsPathBreakdownResultItem(path="/path1", value=value)],
                     )
                 ],
                 results,
@@ -254,10 +254,10 @@ class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest
                     ],
                 ),
             ],
-            CoreWebVitalsMetric.INP,
+            WebVitalsMetric.INP,
         )
 
-        results = self._run_core_web_vitals_path_breakdown_query(
+        results = self._run_web_vitals_path_breakdown_query(
             "2025-01-08",
             "2025-01-15",
             (100, 200),
@@ -266,8 +266,8 @@ class TestCoreWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest
 
         self.assertEqual(
             [
-                CoreWebVitalsPathBreakdownResult(
-                    good=[CoreWebVitalsPathBreakdownResultItem(path="/path1", value=50)], needs_improvements=[], poor=[]
+                WebVitalsPathBreakdownResult(
+                    good=[WebVitalsPathBreakdownResultItem(path="/path1", value=50)], needs_improvements=[], poor=[]
                 )
             ],
             results,
