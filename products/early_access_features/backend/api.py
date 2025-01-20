@@ -4,11 +4,11 @@ from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSe
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from posthog.exceptions import generate_exception_response
-from posthog.models.early_access_feature import EarlyAccessFeature
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework import status
 
+from .models import EarlyAccessFeature
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team

@@ -8,7 +8,7 @@ import { Breadcrumb } from '~/types'
 import type { broadcastsLogicType } from './broadcastsLogicType'
 
 export const broadcastsLogic = kea<broadcastsLogicType>([
-    path(['scenes', 'messaging', 'broadcastsLogic']),
+    path(['products', 'messaging', 'frontend', 'broadcastsLogic']),
     actions({
         editBroadcast: (id: string | null) => ({ id }),
     }),

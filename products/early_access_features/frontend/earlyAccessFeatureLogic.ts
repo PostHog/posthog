@@ -4,7 +4,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -33,7 +32,7 @@ export interface EarlyAccessFeatureLogicProps {
 }
 
 export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
-    path(['scenes', 'features', 'featureLogic']),
+    path(['products', 'earlyAccessFeatures', 'frontend', 'earlyAccessFeatureLogic']),
     props({} as EarlyAccessFeatureLogicProps),
     key(({ id }) => id),
     connect(() => ({
@@ -124,12 +123,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             (s) => [s.earlyAccessFeature],
             (earlyAccessFeature: EarlyAccessFeatureType): Breadcrumb[] => [
                 {
-                    key: Scene.EarlyAccessFeatures,
+                    key: 'EarlyAccessFeatures',
                     name: 'Early Access Management',
                     path: urls.earlyAccessFeatures(),
                 },
                 {
-                    key: [Scene.EarlyAccessFeature, earlyAccessFeature.id || 'new'],
+                    key: ['EarlyAccessFeature', earlyAccessFeature.id || 'new'],
                     name: earlyAccessFeature.name,
                 },
             ],
@@ -145,10 +144,10 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             actions.loadEarlyAccessFeature()
             actions.loadEarlyAccessFeatures()
         },
-        saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature }) => {
+        saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature: _earlyAccessFeature }) => {
             lemonToast.success('Early Access Feature saved')
             actions.loadEarlyAccessFeatures()
-            earlyAccessFeature.id && router.actions.replace(urls.earlyAccessFeature(earlyAccessFeature.id))
+            _earlyAccessFeature.id && router.actions.replace(urls.earlyAccessFeature(_earlyAccessFeature.id))
             actions.editFeature(false)
         },
         deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {

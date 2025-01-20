@@ -8,7 +8,7 @@ import { Breadcrumb } from '~/types'
 import type { providersLogicType } from './providersLogicType'
 
 export const providersLogic = kea<providersLogicType>([
-    path(['scenes', 'messaging', 'providersLogic']),
+    path(['products', 'messaging', 'frontend', 'providersLogic']),
     actions({
         editProvider: (id: string | null, template: string | null) => ({ id, template }),
     }),

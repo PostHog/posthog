@@ -33,16 +33,13 @@ export interface QueryTile {
 }
 
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
-    path(['scenes', 'llm-observability', 'llmObservabilityLogic']),
-
+    path(['products', 'llm_observability', 'frontend', 'llmObservabilityLogic']),
     connect({ values: [sceneLogic, ['sceneKey']] }),
-
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
     }),
-
     reducers({
         dateFilter: [
             {
@@ -86,7 +83,6 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             },
         },
     }),
-
     selectors({
         activeTab: [
             (s) => [s.sceneKey],

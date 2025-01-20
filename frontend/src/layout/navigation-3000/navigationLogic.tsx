@@ -508,7 +508,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
                             ? {
-                                  identifier: Scene.LLMObservability,
+                                  identifier: 'LLMObservability',
                                   label: 'LLM observability',
                                   icon: <IconAI />,
                                   to: urls.llmObservability('dashboard'),
@@ -601,7 +601,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
                             ? {
-                                  identifier: Scene.EarlyAccessFeatures,
+                                  identifier: 'EarlyAccessFeatures',
                                   label: 'Early access features',
                                   icon: <IconRocket />,
                                   to: urls.earlyAccessFeatures(),

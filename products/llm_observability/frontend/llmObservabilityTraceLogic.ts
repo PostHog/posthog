@@ -1,6 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -89,12 +88,12 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
             (traceId): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.LLMObservability,
+                        key: 'LLMObservability',
                         name: 'Traces',
                         path: urls.llmObservability('traces'),
                     },
                     {
-                        key: [Scene.LLMObservability, traceId || ''],
+                        key: ['LLMObservability', traceId || ''],
                         name: traceId,
                     },
                 ]

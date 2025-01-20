@@ -19,7 +19,7 @@ export interface HogFunctionsFilter {
     search?: string
 }
 export const functionsTableLogic = kea<functionsTableLogicType>([
-    path(['scenes', 'messaging', 'functionsTableLogic']),
+    path(['products', 'messaging', 'frontend', 'functionsTableLogic']),
     props({} as FunctionsTableLogicProps),
     key((props: FunctionsTableLogicProps) => props.type ?? 'destination'),
     connect({
