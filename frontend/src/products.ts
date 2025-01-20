@@ -4,6 +4,7 @@ export const productScenes: Record<string, any> = {
     EarlyAccessFeatures: (): any => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: (): any => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     LLMObservability: (): any => import('../../products/llm_observability/frontend/LLMObservabilityScene'),
+    LLMObservabilityTrace: (): any => import('../../products/llm_observability/frontend/LLMObservabilityTraceScene'),
     MessagingBroadcasts: (): any => import('../../products/messaging/frontend/Broadcasts'),
     MessagingProviders: (): any => import('../../products/messaging/frontend/Providers'),
 }
@@ -44,6 +45,13 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/ai-engineering/observability',
     },
+    LLMObservabilityTrace: {
+        name: 'LLM observability trace',
+        projectBased: true,
+        activityScope: 'LLMObservability',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/ai-engineering/observability',
+    },
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
     MessagingProviders: { name: 'Messaging', projectBased: true },
 }
@@ -51,8 +59,10 @@ export const productConfiguration: Record<string, any> = {
 export const productUrls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
-    llmObservability: (tab?: 'dashboard' | 'generations'): string =>
+    llmObservability: (tab?: LLMObservabilityTab): string =>
         `/llm-observability${tab !== 'dashboard' ? '/' + tab : ''}`,
+    llmObservabilityTrace: (id: string, eventId?: string): string =>
+        `/llm-observability/traces/${id}${eventId ? `?event=${eventId}` : ''}`,
     messagingBroadcasts: (): string => '/messaging/broadcasts',
     messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
     messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
