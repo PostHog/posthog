@@ -3,6 +3,7 @@ set -e
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 
+export POSTHOG_RUNNING_MIGRATION=true
 # NOTE when running in docker, rust might not exist so we need to check for it
 if [ -d "$SCRIPT_DIR/../rust" ]; then
     bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron
@@ -26,3 +27,5 @@ python manage.py run_async_migrations --complete-noop-migrations
 python manage.py run_async_migrations --check
 
 wait $(jobs -p) # Make sure CH migrations are done before we exit
+
+unset POSTHOG_RUNNING_MIGRATION
