@@ -23,8 +23,9 @@ export interface SettingOption {
 
 export function Settings({
     hideSections = false,
+    handleLocally = false,
     ...props
-}: SettingsLogicProps & { hideSections?: boolean }): JSX.Element {
+}: SettingsLogicProps & { hideSections?: boolean; handleLocally?: boolean }): JSX.Element {
     const {
         selectedSectionId,
         selectedSection,
@@ -60,16 +61,13 @@ export function Settings({
             ? TimeSensitiveAuthenticationArea
             : React.Fragment
 
-    const isSettingsScene = props.logicKey === 'settingsScene'
-
     const options: SettingOption[] = props.sectionId
         ? settings.map((s) => ({
               key: s.id,
               content: (
                   <OptionButton
-                      to={urls.settings(selectedLevel, s.id)}
                       active={selectedSettingId === s.id}
-                      isSettingsScene={isSettingsScene}
+                      handleLocally={handleLocally}
                       onClick={() => selectSetting(s.id)}
                   >
                       {s.title}
@@ -81,7 +79,7 @@ export function Settings({
               content: (
                   <OptionButton
                       to={urls.settings(level)}
-                      isSettingsScene={isSettingsScene}
+                      handleLocally={handleLocally}
                       active={selectedLevel === level && !selectedSectionId}
                       onClick={() => selectLevel(level)}
                   >
@@ -95,7 +93,7 @@ export function Settings({
                       content: (
                           <OptionButton
                               to={urls.settings(section.id)}
-                              isSettingsScene={isSettingsScene}
+                              handleLocally={handleLocally}
                               active={selectedSectionId === section.id}
                               onClick={() => selectSection(section.id, level)}
                           >
@@ -137,42 +135,50 @@ export function Settings({
                         </LemonBanner>
                     )}
 
-                    <SettingsRenderer {...props} />
+                    <SettingsRenderer {...props} handleLocally={handleLocally} />
                 </div>
             </AuthenticationAreaComponent>
         </div>
     )
 }
 
-function SettingsRenderer(props: SettingsLogicProps): JSX.Element {
-    const { settings, selectedLevel, selectedSectionId } = useValues(settingsLogic(props))
+function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }): JSX.Element {
+    const {
+        settings: allSettings,
+        selectedLevel,
+        selectedSectionId,
+        selectedSettingId,
+    } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
+
+    const settingsInSidebar = selectedSettingId && !!props.sectionId
+
+    const settings = settingsInSidebar ? allSettings.filter((s) => s.id === selectedSettingId) : allSettings
 
     return (
         <div className="space-y-8">
             {settings.length ? (
-                settings.map((x) => (
-                    <div key={x.id} className="relative">
-                        <h2 id={x.id} className="flex gap-2 items-center">
-                            {x.title}
-                            <LemonButton
-                                icon={<IconLink />}
-                                size="small"
-                                to={urls.settings(selectedSectionId ?? selectedLevel, x.id)}
-                                onClick={
-                                    // Outside of /settings, we want to select the level without navigating
-                                    props.logicKey === 'settingsScene'
-                                        ? (e) => {
-                                              selectSetting(x.id)
-                                              e.preventDefault()
-                                          }
-                                        : undefined
-                                }
-                            />
-                        </h2>
-                        {x.description && <p>{x.description}</p>}
+                settings.map((s) => (
+                    <div key={s.id} className="relative">
+                        {!settingsInSidebar && (
+                            <h2 id={s.id} className="flex gap-2 items-center">
+                                {s.title}
+                                {props.logicKey === 'settingsScene' && (
+                                    <LemonButton
+                                        icon={<IconLink />}
+                                        size="small"
+                                        to={urls.settings(selectedSectionId ?? selectedLevel, s.id)}
+                                        onClick={(e) => {
+                                            selectSetting(s.id)
+                                            e.preventDefault()
+                                        }}
+                                    />
+                                )}
+                            </h2>
+                        )}
+                        {s.description && <p>{s.description}</p>}
 
-                        {x.component}
+                        {s.component}
                     </div>
                 ))
             ) : (
@@ -206,16 +212,16 @@ const OptionButton = ({
     active,
     onClick,
     children,
-    isSettingsScene,
+    handleLocally,
 }: Pick<LemonButtonProps, 'to' | 'children' | 'active'> & {
-    isSettingsScene: boolean
+    handleLocally: boolean
     onClick: () => void
 }): JSX.Element => {
     return (
         <LemonButton
             to={to}
             onClick={
-                isSettingsScene
+                handleLocally
                     ? (e) => {
                           onClick()
                           e.preventDefault()

@@ -11,6 +11,7 @@ import type { sidePanelStateLogicType } from './sidePanelStateLogicType'
 
 export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStateLogic']),
+
     actions({
         openSidePanel: (tab: SidePanelTab, options?: string) => ({ tab, options }),
         closeSidePanel: (tab?: SidePanelTab) => ({ tab }),
