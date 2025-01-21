@@ -1,0 +1,53 @@
+interfaces = []
+exclude = [
+    ".*__pycache__",
+    ".*egg-info",
+    "docs",
+    "tests",
+]
+source_roots = [
+    ".",
+]
+
+[[modules]]
+path = "<root>"
+depends_on = [
+    "posthog",
+]
+
+[[modules]]
+path = "ee"
+depends_on = [
+    "common.hogvm.python",
+    "posthog",
+]
+
+[[modules]]
+path = "hogql_parser"
+depends_on = []
+
+[[modules]]
+path = "common.hogvm.python"
+depends_on = [
+    "posthog",
+]
+
+[[modules]]
+path = "posthog"
+depends_on = [
+    "<root>",
+    "ee",
+    "hogql_parser",
+    "common.hogvm.python",
+    "products.early_access_features",
+]
+
+[[modules]]
+path = "products.early_access_features"
+depends_on = [
+    "posthog",
+]
+
+[[modules]]
+path = "products.messaging"
+depends_on = []
