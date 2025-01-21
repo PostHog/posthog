@@ -1,14 +1,16 @@
-import { IconArrowLeft, IconServer } from '@posthog/icons'
+import { IconArrowLeft, IconEllipsis, IconServer } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DatabaseTableTree } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { useRef } from 'react'
 import { Scene } from 'scenes/sceneTypes'
 
 import { Sidebar } from '~/layout/navigation-3000/components/Sidebar'
 import { SidebarNavbarItem } from '~/layout/navigation-3000/types'
 
+import { viewLinkLogic } from '../viewLinkLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { editorSceneLogic } from './editorSceneLogic'
 import { editorSidebarLogic } from './editorSidebarLogic'
@@ -67,10 +69,11 @@ const EditorSidebar = (): JSX.Element => {
 const EditorSidebarOverlay = (): JSX.Element => {
     const { setSidebarOverlayOpen } = useActions(editorSceneLogic)
     const { sidebarOverlayTreeItems, selectedSchema } = useValues(editorSceneLogic)
+    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
 
     return (
         <div className="flex flex-col">
-            <header className="flex flex-row h-10 border-b shrink-0 p-1 gap-2">
+            <header className="flex flex-row items-center h-10 border-b shrink-0 p-1 gap-2">
                 <LemonButton size="small" icon={<IconArrowLeft />} onClick={() => setSidebarOverlayOpen(false)} />
                 {selectedSchema?.name && (
                     <CopyToClipboardInline
@@ -83,6 +86,23 @@ const EditorSidebarOverlay = (): JSX.Element => {
                         {selectedSchema?.name}
                     </CopyToClipboardInline>
                 )}
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Add join',
+                            onClick: () => {
+                                if (selectedSchema) {
+                                    selectSourceTable(selectedSchema.name)
+                                    toggleJoinTableModal()
+                                }
+                            },
+                        },
+                    ]}
+                >
+                    <div className="absolute right-1 flex">
+                        <LemonButton size="small" noPadding icon={<IconEllipsis />} />
+                    </div>
+                </LemonMenu>
             </header>
             <DatabaseTableTree items={sidebarOverlayTreeItems} />
         </div>
