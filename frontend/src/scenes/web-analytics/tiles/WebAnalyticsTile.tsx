@@ -28,7 +28,15 @@ import {
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps, ProductKey, PropertyFilterType, ReplayTabs, FilterLogicalOperator, PropertyOperator } from '~/types'
+import {
+    ChartDisplayType,
+    FilterLogicalOperator,
+    InsightLogicProps,
+    ProductKey,
+    PropertyFilterType,
+    PropertyOperator,
+    ReplayTabs,
+} from '~/types'
 
 const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -370,11 +378,11 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         replay_url: {
             title: 'Recordings',
             render: ({ value }: { value: any }) => (
-                    <RenderReplayButton
-                        date_from={value.dateFrom}
-                        date_to={value.dateTo}
-                        breakdownBy={value.breakdownBy}
-                        value={value.value}
+                <RenderReplayButton
+                    date_from={value.dateFrom}
+                    date_to={value.dateTo}
+                    breakdownBy={value.breakdownBy}
+                    value={value.value}
                 />
             ),
             align: 'right',
@@ -663,52 +671,145 @@ export const WebQuery = ({
     return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
 }
 
-const RenderReplayButton = ({date_from, date_to, breakdownBy, value}: {date_from: string, date_to: string, breakdownBy: WebStatsBreakdown, value: string}) => {
-    var key = ""
+/**
+ * Render a button that opens the recordings page with the correct filters
+ *
+ * @param date_from
+ * @param date_to
+ * @param breakdownBy
+ * @param value
+ * @returns JSX.Element
+ */
+const RenderReplayButton = ({
+    date_from,
+    date_to,
+    breakdownBy,
+    value,
+}: {
+    date_from: string
+    date_to: string
+    breakdownBy: WebStatsBreakdown
+    value: string
+}): JSX.Element => {
+    /** View port is a unique case, so we need to handle it differently */
+    if (breakdownBy === WebStatsBreakdown.Viewport) {
+        return (
+            <LemonButton
+                icon={<IconRewindPlay />}
+                to={urls.replay(ReplayTabs.Home, {
+                    date_from: date_from,
+                    date_to: date_to,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        key: '$viewport_width',
+                                        type: PropertyFilterType.Event,
+                                        value: [value[0]],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                    {
+                                        key: '$viewport_height',
+                                        type: PropertyFilterType.Event,
+                                        value: [value[1]],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })}
+                type="secondary"
+                size="xsmall"
+                className="float-right no-underline"
+                targetBlank={true}
+                onClick={(e) => {
+                    e.stopPropagation()
+                }}
+            >
+                View recordings
+            </LemonButton>
+        )
+    }
 
-    switch(breakdownBy){
+    /** Other breakdowns are handled the same way */
+    let key = ''
+    const type = PropertyFilterType.Person
+
+    switch (breakdownBy) {
         case WebStatsBreakdown.DeviceType:
-            key = "$device_type"
+            key = '$device_type'
             break
         case WebStatsBreakdown.InitialPage:
-            key = "$initial_pathname"
+            key = '$initial_pathname'
+            break
+        case WebStatsBreakdown.ExitPage:
+            key = '$end_pathname'
+            break
+        case WebStatsBreakdown.Page:
+            key = '$visited_page'
             break
         case WebStatsBreakdown.Browser:
-            key = "$browser"
+            key = '$browser'
             break
         case WebStatsBreakdown.OS:
-            key = "$os"
+            key = '$os'
             break
+        case WebStatsBreakdown.InitialChannelType:
+            key = '$channel_type'
+            break
+        case WebStatsBreakdown.InitialReferringDomain:
+            key = '$entry_referring_domain'
+            break
+        case WebStatsBreakdown.InitialUTMSource:
+            key = '$entry_utm_source'
+            break
+        case WebStatsBreakdown.InitialUTMCampaign:
+            key = '$entry_utm_campaign'
+            break
+        case WebStatsBreakdown.InitialUTMMedium:
+            key = '$entry_utm_medium'
+            break
+        case WebStatsBreakdown.InitialUTMContent:
+            key = '$entry_utm_content'
+            break
+        case WebStatsBreakdown.InitialUTMTerm:
+            key = '$entry_utm_term'
+            break
+        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+            key = '$entry_utm_source_medium_campaign'
+            break
+        default:
+            /** If the breakdown is not supported, return an empty element */
+            return <></>
     }
 
-    if(key === ""){
-        return <>{date_from} {date_to} {breakdownBy} {value}</>
-    }
-    
-    return(
-        <LemonButton 
+    /** Render the button */
+    return (
+        <LemonButton
             icon={<IconRewindPlay />}
             to={urls.replay(ReplayTabs.Home, {
                 date_from: date_from,
                 date_to: date_to,
                 filter_group: {
-                    type: FilterLogicalOperator.And,    
+                    type: FilterLogicalOperator.And,
                     values: [
                         {
                             type: FilterLogicalOperator.And,
                             values: [
                                 {
-                                    key: key, 
-                                    type: PropertyFilterType.Person,
-                                    value: [
-                                        value
-                                    ],
-                                    operator: PropertyOperator.Exact
-                                }
-                            ]
-                        }
-                    ]
-                }
+                                    key: key,
+                                    type: type,
+                                    value: [value],
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
             })}
             type="secondary"
             size="xsmall"
@@ -717,6 +818,8 @@ const RenderReplayButton = ({date_from, date_to, breakdownBy, value}: {date_from
             onClick={(e) => {
                 e.stopPropagation()
             }}
-            >View recordings</LemonButton>
+        >
+            View recordings
+        </LemonButton>
     )
 }
