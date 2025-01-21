@@ -35,8 +35,8 @@
 !share/GeoLite2-City.mmdb
 !hogvm/python
 !unit.json.tpl
-!plugin-transpiler/src
-!plugin-transpiler/*.*
+!common/plugin_transpiler/src
+!common/plugin_transpiler/*.*
 !test-runner-jest.config.js
 !test-runner-jest-environment.js
 !patches
