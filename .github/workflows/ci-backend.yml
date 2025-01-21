@@ -316,7 +316,7 @@ jobs:
               uses: actions/upload-artifact@v4
               if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.person-on-events == false
               with:
-                  name: email_renders
+                  name: email_renders-${{ matrix.segment }}-${{ matrix.person-on-events }}
                   path: posthog/tasks/test/__emails__
                   retention-days: 5
 
