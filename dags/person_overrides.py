@@ -416,7 +416,7 @@ def wait_for_person_id_update_mutations(
     """Wait for all hosts to complete the `sharded_events.person_id` update mutation."""
     [dictionary, shard_mutations] = inputs
     reduce(
-        lambda x, y: x | y,
+        lambda x, y: x.merge(y),
         [cluster.map_all_hosts_in_shard(shard, mutation.wait) for shard, mutation in shard_mutations.items()],
     ).result()
     return dictionary
