@@ -164,6 +164,17 @@ describe('IngestionConsumer', () => {
                     forSnapshot(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test'))
                 ).toMatchSnapshot()
             })
+
+            it('does not overflow if it is consuming from the overflow topic', async () => {
+                ingester['topic'] = 'events_plugin_ingestion_overflow_test'
+                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
+
+                const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
+                await ingester.handleKafkaBatch(overflowMessages)
+
+                expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(0)
+                expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(1)
+            })
         })
     })
 
