@@ -1236,11 +1236,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         after = request.query_params.get("after", None)
         before = request.query_params.get("before", None)
 
-        jobs = (
-            instance.jobs.exclude(pipeline_version=ExternalDataJob.PipelineVersion.V2)
-            .prefetch_related("schema")
-            .order_by("-created_at")
-        )
+        jobs = instance.jobs.filter(billable=True).prefetch_related("schema").order_by("-created_at")
 
         if after:
             after_date = parser.parse(after)
