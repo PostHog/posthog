@@ -22,6 +22,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
+import { isValidQueryForExperiment } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId, ItemMode, QueryBasedInsightModel, SetInsightOptions } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -317,6 +318,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
         ],
         showPersonsModal: [() => [(s) => s.query], (query) => !query || !query.hidePersonsModal],
+        supportsCreatingExperiment: [
+            (s) => [s.insight],
+            (insight) => insight?.short_id && insight?.query && isValidQueryForExperiment(insight.query),
+        ],
     }),
     listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode }) => {

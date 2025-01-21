@@ -365,7 +365,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
                             </>
                         )}
-
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
                                 <LemonButton
