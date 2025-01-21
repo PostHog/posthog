@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
-import { QueryWebSocketManager } from './queryWebSocket'
 import {
     DashboardFilter,
     DataNode,
@@ -80,8 +79,6 @@ export async function pollForResults(
     throw new Error(QUERY_TIMEOUT_ERROR_MESSAGE)
 }
 
-let socket: null | QueryWebSocketManager = null
-
 /**
  * Execute a query node and return the response, use async query if enabled
  */
@@ -104,19 +101,9 @@ async function executeQuery<N extends DataNode>(
         !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 
-    const refreshParam: RefreshType | undefined =
-        refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
-
-    if (posthog.isFeatureEnabled('query-websocket')) {
-        if (!socket) {
-            socket = new QueryWebSocketManager(
-                `${window.location.protocol == 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/query/`
-            )
-        }
-        return socket.sendQuery(queryNode, methodOptions, refreshParam, queryId, filtersOverride, variablesOverride)
-    }
-
     if (!pollOnly) {
+        const refreshParam: RefreshType | undefined =
+            refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
         const response = await api.query(
             queryNode,
             methodOptions,
