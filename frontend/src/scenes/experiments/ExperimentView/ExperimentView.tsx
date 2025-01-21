@@ -19,10 +19,10 @@ import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditi
 import { SummaryTable } from './SummaryTable'
 
 const ResultsTab = (): JSX.Element => {
-    const { experiment, metricResults } = useValues(experimentLogic)
+    const { experiment, metricResults, primaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
     const hasSomeResults = metricResults?.some((result) => result?.insight)
 
-    const hasSinglePrimaryMetric = experiment.metrics.length === 1
+    const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
 
     return (
         <>

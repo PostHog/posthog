@@ -1,15 +1,18 @@
 import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
-export const appScenes: Record<Scene, () => any> = {
+import { productScenes } from '~/products'
+
+export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
+    ...productScenes,
     [Scene.Dashboards]: () => import('./dashboard/dashboards/Dashboards'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
-    [Scene.WebAnalyticsCoreWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
+    [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
     [Scene.Activity]: () => import('./activity/ActivityScene'),
@@ -35,8 +38,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.FeatureManagement]: () => import('./feature-flags/FeatureManagement'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
-    [Scene.EarlyAccessFeatures]: () => import('./early-access-features/EarlyAccessFeatures'),
-    [Scene.EarlyAccessFeature]: () => import('./early-access-features/EarlyAccessFeature'),
     [Scene.ErrorTracking]: () => import('./error-tracking/ErrorTrackingScene'),
     [Scene.ErrorTrackingConfiguration]: () => import('./error-tracking/configuration/ErrorTrackingConfigurationScene'),
     [Scene.ErrorTrackingIssue]: () => import('./error-tracking/ErrorTrackingIssueScene'),
@@ -85,8 +86,4 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
-    [Scene.MessagingProviders]: () => import('./messaging/Providers'),
-    [Scene.MessagingBroadcasts]: () => import('./messaging/Broadcasts'),
-    [Scene.LLMObservability]: () => import('./llm-observability/LLMObservabilityScene'),
-    [Scene.LLMObservabilityTrace]: () => import('./llm-observability/LLMObservabilityTraceScene'),
 }

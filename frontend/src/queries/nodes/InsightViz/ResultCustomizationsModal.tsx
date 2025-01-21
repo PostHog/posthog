@@ -1,7 +1,6 @@
 import './ResultCustomizationsModal.scss'
 
 import { LemonButton, LemonButtonProps, LemonModal } from '@posthog/lemon-ui'
-import assert from 'assert'
 import { useActions, useValues } from 'kea'
 import { DataColorToken } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -348,7 +347,9 @@ function nearestColor(color: string): ReferenceColor {
         }
     }
 
-    assert(minColor)
+    if (minColor === null) {
+        throw new Error('No reference color found')
+    }
 
     return referenceColors[minColor]
 }

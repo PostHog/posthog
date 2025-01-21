@@ -721,7 +721,7 @@ class TestExternalDataSource(APIBaseTest):
         assert data[0]["schema"]["id"] == str(schema.pk)
         assert data[0]["workflow_run_id"] is not None
 
-    def test_source_jobs_v2_job(self):
+    def test_source_jobs_billable_job(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
         ExternalDataJob.objects.create(
@@ -732,6 +732,7 @@ class TestExternalDataSource(APIBaseTest):
             rows_synced=100,
             workflow_run_id="test_run_id",
             pipeline_version=ExternalDataJob.PipelineVersion.V2,
+            billable=False,
         )
 
         response = self.client.get(

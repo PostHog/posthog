@@ -3,6 +3,7 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
+import { productUrls } from '~/products'
 import { HogQLFilters, HogQLVariable, Node } from '~/queries/schema'
 import {
     ActionType,
@@ -24,6 +25,7 @@ import { BillingSectionId } from './billing/types'
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 import { SurveysTabs } from './surveys/surveysLogic'
+
 /**
  * To add a new URL to the front end:
  * - add a URL function here
@@ -38,6 +40,7 @@ import { SurveysTabs } from './surveys/surveysLogic'
 export type LLMObservabilityTab = 'dashboard' | 'traces' | 'generations'
 
 export const urls = {
+    ...productUrls,
     absolute: (path = ''): string => window.location.origin + path,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
@@ -112,7 +115,7 @@ export const urls = {
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
 
     webAnalytics: (): string => `/web`,
-    webAnalyticsCoreWebVitals: (): string => `/web/core-web-vitals`,
+    webAnalyticsWebVitals: (): string => `/web/web-vitals`,
 
     replay: (
         tab?: ReplayTabs,
@@ -147,12 +150,6 @@ export const urls = {
         `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
             nodeTab ? `/${nodeTab}` : ''
         }`,
-    messagingBroadcasts: (): string => '/messaging/broadcasts',
-    messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
-    messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
-    messagingProviders: (): string => '/messaging/providers',
-    messagingProvider: (id?: string): string => `/messaging/providers/${id}`,
-    messagingProviderNew: (template?: string): string => '/messaging/providers/new' + (template ? `/${template}` : ''),
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
@@ -166,9 +163,6 @@ export const urls = {
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
-    earlyAccessFeatures: (): string => '/early_access_features',
-    /** @param id A UUID or 'new'. ':id' for routing. */
-    earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     errorTracking: (): string => '/error_tracking',
     errorTrackingConfiguration: (): string => '/error_tracking/configuration',
     /** @param id A UUID or 'new'. ':id' for routing. */
@@ -263,8 +257,4 @@ export const urls = {
     insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
-    llmObservability: (tab?: LLMObservabilityTab): string =>
-        `/llm-observability${tab !== 'dashboard' ? '/' + tab : ''}`,
-    llmObservabilityTrace: (id: string, eventId?: string): string =>
-        `/llm-observability/traces/${id}${eventId ? `?event=${eventId}` : ''}`,
 }
