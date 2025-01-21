@@ -1,10 +1,9 @@
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import classNames from 'classnames'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { lowercaseFirstLetter } from 'lib/utils'
-import React from 'react'
 
 import { EventType } from '~/types'
+
+import { MetadataTag } from '../components/MetadataTag'
 
 export function MetadataHeader({
     eventProperties,
@@ -34,7 +33,7 @@ export function MetadataHeader({
                 </MetadataTag>
             )}
             {model && (
-                <MetadataTag label="Model" copyable>
+                <MetadataTag label="Model" textToCopy={lowercaseFirstLetter(model)}>
                     {model}
                 </MetadataTag>
             )}
@@ -43,27 +42,4 @@ export function MetadataHeader({
             )}
         </div>
     )
-}
-
-function MetadataTag({
-    children,
-    label,
-    copyable = false,
-}: {
-    children: string
-    label: string
-    copyable?: boolean
-}): JSX.Element {
-    let wrappedChildren: React.ReactNode = children
-    if (copyable) {
-        wrappedChildren = (
-            <CopyToClipboardInline iconSize="xsmall" description={lowercaseFirstLetter(label)} tooltipMessage={label}>
-                {children}
-            </CopyToClipboardInline>
-        )
-    } else {
-        wrappedChildren = <Tooltip title={label}>{children}</Tooltip>
-    }
-
-    return <LemonTag className="bg-bg-light cursor-default">{wrappedChildren}</LemonTag>
 }

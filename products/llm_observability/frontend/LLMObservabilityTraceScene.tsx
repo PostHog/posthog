@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LLMTrace, LLMTraceEvent, TracesQueryResponse } from '~/queries/schema'
 
+import { MetadataTag } from './components/MetadataTag'
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
@@ -30,13 +31,21 @@ export function LLMObservabilityTraceScene(): JSX.Element {
     )
 
     const traceResponse = response as TracesQueryResponse | null
-    const event = useMemo(() => {
-        const trace = traceResponse?.results?.[0]
+    const trace = traceResponse?.results?.[0]
+
+    const showableEvents = useMemo(() => {
         if (!trace) {
             return undefined
         }
-        return eventId ? trace.events.find((event) => event.id === eventId) : trace.events[0]
-    }, [traceResponse, eventId])
+        return trace.events.filter((event) => event.event !== '$ai_score')
+    }, [trace])
+
+    const event = useMemo(() => {
+        if (!showableEvents) {
+            return undefined
+        }
+        return eventId ? showableEvents.find((event) => event.id === eventId) : showableEvents[0]
+    }, [showableEvents, eventId])
 
     return (
         <>
@@ -44,13 +53,13 @@ export function LLMObservabilityTraceScene(): JSX.Element {
                 <SpinnerOverlay />
             ) : responseError ? (
                 <InsightErrorState />
-            ) : !traceResponse || traceResponse.results.length === 0 ? (
+            ) : !trace || !showableEvents || showableEvents.length === 0 ? (
                 <NotFound object="trace" />
             ) : (
                 <div className="relative pb-4 space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
-                    <TraceMetadata trace={traceResponse.results[0]} />
+                    <TraceMetadata trace={trace} />
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
-                        <TraceSidebar trace={traceResponse.results[0]} eventId={eventId} />
+                        <TraceSidebar trace={trace} eventId={eventId} events={showableEvents} />
                         <EventContent event={event} />
                     </div>
                 </div>
@@ -78,6 +87,8 @@ function CostChip({ cost, title }: { cost: number; title: string }): JSX.Element
 }
 
 function TraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
+    const scoreEvents = useMemo(() => trace.events.filter((event) => event.event === '$ai_score'), [trace])
+
     return (
         <header className="flex gap-x-8 gap-y-2 flex-wrap border border-border rounded p-4 bg-bg-light text-sm">
             {'person' in trace && (
@@ -89,11 +100,27 @@ function TraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
             {typeof trace.inputCost === 'number' && <CostChip cost={trace.inputCost} title="Input cost" />}
             {typeof trace.outputCost === 'number' && <CostChip cost={trace.outputCost} title="Output cost" />}
             {typeof trace.totalCost === 'number' && <CostChip cost={trace.totalCost} title="Total cost" />}
+            {scoreEvents.map((event) => {
+                const { $ai_score_name: scoreName, $ai_score_value: scoreValue } = event.properties
+                return (
+                    <MetadataTag key={event.id} label={scoreValue} textToCopy={scoreValue}>
+                        {`${scoreName ? `Score: ${scoreName}` : 'Score'} ${scoreValue}`}
+                    </MetadataTag>
+                )
+            })}
         </header>
     )
 }
 
-function TraceSidebar({ trace, eventId }: { trace: LLMTrace; eventId?: string | null }): JSX.Element {
+function TraceSidebar({
+    trace,
+    eventId,
+    events,
+}: {
+    trace: LLMTrace
+    eventId?: string | null
+    events: LLMTraceEvent[]
+}): JSX.Element {
     return (
         <aside className="border-border h-80 bg-bg-light border rounded overflow-hidden md:h-full md:w-72">
             <header className="p-2">
@@ -101,7 +128,7 @@ function TraceSidebar({ trace, eventId }: { trace: LLMTrace; eventId?: string | 
             </header>
             <LemonDivider className="m-0" />
             <ul className="overflow-y-auto h-full">
-                {trace.events.map((event, index) => {
+                {events.map((event, index) => {
                     const usage = formatLLMUsage(event)
                     const eventSelected = eventId ? eventId === event.id : index === 0
                     return (

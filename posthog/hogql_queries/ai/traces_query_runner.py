@@ -199,8 +199,8 @@ class TracesQueryRunner(QueryRunner):
         where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 left=ast.Field(chain=["event"]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value="$ai_generation"),
+                op=ast.CompareOperationOp.In,
+                right=ast.Tuple(exprs=[ast.Constant(value="$ai_generation"), ast.Constant(value="$ai_score")]),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
