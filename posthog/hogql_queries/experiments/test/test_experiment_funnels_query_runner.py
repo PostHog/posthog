@@ -330,11 +330,11 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             [
                 BreakdownAttributionType.STEP,
-                # 8 total
+                # 7 total
                 {
-                    "control_success": 2,
-                    "control_failure": 2,
-                    "test_success": 3,
+                    "control_success": 3,
+                    "control_failure": 0,
+                    "test_success": 4,
                     "test_failure": 1,
                 },
             ],
@@ -378,7 +378,8 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "control"}},
                     {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "control"}},
                 ],
-                # control failure always
+                # control failure for "first_touch", "last_touch", and "all_events"
+                # dropped for "steps"
                 "user_control_2": [
                     {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
                     # Doesn't sign up or make a purchase
