@@ -21,7 +21,7 @@
 
     label {
         --tick-length: 12.73; // Approximation of tick length, which is (3 + 6) * sqrt(2)
-        --box-color: var(--primary-3000);
+        --box-color: var(--accent-primary);
 
         display: flex;
         gap: 0.5rem;
@@ -67,7 +67,7 @@
     &.LemonCheckbox:not(.LemonCheckbox--disabled):hover,
     &.LemonCheckbox:not(.LemonCheckbox--disabled):active {
         label {
-            --box-color: var(--primary-3000-hover);
+            --box-color: var(--accent-primary-hover);
 
             .LemonCheckbox__box {
                 border-color: var(--box-color);
@@ -76,7 +76,7 @@
     }
 
     &.LemonCheckbox:not(.LemonCheckbox--disabled):active label {
-        --box-color: var(--primary-3000-active);
+        --box-color: var(--accent-primary-hover);
     }
 
     &.LemonCheckbox--checked {

@@ -9,10 +9,13 @@ $primitive-3000: (
     25: hsl(75deg 14% 96.5%),
     50: hsl(75deg 14% 95%),
     100: hsl(70deg 16% 93%),
-    /* mapped: 4000: light background */ 150: hsl(77deg 13% 89%),
-    /* mapped: 4000: medium accent */ 200: hsl(78deg 13% 85%),
+    // mapped (From Figma): light background
+    150: hsl(77deg 13% 89%),
+    // mapped (From Figma): medium accent
+    200: hsl(78deg 13% 85%),
     250: hsl(67deg 8% 80%),
-    /* mapped: 4000: light border */ 300: hsl(72deg 8% 76%),
+    // mapped (From Figma): light border
+    300: hsl(72deg 8% 76%),
     350: hsl(70deg 8% 71%),
     400: hsl(69deg 8% 65%),
     450: hsl(67deg 8% 60%),
@@ -201,40 +204,44 @@ $primitive-teal: (
     // PostHog brand colors
     // Split into hue, saturation, lightness to make it easier to change the brand colors
     // //////////////////////////////////////////////////////////
-    --primitive-posthog-brand-blue-hue: 228;
-    --primitive-posthog-brand-blue-saturation: 100%;
-    --primitive-posthog-brand-blue-lightness: 56%;
     --primitive-posthog-brand-orange-hue: 19;
     --primitive-posthog-brand-orange-saturation: 100%;
     --primitive-posthog-brand-orange-lightness: 48%;
+    --primitive-posthog-brand-blue-hue: 228;
+    --primitive-posthog-brand-blue-saturation: 100%;
+    --primitive-posthog-brand-blue-lightness: 56%;
     --primitive-posthog-brand-yellow-hue: 43;
     --primitive-posthog-brand-yellow-saturation: 94%;
     --primitive-posthog-brand-yellow-lightness: 57%;
 
-    // General brand colors
-    // Defaulted to PostHog brand colors,
-    // NOTE: to be changed by a company to change the brand colors and accent colors
+    // Generic brand color assignments
+    // Change these to change the brand colors
     // //////////////////////////////////////////////////////////
-    --primitive-brand-primary-hue: var(--primitive-posthog-brand-blue-hue);
-    --primitive-brand-primary-saturation: var(--primitive-posthog-brand-blue-saturation);
-    --primitive-brand-primary-lightness: var(--primitive-posthog-brand-blue-lightness);
-    --primitive-brand-secondary-hue: var(--primitive-posthog-brand-orange-hue);
-    --primitive-brand-secondary-saturation: var(--primitive-posthog-brand-orange-saturation);
-    --primitive-brand-secondary-lightness: var(--primitive-posthog-brand-orange-lightness);
+    --brand-primary-hue: var(--primitive-posthog-brand-orange-hue);
+    --brand-primary-saturation: var(--primitive-posthog-brand-orange-saturation);
+    --brand-primary-lightness: var(--primitive-posthog-brand-orange-lightness);
+    --brand-secondary-hue: var(--primitive-posthog-brand-blue-hue);
+    --brand-secondary-saturation: var(--primitive-posthog-brand-blue-saturation);
+    --brand-secondary-lightness: var(--primitive-posthog-brand-blue-lightness);
 
     // Accent colors (accents can be changed to change the brand colors)
     // Used for interactive elements like inputs, toggles, charts, etc.
-    // NOTE: Not intended to be changed.
     // //////////////////////////////////////////////////////////
-    --primitive-accent-primary: hsl(
-        var(--primitive-brand-primary-hue),
-        var(--primitive-brand-primary-saturation),
-        var(--primitive-brand-primary-lightness)
+    --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-primary-hover: hsl(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        calc(var(--brand-primary-lightness) + 20%)
     );
-    --primitive-accent-secondary: hsl(
-        var(--primitive-brand-secondary-hue),
-        var(--primitive-brand-secondary-saturation),
-        var(--primitive-brand-secondary-lightness)
+    --accent-secondary: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        var(--brand-secondary-lightness)
+    );
+    --accent-secondary-hover: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        calc(var(--brand-secondary-lightness) + 20%)
     );
 
     // Backgrounds
@@ -261,7 +268,7 @@ $primitive-teal: (
     --fill-success-overlay: var(--primitive-green-50); /* Fill for success blocks */
 
     // Content on fills
-    // Texts which are on colourful fills
+    // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
     --content-on-fill-warning: var(--primitive-orange-800); /* On-fill text for warning */
     --content-on-fill-error: var(--primitive-red-800); /* On-fill text for error */
@@ -328,7 +335,21 @@ $primitive-teal: (
     }
 }
 
-[theme='dark'] {
+[theme='dark'],
+.theme-dark {
+    --brand-primary-hue: var(--primitive-posthog-brand-yellow-hue);
+    --brand-primary-saturation: var(--primitive-posthog-brand-yellow-saturation);
+    --brand-primary-lightness: var(--primitive-posthog-brand-yellow-lightness);
+
+    // Accent colors
+    // //////////////////////////////////////////////////////////
+    --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-primary-hover: hsl(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        calc(var(--brand-primary-lightness) + 20%)
+    );
+
     // Backgrounds
     // //////////////////////////////////////////////////////////
 
@@ -358,4 +379,8 @@ $primitive-teal: (
     --border-warning: var(--primitive-orange-700);
     --border-error: var(--primitive-red-700);
     --border-success: var(--primitive-green-700);
+}
+
+.fill-accent-primary {
+    background-color: var(--accent-primary);
 }
