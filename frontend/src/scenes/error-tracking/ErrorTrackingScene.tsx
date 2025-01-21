@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
+import { Sparkline } from 'lib/components/Sparkline'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -24,6 +25,7 @@ import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
+import { sparklineLabels, sparklineLabelsDay, sparklineLabelsMonth } from './utils'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -46,7 +48,7 @@ export function ErrorTrackingScene(): JSX.Element {
             occurrences: { align: 'center', render: CountColumn },
             sessions: { align: 'center', render: SessionCountColumn },
             users: { align: 'center', render: CountColumn },
-            volume: { renderTitle: CustomVolumeColumnHeader },
+            volume: { renderTitle: VolumeColumnHeader, render: VolumeColumn },
             assignee: { render: AssigneeColumn },
         },
         showOpenEditorButton: false,
@@ -95,25 +97,32 @@ const ErrorTrackingActions = (): JSX.Element => {
     )
 }
 
-const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
-    const { sparklineSelectedPeriod, sparklineOptions: options } = useValues(errorTrackingLogic)
-    const { setSparklineSelectedPeriod } = useActions(errorTrackingLogic)
+const VolumeColumn: QueryContextColumnComponent = (props) => {
+    const { sparklineSelectedPeriod, customSparklineConfig } = useValues(errorTrackingLogic)
+    const record = props.record as ErrorTrackingIssue
 
-    if (!sparklineSelectedPeriod) {
-        return null
-    }
+    const [data, labels] =
+        sparklineSelectedPeriod === '24h'
+            ? [record.volumeDay, sparklineLabelsDay]
+            : sparklineSelectedPeriod === '1m'
+            ? [record.volumeMonth, sparklineLabelsMonth]
+            : customSparklineConfig
+            ? [record.customVolume, sparklineLabels(customSparklineConfig)]
+            : [null, null]
 
-    return (
+    return data ? <Sparkline className="h-8" data={data} labels={labels} /> : null
+}
+
+const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
+    const { sparklineSelectedPeriod: period, sparklineOptions: options } = useValues(errorTrackingLogic)
+    const { setSparklineSelectedPeriod: onChange } = useActions(errorTrackingLogic)
+
+    return period ? (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
-            <LemonSegmentedButton
-                size="xsmall"
-                value={sparklineSelectedPeriod}
-                options={options}
-                onChange={(value) => setSparklineSelectedPeriod(value)}
-            />
+            <LemonSegmentedButton size="xsmall" value={period} options={options} onChange={onChange} />
         </div>
-    )
+    ) : null
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {

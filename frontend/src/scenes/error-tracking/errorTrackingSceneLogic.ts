@@ -21,7 +21,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     connect({
         values: [
             errorTrackingLogic,
-            ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'sparklineSelectedPeriod', 'searchQuery'],
+            ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'customSparklineConfig', 'searchQuery'],
         ],
         actions: [
             errorTrackingLogic,
@@ -50,38 +50,24 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         ],
     }),
 
-    selectors({
+    selectors(({ values }) => ({
         query: [
-            (s) => [
-                s.orderBy,
-                s.dateRange,
-                s.assignee,
-                s.filterTestAccounts,
-                s.filterGroup,
-                s.sparklineSelectedPeriod,
-                s.searchQuery,
-            ],
-            (
-                orderBy,
-                dateRange,
-                assignee,
-                filterTestAccounts,
-                filterGroup,
-                sparklineSelectedPeriod,
-                searchQuery
-            ): DataTableNode =>
+            (s) => [s.orderBy, s.dateRange, s.assignee, s.filterTestAccounts, s.filterGroup, s.searchQuery],
+            (orderBy, dateRange, assignee, filterTestAccounts, filterGroup, searchQuery): DataTableNode =>
                 errorTrackingQuery({
                     orderBy,
                     dateRange,
                     assignee,
                     filterTestAccounts,
                     filterGroup,
-                    sparklineSelectedPeriod,
+                    // we do not want to recompute the query when then sparkline selection changes
+                    // because we have already fetched the alternative option (1d, 1m, custom)
+                    customVolume: values.customSparklineConfig,
                     searchQuery,
-                    columns: ['error', 'occurrences', 'sessions', 'users', 'assignee'],
+                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users', 'assignee'],
                 }),
         ],
-    }),
+    })),
 
     subscriptions(({ actions }) => ({
         query: () => actions.setSelectedIssueIds([]),

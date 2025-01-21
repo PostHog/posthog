@@ -300,26 +300,21 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         columns = self._calculate()["columns"]
         self.assertEqual(
             columns,
-            [
-                "occurrences",
-                "sessions",
-                "users",
-                "last_seen",
-                "first_seen",
-                "id",
-            ],
+            ["id", "occurrences", "sessions", "users", "last_seen", "first_seen", "volumeDay", "volumeMonth"],
         )
 
         columns = self._calculate(issueId=self.issue_id_one)["columns"]
         self.assertEqual(
             columns,
             [
+                "id",
                 "occurrences",
                 "sessions",
                 "users",
                 "last_seen",
                 "first_seen",
-                "id",
+                "volumeDay",
+                "volumeMonth",
                 "earliest",
             ],
         )
