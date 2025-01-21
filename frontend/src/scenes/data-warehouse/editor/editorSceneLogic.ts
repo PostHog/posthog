@@ -105,7 +105,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     table = dataWarehouseSavedQueryMapById[selectedSchema.id]
                 }
 
-                if (table === null) {
+                if (table == null) {
                     return []
                 }
 
