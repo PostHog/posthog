@@ -9,6 +9,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     HogQLFilters,
     ErrorTrackingQuery,
+    ErrorTrackingSparklineConfig,
     ErrorTrackingQueryResponse,
     CachedErrorTrackingQueryResponse,
 )
@@ -17,6 +18,14 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.error_tracking import ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
+
+INTERVAL_FUNCTIONS = {
+    "minute": "toStartOfMinute",
+    "hour": "toStartOfHour",
+    "day": "toStartOfDay",
+    "week": "toStartOfWeek",
+    "month": "toStartOfMonth",
+}
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -44,6 +53,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     def select(self):
         exprs: list[ast.Expr] = [
+            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
             ast.Alias(
                 alias="occurrences", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])])
             ),
@@ -67,11 +77,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
+            ast.Alias(alias="volumeDay", expr=self.volume(ErrorTrackingSparklineConfig(interval="hour", value=24))),
+            ast.Alias(alias="volumeMonth", expr=self.volume(ErrorTrackingSparklineConfig(interval="day", value=31))),
         ]
 
-        if self.query.select:
-            exprs.extend([parse_expr(x) for x in self.query.select])
+        if self.query.customVolume:
+            exprs.append(ast.Alias(alias="customVolume", expr=self.volume(self.query.customVolume)))
 
         if self.query.issueId:
             exprs.append(
@@ -206,6 +217,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     )
 
         return results
+
+    def volume(self, config: ErrorTrackingSparklineConfig):
+        toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
+        return parse_expr(
+            f"reverse(arrayMap(x -> countEqual(groupArray(dateDiff('{config.interval}', {toStartOfInterval}(timestamp), {toStartOfInterval}(now()))), x), range({config.value})))"
+        )
 
     @property
     def order_by(self):
