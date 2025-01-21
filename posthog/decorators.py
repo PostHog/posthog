@@ -13,7 +13,6 @@ from posthog.caching.utils import is_stale_filter
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models.filters.utils import get_filter
 from posthog.utils import refresh_requested_by_client
-from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 
 from .utils import generate_cache_key, get_safe_cache
 
@@ -51,11 +50,7 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
             return f(self, request)
 
         filter = get_filter(request=request, team=team)
-        query_method = get_query_method(request=request, team=team)
-        cache_key = f"{filter.toJSON()}_{team.pk}"
-
-        if query_method == "hogql":
-            cache_key += "_hogql"
+        cache_key = f"{filter.toJSON()}_{team.pk}_hogql"
 
         if request.data.get("cache_invalidation_key"):
             cache_key += f"_{request.data['cache_invalidation_key']}"
