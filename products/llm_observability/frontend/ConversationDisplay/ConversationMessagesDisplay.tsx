@@ -5,7 +5,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconArrowDown, IconArrowUp, IconExclamation } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 
 import { EventType } from '~/types'
 
@@ -28,10 +28,10 @@ export function ConversationMessagesDisplay({
                 Input
             </h4>
             {input?.map((message, i) => (
-                <>
-                    <MessageDisplay key={i} message={message} />
+                <Fragment key={i}>
+                    <MessageDisplay message={message} />
                     {i < input.length - 1 && <div className="border-l ml-2 h-2" /> /* Spacer connecting messages */}
-                </>
+                </Fragment>
             )) || (
                 <div className="rounded border text-default p-2 italic bg-[var(--background-danger-subtle)]">
                     Missing input
@@ -42,12 +42,12 @@ export function ConversationMessagesDisplay({
                 Output{output && output.length > 1 ? ' (multiple choices)' : ''}
             </h4>
             {output?.map((message, i) => (
-                <>
-                    <MessageDisplay key={i} message={message} isOutput />
+                <Fragment key={i}>
+                    <MessageDisplay message={message} isOutput />
                     {i < output.length - 1 && (
                         <div className="border-l ml-4 h-2" /> /* Spacer connecting messages visually */
                     )}
-                </>
+                </Fragment>
             )) || (
                 <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--background-danger-subtle)]">
                     <IconExclamation className="text-base" />
