@@ -508,7 +508,8 @@ def property_to_expr(
             raise Exception("Can not convert cohort property to expression without team")
         cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
         return ast.CompareOperation(
-            left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
+            # left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
+            left=ast.Field(chain=["events", "id" if scope == "person" else "person_id"]),
             op=ast.CompareOperationOp.NotInCohort
             # Kludge: negation is outdated but still used in places
             if property.negation or property.operator == PropertyOperator.NOT_IN.value

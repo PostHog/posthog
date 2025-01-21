@@ -1154,6 +1154,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     math_property="usage",
                     math_property_type="data_warehouse_properties",
                 )
+                # EventsNode(event="$feature_flag_called")
             ],
             filterTestAccounts=True,
         )
