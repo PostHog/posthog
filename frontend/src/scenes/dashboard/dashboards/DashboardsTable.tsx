@@ -1,6 +1,7 @@
 import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
@@ -131,7 +132,7 @@ export function DashboardsTable({
             ? {}
             : {
                   width: 0,
-                  render: function RenderActions(_, { id, name }: DashboardType) {
+                  render: function RenderActions(_, { id, name, user_access_level }: DashboardType) {
                       return (
                           <More
                               overlay={
@@ -149,7 +150,11 @@ export function DashboardsTable({
                                       >
                                           View
                                       </LemonButton>
-                                      <LemonButton
+
+                                      <AccessControlledLemonButton
+                                          userAccessLevel={user_access_level}
+                                          minAccessLevel="editor"
+                                          resourceType="dashboard"
                                           to={urls.dashboard(id)}
                                           onClick={() => {
                                               dashboardLogic({ id }).mount()
@@ -161,7 +166,8 @@ export function DashboardsTable({
                                           fullWidth
                                       >
                                           Edit
-                                      </LemonButton>
+                                      </AccessControlledLemonButton>
+
                                       <LemonButton
                                           onClick={() => {
                                               showDuplicateDashboardModal(id, name)
@@ -170,7 +176,9 @@ export function DashboardsTable({
                                       >
                                           Duplicate
                                       </LemonButton>
+
                                       <LemonDivider />
+
                                       <LemonRow icon={<IconHome className="text-warning" />} fullWidth status="warning">
                                           <span className="text-muted">
                                               Change the default dashboard
@@ -180,7 +188,11 @@ export function DashboardsTable({
                                       </LemonRow>
 
                                       <LemonDivider />
-                                      <LemonButton
+
+                                      <AccessControlledLemonButton
+                                          userAccessLevel={user_access_level}
+                                          minAccessLevel="editor"
+                                          resourceType="dashboard"
                                           onClick={() => {
                                               showDeleteDashboardModal(id)
                                           }}
@@ -188,7 +200,7 @@ export function DashboardsTable({
                                           status="danger"
                                       >
                                           Delete dashboard
-                                      </LemonButton>
+                                      </AccessControlledLemonButton>
                                   </>
                               }
                           />

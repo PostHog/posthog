@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
@@ -260,8 +261,12 @@ export function DashboardHeader(): JSX.Element | null {
                                             >
                                                 Create notebook from dashboard
                                             </LemonButton>
+
                                             {canEditDashboard && (
-                                                <LemonButton
+                                                <AccessControlledLemonButton
+                                                    userAccessLevel={dashboard.user_access_level}
+                                                    minAccessLevel="editor"
+                                                    resourceType="dashboard"
                                                     onClick={() => {
                                                         showDeleteDashboardModal(dashboard.id)
                                                     }}
@@ -269,7 +274,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     fullWidth
                                                 >
                                                     Delete dashboard
-                                                </LemonButton>
+                                                </AccessControlledLemonButton>
                                             )}
                                         </>
                                     ) : undefined
@@ -292,17 +297,22 @@ export function DashboardHeader(): JSX.Element | null {
                                 </>
                             )}
                             {dashboard ? (
-                                <LemonButton
+                                <AccessControlledLemonButton
+                                    userAccessLevel={dashboard.user_access_level}
+                                    minAccessLevel="editor"
+                                    resourceType="dashboard"
                                     onClick={showAddInsightToDashboardModal}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
-                                    disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                                     sideAction={{
                                         dropdown: {
                                             placement: 'bottom-end',
                                             overlay: (
                                                 <>
-                                                    <LemonButton
+                                                    <AccessControlledLemonButton
+                                                        userAccessLevel={dashboard.user_access_level}
+                                                        minAccessLevel="editor"
+                                                        resourceType="dashboard"
                                                         fullWidth
                                                         onClick={() => {
                                                             push(urls.dashboardTextTile(dashboard.id, 'new'))
@@ -310,7 +320,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                         data-attr="add-text-tile-to-dashboard"
                                                     >
                                                         Add text card
-                                                    </LemonButton>
+                                                    </AccessControlledLemonButton>
                                                 </>
                                             ),
                                         },
@@ -319,7 +329,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     }}
                                 >
                                     Add insight
-                                </LemonButton>
+                                </AccessControlledLemonButton>
                             ) : null}
                         </>
                     )

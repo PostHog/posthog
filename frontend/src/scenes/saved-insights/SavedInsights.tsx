@@ -24,6 +24,7 @@ import {
 } from '@posthog/icons'
 import { LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
@@ -492,7 +493,10 @@ export function SavedInsights(): JSX.Element {
                                 <>
                                     {name || <i>{summarizeInsight(insight.query)}</i>}
 
-                                    <LemonButton
+                                    <AccessControlledLemonButton
+                                        userAccessLevel={insight.user_access_level}
+                                        minAccessLevel="editor"
+                                        resourceType="insight"
                                         className="ml-1"
                                         size="xsmall"
                                         onClick={(e) => {
@@ -557,17 +561,30 @@ export function SavedInsights(): JSX.Element {
                                 <LemonButton to={urls.insightView(insight.short_id)} fullWidth>
                                     View
                                 </LemonButton>
+
                                 <LemonDivider />
-                                <LemonButton to={urls.insightEdit(insight.short_id)} fullWidth>
+
+                                <AccessControlledLemonButton
+                                    userAccessLevel={insight.user_access_level}
+                                    minAccessLevel="editor"
+                                    resourceType="insight"
+                                    to={urls.insightEdit(insight.short_id)}
+                                    fullWidth
+                                >
                                     Edit
-                                </LemonButton>
-                                <LemonButton
+                                </AccessControlledLemonButton>
+
+                                <AccessControlledLemonButton
+                                    userAccessLevel={insight.user_access_level}
+                                    minAccessLevel="editor"
+                                    resourceType="insight"
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
                                     fullWidth
                                 >
                                     Rename
-                                </LemonButton>
+                                </AccessControlledLemonButton>
+
                                 <LemonButton
                                     onClick={() => duplicateInsight(insight)}
                                     data-attr="duplicate-insight-from-list-view"
@@ -575,8 +592,13 @@ export function SavedInsights(): JSX.Element {
                                 >
                                     Duplicate
                                 </LemonButton>
+
                                 <LemonDivider />
-                                <LemonButton
+
+                                <AccessControlledLemonButton
+                                    userAccessLevel={insight.user_access_level}
+                                    minAccessLevel="editor"
+                                    resourceType="insight"
                                     status="danger"
                                     onClick={() =>
                                         void deleteInsightWithUndo({
@@ -589,7 +611,7 @@ export function SavedInsights(): JSX.Element {
                                     fullWidth
                                 >
                                     Delete insight
-                                </LemonButton>
+                                </AccessControlledLemonButton>
                             </>
                         }
                     />

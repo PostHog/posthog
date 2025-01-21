@@ -1,5 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { AlertsButton } from 'lib/components/Alerts/AlertsButton'
@@ -158,6 +159,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             >
                                                 Duplicate
                                             </LemonButton>
+
                                             <LemonButton
                                                 onClick={() =>
                                                     setInsightMetadata({
@@ -168,12 +170,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             >
                                                 {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
                                             </LemonButton>
+
                                             <LemonButton
                                                 onClick={() => setAddToDashboardModalOpenModal(true)}
                                                 fullWidth
                                             >
                                                 Add to dashboard
                                             </LemonButton>
+
                                             <LemonDivider />
 
                                             <LemonButton
@@ -186,7 +190,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             >
                                                 Share or embed
                                             </LemonButton>
+
                                             <SubscribeButton insightShortId={insight.short_id} />
+
                                             {exportContext ? (
                                                 <ExportButton
                                                     fullWidth
@@ -206,9 +212,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     ]}
                                                 />
                                             ) : null}
+
                                             <LemonDivider />
                                         </>
                                     )}
+
                                     <LemonSwitch
                                         data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
                                         className="px-2 py-1"
@@ -229,6 +237,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         fullWidth
                                         label="View source"
                                     />
+
                                     {hasDashboardItemId &&
                                     (user?.is_staff || user?.is_impersonated || !preflight?.cloud) ? (
                                         <LemonSwitch
@@ -307,10 +316,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             Save as static cohort
                                         </LemonButton>
                                     )}
+
                                     {hasDashboardItemId && (
                                         <>
                                             <LemonDivider />
-                                            <LemonButton
+                                            <AccessControlledLemonButton
+                                                userAccessLevel={insight.user_access_level}
+                                                minAccessLevel="editor"
+                                                resourceType="insight"
                                                 status="danger"
                                                 onClick={() =>
                                                     void deleteInsightWithUndo({
@@ -325,12 +338,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 fullWidth
                                             >
                                                 Delete insight
-                                            </LemonButton>
+                                            </AccessControlledLemonButton>
                                         </>
                                     )}
                                 </>
                             }
                         />
+
                         <LemonDivider vertical />
 
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
@@ -342,6 +356,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 Cancel
                             </LemonButton>
                         )}
+
                         {insightMode !== ItemMode.Edit && hasDashboardItemId && (
                             <>
                                 <AlertsButton
@@ -368,13 +383,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
-                                <LemonButton
+                                <AccessControlledLemonButton
+                                    userAccessLevel={insight.user_access_level}
+                                    minAccessLevel="editor"
+                                    resourceType="insight"
                                     type="primary"
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}
                                     data-attr="insight-edit-button"
                                 >
                                     Edit
-                                </LemonButton>
+                                </AccessControlledLemonButton>
                             )
                         ) : (
                             <InsightSaveButton

@@ -79,6 +79,8 @@ export function InsightMeta({
     const { nameSortedDashboards } = useValues(dashboardsModel)
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
+
+    // (@zach) Access Control TODO: add access control checks for remove from dashboard
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
 
     const summary = useSummarizeInsight()(insight.query)
