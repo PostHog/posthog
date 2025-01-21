@@ -193,7 +193,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
         return latest_completed_run.created_at if latest_completed_run else None
 
-    def get_created_by(self, instance: ExternalDataSource) -> str:
+    def get_created_by(self, instance: ExternalDataSource) -> str | None:
         return instance.created_by.email if instance.created_by else None
 
     def get_status(self, instance: ExternalDataSource) -> str:
