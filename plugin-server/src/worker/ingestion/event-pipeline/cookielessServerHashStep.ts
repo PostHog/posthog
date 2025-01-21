@@ -1,6 +1,5 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
-import * as crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { getDomain } from 'tldts'
 
@@ -9,7 +8,12 @@ import { CookielessServerHashMode, Hub } from '../../../types'
 import { ConcurrencyController } from '../../../utils/concurrencyController'
 import { DB } from '../../../utils/db/db'
 import { now } from '../../../utils/now'
-import { UUID7 } from '../../../utils/utils'
+import {
+    base64StringToUint32ArrayLE,
+    createRandomUint32x4,
+    uint32ArrayLEToBase64String,
+    UUID7,
+} from '../../../utils/utils'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../timestamps'
 
 /* ---------------------------------------------------------------------
@@ -375,7 +379,7 @@ export async function getSaltForDay(
                 'cookielessServerHashStep'
             )
             if (saltBase64) {
-                const salt = base64StringToUint32Array(saltBase64)
+                const salt = base64StringToUint32ArrayLE(saltBase64)
                 localSaltMap[yyyymmdd] = salt
                 return salt
             }
@@ -384,7 +388,7 @@ export async function getSaltForDay(
             const newSaltParts = createRandomUint32x4()
             const setResult = await db.redisSetNX(
                 `cookieless_salt:${yyyymmdd}`,
-                uint32ArrayToBase64String(newSaltParts),
+                uint32ArrayLEToBase64String(newSaltParts),
                 'cookielessServerHashStep',
                 SALT_TTL_SECONDS
             )
@@ -403,45 +407,13 @@ export async function getSaltForDay(
                 throw new Error('Failed to get salt from redis')
             }
 
-            const salt = base64StringToUint32Array(saltBase64Retry)
+            const salt = base64StringToUint32ArrayLE(saltBase64Retry)
             localSaltMap[yyyymmdd] = salt
 
             return salt
         },
         priority: timestamp,
     })
-}
-
-export function base64StringToUint32Array(base64: string): Uint32Array {
-    const buffer = Buffer.from(base64, 'base64')
-    const dataView = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-    const length = buffer.byteLength / 4
-    const result = new Uint32Array(length)
-
-    for (let i = 0; i < length; i++) {
-        // explicitly set little-endian
-        result[i] = dataView.getUint32(i * 4, true)
-    }
-
-    return result
-}
-
-export function uint32ArrayToBase64String(uint32Array: Uint32Array): string {
-    const buffer = new ArrayBuffer(uint32Array.length * 4)
-    const dataView = new DataView(buffer)
-
-    for (let i = 0; i < uint32Array.length; i++) {
-        // explicitly set little-endian
-        dataView.setUint32(i * 4, uint32Array[i], true)
-    }
-
-    return Buffer.from(buffer).toString('base64')
-}
-
-export function createRandomUint32x4(): Uint32Array {
-    const randomArray = new Uint32Array(4)
-    crypto.webcrypto.getRandomValues(randomArray)
-    return randomArray
 }
 
 export async function doHash(
@@ -500,19 +472,19 @@ export function isCalendarDateValid(yyyymmdd: string): boolean {
 
 export function hashToDistinctId(hash: Uint32Array): string {
     // add a prefix so that we can recognise one of these in the wild
-    return 'cookieless_' + uint32ArrayToBase64String(hash).replace(/=+$/, '')
+    return 'cookieless_' + uint32ArrayLEToBase64String(hash).replace(/=+$/, '')
 }
 
 export function getRedisIdentifiesKey(hash: Uint32Array, teamId: number): string {
     // assuming 6 digits for team id, this is 6 + 2 + 6 + 24 = 38 characters
     // cklsi = cookieless identifies
-    return `cklsi:${teamId}:${uint32ArrayToBase64String(hash)}`
+    return `cklsi:${teamId}:${uint32ArrayLEToBase64String(hash)}`
 }
 
 export function getRedisSessionsKey(hash: Uint32Array, teamId: number): string {
     // assuming 6 digits for team id, this is 6 + 2 + 6 + 24 = 38 characters
     // cklss = cookieless sessions
-    return `cklss:${teamId}:${uint32ArrayToBase64String(hash)}`
+    return `cklss:${teamId}:${uint32ArrayLEToBase64String(hash)}`
 }
 
 export function toYYYYMMDDInTimezoneSafe(

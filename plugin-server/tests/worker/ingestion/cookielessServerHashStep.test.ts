@@ -5,16 +5,13 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { deepFreeze, UUID7 } from '../../../src/utils/utils'
 import {
-    base64StringToUint32Array,
     bufferToSessionState,
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
     cookielessServerHashStep,
-    createRandomUint32x4,
     deleteAllLocalSalts,
     sessionStateToBuffer,
     toYYYYMMDDInTimezoneSafe,
-    uint32ArrayToBase64String,
 } from '../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { createOrganization, createTeam } from '../../helpers/sql'
 
@@ -35,19 +32,6 @@ describe('cookielessServerHashStep', () => {
             const sessionState = bufferToSessionState(sessionStateBuf)
             expect(sessionState.lastActivityTimestamp).toEqual(date.getTime())
             expect(sessionState.sessionId).toEqual(sessionId)
-        })
-    })
-
-    describe('uint32ArrayToBase64String and base64StringToUint32Array', () => {
-        it('should be reversible with the empty array and empty string', () => {
-            expect(base64StringToUint32Array(uint32ArrayToBase64String(new Uint32Array(0)))).toEqual(new Uint32Array(0))
-            expect(uint32ArrayToBase64String(base64StringToUint32Array(''))).toEqual('')
-        })
-        it('should be reversible with a random uint32x4', () => {
-            const input = createRandomUint32x4()
-            const base64 = uint32ArrayToBase64String(input)
-            const output = base64StringToUint32Array(base64)
-            expect(output).toEqual(input)
         })
     })
 
