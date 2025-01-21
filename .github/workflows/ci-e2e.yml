@@ -242,21 +242,21 @@ jobs:
             - name: Archive test screenshots
               uses: actions/upload-artifact@v4
               with:
-                  name: screenshots
+                  name: screenshots-${{ strategy.job-index }}-${{ matrix.chunk }}
                   path: cypress/screenshots
               if: ${{ failure() }}
 
             - name: Archive test downloads
               uses: actions/upload-artifact@v4
               with:
-                  name: downloads
+                  name: downloads-${{ strategy.job-index }}-${{ matrix.chunk }}
                   path: cypress/downloads
               if: ${{ failure() }}
 
             - name: Archive test videos
               uses: actions/upload-artifact@v4
               with:
-                  name: videos
+                  name: videos-${{ strategy.job-index }}-${{ matrix.chunk }}
                   path: cypress/videos
               if: ${{ failure() }}
 
@@ -264,7 +264,7 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: actions/upload-artifact@v4
               with:
-                  name: accessibility-violations
+                  name: accessibility-violations-${{ strategy.job-index }}-${{ matrix.chunk }}
                   path: '**/a11y/'
                   if-no-files-found: 'ignore'
 
@@ -272,7 +272,7 @@ jobs:
               # use artefact here, as I think the output will be too large for display in an action
               uses: actions/upload-artifact@v4
               with:
-                  name: logs-${{ strategy.job-index }}
+                  name: logs--${{ strategy.job-index }}-${{ matrix.chunk }}
                   path: /tmp/logs
               if: ${{ failure() }}
 
