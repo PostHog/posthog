@@ -168,7 +168,10 @@ def _make_ch_pool(*, client_settings: Mapping[str, str] | None = None, **overrid
         "verify": settings.CLICKHOUSE_VERIFY,
         "connections_min": settings.CLICKHOUSE_CONN_POOL_MIN,
         "connections_max": settings.CLICKHOUSE_CONN_POOL_MAX,
-        "settings": ({"mutations_sync": "1"} if settings.TEST else {}) | (client_settings or {}),
+        "settings": {
+            **({"mutations_sync": "1"} if settings.TEST else {}),
+            **(client_settings or {}),
+        },
         # Without this, OPTIMIZE table and other queries will regularly run into timeouts
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,
         **overrides,
