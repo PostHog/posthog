@@ -607,22 +607,6 @@ GROUP BY session_id, breakdown_value
     def _bounce_entry_pathname_breakdown(self):
         return self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
 
-    def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
-        if not self.query.doPathCleaning or not self.team.path_cleaning_filters:
-            return path_expr
-
-        for replacement in self.team.path_cleaning_filter_models():
-            path_expr = ast.Call(
-                name="replaceRegexpAll",
-                args=[
-                    path_expr,
-                    ast.Constant(value=replacement.regex),
-                    ast.Constant(value=replacement.alias),
-                ],
-            )
-
-        return path_expr
-
 
 def coalesce_with_null_display(*exprs: ast.Expr) -> ast.Expr:
     return ast.Call(name="coalesce", args=[*exprs, ast.Constant(value=BREAKDOWN_NULL_DISPLAY)])
