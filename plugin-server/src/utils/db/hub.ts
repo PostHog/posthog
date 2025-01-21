@@ -9,7 +9,7 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
-import { buildIntegerMatcher, defaultConfig } from '../../config/config'
+import { buildIntegerMatcher, createCookielessConfig, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
@@ -199,6 +199,7 @@ export async function createHub(
         ),
         encryptedFields: new EncryptedFields(serverConfig),
         celery: new Celery(serverConfig),
+        cookielessConfig: createCookielessConfig(serverConfig),
     }
 
     return hub as Hub

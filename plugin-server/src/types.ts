@@ -324,6 +324,10 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number | undefined
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number | undefined
+
+    // cookieless
+    COOKIELESS_DISABLED: boolean
+    COOKIELESS_FORCE_STATELESS_MODE: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -367,6 +371,9 @@ export interface Hub extends PluginsServerConfig {
     eventsToDropByToken: Map<string, string[]>
     eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
+
+    // cookieless
+    cookielessConfig: CookielessConfig
 }
 
 export interface PluginServerCapabilities {
@@ -1349,4 +1356,9 @@ export interface ModelRow {
         start: string
         end: string
     }
+}
+
+export interface CookielessConfig {
+    disabled: boolean
+    forceStatelessMode: boolean
 }

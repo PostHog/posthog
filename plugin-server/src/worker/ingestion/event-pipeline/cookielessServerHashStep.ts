@@ -77,6 +77,17 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
         return [event]
     }
 
+    // if the killswitch is enabled, drop the event
+    if (hub.cookielessConfig.disabled) {
+        eventDroppedCounter
+            .labels({
+                event_type: 'analytics',
+                drop_cause: 'cookieless_disabled_killswitch',
+            })
+            .inc()
+        return [undefined]
+    }
+
     // if the team isn't allowed to use this mode, drop the event
     const team = await hub.teamManager.getTeamForEvent(event)
     if (!team?.cookieless_server_hash_mode) {
@@ -159,7 +170,7 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
 
     if (
         team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless ||
-        process.env.FORCE_STATELESS_COOKIELESS_MODE
+        hub.cookielessConfig.forceStatelessMode
     ) {
         if (event.event === '$identify' || event.distinct_id !== COOKIELESS_SENTINEL_VALUE) {
             // identifies and post-identify events are not valid in the stateless mode, drop the event
