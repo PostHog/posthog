@@ -14,20 +14,15 @@ export function DebugNotice(): JSX.Element | null {
     const { isNavCollapsed } = useValues(navigation3000Logic)
 
     useEffect(() => {
-        const bottomNotice = document.getElementById('bottom-notice')
-        const bottomNoticeRevision = document.getElementById('bottom-notice-revision')?.textContent
-        const bottomNoticeBranch = document.getElementById('bottom-notice-branch')?.textContent
+        const bottomNoticeRevision = document.body.getAttribute('data-debug-revision')
+        const bottomNoticeBranch = document.body.getAttribute('data-debug-branch')
 
-        if (bottomNotice && bottomNoticeRevision && bottomNoticeBranch) {
+        if (bottomNoticeRevision && bottomNoticeBranch) {
             setDebugInfo({
                 branch: bottomNoticeBranch || 'unknown',
                 revision: bottomNoticeRevision || 'unknown',
             })
-
-            bottomNotice.remove()
         }
-
-        return () => {}
     }, [])
 
     if (!debugInfo || noticeHidden) {
@@ -39,6 +34,7 @@ export function DebugNotice(): JSX.Element | null {
             <NavbarButton
                 identifier="debug-notice"
                 icon={<IconBranch className="text-primary" />}
+                shortTitle="DEBUG"
                 title={
                     <div className="font-mono">
                         <div>
@@ -57,6 +53,7 @@ export function DebugNotice(): JSX.Element | null {
             />
         )
     }
+
     return (
         <div className="border rounded bg-bg-3000 overflow-hidden mb-1.5 w-full font-mono max-w-60 text-[13px]">
             <div className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-blue justify-between">
