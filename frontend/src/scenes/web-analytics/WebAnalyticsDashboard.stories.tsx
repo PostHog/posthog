@@ -5,6 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
+import { withSafariWindow } from 'storybook/decorators/withSafariWindow/withSafariWindow'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -67,6 +68,8 @@ const meta: Meta = {
                 },
             },
         }),
+
+        withSafariWindow,
     ],
 }
 export default meta
