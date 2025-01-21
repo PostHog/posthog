@@ -17,7 +17,7 @@ import retentionMock from './tiles/__mocks__/Retention.json'
 import { DeviceTab, SourceTab, webAnalyticsLogic } from './webAnalyticsLogic'
 
 const meta: Meta = {
-    title: 'Web Analytics/Dashboard',
+    title: 'Scenes-App/Web Analytics',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -30,7 +30,7 @@ const meta: Meta = {
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
-            waitForSelector: ['[data-attr=trend-line-graph] > canvas', '[data-attr=web-analytics-live-user-count]'],
+            waitForSelector: '[data-attr=trend-line-graph] > canvas',
         },
     },
     decorators: [
