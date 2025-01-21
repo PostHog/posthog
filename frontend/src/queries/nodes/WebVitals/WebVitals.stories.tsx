@@ -14,6 +14,10 @@ const meta: Meta<typeof Query> = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
+        testOptions: {
+            waitForLoadersToDisappear: true,
+            waitForSelector: '.InsightCard__viz',
+        },
     },
     decorators: [
         mswDecorator({
