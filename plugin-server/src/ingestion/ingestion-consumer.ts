@@ -19,7 +19,7 @@ import { Hub, PipelineEvent, PluginServerService } from '../types'
 import { normalizeEvent } from '../utils/event'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
-import { ConfiguredLimiter, LoggingLimiter } from '../utils/token-bucket'
+import { Limiter, LoggingLimiter } from '../utils/token-bucket'
 import { EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -62,6 +62,7 @@ export class IngestionConsumer {
     protected promises: Set<Promise<any>> = new Set()
     protected kafkaProducer?: KafkaProducerWrapper
 
+    private overflowRateLimiter: Limiter
     private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
 
@@ -75,6 +76,10 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
 
         this.name = `ingestion-consumer-${this.topic}`
+        this.overflowRateLimiter = new Limiter(
+            this.hub.EVENT_OVERFLOW_BUCKET_CAPACITY,
+            this.hub.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE
+        )
     }
 
     public get service(): PluginServerService {
@@ -152,7 +157,8 @@ export class IngestionConsumer {
                 try {
                     const eventKey = `${event.token}:${event.distinct_id}`
                     // Check the rate limiter and emit to overflow if necessary
-                    if (this.overflowEnabled() && !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)) {
+                    const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
+                    if (this.overflowEnabled() && !isBelowRateLimit) {
                         ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
                         if (LoggingLimiter.consume(eventKey, 1)) {
                             status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)

@@ -44,11 +44,12 @@ export class Storage {
             throw new BucketKeyMissingError(key)
         }
 
+        bucket[0] -= tokens
+
         if (bucket[0] < tokens) {
             return false
         }
 
-        bucket[0] -= tokens
         return true
     }
 }

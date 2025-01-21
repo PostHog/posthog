@@ -4,7 +4,7 @@ import { Message } from 'node-rdkafka'
 import { UUIDT } from '~/src/utils/utils'
 import {
     getProducedKafkaMessages,
-    getProducedKakfaMessagesForTopic,
+    getProducedKafkaMessagesForTopic,
     mockProducer,
 } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
@@ -60,6 +60,7 @@ const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => 
             size: 1,
             topic: 'test',
             offset: offsetIncrementer++,
+            timestamp: DateTime.now().toMillis(),
             partition: 1,
         }
     })
@@ -130,6 +131,40 @@ describe('IngestionConsumer', () => {
 
             expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
         })
+
+        describe('overflow', () => {
+            const now = () => DateTime.now().toMillis()
+            beforeEach(() => {
+                // Just to make it easy to see what is configured
+                expect(hub.EVENT_OVERFLOW_BUCKET_CAPACITY).toEqual(1000)
+            })
+
+            it('should emit to overflow if token and distinct_id are overflowed', async () => {
+                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
+                const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
+                await ingester.handleKafkaBatch(overflowMessages)
+                expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(1)
+                expect(
+                    forSnapshot(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test'))
+                ).toMatchSnapshot()
+            })
+
+            it('should allow some events to pass', async () => {
+                const manyOverflowedMessages = createKafkaMessages([
+                    createEvent({ distinct_id: 'overflow-distinct-id' }),
+                    createEvent({ distinct_id: 'overflow-distinct-id' }),
+                    createEvent({ distinct_id: 'overflow-distinct-id' }),
+                ])
+                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 998, now())
+                await ingester.handleKafkaBatch(manyOverflowedMessages)
+                expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(2)
+
+                expect(
+                    forSnapshot(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test'))
+                ).toMatchSnapshot()
+            })
+        })
     })
 
     describe('dropping events', () => {
@@ -179,7 +214,7 @@ describe('IngestionConsumer', () => {
                     const messages = createKafkaMessages([createEvent({}), createEvent({})])
                     addMessageHeaders(messages[0], team.api_token)
                     await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
                     expectDropLogs([
                         [team.api_token, 'user-1'],
                         [team.api_token, 'user-1'],
@@ -190,7 +225,7 @@ describe('IngestionConsumer', () => {
                     const messages = createKafkaMessages([createEvent({ token: team2.api_token })])
                     addMessageHeaders(messages[0], team2.api_token)
                     await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
                     expectDropLogs([])
                 })
 
@@ -204,7 +239,7 @@ describe('IngestionConsumer', () => {
                     addMessageHeaders(messages[1], team2.api_token)
                     addMessageHeaders(messages[2], team.api_token)
                     await ingester.handleKafkaBatch(messages)
-                    const eventsMessages = getProducedKakfaMessagesForTopic('clickhouse_events_json_test')
+                    const eventsMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     expect(eventsMessages).toHaveLength(1)
                     expect(eventsMessages[0].value).toMatchObject({
                         team_id: team2.id,
@@ -231,7 +266,7 @@ describe('IngestionConsumer', () => {
                     ])
                     addMessageHeaders(messages[0], team.api_token, 'distinct-id-to-ignore')
                     await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
                     expectDropLogs([[team.api_token, 'distinct-id-to-ignore']])
                 })
 
@@ -244,7 +279,7 @@ describe('IngestionConsumer', () => {
                     ])
                     addMessageHeaders(messages[0], team2.api_token, 'distinct-id-to-ignore')
                     await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
                     expectDropLogs([])
                 })
 
@@ -256,10 +291,29 @@ describe('IngestionConsumer', () => {
                     ])
                     addMessageHeaders(messages[0], team.api_token, 'not-ignored')
                     await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKakfaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
                     expectDropLogs([])
                 })
             })
+        })
+    })
+
+    describe('event batching', () => {
+        it('should batch events based on the distinct_id', async () => {
+            const messages = createKafkaMessages([
+                createEvent({ distinct_id: 'distinct-id-1' }),
+                createEvent({ distinct_id: 'distinct-id-1' }),
+                createEvent({ distinct_id: 'distinct-id-2' }),
+                createEvent({ distinct_id: 'distinct-id-1' }),
+                createEvent({ token: team2.api_token, distinct_id: 'distinct-id-1' }),
+            ])
+
+            const batches = await ingester['parseKafkaBatch'](messages)
+
+            expect(Object.keys(batches)).toHaveLength(3)
+            expect(batches[`${team.api_token}:distinct-id-1`]).toHaveLength(3)
+            expect(batches[`${team.api_token}:distinct-id-2`]).toHaveLength(1)
+            expect(batches[`${team2.api_token}:distinct-id-1`]).toHaveLength(1)
         })
     })
 })
