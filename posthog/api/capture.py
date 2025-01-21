@@ -858,6 +858,8 @@ def capture_internal(
     if extra_headers is None:
         extra_headers = []
 
+    headers = [("token", token), ("distinct_id", distinct_id), *extra_headers]
+
     parsed_event = build_kafka_event_data(
         distinct_id=distinct_id,
         ip=ip,
@@ -871,7 +873,6 @@ def capture_internal(
 
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
-        headers = [("token", token), *extra_headers]
 
         overflowing = False
         if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:
@@ -900,7 +901,9 @@ def capture_internal(
     else:
         kafka_partition_key = candidate_partition_key
 
-    return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, historical=historical)
+    return log_event(
+        parsed_event, event["event"], partition_key=kafka_partition_key, historical=historical, headers=headers
+    )
 
 
 def is_randomly_partitioned(candidate_partition_key: str) -> bool:
