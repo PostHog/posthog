@@ -22,7 +22,7 @@ const mockConsumer = {
     getMetadata: jest.fn(),
 }
 
-jest.mock('../../src/kafka/batch-consumer', () => {
+jest.mock('../../../src/kafka/batch-consumer', () => {
     return {
         startBatchConsumer: jest.fn(() =>
             Promise.resolve({

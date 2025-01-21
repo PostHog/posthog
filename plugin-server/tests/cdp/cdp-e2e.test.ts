@@ -1,7 +1,7 @@
 import { CdpFunctionCallbackConsumer } from '../../src/cdp/consumers/cdp-function-callback.consumer'
 import { CdpProcessedEventsConsumer } from '../../src/cdp/consumers/cdp-processed-events.consumer'
+import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cyclotron-worker.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
-import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../../src/cdp/workers/cyclotron.worker'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
