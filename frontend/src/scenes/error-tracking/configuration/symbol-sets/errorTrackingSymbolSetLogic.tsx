@@ -4,10 +4,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { ErrorTrackingSymbolSet } from 'lib/components/Errors/types'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-
-import { Breadcrumb } from '~/types'
 
 import type { errorTrackingSymbolSetLogicType } from '../symbol-sets/errorTrackingSymbolSetLogicType'
 
@@ -57,20 +53,6 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
     })),
 
     selectors({
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
-                {
-                    key: Scene.ErrorTracking,
-                    name: 'Error tracking',
-                    path: urls.errorTracking(),
-                },
-                {
-                    key: Scene.ErrorTrackingSymbolSets,
-                    name: 'Symbol Sets',
-                },
-            ],
-        ],
         validSymbolSets: [(s) => [s.symbolSets], (symbolSets) => symbolSets.filter((s) => !!s.storage_ptr)],
         missingSymbolSets: [(s) => [s.symbolSets], (symbolSets) => symbolSets.filter((s) => !s.storage_ptr)],
     }),

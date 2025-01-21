@@ -70,7 +70,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.ErrorTrackingIssue]: {
         projectBased: true,
-        name: 'Error tracking issue',
+        name: 'Issue',
     },
     [Scene.ErrorTrackingConfiguration]: {
         projectBased: true,
