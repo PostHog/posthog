@@ -11,7 +11,7 @@
 # experience as rich as possible. Perhaps later down the line it might be worth
 # rolling our own
 #
-FROM mcr.microsoft.com/vscode/devcontainers/python:3.11-bullseye
+FROM mcr.microsoft.com/vscode/devcontainers/python:3.11-bookworm
 
 # Make sure all exit codes on pipes cause failures
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
