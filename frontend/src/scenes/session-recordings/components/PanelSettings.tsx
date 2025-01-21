@@ -1,5 +1,9 @@
 import clsx from 'clsx'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import {
+    LemonButton,
+    LemonButtonWithoutSideActionProps,
+    LemonButtonWithSideActionProps,
+} from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropsWithChildren } from 'react'
@@ -73,7 +77,10 @@ export function SettingsMenu({
     )
 }
 
-type SettingsButtonProps = Omit<LemonButtonProps, 'status' | 'sideAction' | 'className'> & {
+type SettingsButtonProps = (
+    | Omit<LemonButtonWithoutSideActionProps, 'status' | 'className'>
+    | Omit<LemonButtonWithSideActionProps, 'status' | 'className'>
+) & {
     title?: string
     icon?: JSX.Element | null
     label: JSX.Element | string
