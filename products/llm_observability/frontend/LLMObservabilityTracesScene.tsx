@@ -1,5 +1,7 @@
-import { Link, TZLabel, urls } from '@posthog/apps-common'
 import { useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { LLMTrace } from '~/queries/schema'

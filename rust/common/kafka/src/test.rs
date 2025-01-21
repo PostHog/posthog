@@ -22,6 +22,7 @@ pub async fn create_mock_kafka() -> (
         kafka_compression_codec: "none".to_string(),
         kafka_hosts: cluster.bootstrap_servers(),
         kafka_tls: false,
+        kafka_producer_queue_messages: 1000,
     };
 
     (

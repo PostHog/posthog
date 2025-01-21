@@ -1,11 +1,12 @@
-import { PersonDisplay, urls } from '@posthog/apps-common'
 import { LemonDivider, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import classNames from 'classnames'
 import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import React, { useMemo } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LLMTrace, LLMTraceEvent, TracesQueryResponse } from '~/queries/schema'

@@ -250,6 +250,7 @@ export interface PluginsServerConfig extends CdpConfig {
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
+    SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
@@ -349,6 +350,7 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
+    eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
 }
 
