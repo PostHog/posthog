@@ -1,5 +1,5 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { FilmCameraHog } from 'lib/components/hedgehogs'
 
 import { ProductKey } from '~/types'
@@ -9,8 +9,16 @@ import { OnboardingStep } from './OnboardingStep'
 
 export function OnboardingSessionReplayConfiguration({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element {
     const { allBillingProducts } = useValues(onboardingLogic)
+    const { goToNextStep, updateCurrentTeam } = useActions(onboardingLogic)
 
     const sessionReplayProduct = allBillingProducts.find((product) => product.type === ProductKey.SESSION_REPLAY)
+
+    const handleNext = (enabled: boolean): void => {
+        updateCurrentTeam({
+            session_recording_opt_in: enabled,
+        })
+        goToNextStep()
+    }
 
     return (
         <OnboardingStep title="Record user sessions" stepKey={stepKey} continueOverride={<></>}>
@@ -37,22 +45,10 @@ export function OnboardingSessionReplayConfiguration({ stepKey }: { stepKey: Onb
                 </div>
             </div>
             <div className="mt-6 w-full flex justify-end gap-2">
-                <LemonButton
-                    type="secondary"
-                    data-attr="skip-session-replay"
-                    onClick={() => {
-                        // Logic if the user does not want to enable session replay yet
-                    }}
-                >
+                <LemonButton type="secondary" data-attr="skip-session-replay" onClick={() => handleNext(false)}>
                     No, thanks
                 </LemonButton>
-                <LemonButton
-                    type="primary"
-                    data-attr="enable-session-replay"
-                    onClick={() => {
-                        // Add logic to enable session replay
-                    }}
-                >
+                <LemonButton type="primary" data-attr="enable-session-replay" onClick={() => handleNext(true)}>
                     Enable Session Replay
                 </LemonButton>
             </div>
