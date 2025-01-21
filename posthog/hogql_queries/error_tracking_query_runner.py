@@ -48,7 +48,19 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 alias="occurrences", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])])
             ),
             ast.Alias(
-                alias="sessions", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["$session_id"])])
+                alias="sessions",
+                expr=ast.Call(
+                    name="count",
+                    distinct=True,
+                    # the $session_id property can be blank if not set
+                    # we do not want that case counted so cast it to `null` which is excluded by default
+                    args=[
+                        ast.Call(
+                            name="nullIf",
+                            args=[ast.Field(chain=["$session_id"]), ast.Constant(value="")],
+                        )
+                    ],
+                ),
             ),
             ast.Alias(
                 alias="users", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])])
