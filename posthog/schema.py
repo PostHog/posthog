@@ -645,6 +645,14 @@ class OrderBy(StrEnum):
     SESSIONS = "sessions"
 
 
+class Interval(StrEnum):
+    MINUTE = "minute"
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
 class EventDefinition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -955,25 +963,14 @@ class IntervalType(StrEnum):
     MONTH = "month"
 
 
-class LLMGeneration(BaseModel):
+class LLMTraceEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    baseUrl: Optional[str] = None
     createdAt: str
-    httpStatus: Optional[float] = None
+    event: str
     id: str
-    input: list
-    inputCost: Optional[float] = None
-    inputTokens: Optional[float] = None
-    latency: float
-    model: Optional[str] = None
-    modelParameters: Optional[dict[str, Any]] = None
-    output: Optional[Any] = None
-    outputCost: Optional[float] = None
-    outputTokens: Optional[float] = None
-    provider: Optional[str] = None
-    totalCost: Optional[float] = None
+    properties: dict[str, Any]
 
 
 class LLMTracePerson(BaseModel):
@@ -2072,6 +2069,14 @@ class ErrorTrackingIssueAssignee(BaseModel):
     type: Type1
 
 
+class ErrorTrackingSparklineConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    interval: Interval
+    value: int
+
+
 class EventOddsRatioSerialized(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2247,7 +2252,7 @@ class LLMTrace(BaseModel):
         extra="forbid",
     )
     createdAt: str
-    events: list[LLMGeneration]
+    events: list[LLMTraceEvent]
     id: str
     inputCost: Optional[float] = None
     inputTokens: Optional[float] = None
@@ -4323,6 +4328,7 @@ class ErrorTrackingIssue(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
+    customVolume: Optional[list[float]] = None
     description: Optional[str] = None
     earliest: Optional[str] = None
     first_seen: AwareDatetime
@@ -4333,7 +4339,8 @@ class ErrorTrackingIssue(BaseModel):
     sessions: float
     status: Status
     users: float
-    volume: Optional[Any] = None
+    volumeDay: list[float]
+    volumeMonth: list[float]
 
 
 class ErrorTrackingQueryResponse(BaseModel):
@@ -6530,6 +6537,7 @@ class ErrorTrackingQuery(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
+    customVolume: Optional[ErrorTrackingSparklineConfig] = None
     dateRange: DateRange
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
@@ -6543,7 +6551,6 @@ class ErrorTrackingQuery(BaseModel):
     orderBy: Optional[OrderBy] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
-    select: Optional[list[str]] = None
 
 
 class EventsQuery(BaseModel):

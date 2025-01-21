@@ -1624,13 +1624,13 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
-    select?: HogQLExpression[]
     orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
+    customVolume?: ErrorTrackingSparklineConfig | null
     limit?: integer
     offset?: integer
 }
@@ -1640,20 +1640,26 @@ export interface ErrorTrackingIssueAssignee {
     id: integer | string
 }
 
+export type ErrorTrackingSparklineConfig = {
+    value: integer
+    interval: 'minute' | 'hour' | 'day' | 'week' | 'month'
+}
+
 export interface ErrorTrackingIssue {
     id: string
     name: string | null
     description: string | null
-    occurrences: number
-    sessions: number
-    users: number
     /**  @format date-time */
     first_seen: string
     /**  @format date-time */
     last_seen: string
     earliest?: string
-    // Sparkline data handled by the DataTable
-    volume?: any
+    occurrences: number
+    sessions: number
+    users: number
+    volumeDay: number[]
+    volumeMonth: number[]
+    customVolume?: number[]
     assignee: ErrorTrackingIssueAssignee | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
 }
@@ -2220,22 +2226,11 @@ export enum DefaultChannelTypes {
     Unknown = 'Unknown',
 }
 
-export interface LLMGeneration {
+export interface LLMTraceEvent {
     id: string
+    event: string
+    properties: Record<string, any>
     createdAt: string
-    input: any[]
-    latency: number
-    output?: any
-    provider?: string
-    model?: string
-    inputTokens?: number
-    outputTokens?: number
-    inputCost?: number
-    outputCost?: number
-    totalCost?: number
-    httpStatus?: number
-    baseUrl?: string
-    modelParameters?: Record<string, any>
 }
 
 // Snake-case here for the DataTable component.
@@ -2256,7 +2251,7 @@ export interface LLMTrace {
     inputCost?: number
     outputCost?: number
     totalCost?: number
-    events: LLMGeneration[]
+    events: LLMTraceEvent[]
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase<LLMTrace[]> {

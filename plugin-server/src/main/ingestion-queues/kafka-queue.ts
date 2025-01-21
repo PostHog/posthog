@@ -6,7 +6,6 @@ import { Counter } from 'prom-client'
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { Hub } from '../../types'
-import { KafkaConfig } from '../../utils/db/hub'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
@@ -185,7 +184,7 @@ export class IngestionConsumer {
         this.consumer = await startBatchConsumer({
             batchingTimeoutMs: this.pluginsServer.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             consumerErrorBackoffMs: this.pluginsServer.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            connectionConfig: createRdConnectionConfigFromEnvVars(this.pluginsServer as KafkaConfig),
+            connectionConfig: createRdConnectionConfigFromEnvVars(this.pluginsServer, 'consumer'),
             topic: this.topic,
             groupId: this.consumerGroupId,
             autoCommit: true,

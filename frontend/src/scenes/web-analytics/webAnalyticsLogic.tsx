@@ -86,6 +86,7 @@ export enum TileId {
 export enum ProductTab {
     ANALYTICS = 'analytics',
     WEB_VITALS = 'web-vitals',
+    SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
 }
 
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
@@ -1570,7 +1571,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   dateRange: dateRange,
                                   filterTestAccounts: filterTestAccounts,
                                   filterGroup: replayFilters.filter_group,
-                                  sparklineSelectedPeriod: null,
                                   columns: ['error', 'users', 'occurrences'],
                                   limit: 4,
                               }),
@@ -2047,6 +2047,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 percentile,
             }: Record<string, any>
         ): void => {
+            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS].includes(productTab)) {
+                return
+            }
+
             const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
 
             if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {

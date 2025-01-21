@@ -1,28 +1,20 @@
-import { PersonDisplay, TZLabel, urls } from '@posthog/apps-common'
-import { LemonCollapse, LemonDivider, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { PersonDisplay, urls } from '@posthog/apps-common'
+import { LemonDivider, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import classNames from 'classnames'
 import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React, { useMemo } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LLMGeneration, LLMTrace, TracesQueryResponse } from '~/queries/schema'
+import { LLMTrace, LLMTraceEvent, TracesQueryResponse } from '~/queries/schema'
 
+import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
+import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { getDataNodeLogicProps, llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
-import {
-    formatAsMarkdownJSONBlock,
-    formatLLMCost,
-    formatLLMLatency,
-    formatLLMUsage,
-    formatToolCalls,
-    isChoicesOutput,
-    isRoleBasedMessage,
-    isToolCallsArray,
-    RoleBasedMessage,
-} from './utils'
+import { formatLLMCost, formatLLMLatency, formatLLMUsage } from './utils'
 
 export const scene: SceneExport = {
     component: LLMObservabilityTraceScene,
@@ -75,7 +67,7 @@ function Chip({ title, children }: { title: string; children: React.ReactNode })
     )
 }
 
-function UsageChip({ event }: { event: LLMGeneration | LLMTrace }): JSX.Element | null {
+function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element | null {
     const usage = formatLLMUsage(event)
     return usage ? <Chip title="Usage">{usage}</Chip> : null
 }
@@ -121,12 +113,15 @@ function TraceSidebar({ trace, eventId }: { trace: LLMTrace; eventId?: string | 
                                 )}
                             >
                                 <div className="flex flex-row flex-wrap items-center">
-                                    <LemonTag className="mr-2">Generation</LemonTag> {event.model} ({event.provider})
+                                    <LemonTag className="mr-2">Generation</LemonTag> {event.properties.$ai_model} (
+                                    {event.properties.$ai_provider})
                                 </div>
                                 <div className="flex flex-row flex-wrap text-muted items-center gap-2">
-                                    <LemonTag type="muted">{formatLLMLatency(event.latency)}</LemonTag>
+                                    <LemonTag type="muted">{formatLLMLatency(event.properties.$ai_latency)}</LemonTag>
                                     {usage && <span>{usage}</span>}
-                                    {event.totalCost && <span>{formatLLMCost(event.totalCost)}</span>}
+                                    {event.properties.$ai_total_cost_usd && (
+                                        <span>{formatLLMCost(event.properties.$ai_total_cost_usd)}</span>
+                                    )}
                                 </div>
                             </Link>
                         </li>
@@ -137,7 +132,7 @@ function TraceSidebar({ trace, eventId }: { trace: LLMTrace; eventId?: string | 
     )
 }
 
-function EventContent({ event }: { event?: LLMGeneration | null }): JSX.Element {
+function EventContent({ event }: { event?: LLMTraceEvent | null }): JSX.Element {
     return (
         <div className="flex-1 bg-bg-light border rounded flex flex-col border-border p-4 overflow-y-auto">
             {!event ? (
@@ -148,129 +143,16 @@ function EventContent({ event }: { event?: LLMGeneration | null }): JSX.Element 
                         <div className="flex-row flex items-center gap-2 mb-4">
                             <LemonTag type="muted">Generation</LemonTag>
                             <h3 className="text-lg font-medium p-0 m-0">
-                                {event.model} ({event.provider})
+                                {event.properties.$ai_model} ({event.properties.$ai_provider})
                             </h3>
                         </div>
-                        <div className="flex flex-row flex-wrap gap-2 gap-x-8 gap-y-2 mb-2">
-                            <Chip title="Timestamp">
-                                <TZLabel time={event.createdAt} />
-                            </Chip>
-                            <UsageChip event={event} />
-                            {typeof event.totalCost === 'number' && (
-                                <CostChip cost={event.totalCost} title="Total Cost" />
-                            )}
-                            <Chip title="Latency">{formatLLMLatency(event.latency)}</Chip>
-                        </div>
-                        <div className="flex flex-row flex-wrap gap-2">
-                            {event.modelParameters &&
-                                Object.entries(event.modelParameters).map(
-                                    ([key, value]) =>
-                                        value !== null && (
-                                            <LemonTag key={key} type="muted">
-                                                {key}: {`${value}`}
-                                            </LemonTag>
-                                        )
-                                )}
-                        </div>
+                        <MetadataHeader eventProperties={event.properties} className="mb-2" />
+                        <ParametersHeader eventProperties={event.properties} />
                     </header>
-                    <LemonDivider className="my-8" />
-                    <div className="flex flex-col gap-4">
-                        <h4 className="text-base font-medium">Input Messages</h4>
-                        <LemonCollapse
-                            defaultActiveKeys={event.input.map((_, index) => index.toString())}
-                            multiple
-                            panels={event.input.map((input, index) => ({
-                                key: index.toString(),
-                                header: isRoleBasedMessage(input) ? input.role : 'Message without a role',
-                                content: <InputRenderer input={input} />,
-                            }))}
-                        />
-                    </div>
-                    <LemonDivider className="my-8" />
-                    <div className="flex flex-col gap-4">
-                        <h4 className="text-base font-medium">Output Messages</h4>
-                        <OutputRenderer output={event.output} />
-                    </div>
+                    <LemonDivider className="my-4" />
+                    <ConversationMessagesDisplay eventProperties={event.properties} />
                 </>
             )}
         </div>
     )
 }
-
-const InputRenderer = React.memo(({ input }: { input: any }) => {
-    if (!isRoleBasedMessage(input)) {
-        return (
-            <InsightEmptyState
-                heading="Unsupported input type."
-                detail="Please check that your input is a valid array of JSON objects containing the role and content string properties."
-            />
-        )
-    }
-
-    return <LemonMarkdown>{input.content}</LemonMarkdown>
-})
-
-InputRenderer.displayName = 'InputRenderer'
-
-const CompletionRenderer = React.memo(({ output }: { output: RoleBasedMessage }) => {
-    // Temporary fix for the tool calls since the LangChain integration passes the tool calls in additional_kwargs.
-    const toolCalls = output.additional_kwargs?.tool_calls || output.tool_calls
-
-    return (
-        <LemonCollapse
-            multiple
-            defaultActiveKeys={['content', 'tool_calls']}
-            panels={[
-                {
-                    key: 'content',
-                    header: output.role,
-                    content: <LemonMarkdown>{output.content || JSON.stringify(output.content, null, 2)}</LemonMarkdown>,
-                },
-                {
-                    key: 'tool_calls',
-                    header: 'Tool Calls',
-                    content: isToolCallsArray(toolCalls) ? (
-                        <LemonMarkdown>{formatAsMarkdownJSONBlock(formatToolCalls(toolCalls))}</LemonMarkdown>
-                    ) : undefined,
-                },
-                {
-                    key: 'raw',
-                    header: 'Raw Output',
-                    content: isToolCallsArray(toolCalls) ? (
-                        <LemonMarkdown>{formatAsMarkdownJSONBlock(JSON.stringify(output, null, 2))}</LemonMarkdown>
-                    ) : undefined,
-                },
-            ].filter((panel) => panel.content)}
-        />
-    )
-})
-
-CompletionRenderer.displayName = 'CompletionRenderer'
-
-const OutputRenderer = React.memo(({ output }: { output: any }) => {
-    if (!isChoicesOutput(output) || output.choices.length === 0) {
-        return (
-            <div className="min-h-64">
-                <LemonMarkdown>{output}</LemonMarkdown>
-            </div>
-        )
-    }
-
-    if (output.choices.length === 1) {
-        return <CompletionRenderer output={output.choices[0]} />
-    }
-
-    return (
-        <LemonCollapse
-            multiple
-            defaultActiveKeys={output.choices.map((_, index) => index.toString())}
-            panels={output.choices.map((choice, index) => ({
-                key: index.toString(),
-                header: `Completion Choice ${index + 1}`,
-                content: <CompletionRenderer output={choice} />,
-            }))}
-        />
-    )
-})
-
-OutputRenderer.displayName = 'OutputRenderer'

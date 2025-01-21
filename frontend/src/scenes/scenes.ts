@@ -72,6 +72,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Error tracking configuration',
     },
+    [Scene.ErrorTrackingAlert]: {
+        projectBased: true,
+        name: 'Alert',
+    },
     [Scene.ErrorTrackingIssue]: {
         projectBased: true,
         name: 'Error tracking issue',
@@ -571,6 +575,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
     [urls.errorTracking()]: [Scene.ErrorTracking, 'errorTracking'],
     [urls.errorTrackingConfiguration()]: [Scene.ErrorTrackingConfiguration, 'errorTrackingConfiguration'],
+    [urls.errorTrackingAlert(':id')]: [Scene.ErrorTrackingAlert, 'errorTrackingAlert'],
     [urls.errorTrackingIssue(':id')]: [Scene.ErrorTrackingIssue, 'errorTrackingIssue'],
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
