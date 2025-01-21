@@ -254,7 +254,8 @@ def calculate_credible_intervals_v2_continuous(variants, lower_bound=0.025, uppe
     for variant in variants:
         try:
             # Log-transform the mean value, adding epsilon to handle zeros
-            log_mean = np.log(variant.count + EPSILON)  # Using count field to store mean value
+            mean_value = variant.count / variant.absolute_exposure
+            log_mean = np.log(mean_value + EPSILON)
 
             # Calculate posterior parameters using absolute_exposure
             kappa_n = KAPPA_0 + variant.absolute_exposure
@@ -306,7 +307,8 @@ def calculate_expected_loss_v2_continuous(
         Expected loss in mean value if choosing the target variant
     """
     # Calculate posterior parameters for target variant
-    log_target_mean = np.log(target_variant.count + EPSILON)
+    target_mean = target_variant.count / target_variant.absolute_exposure
+    log_target_mean = np.log(target_mean + EPSILON)
 
     # Update parameters for target variant
     kappa_n_target = KAPPA_0 + target_variant.absolute_exposure
@@ -323,7 +325,8 @@ def calculate_expected_loss_v2_continuous(
     # Draw samples from each comparison variant's posterior
     variant_samples = []
     for variant in variants:
-        log_variant_mean = np.log(variant.count + EPSILON)
+        variant_mean = variant.count / variant.absolute_exposure
+        log_variant_mean = np.log(variant_mean + EPSILON)
 
         kappa_n = KAPPA_0 + variant.absolute_exposure
         mu_n = (KAPPA_0 * MU_0 + variant.absolute_exposure * log_variant_mean) / kappa_n
