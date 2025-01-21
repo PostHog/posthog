@@ -111,7 +111,7 @@ class RetentionQueryRunner(QueryRunner):
 
         # Pre filter event
         events = self._get_events_for_entity(self.target_entity) + self._get_events_for_entity(self.returning_entity)
-        # Don't pre-filtering if any of them is "All events"
+        # Don't pre-filter if any of them is "All events"
         if None not in events:
             events_where.append(
                 ast.CompareOperation(
@@ -135,7 +135,7 @@ class RetentionQueryRunner(QueryRunner):
             else RetentionQueryType.TARGET
         )
 
-        target_entity_expr = entity_to_expr(self.target_entity)
+        target_entity_expr = entity_to_expr(self.target_entity, self.team)
         event_filters = self.events_where_clause(event_query_type)
 
         target_timestamps = parse_expr(
@@ -169,6 +169,7 @@ class RetentionQueryRunner(QueryRunner):
                 """,
                 {
                     "target_timestamps": target_timestamps,
+                    # cast this to start of interval as well so we can compare with the timestamps fetched above
                     "min_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
                         parse_expr(
                             "minIf(events.timestamp, {target_entity_expr})",
@@ -196,7 +197,7 @@ class RetentionQueryRunner(QueryRunner):
                         expr=ast.Call(
                             name="has",
                             args=[
-                                ast.Array(exprs=[ast.Constant(value="")]),
+                                ast.Array(exprs=[ast.Constant(value="")]),  # TODO figure out why this is needed
                                 ast.Field(chain=["events", f"$group_{self.group_type_index}"]),
                             ],
                         ),
@@ -224,11 +225,11 @@ class RetentionQueryRunner(QueryRunner):
                 """,
                         {
                             "start_of_interval_timestamp": start_of_interval_sql,
-                            "returning_entity_expr": entity_to_expr(self.returning_entity),
+                            "returning_entity_expr": entity_to_expr(self.returning_entity, self.team),
                         },
                     ),
                 ),
-                ast.Alias(
+                ast.Alias(  # get all intervals (represented by start of interval)
                     alias="date_range",
                     expr=parse_expr(
                         """
@@ -248,7 +249,7 @@ class RetentionQueryRunner(QueryRunner):
                     ),
                 ),
                 ast.Alias(
-                    alias="breakdown_values",
+                    alias="breakdown_values",  # exploded (0 based) indices of matching intervals for (start event)
                     expr=parse_expr(
                         """
                         arrayJoin(
@@ -277,11 +278,11 @@ class RetentionQueryRunner(QueryRunner):
                     {intervals_from_base_array_aggregator}(
                         arrayConcat(
                             if(
-                                {{is_first_interval_from_base}},
+                                {{is_first_interval_from_base}},  -- is starting at first interval in date range (for first time query)
                                 [0],
                                 []
                             ),
-                            arrayFilter(
+                            arrayFilter(  -- index (time lag starting from target entity) of interval with matching return timestamp
                                 x -> x > 0, -- first match always comes from target_timestamps, hence not -1 here
                                 arrayMap(
                                     _timestamp ->
@@ -305,7 +306,7 @@ class RetentionQueryRunner(QueryRunner):
                     left=ast.Field(chain=["breakdown_values"]),
                     right=ast.Constant(value=breakdown_values_filter),
                 )
-                if breakdown_values_filter is not None
+                if breakdown_values_filter is not None  # filter for specific interval (in case of actors popup)
                 else None
             ),
         )
@@ -334,16 +335,16 @@ class RetentionQueryRunner(QueryRunner):
 
             retention_query = parse_select(
                 """
-                    SELECT [actor_activity.breakdown_values]       AS breakdown_values,
-                           actor_activity.intervals_from_base      AS intervals_from_base,
-                           COUNT(DISTINCT actor_activity.actor_id) AS count
+                    SELECT actor_activity.breakdown_values       AS start_event_matching_interval,
+                           actor_activity.intervals_from_base      AS intervals_from_base,  -- how many intervals after start_event_matching_interval, entity returned
+                           COUNT(DISTINCT actor_activity.actor_id) AS count  -- how many entities performed activity in same start/return interval
 
                     FROM {actor_query} AS actor_activity
 
-                    GROUP BY breakdown_values,
+                    GROUP BY start_event_matching_interval,
                              intervals_from_base
 
-                    ORDER BY breakdown_values,
+                    ORDER BY start_event_matching_interval,
                              intervals_from_base
 
                     LIMIT 10000
@@ -412,16 +413,18 @@ class RetentionQueryRunner(QueryRunner):
         )
 
         result_dict = {
-            (tuple(breakdown_values), intervals_from_base): {
+            (start_event_matching_interval, intervals_from_base): {
                 "count": correct_result_for_sampling(count, self.query.samplingFactor),
             }
-            for (breakdown_values, intervals_from_base, count) in response.results
+            for (start_event_matching_interval, intervals_from_base, count) in response.results
         }
         results = [
             {
                 "values": [
-                    result_dict.get(((first_interval,), return_interval), {"count": 0})
-                    for return_interval in range(self.query_date_range.total_intervals - first_interval)
+                    result_dict.get((first_interval, return_interval), {"count": 0})
+                    for return_interval in range(
+                        self.query_date_range.total_intervals - first_interval
+                    )  # creates triangle graph
                 ],
                 "label": f"{self.query_date_range.interval_name.title()} {first_interval}",
                 "date": self.get_date(first_interval),

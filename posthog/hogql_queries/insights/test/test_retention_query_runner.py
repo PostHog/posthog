@@ -1537,6 +1537,308 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_retention_with_properties_on_start_event(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        # only even indexed events have $some_property set
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"$target_event_property": "value"}),
+                ("person1", _date(1)),
+                ("person1", _date(2)),
+                ("person1", _date(5)),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=0)},
+                "retentionFilter": {
+                    "targetEntity": {
+                        "id": "$pageview",
+                        "properties": [
+                            {
+                                "key": "$target_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    }
+                },
+            }
+        )
+        self.assertEqual(len(result), 11)
+        self.assertEqual(
+            pluck(result, "label"),
+            [
+                "Day 0",
+                "Day 1",
+                "Day 2",
+                "Day 3",
+                "Day 4",
+                "Day 5",
+                "Day 6",
+                "Day 7",
+                "Day 8",
+                "Day 9",
+                "Day 10",
+            ],
+        )
+        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ],
+        )
+
+    def test_retention_with_properties_on_start_event_for_first_time(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        # only even indexed events have $some_property set
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(2), {"$target_event_property": "value"}),
+                ("person1", _date(5), {"$target_event_property": "value"}),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=0)},
+                "retentionFilter": {
+                    "retentionType": "retention_first_time",
+                    "targetEntity": {
+                        "id": "$pageview",
+                        "properties": [
+                            {
+                                "key": "$target_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                },
+            }
+        )
+        self.assertEqual(len(result), 11)
+        self.assertEqual(
+            pluck(result, "label"),
+            [
+                "Day 0",
+                "Day 1",
+                "Day 2",
+                "Day 3",
+                "Day 4",
+                "Day 5",
+                "Day 6",
+                "Day 7",
+                "Day 8",
+                "Day 9",
+                "Day 10",
+            ],
+        )
+        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 1, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ],
+        )
+
+    def test_retention_with_properties_on_return_event(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        # only even indexed events have $some_property set
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1), {"$target_event_property": "value"}),
+                ("person1", _date(2)),
+                ("person1", _date(5)),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=0)},
+                "retentionFilter": {
+                    "returningEntity": {
+                        "id": "$pageview",
+                        "properties": [
+                            {
+                                "key": "$target_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    }
+                },
+            }
+        )
+        self.assertEqual(len(result), 11)
+        self.assertEqual(
+            pluck(result, "label"),
+            [
+                "Day 0",
+                "Day 1",
+                "Day 2",
+                "Day 3",
+                "Day 4",
+                "Day 5",
+                "Day 6",
+                "Day 7",
+                "Day 8",
+                "Day 9",
+                "Day 10",
+            ],
+        )
+        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # only one match, 1 day after for person 1
+                [2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ],
+        )
+
+    def test_retention_with_properties_on_return_event_with_first_time(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        # only even indexed events have $some_property set
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(2)),
+                ("person1", _date(5), {"$target_event_property": "value"}),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=0)},
+                "retentionFilter": {
+                    "retentionType": "retention_first_time",
+                    "returningEntity": {
+                        "id": "$pageview",
+                        "properties": [
+                            {
+                                "key": "$target_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                },
+            }
+        )
+        self.assertEqual(len(result), 11)
+        self.assertEqual(
+            pluck(result, "label"),
+            [
+                "Day 0",
+                "Day 1",
+                "Day 2",
+                "Day 3",
+                "Day 4",
+                "Day 5",
+                "Day 6",
+                "Day 7",
+                "Day 8",
+                "Day 9",
+                "Day 10",
+            ],
+        )
+        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],  # only one match, 5 days after for person 1
+                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ],
+        )
+
     def test_retention_with_user_properties(self):
         _create_person(
             team_id=self.team.pk,

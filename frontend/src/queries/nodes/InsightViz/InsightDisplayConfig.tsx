@@ -7,7 +7,6 @@ import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -66,10 +65,6 @@ export function InsightDisplayConfig(): JSX.Element {
         funnelDataLogic(insightProps)
     )
     const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
-
-    const isRetention2025 = useFeatureFlag('RETENTION_2025')
-    const isOldRetention = !!isRetention && !isRetention2025
-    const isNewRetention = !!isRetention && isRetention2025
 
     const { updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
 
@@ -157,7 +152,7 @@ export function InsightDisplayConfig(): JSX.Element {
             data-attr="insight-filters"
         >
             <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
-                {!isOldRetention && (
+                {!isRetention && (
                     <ConfigFilter>
                         <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
                     </ConfigFilter>
@@ -175,13 +170,7 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
 
-                {isNewRetention && (
-                    <ConfigFilter>
-                        <RetentionMeanCheckbox />
-                    </ConfigFilter>
-                )}
-
-                {isOldRetention && (
+                {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
                         <RetentionReferencePicker />

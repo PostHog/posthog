@@ -2400,6 +2400,8 @@ export interface RetentionEntity {
     order?: number
     uuid?: string
     custom_name?: string
+    /** filters on the event */
+    properties?: AnyPropertyFilter[]
 }
 
 export interface RetentionFilterType extends FilterType {

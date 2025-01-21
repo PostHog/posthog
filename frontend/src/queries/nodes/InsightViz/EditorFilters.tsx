@@ -5,7 +5,6 @@ import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { CSSTransition } from 'react-transition-group'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
@@ -17,7 +16,6 @@ import { PathsExclusions } from 'scenes/insights/EditorFilters/PathsExclusions'
 import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
 import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
-import { Retention2025 } from 'scenes/insights/EditorFilters/Retention2025'
 import { RetentionMeasure } from 'scenes/insights/EditorFilters/RetentionMeasure'
 import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
@@ -71,10 +69,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     } = useValues(insightVizDataLogic(insightProps))
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
 
-    const isRetention2025 = useFeatureFlag('RETENTION_2025')
-    const isOldRetention = isRetention && !isRetention2025
-    const isNewRetention = isRetention && isRetention2025
-
     if (!querySource) {
         return null
     }
@@ -91,17 +85,12 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         {
             title: 'General',
             editorFilters: filterFalsy([
-                isOldRetention && {
-                    key: 'retention-summary',
-                    label: 'Retention Summary',
-                    component: RetentionSummary,
-                },
-                ...(isNewRetention
+                ...(isRetention
                     ? [
                           {
                               key: 'retention-config',
                               label: 'Condition',
-                              component: Retention2025,
+                              component: RetentionSummary,
                           },
                           {
                               key: 'retention-measure',

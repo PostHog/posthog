@@ -11940,6 +11940,13 @@
                 "order": {
                     "type": "integer"
                 },
+                "properties": {
+                    "description": "filters on the event",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
                 "type": {
                     "$ref": "#/definitions/EntityType"
                 },

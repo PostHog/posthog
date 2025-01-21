@@ -86,8 +86,6 @@ export function InsightViz({
     const isFunnels = isFunnelsQuery(query.source)
     const isHorizontalAlways = useFeatureFlag('INSIGHT_HORIZONTAL_CONTROLS')
     const isRetention = isRetentionQuery(query.source)
-    const isRetention2025 = useFeatureFlag('RETENTION_2025')
-    const isNewRetention = isRetention && isRetention2025
 
     const showIfFull = !!query.full
     const disableHeader = embedded || !(query.showHeader ?? showIfFull)
@@ -123,7 +121,7 @@ export function InsightViz({
                             className={
                                 !isEmbedded
                                     ? clsx('InsightViz', {
-                                          'InsightViz--horizontal': isFunnels || isHorizontalAlways || isNewRetention,
+                                          'InsightViz--horizontal': isFunnels || isRetention || isHorizontalAlways,
                                       })
                                     : 'InsightCard__viz'
                             }
