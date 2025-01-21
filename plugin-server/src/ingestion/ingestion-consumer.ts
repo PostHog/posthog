@@ -18,7 +18,8 @@ import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
 import { normalizeEvent } from '../utils/event'
 import { status } from '../utils/status'
-import { ConfiguredLimiter, LoggingLimiter } from '../utils/token-bucket'
+import { MemoryRateLimiter } from '../utils/token-bucket'
+import { EventPipelineResult } from '../worker/ingestion/event-pipeline/runner'
 import { EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -61,6 +62,8 @@ export class IngestionConsumer {
     protected promises: Set<Promise<any>> = new Set()
     protected kafkaProducer?: KafkaProducerWrapper
 
+    private overflowRateLimiter: MemoryRateLimiter
+    private ingestionWarningLimiter: MemoryRateLimiter
     private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
 
@@ -74,6 +77,12 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
 
         this.name = `ingestion-consumer-${this.topic}`
+        this.overflowRateLimiter = new MemoryRateLimiter(
+            this.hub.EVENT_OVERFLOW_BUCKET_CAPACITY,
+            this.hub.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE
+        )
+
+        this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
     }
 
     public get service(): PluginServerService {
@@ -152,9 +161,10 @@ export class IngestionConsumer {
 
                     const eventKey = `${event.token}:${event.distinct_id}`
                     // Check the rate limiter and emit to overflow if necessary
-                    if (this.overflowEnabled() && !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)) {
+                    const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
+                    if (this.overflowEnabled() && !isBelowRateLimit) {
                         ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
-                        if (LoggingLimiter.consume(eventKey, 1)) {
+                        if (this.ingestionWarningLimiter.consume(eventKey, 1)) {
                             status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
                         }
 
@@ -162,12 +172,7 @@ export class IngestionConsumer {
                         continue
                     }
 
-                    // Modified this to not use retries - if we do retries we should wrap the specific steps in a retryIfRetriable
-                    // const result = await retryIfRetriable(async () => {
-                    //     return await runner.run()
-                    // })
-
-                    const runner = new EventPipelineRunnerV2(this.hub, event)
+                    const runner = this.getEventPipelineRunner(event)
                     try {
                         await runner.run()
                     } catch (error) {
@@ -176,7 +181,6 @@ export class IngestionConsumer {
 
                     // TRICKY: We want to later catch anything that goes wrong with flushing
                     // the promises so we can send the event to the DLQ
-
                     this.scheduleWork(Promise.all(runner.getPromises())).catch((error) => {
                         return this.handleProcessingError(error, message, event)
                     })
@@ -194,6 +198,11 @@ export class IngestionConsumer {
         } finally {
             this.promises.clear()
         }
+    }
+
+    private getEventPipelineRunner(event: PipelineEvent): EventPipelineRunnerV2 {
+        // Mostly a helper method for testing
+        return new EventPipelineRunnerV2(this.hub, event)
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<GroupedIncomingEvents> {

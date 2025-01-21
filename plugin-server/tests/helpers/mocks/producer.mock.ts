@@ -87,6 +87,6 @@ export const getProducedKafkaMessages = (): DecodedKafkaMessage[] => {
     return result
 }
 
-export const getProducedKakfaMessagesForTopic = (topic: string): DecodedKafkaMessage[] => {
+export const getProducedKafkaMessagesForTopic = (topic: string): DecodedKafkaMessage[] => {
     return getProducedKafkaMessages().filter((x) => x.topic === topic)
 }

@@ -2,14 +2,7 @@ import { defaultConfig } from './../config/config'
 
 type Bucket = [tokens: number, lastReplenishedTimestamp: number]
 
-export class BucketKeyMissingError extends Error {
-    constructor(key: string) {
-        super('Bucket with key ' + key + ' is missing. Did you forget to call replenish first?')
-        this.name = 'BucketKeyMissingError'
-    }
-}
-
-export class Storage {
+export class MemoryRateLimiter {
     public buckets: Map<string, Bucket>
     public replenishRate: number
     public bucketCapacity: number
@@ -20,13 +13,17 @@ export class Storage {
         this.replenishRate = replenishRate
     }
 
-    replenish(key: string, now?: number): void {
-        const replenish_timestamp: number = now ?? Date.now()
-        const bucket = this.buckets.get(key)
+    private getBucket(key: string): Bucket {
+        let bucket = this.buckets.get(key)
         if (bucket === undefined) {
-            this.buckets.set(key, [this.bucketCapacity, replenish_timestamp])
-            return
+            bucket = [this.bucketCapacity, Date.now()]
+            this.buckets.set(key, bucket)
         }
+        return bucket
+    }
+
+    private replenish(bucket: Bucket, now?: number): void {
+        const replenish_timestamp: number = now ?? Date.now()
 
         // Replenish the bucket if replenish_timestamp is higher than lastReplenishedTimestamp
         const secondsToReplenish = (replenish_timestamp - bucket[1]) / 1000
@@ -37,41 +34,25 @@ export class Storage {
         }
     }
 
-    consume(key: string, tokens: number): boolean {
-        const bucket = this.buckets.get(key)
+    consume(key: string, tokens: number, now?: number): boolean {
+        const bucket = this.getBucket(key)
+        this.replenish(bucket, now)
 
-        if (bucket === undefined) {
-            throw new BucketKeyMissingError(key)
-        }
+        bucket[0] -= tokens
 
-        if (bucket[0] < tokens) {
+        if (bucket[0] < 0) {
             return false
         }
 
-        bucket[0] -= tokens
         return true
     }
 }
 
-export class Limiter {
-    public storage: Storage
-
-    constructor(bucketCapacity: number, replenishRate: number) {
-        this.storage = new Storage(bucketCapacity, replenishRate)
-    }
-
-    consume(key: string, tokens: number, now?: number): boolean {
-        this.storage.replenish(key, now)
-
-        return this.storage.consume(key, tokens)
-    }
-}
-
-export const ConfiguredLimiter: Limiter = new Limiter(
+export const ConfiguredLimiter: MemoryRateLimiter = new MemoryRateLimiter(
     defaultConfig.EVENT_OVERFLOW_BUCKET_CAPACITY,
     defaultConfig.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE
 )
 
-export const IngestionWarningLimiter: Limiter = new Limiter(1, 1.0 / 3600)
+export const IngestionWarningLimiter: MemoryRateLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
 
-export const LoggingLimiter: Limiter = new Limiter(1, 1.0 / 60)
+export const LoggingLimiter: MemoryRateLimiter = new MemoryRateLimiter(1, 1.0 / 60)

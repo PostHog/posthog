@@ -45,7 +45,7 @@ RUN pnpm build
 FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
 COPY ./rust ./rust
-COPY ./plugin-transpiler/ ./plugin-transpiler/
+COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -65,7 +65,7 @@ RUN apt-get update && \
     corepack enable && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    cd ../plugin-transpiler && \
+    cd ../common/plugin_transpiler && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     pnpm build && \
     rm -rf /tmp/pnpm-store
@@ -118,7 +118,7 @@ ENV PATH=/python-runtime/bin:$PATH \
 
 # Add in Django deps and generate Django's static files.
 COPY manage.py manage.py
-COPY hogvm hogvm/
+COPY common/hogvm common/hogvm/
 COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
@@ -194,7 +194,7 @@ ARG COMMIT_HASH
 RUN echo $COMMIT_HASH > /code/commit.txt
 
 # Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-transpiler/dist /code/plugin-transpiler/dist
+COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
@@ -218,7 +218,7 @@ COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
-COPY --chown=posthog:posthog hogvm hogvm/
+COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog dags dags/
 COPY --chown=posthog:posthog products products/
 
