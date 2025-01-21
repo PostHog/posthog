@@ -58,6 +58,8 @@ export interface SurveyUserStats {
     seen: number
     dismissed: number
     sent: number
+    completed: number
+    partial: number
 }
 
 export interface SurveyRatingResults {
@@ -292,17 +294,25 @@ export const surveyLogic = kea<surveyLogicType>([
                                 WHERE event = 'survey sent'
                                     AND properties.$survey_id = ${props.id}
                                     AND timestamp >= ${startDate}
+                                    AND timestamp <= ${endDate}),
+                            (SELECT COUNT(DISTINCT person_id)
+                                FROM events
+                                WHERE event = 'survey sent'
+                                    AND properties.$survey_id = ${props.id}
+                                    AND ( properties.$survey_completed = true OR properties.$survey_response_id == null) 
+                                    AND timestamp >= ${startDate}
                                     AND timestamp <= ${endDate})
                     `,
                 }
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
                 if (results && results[0]) {
-                    const [totalSeen, dismissed, sent] = results[0]
+                    const [totalSeen, dismissed, sent, completed] = results[0]
                     const onlySeen = totalSeen - dismissed - sent
-                    return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent }
+                    const partial = sent - completed
+                    return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent, completed: completed, partial }
                 }
-                return { seen: 0, dismissed: 0, sent: 0 }
+                return { seen: 0, dismissed: 0, sent: 0, completed: 0, partial: 0 }
             },
         },
         surveyRatingResults: {
@@ -970,43 +980,51 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 const surveyWithResults = survey as Survey
                 const startDate = surveyWithResults.start_date || surveyWithResults.created_at
+                const surveyResponseFields = survey.questions.map((q, i) => {
+                    if (q.type === SurveyQuestionType.MultipleChoice) {
+                        // Join array items into a string
+                        return (
+                            "coalesce(arrayStringConcat(JSONExtractArrayRaw(properties, '" +
+                            getResponseField(i) +
+                            '\'))) as "' +
+                            q.question +
+                            '"'
+                        )
+                    }
+
+                    return (
+                        "coalesce(JSONExtractString(properties, '" +
+                        getResponseField(i) +
+                        '\')) as "' +
+                        q.question +
+                        '"'
+                    )
+                })
+                const queryFields = [
+                    'person_id as Person',
+                    "if(coalesce(JSONExtractBool(properties, '$survey_completed'), 'true'), 'yes', if(trim(JSONExtractString(properties, '$survey_response_id')) == '', 'yes', 'no')) as Completed",
+                    "coalesce(JSONExtractString(properties, '$lib'), 'web') as Library",
+                    "coalesce(JSONExtractString(properties, '$lib_version'), 'web') as Version",
+                    surveyResponseFields.join(','),
+                    "row_number() OVER (PARTITION BY JSONExtractString(properties, '$survey_response_id') ORDER BY timestamp DESC) AS rn",
+                ].join(',')
+                const conditions = [
+                    "WHERE event ='survey sent'",
+                    "AND JSONExtractString(properties, '$survey_id') = '" + survey.id + "'",
+                    "AND timestamp >= '" + startDate.replace('T', ' ').replace('Z', '') + "'",
+                ].join(' ')
+
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
-                        kind: NodeKind.EventsQuery,
-                        select: [
-                            '*',
-                            ...survey.questions.map((q, i) => {
-                                if (q.type === SurveyQuestionType.MultipleChoice) {
-                                    // Join array items into a string
-                                    return `coalesce(arrayStringConcat(JSONExtractArrayRaw(properties, '${getResponseField(
-                                        i
-                                    )}'), ', ')) -- ${q.question}`
-                                }
-
-                                return `coalesce(JSONExtractString(properties, '${getResponseField(i)}')) -- ${
-                                    q.question
-                                }`
-                            }),
-                            'timestamp',
-                            'person',
-                            `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
-                            `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
-                            `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
-                        ],
-                        orderBy: ['timestamp DESC'],
-                        where: [`event == 'survey sent'`],
-                        after: startDate,
-                        properties: [
-                            {
-                                type: PropertyFilterType.Event,
-                                key: '$survey_id',
-                                operator: PropertyOperator.Exact,
-                                value: survey.id,
-                            },
-                        ],
+                        kind: NodeKind.HogQLQuery,
+                        query:
+                            "SELECT * FROM ( SELECT 'timestamp', " +
+                            queryFields +
+                            ' FROM events ' +
+                            conditions +
+                            ') WHERE rn = 1',
                     },
-                    propertiesViaUrl: true,
                     showExport: true,
                     showReload: true,
                     showEventFilter: false,
