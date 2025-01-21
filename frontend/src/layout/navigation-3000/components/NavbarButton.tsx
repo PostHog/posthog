@@ -1,4 +1,4 @@
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -13,15 +13,20 @@ import { SidebarChangeNoticeContent, useSidebarChangeNotices } from '~/layout/na
 import { navigation3000Logic } from '../navigationLogic'
 import { NavbarItem } from '../types'
 
-export interface NavbarButtonProps extends Pick<LemonButtonProps, 'onClick' | 'icon' | 'sideIcon' | 'to' | 'active'> {
+// Guarantee that if `shortTitle` is not provided, we'll guarantee `title` is a string
+type TitleProps = { shortTitle: string; title: string | ReactElement } | { shortTitle?: never; title: string }
+
+interface NavbarProps extends Pick<LemonButtonProps, 'onClick' | 'icon' | 'sideIcon' | 'to' | 'active'> {
     identifier: string
     icon: ReactElement
-    title?: string | ReactElement
-    shortTitle?: string
     forceTooltipOnHover?: boolean
     tag?: 'alpha' | 'beta' | 'new'
     sideAction?: NavbarItem['sideAction']
 }
+
+export type NavbarButtonProps = TitleProps &
+    NavbarProps &
+    Pick<LemonButtonProps, 'onClick' | 'icon' | 'sideIcon' | 'to' | 'active'>
 
 export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardRef<
     HTMLButtonElement,
@@ -38,13 +43,28 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
     const here = activeScene === identifier || sceneBreadcrumbKeys.includes(identifier)
     const isNavCollapsedActually = isNavCollapsed || isUsingNewNav
 
+    const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
+
+    // Simple skeleton for Storybook to create anonymous navbar buttons
+    if (process.env.STORYBOOK && !here) {
+        // Multiple of 4 because not all `w-${number}` values are available
+        const width = Math.floor(((typeof title === 'string' ? title.length : shortTitle?.length ?? 10) * 2) / 4) * 4
+
+        return (
+            <li className="w-full">
+                <LemonSkeleton active={false} className={clsx('h-8 my-1 w-', `w-${width}`)} />
+            </li>
+        )
+    }
+
     const buttonProps: LemonButtonProps = rest
     if (!isUsingNewNav) {
         buttonProps.active = here
     }
+
     let content: JSX.Element | string | undefined
     if (!isNavCollapsedActually) {
-        content = shortTitle || title
+        content = shortTitle != null ? shortTitle : title
         if (tag) {
             content = (
                 <>
@@ -59,6 +79,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                 </>
             )
         }
+
         if (sideAction) {
             // @ts-expect-error - in this case we are perfectly okay with assigning a sideAction
             buttonProps.sideAction = {
@@ -72,29 +93,30 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
         buttonProps.sideIcon = null
     }
 
-    const buttonContent = (
-        <LemonButton
-            ref={ref}
-            data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
-            onMouseEnter={() => setHasBeenClicked(false)}
-            onClick={(e) => {
-                if (buttonProps.to) {
-                    hideNavOnMobile()
-                }
-                setHasBeenClicked(true)
-                onClick?.(e)
-            }}
-            className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
-            fullWidth
-            type="secondary"
-            status="alt"
-            {...buttonProps}
-        >
-            {content}
-        </LemonButton>
-    )
-
-    const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
+    const buttonContent =
+        process.env.STORYBOOK && !here ? (
+            <LemonSkeleton className={clsx('h-3', `w-${shortTitle?.length ?? 10}`)} />
+        ) : (
+            <LemonButton
+                ref={ref}
+                data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
+                onMouseEnter={() => setHasBeenClicked(false)}
+                onClick={(e) => {
+                    if (buttonProps.to) {
+                        hideNavOnMobile()
+                    }
+                    setHasBeenClicked(true)
+                    onClick?.(e)
+                }}
+                className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
+                fullWidth
+                type="secondary"
+                status="alt"
+                {...buttonProps}
+            >
+                {content}
+            </LemonButton>
+        )
 
     return (
         <li className="w-full">
@@ -111,7 +133,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                 <Tooltip
                     title={
                         forceTooltipOnHover || isNavCollapsedActually
-                            ? here
+                            ? here && typeof title === 'string'
                                 ? `${title} (you are here)`
                                 : title
                             : null

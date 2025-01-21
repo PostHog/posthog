@@ -11,7 +11,9 @@
     background-size: 400% 100%;
     animation: LemonSkeleton__shimmer 2s ease infinite;
 
+    // No animation, darker background
     &.LemonSkeleton--static {
+        background: rgb(129 129 129 / 24%) 45%;
         animation: none;
     }
 

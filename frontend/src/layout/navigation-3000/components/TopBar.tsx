@@ -129,6 +129,13 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
 
     const breadcrumbName = isOnboarding && here ? 'Onboarding' : (breadcrumb.name as string)
 
+    // Simple skeleton for Storybook to create anonymous breadcrumbs
+    if (process.env.STORYBOOK) {
+        // Multiple of 4 because not all `w-${number}` values are available
+        const width = Math.floor(((breadcrumbName?.length ?? 10) * 2) / 4) * 4
+        return <LemonSkeleton active={false} className={clsx('h-5', `w-${width}`)} />
+    }
+
     let nameElement: JSX.Element
     if (breadcrumb.symbol) {
         nameElement = breadcrumb.symbol
