@@ -179,6 +179,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Generation',
             description: 'A call to a generative AI model, e.g. an LLM',
         },
+        $ai_score: {
+            label: 'AI Score',
+            description: 'A trace score of a generative AI model (LLM) for evaluation',
+        },
         // Mobile SDKs events
         'Application Opened': {
             label: 'Application Opened',
@@ -1427,6 +1431,16 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Request URL (LLM)',
             description: 'The full URL of the request made to the LLM API',
             examples: ['https://api.openai.com/v1/chat/completions'],
+        },
+        $ai_score_name: {
+            label: 'AI Score Name (LLM)',
+            description: 'The name assigned to the score used to evaluate the LLM trace',
+            examples: ['rating', 'feedback'],
+        },
+        $ai_score_value: {
+            label: 'AI Score Value (LLM)',
+            description: 'The value assigned to the score used to evaluate the LLM trace',
+            examples: ['"negative"', '"10"'],
         },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
