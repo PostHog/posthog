@@ -1,7 +1,7 @@
 import { IconPlusSmall, IconX } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '../../queries/schema'
@@ -24,7 +24,7 @@ export const AssigneeSelect = ({
     unassignedLabel?: string
 } & Partial<Pick<LemonButtonProps, 'type' | 'size'>>): JSX.Element => {
     const logic = assigneeSelectLogic({ assignee })
-    const { displayAssignee, search, groupOptions, memberOptions, userGroupsLoading, membersLoading } = useValues(logic)
+    const { computeAssignee, search, groupOptions, memberOptions, userGroupsLoading, membersLoading } = useValues(logic)
     const { setSearch, ensureAssigneeTypesLoaded } = useActions(logic)
     const [showPopover, setShowPopover] = useState(false)
 
@@ -39,6 +39,8 @@ export const AssigneeSelect = ({
             ensureAssigneeTypesLoaded()
         }
     }, [showPopover, ensureAssigneeTypesLoaded])
+
+    const displayAssignee = useMemo(() => computeAssignee(assignee), [assignee])
 
     return (
         <LemonDropdown
