@@ -67,7 +67,7 @@ services:
             - clickhouse
         command: -config /config.yml
         healthcheck:
-            test: curl 'http://127.0.0.1:8123/ping'
+            test: curl 'http://127.0.0.1:8123/metrics'
             interval: 2s
             timeout: 20s
             retries: 10
