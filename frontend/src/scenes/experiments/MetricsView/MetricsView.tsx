@@ -90,7 +90,7 @@ export function AddSecondaryMetric(): JSX.Element {
 export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
         experiment,
-        _getMetricType,
+        getMetricType,
         metricResults,
         secondaryMetricResults,
         primaryMetricsResultErrors,
@@ -128,7 +128,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                 return []
             }
             return variants.flatMap((variant) => {
-                const metricType = _getMetricType(metric)
+                const metricType = getMetricType(metric)
                 const interval = credibleIntervalForVariant(result, variant.key, metricType)
                 return interval ? [Math.abs(interval[0] / 100), Math.abs(interval[1] / 100)] : []
             })
@@ -243,7 +243,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                                         result={result}
                                         error={errors?.[metricIndex]}
                                         variants={variants}
-                                        metricType={_getMetricType(metric)}
+                                        metricType={getMetricType(metric)}
                                         metricIndex={metricIndex}
                                         isFirstMetric={isFirstMetric}
                                         metric={metric}

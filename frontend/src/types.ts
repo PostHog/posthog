@@ -3308,11 +3308,6 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
-export interface ExperimentMetric {
-    type: string
-    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
-}
-
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -3362,49 +3357,6 @@ export interface TrendExperimentVariant {
     absolute_exposure: number
 }
 
-interface BaseExperimentResults {
-    probability: Record<string, number>
-    fakeInsightId: string
-    significant: boolean
-    noData?: boolean
-    significance_code: SignificanceCode
-    expected_loss?: number
-    p_value?: number
-}
-
-export interface _TrendsExperimentResults extends BaseExperimentResults {
-    insight: Record<string, any>[]
-    filters: TrendsFilterType
-    exposure_filters: TrendsFilterType
-    variants: TrendExperimentVariant[]
-    last_refresh?: string | null
-    credible_intervals: { [key: string]: [number, number] }
-}
-
-export interface _FunnelExperimentResults extends BaseExperimentResults {
-    insight: Record<string, any>[]
-    filters: FunnelsFilterType
-    variants: FunnelExperimentVariant[]
-    last_refresh?: string | null
-    credible_intervals: { [key: string]: [number, number] }
-}
-
-export interface TrendsExperimentResults {
-    result: _TrendsExperimentResults
-    is_cached?: boolean
-    last_refresh?: string | null
-}
-export interface FunnelExperimentResults {
-    result: _FunnelExperimentResults
-    is_cached?: boolean
-    last_refresh?: string | null
-}
-
-export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
-
-export type SecondaryMetricResults = ExperimentResults['result'] & {
-    result?: Record<string, number>
-}
 export interface SecondaryExperimentMetric {
     name: string
     filters: Partial<FilterType>
