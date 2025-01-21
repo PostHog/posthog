@@ -1,5 +1,6 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -51,23 +52,33 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
         setEventId: (eventId: string | null) => ({ eventId }),
+        setDateFrom: (dateFrom: string) => ({ dateFrom }),
     }),
 
     reducers({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
+        dateFrom: [null as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
     }),
 
     selectors({
         query: [
-            (s) => [s.tracesQuery, s.traceId],
-            (tracesQuery, traceId): DataTableNode => ({
-                ...tracesQuery,
-                source: {
-                    ...(tracesQuery.source as TracesQuery),
-                    traceId,
-                },
-            }),
+            (s) => [s.tracesQuery, s.traceId, s.dateFrom],
+            (tracesQuery, traceId, dateFrom): DataTableNode => {
+                const sourceQuery = tracesQuery.source as TracesQuery
+                return {
+                    ...tracesQuery,
+                    source: {
+                        ...sourceQuery,
+                        traceId,
+                        dateRange: dateFrom
+                            ? // dateFrom is a minimum timestamp of an event for a trace.
+                              { date_from: dateFrom, date_to: dayjs(dateFrom).add(1, 'day').toISOString() }
+                            : // By default will look for traces in the last 7 days.
+                              sourceQuery.dateRange,
+                    },
+                }
+            },
         ],
         cachedTraceResponse: [
             (s) => [s.cachedTracesResults, s.traceId],
@@ -102,9 +113,10 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        [urls.llmObservabilityTrace(':id')]: ({ id }, { event }) => {
+        [urls.llmObservabilityTrace(':id')]: ({ id }, { event, dateFrom }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
+            actions.setDateFrom(dateFrom || null)
         },
     })),
 ])
