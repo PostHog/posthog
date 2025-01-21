@@ -68,7 +68,7 @@ export function SelectableProductCard({
                     </div>
                 </Tooltip>
             )}
-            <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center">
+            <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center select-none">
                 <div className="self-center">{getProductIcon(product.iconColor, product.icon, 'text-2xl')}</div>
                 <div className="font-bold text-center self-start text-md">{product.name}</div>
             </div>
