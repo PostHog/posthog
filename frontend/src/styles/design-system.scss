@@ -8,13 +8,13 @@ $primitive-transparent: hsl(0deg 0% 0% / 0%);
 $primitive-3000: (
     25: hsl(75deg 14% 96.5%),
     50: hsl(75deg 14% 95%),
+    // 100 mapped (From Figma): light background
     100: hsl(70deg 16% 93%),
-    // mapped (From Figma): light background
+    // 150 mapped (From Figma): medium accent
     150: hsl(77deg 13% 89%),
-    // mapped (From Figma): medium accent
     200: hsl(78deg 13% 85%),
+    // 250 mapped (From Figma): light border
     250: hsl(67deg 8% 80%),
-    // mapped (From Figma): light border
     300: hsl(72deg 8% 76%),
     350: hsl(70deg 8% 71%),
     400: hsl(69deg 8% 65%),
