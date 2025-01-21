@@ -20,7 +20,6 @@ import { CohortType, EventDefinition } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
-import { filterOutBehavioralCohorts } from './cohortFilterUtils'
 import type { infiniteListLogicType } from './infiniteListLogicType'
 
 /*
@@ -95,7 +94,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         expand: true,
         abortAnyRunningQuery: true,
     }),
-    loaders(({ actions, values, cache }) => ({
+    loaders(({ actions, values, cache, props }) => ({
         remoteItems: [
             createEmptyListStorage('', true),
             {
@@ -130,6 +129,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
                         properties: propertyAllowList ? propertyAllowList.join(',') : undefined,
+                        hide_behavioral_cohorts: props.hideBehavioralCohorts ? 'true' : 'false',
                     }
 
                     const start = performance.now()
@@ -308,23 +308,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         items: [
-            (s, p) => [
-                s.remoteItems,
-                s.localItems,
-                p.showNumericalPropsOnly ?? (() => false),
-                (_, props) => props.hideBehavioralCohorts,
-            ],
-            (remoteItems, localItems, showNumericalPropsOnly, hideBehavioralCohorts) => {
+            (s, p) => [s.remoteItems, s.localItems, p.showNumericalPropsOnly ?? (() => false)],
+            (remoteItems, localItems, showNumericalPropsOnly) => {
                 let results = [...localItems.results, ...remoteItems.results]
-
-                // TRICKY: Feature flags don't support dynamic behavioral cohorts,
-                // so we don't want to show them as selectable options in the taxonomic filter
-                // in the feature flag UI.
-                // TODO: Once we support dynamic behavioral cohorts, we should show them in the taxonomic filter,
-                // and remove this kludge.
-                if (Array.isArray(results) && results.every((item) => 'filters' in item)) {
-                    results = filterOutBehavioralCohorts(results, hideBehavioralCohorts)
-                }
 
                 results = results.filter((n) => {
                     if (!showNumericalPropsOnly) {

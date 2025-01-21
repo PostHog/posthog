@@ -309,6 +309,20 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             if search_query:
                 queryset = queryset.filter(name__icontains=search_query)
 
+            # TRICKY: Feature flags don't support dynamic behavioral cohorts,
+            # so we don't want to show them as selectable options in the taxonomic filter
+            # in the feature flag UI.
+            # TODO: Once we support dynamic behavioral cohorts, we should show them in the taxonomic filter,
+            # and remove this filter.
+            hide_behavioral_cohorts = (
+                self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true"
+            )
+            if hide_behavioral_cohorts:
+                # Exclude cohorts that have behavioral properties anywhere in their nested structure
+                queryset = queryset.exclude(
+                    filters__properties__values__contains=[{"values": [{"type": "behavioral"}]}]
+                )
+
         return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
 
     @action(

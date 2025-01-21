@@ -396,6 +396,58 @@ email@example.org,
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=nomatch").json()
         self.assertEqual(len(response["results"]), 0)
 
+    @patch("posthog.api.cohort.report_user_action")
+    def test_list_cohorts_excludes_behavioral_cohorts(self, patch_capture):
+        # Create a regular cohort
+        regular_cohort = Cohort.objects.create(
+            team=self.team,
+            name="regular cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "person", "key": "email", "value": "test@posthog.com"}],
+                }
+            },
+        )
+
+        # Create a behavioral cohort
+        Cohort.objects.create(
+            team=self.team,
+            name="behavioral cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "behavioral",
+                                    "key": "$pageview",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Test without filter
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 2)
+
+        # Test with behavioral filter
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], regular_cohort.id)
+
     def test_cohort_activity_log(self):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
