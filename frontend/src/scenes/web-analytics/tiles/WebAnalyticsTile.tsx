@@ -1,4 +1,4 @@
-import { IconTrending } from '@posthog/icons'
+import { IconRewindPlay, IconTrending } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -28,7 +28,7 @@ import {
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, ProductKey, PropertyFilterType, ReplayTabs, FilterLogicalOperator, PropertyOperator } from '~/types'
 
 const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -367,6 +367,18 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         action_name: {
             title: 'Action',
         },
+        replay_url: {
+            title: 'Recordings',
+            render: ({ value }: { value: any }) => (
+                    <RenderReplayButton
+                        date_from={value.dateFrom}
+                        date_to={value.dateTo}
+                        breakdownBy={value.breakdownBy}
+                        value={value.value}
+                />
+            ),
+            align: 'right',
+        },
     },
 }
 
@@ -649,4 +661,62 @@ export const WebQuery = ({
     }
 
     return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
+}
+
+const RenderReplayButton = ({date_from, date_to, breakdownBy, value}: {date_from: string, date_to: string, breakdownBy: WebStatsBreakdown, value: string}) => {
+    var key = ""
+
+    switch(breakdownBy){
+        case WebStatsBreakdown.DeviceType:
+            key = "$device_type"
+            break
+        case WebStatsBreakdown.InitialPage:
+            key = "$initial_pathname"
+            break
+        case WebStatsBreakdown.Browser:
+            key = "$browser"
+            break
+        case WebStatsBreakdown.OS:
+            key = "$os"
+            break
+    }
+
+    if(key === ""){
+        return <>{date_from} {date_to} {breakdownBy} {value}</>
+    }
+    
+    return(
+        <LemonButton 
+            icon={<IconRewindPlay />}
+            to={urls.replay(ReplayTabs.Home, {
+                date_from: date_from,
+                date_to: date_to,
+                filter_group: {
+                    type: FilterLogicalOperator.And,    
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    key: key, 
+                                    type: PropertyFilterType.Person,
+                                    value: [
+                                        value
+                                    ],
+                                    operator: PropertyOperator.Exact
+                                }
+                            ]
+                        }
+                    ]
+                }
+            })}
+            type="secondary"
+            size="xsmall"
+            className="float-right no-underline"
+            targetBlank={true}
+            onClick={(e) => {
+                e.stopPropagation()
+            }}
+            >View recordings</LemonButton>
+    )
 }
