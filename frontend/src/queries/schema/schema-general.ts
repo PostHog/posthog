@@ -2219,22 +2219,11 @@ export enum DefaultChannelTypes {
     Unknown = 'Unknown',
 }
 
-export interface LLMGeneration {
+export interface LLMTraceEvent {
     id: string
+    event: string
+    properties: Record<string, any>
     createdAt: string
-    input: any[]
-    latency: number
-    output?: any
-    provider?: string
-    model?: string
-    inputTokens?: number
-    outputTokens?: number
-    inputCost?: number
-    outputCost?: number
-    totalCost?: number
-    httpStatus?: number
-    baseUrl?: string
-    modelParameters?: Record<string, any>
 }
 
 // Snake-case here for the DataTable component.
@@ -2255,7 +2244,7 @@ export interface LLMTrace {
     inputCost?: number
     outputCost?: number
     totalCost?: number
-    events: LLMGeneration[]
+    events: LLMTraceEvent[]
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase<LLMTrace[]> {

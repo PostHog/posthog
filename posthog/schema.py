@@ -955,25 +955,14 @@ class IntervalType(StrEnum):
     MONTH = "month"
 
 
-class LLMGeneration(BaseModel):
+class LLMTraceEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    baseUrl: Optional[str] = None
     createdAt: str
-    httpStatus: Optional[float] = None
+    event: str
     id: str
-    input: list
-    inputCost: Optional[float] = None
-    inputTokens: Optional[float] = None
-    latency: float
-    model: Optional[str] = None
-    modelParameters: Optional[dict[str, Any]] = None
-    output: Optional[Any] = None
-    outputCost: Optional[float] = None
-    outputTokens: Optional[float] = None
-    provider: Optional[str] = None
-    totalCost: Optional[float] = None
+    properties: dict[str, Any]
 
 
 class LLMTracePerson(BaseModel):
@@ -2247,7 +2236,7 @@ class LLMTrace(BaseModel):
         extra="forbid",
     )
     createdAt: str
-    events: list[LLMGeneration]
+    events: list[LLMTraceEvent]
     id: str
     inputCost: Optional[float] = None
     inputTokens: Optional[float] = None
