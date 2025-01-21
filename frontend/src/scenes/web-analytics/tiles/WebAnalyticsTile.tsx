@@ -705,7 +705,7 @@ const RenderReplayButton = ({
 }): JSX.Element => {
     const sharedButtonProps = {
         icon: <IconRewindPlay />,
-        type: 'secondary' as const,
+        type: 'tertiary' as const,
         size: 'xsmall' as const,
         className: 'float-right no-underline',
         targetBlank: true,
