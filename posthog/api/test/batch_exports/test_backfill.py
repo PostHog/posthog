@@ -1,4 +1,5 @@
 import datetime as dt
+from unittest.mock import ANY, patch
 
 import pytest
 from django.test.client import Client as HttpClient
@@ -6,14 +7,15 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
+from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import (
     backfill_batch_export,
     create_batch_export_ok,
 )
-from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.temporal.common.client import sync_connect
+from posthog.test.base import _create_event
 
 pytestmark = [
     pytest.mark.django_db,
@@ -365,3 +367,109 @@ def test_batch_export_backfill_created_in_timezone(client: HttpClient):
 
         assert response.status_code == status.HTTP_200_OK, data
         assert data["backfill_id"] == f"{batch_export_id}-Backfill-2021-01-01T05:00:00+00:00-2021-10-01T04:00:00+00:00"
+
+
+def test_batch_export_backfill_when_start_at_is_before_earliest_backfill_start_at(client: HttpClient):
+    """Test that a BatchExport backfill will use the earliest possible backfill start date if start_at is before this.
+
+    For example if the timestamp of the earliest event is 2021-01-02T00:10:00+00:00, and the BatchExport is created with
+    a start_at of 2021-01-01T00:00:00+00:00, then the backfill will use 2021-01-02T00:00:00+00:00 as the start_at date.
+    """
+    temporal = sync_connect()
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "day",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    _create_event(
+        team=team, event="$pageview", distinct_id="person_1", timestamp=dt.datetime(2021, 1, 2, 0, 10, 0, tzinfo=dt.UTC)
+    )
+    with start_test_worker(temporal):
+        batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+        batch_export_id = batch_export["id"]
+        with patch("posthog.batch_exports.http.backfill_export", return_value=batch_export_id) as mock_backfill_export:
+            response = backfill_batch_export(
+                client,
+                team.pk,
+                batch_export_id,
+                "2021-01-01T00:00:00+00:00",
+                "2021-01-03T00:00:00+00:00",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            mock_backfill_export.assert_called_with(
+                ANY,  # temporal instance will be a different object
+                batch_export_id,
+                team.pk,
+                dt.datetime.fromisoformat("2021-01-02T00:00:00+00:00").astimezone(team.timezone_info),
+                dt.datetime.fromisoformat("2021-01-03T00:00:00+00:00").astimezone(team.timezone_info),
+            )
+
+
+def test_batch_export_backfill_when_backfill_end_at_is_before_earliest_event(client: HttpClient):
+    """Test a BatchExport backfill fails if the end_at is before the earliest event.
+
+    In this case, we know that the backfill range doesn't contain any data, so we can fail fast.
+
+    For example if the timestamp of the earliest event is 2021-01-03T00:10:00+00:00, and the BatchExport is created with a
+    start_at of 2021-01-01T00:00:00+00:00 and an end_at of 2021-01-02T00:00:00+00:00, then the backfill will fail.
+    """
+    temporal = sync_connect()
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "day",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    _create_event(
+        team=team, event="$pageview", distinct_id="person_1", timestamp=dt.datetime(2021, 1, 3, 0, 10, 0, tzinfo=dt.UTC)
+    )
+    with start_test_worker(temporal):
+        batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+        batch_export_id = batch_export["id"]
+        with patch("posthog.batch_exports.http.backfill_export", return_value=batch_export_id):
+            response = backfill_batch_export(
+                client,
+                team.pk,
+                batch_export_id,
+                "2021-01-01T00:00:00+00:00",
+                "2021-01-02T00:00:00+00:00",
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert (
+                response.json()["detail"]
+                == "The provided backfill date range contains no data. The earliest possible backfill start date is 2021-01-03 00:00:00"
+            )
