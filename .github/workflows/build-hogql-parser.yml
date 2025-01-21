@@ -91,12 +91,6 @@ jobs:
             - name: Install cibuildwheel
               run: pip install cibuildwheel==2.16.*
 
-            - name: Install boost
-              if: matrix.os == 'macos-13' # Only build the sdist once
-              run: |
-                  brew install boost
-                  brew link boost --force
-
             - name: Build wheels
               run: cd hogql_parser && python -m cibuildwheel --output-dir dist
               env:
