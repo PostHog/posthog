@@ -59,7 +59,7 @@ jobs:
                 # As of October 2023, GitHub doesn't have ARM Actions runners… and ARM emulation is insanely slow
                 # (20x longer) on the Linux runners (while being reasonable on the macOS runners). Hence, we use
                 # BuildJet as a provider of ARM runners - this solution saves a lot of time and consequently some money.
-                os: [ubuntu-22.04, buildjet-2vcpu-ubuntu-2204-arm, macos-12]
+                os: [ubuntu-22.04, buildjet-2vcpu-ubuntu-2204-arm, macos-14]
 
         steps:
             - uses: actions/checkout@v4
