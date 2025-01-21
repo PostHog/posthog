@@ -330,13 +330,22 @@ describe('IngestionConsumer', () => {
 
     describe('error handling', () => {
         let messages: Message[]
+        let error: any
 
         beforeEach(async () => {
             ingester = new IngestionConsumer(hub)
             await ingester.start()
             // Simulate some sort of error happening by mocking out the runner
             messages = createKafkaMessages([createEvent()])
+            error = new Error('test')
             jest.spyOn(status, 'error').mockImplementation(() => {})
+            jest.spyOn(ingester as any, 'getEventPipelineRunner').mockImplementation(() => ({
+                run: () => {
+                    console.log('running,', error.isRetriable)
+                    throw error
+                },
+                getPromises: () => [],
+            }))
         })
 
         afterEach(() => {
@@ -346,11 +355,7 @@ describe('IngestionConsumer', () => {
         it('should handle explicitly non retriable errors by sending to DLQ', async () => {
             // NOTE: I don't think this makes a lot of sense but currently is just mimicing existing behavior for the migration
             // We should figure this out better and have more explictly named errors
-
-            const error: any = new Error('test')
             error.isRetriable = false
-            jest.spyOn(ingester as any, 'runEventPipeline').mockRejectedValue(error)
-
             await ingester.handleKafkaBatch(messages)
 
             expect(jest.mocked(status.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
@@ -359,10 +364,7 @@ describe('IngestionConsumer', () => {
         })
 
         it.each([undefined, true])('should throw if isRetriable is set to %s', async (isRetriable) => {
-            const error: any = new Error('test')
             error.isRetriable = isRetriable
-            jest.spyOn(ingester as any, 'runEventPipeline').mockRejectedValue(error)
-
             await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
         })
     })

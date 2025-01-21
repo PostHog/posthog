@@ -1,4 +1,4 @@
-import * as Sentry from '@sentry/node'
+import { captureException } from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
@@ -19,7 +19,6 @@ import { Hub, PipelineEvent, PluginServerService } from '../types'
 import { normalizeEvent } from '../utils/event'
 import { status } from '../utils/status'
 import { MemoryRateLimiter } from '../utils/token-bucket'
-import { EventPipelineResult } from '../worker/ingestion/event-pipeline/runner'
 import { EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -341,8 +340,13 @@ export class IngestionConsumer {
         // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
         // fact that node-rdkafka adheres to the `isRetriable` interface.
 
+        status.error('🔥', `Error processing message`, {
+            stack: error.stack,
+            error: error,
+        })
+
         if (error?.isRetriable === false) {
-            const sentryEventId = Sentry.captureException(error)
+            const sentryEventId = captureException(error)
             const headers: MessageHeader[] = message.headers ?? []
             headers.push({ ['sentry-event-id']: sentryEventId })
             headers.push({ ['event-id']: event.uuid })

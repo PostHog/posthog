@@ -1,5 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import Sentry, { captureException } from '@sentry/node'
+import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
@@ -82,13 +82,14 @@ export class EventPipelineRunnerV2 {
         try {
             await this._run()
         } catch (error) {
+            console.log('error', error)
             if (error instanceof EventPipelineHandledError) {
                 // Handled errors mean we know that it was invalid and are purposefully moving on - everything else is unhandled
                 return this.captureIngestionWarning(error.ingestion_warning)
             }
 
-            Sentry.captureException(error, {
-                tags: { team_id: this.team!.id },
+            captureException(error, {
+                tags: { team_id: this.team?.id },
                 extra: { originalEvent: this.originalEvent },
             })
 
@@ -111,12 +112,12 @@ export class EventPipelineRunnerV2 {
 
     private async _run(): Promise<void> {
         // First of all lets get the team
-        const team = await this.getTeam()
+        this.team = (await this.getTeam()) ?? undefined
 
-        if (!team) {
+        if (!this.team) {
             return this.dropEvent('invalid_token')
         }
-        this.event.team_id = team.id
+        this.event.team_id = this.team.id
 
         // Early exit for client ingestion warnings
         if (this.event.event === '$$client_ingestion_warning') {
@@ -360,7 +361,7 @@ export class EventPipelineRunnerV2 {
         try {
             elementsChain = getElementsChain(properties!)
         } catch (error) {
-            Sentry.captureException(error, { tags: { team_id: this.team!.id } })
+            captureException(error, { tags: { team_id: this.team!.id } })
             status.warn('⚠️', 'Failed to process elements', {
                 uuid: this.event.uuid,
                 teamId: this.team!.id,
