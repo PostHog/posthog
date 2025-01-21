@@ -212,7 +212,7 @@ class OauthIntegration:
                 name_path="me.email",
             )
         elif kind == "linkedin-ads":
-            if not settings.LINKEDIN_CLIENT_ID or not settings.LINKEDIN_CLIENT_SECRET:
+            if not settings.LINKEDIN_APP_CLIENT_ID or not settings.LINKEDIN_APP_CLIENT_SECRET:
                 raise NotImplementedError("LinkedIn Ads app not configured")
 
             return OauthConfig(
@@ -220,8 +220,8 @@ class OauthIntegration:
                 token_info_url="https://api.linkedin.com/v2/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://www.linkedin.com/oauth/v2/accessToken",
-                client_id=settings.LINKEDIN_CLIENT_ID,
-                client_secret=settings.LINKEDIN_CLIENT_SECRET,
+                client_id=settings.LINKEDIN_APP_CLIENT_ID,
+                client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
                 scope="r_ads rw_conversions openid profile email",
                 id_path="sub",
                 name_path="email",
