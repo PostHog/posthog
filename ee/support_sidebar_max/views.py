@@ -17,8 +17,8 @@ from datetime import datetime, UTC
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
 
-from ee.support_sidebar_max.supportSidebarMax_system_prompt import get_system_prompt
-from .sidebar_max_AI import ConversationHistory, max_search_tool_tool
+from ee.support_sidebar_max.supportSidebarMaxSystemPrompt import get_system_prompt
+from .sidebar_max_ai import ConversationHistory, max_search_tool_tool
 from .max_search_tool import max_search_tool
 
 
@@ -42,7 +42,7 @@ class MaxChatViewSet(viewsets.ViewSet):
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated]
 
-    CONVERSATION_TIMEOUT = 300  # 5 minutes in seconds
+    CONVERSATION_TIMEOUT = 3600  # one hour
     basename = "max"
 
     def list(self, request: Request, **kwargs: Any) -> Response:
@@ -128,7 +128,10 @@ class MaxChatViewSet(viewsets.ViewSet):
 
         except Exception as e:
             django_logger.error(f"✨🦔 Error in chat endpoint: {str(e)}", exc_info=True)
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": "An unexpected error occurred. Please try again later."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         """Synchronous wrapper for async_create"""
