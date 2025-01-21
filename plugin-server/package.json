@@ -12,7 +12,7 @@
         "start:dist": "BASE_DIR=.. node dist/index.js",
         "start:dev": "NODE_ENV=dev BASE_DIR=.. nodemon --watch src/ --exec node -r @swc-node/register src/index.ts",
         "start:devNoWatch": "NODE_ENV=dev BASE_DIR=.. node -r @swc-node/register src/index.ts",
-        "build": "pnpm clean && pnpm typescript:compile && mv ./dist/src/* ./dist/",
+        "build": "pnpm clean && pnpm typescript:compile && && ls dist/ mv dist/src/* dist/",
         "clean": "rm -rf dist/* && rm -rf ../rust/cyclotron-node/index.node",
         "typescript:compile": "tsc -b",
         "typescript:check": "tsc --noEmit -p .",
