@@ -194,38 +194,39 @@ class PersonOverridesSnapshotDictionary:
         [[checksum]] = results
         return checksum
 
+    def __find_existing_mutation(self, client: Client, table: str, command_kind: str) -> Mutation | None:
+        results = client.execute(
+            f"""
+            SELECT mutation_id
+            FROM system.mutations
+            WHERE
+                database = %(database)s
+                AND table = %(table)s
+                AND startsWith(command, %(command_kind)s)
+                AND command like concat('%%', %(name)s, '%%')
+                AND NOT is_killed  -- ok to restart a killed mutation
+            ORDER BY create_time DESC
+            """,
+            {
+                "database": settings.CLICKHOUSE_DATABASE,
+                "table": table,
+                "command_kind": command_kind,
+                "name": self.qualified_name,
+            },
+        )
+        if not results:
+            return None
+        else:
+            assert len(results) == 1
+            [[mutation_id]] = results
+            return Mutation(table, mutation_id)
+
     def enqueue_person_id_update_mutation(self, client: Client) -> Mutation:
         table = EVENTS_DATA_TABLE()
 
-        def _find_existing_mutation() -> Mutation | None:
-            results = client.execute(
-                f"""
-                SELECT mutation_id
-                FROM system.mutations
-                WHERE
-                    database = %(database)s
-                    AND table = %(table)s
-                    AND startsWith(command, 'UPDATE')
-                    AND command like concat('%%', %(name)s, '%%')
-                    AND NOT is_killed  -- ok to restart a killed mutation
-                ORDER BY create_time DESC
-                """,
-                {
-                    "database": settings.CLICKHOUSE_DATABASE,
-                    "table": table,
-                    "name": self.qualified_name,
-                },
-            )
-            if not results:
-                return None
-            else:
-                assert len(results) == 1
-                [[mutation_id]] = results
-                return Mutation(table, mutation_id)
-
         # if this mutation already exists, don't start it again
         # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
-        if mutation := _find_existing_mutation():
+        if mutation := self.__find_existing_mutation(client, table, "UPDATE"):
             return mutation
 
         client.execute(
@@ -237,43 +238,16 @@ class PersonOverridesSnapshotDictionary:
             {"name": self.qualified_name},
         )
 
-        mutation = _find_existing_mutation()
+        mutation = self.__find_existing_mutation(client, table, "UPDATE")
         assert mutation is not None
-
         return mutation
 
     def enqueue_overrides_delete_mutation(self, client: Client) -> Mutation:
         table = PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
-        def _find_existing_mutation() -> Mutation | None:
-            results = client.execute(
-                f"""
-                SELECT mutation_id
-                FROM system.mutations
-                WHERE
-                    database = %(database)s
-                    AND table = %(table)s
-                    AND startsWith(command, 'DELETE')
-                    AND command like concat('%%', %(name)s, '%%')
-                    AND NOT is_killed  -- ok to restart a killed mutation
-                ORDER BY create_time DESC
-                """,
-                {
-                    "database": settings.CLICKHOUSE_DATABASE,
-                    "table": table,
-                    "name": self.qualified_name,
-                },
-            )
-            if not results:
-                return None
-            else:
-                assert len(results) == 1
-                [[mutation_id]] = results
-                return Mutation(table, mutation_id)
-
         # if this mutation already exists, don't start it again
         # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
-        if mutation := _find_existing_mutation():
+        if mutation := self.__find_existing_mutation(client, table, "DELETE"):
             return mutation
 
         client.execute(
@@ -286,9 +260,8 @@ class PersonOverridesSnapshotDictionary:
             {"name": self.qualified_name},
         )
 
-        mutation = _find_existing_mutation()
+        mutation = self.__find_existing_mutation(client, table, "DELETE")
         assert mutation is not None
-
         return mutation
 
 
