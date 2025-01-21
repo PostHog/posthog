@@ -51,6 +51,11 @@ def test_batch_export_backfill(client: HttpClient):
     user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
+    # ensure there is data to backfill, otherwise validation will fail
+    _create_event(
+        team=team, event="$pageview", distinct_id="person_1", timestamp=dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+    )
+
     with start_test_worker(temporal):
         batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
         batch_export_id = batch_export["id"]
@@ -351,6 +356,11 @@ def test_batch_export_backfill_created_in_timezone(client: HttpClient):
     user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
+    # ensure there is data to backfill, otherwise validation will fail
+    _create_event(
+        team=team, event="$pageview", distinct_id="person_1", timestamp=dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+    )
+
     with start_test_worker(temporal):
         batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
         batch_export_id = batch_export["id"]
@@ -473,3 +483,43 @@ def test_batch_export_backfill_when_backfill_end_at_is_before_earliest_event(cli
                 response.json()["detail"]
                 == "The provided backfill date range contains no data. The earliest possible backfill start date is 2021-01-03 00:00:00"
             )
+
+
+def test_batch_export_backfill_when_no_data_exists(client: HttpClient):
+    """Test a BatchExport backfill fails if no data exists for the given model."""
+    temporal = sync_connect()
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "day",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+        batch_export_id = batch_export["id"]
+        with patch("posthog.batch_exports.http.backfill_export", return_value=batch_export_id):
+            response = backfill_batch_export(
+                client,
+                team.pk,
+                batch_export_id,
+                "2021-01-01T00:00:00+00:00",
+                "2021-01-02T00:00:00+00:00",
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["detail"] == "There is no data to backfill for this model."

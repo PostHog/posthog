@@ -858,12 +858,12 @@ def fetch_earliest_backfill_start_at(
     interval_time_delta: dt.timedelta,
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
-) -> dt.datetime:
+) -> dt.datetime | None:
     """Get the earliest start_at for a batch export backfill.
 
-    Note that this query will return the unix epoch if no events or persons exist.
+    If there is no data for the given model, return None.
     """
-    interval_seconds = interval_time_delta.total_seconds()
+    interval_seconds = int(interval_time_delta.total_seconds())
     if model == "events":
         exclude_events = exclude_events or []
         include_events = include_events or []
@@ -891,4 +891,7 @@ def fetch_earliest_backfill_start_at(
             "interval_seconds": interval_seconds,
         }
 
-    return sync_execute(query, query_args)[0][0]
+    result = sync_execute(query, query_args)[0][0]
+    if result == dt.datetime.fromtimestamp(0, dt.UTC):
+        return None
+    return result
