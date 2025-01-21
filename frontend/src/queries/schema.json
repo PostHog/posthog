@@ -4333,6 +4333,16 @@
         "DashboardFilter": {
             "additionalProperties": false,
             "properties": {
+                "breakdown_filter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BreakdownFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "date_from": {
                     "type": ["string", "null"]
                 },
@@ -5932,6 +5942,12 @@
                         }
                     ]
                 },
+                "customVolume": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
                 "description": {
                     "type": ["string", "null"]
                 },
@@ -5965,17 +5981,30 @@
                 "users": {
                     "type": "number"
                 },
-                "volume": {}
+                "volumeDay": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "volumeMonth": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                }
             },
             "required": [
                 "id",
                 "name",
                 "description",
+                "first_seen",
+                "last_seen",
                 "occurrences",
                 "sessions",
                 "users",
-                "first_seen",
-                "last_seen",
+                "volumeDay",
+                "volumeMonth",
                 "assignee",
                 "status"
             ],
@@ -6009,6 +6038,16 @@
                     "anyOf": [
                         {
                             "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "customVolume": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingSparklineConfig"
                         },
                         {
                             "type": "null"
@@ -6050,12 +6089,6 @@
                 },
                 "searchQuery": {
                     "type": "string"
-                },
-                "select": {
-                    "items": {
-                        "$ref": "#/definitions/HogQLExpression"
-                    },
-                    "type": "array"
                 }
             },
             "required": ["dateRange", "kind"],
@@ -6110,6 +6143,20 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "ErrorTrackingSparklineConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "interval": {
+                    "enum": ["minute", "hour", "day", "week", "month"],
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["value", "interval"],
             "type": "object"
         },
         "EventDefinition": {
