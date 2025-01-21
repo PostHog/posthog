@@ -107,8 +107,8 @@ function TraceSidebar({ trace, eventId }: { trace: LLMTrace; eventId?: string | 
                         <li key={event.id} className="border-b border-border">
                             <Link
                                 to={urls.llmObservabilityTrace(trace.id, {
-                                    eventId: event.id,
-                                    dateFrom: trace.createdAt,
+                                    event: event.id,
+                                    timestamp: trace.createdAt,
                                 })}
                                 className={classNames(
                                     'flex flex-col gap-1 p-2 text-xs hover:bg-primary-highlight',

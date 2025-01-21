@@ -113,10 +113,10 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        [urls.llmObservabilityTrace(':id')]: ({ id }, { event, dateFrom }) => {
+        [urls.llmObservabilityTrace(':id')]: ({ id }, { event, timestamp }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
-            actions.setDateFrom(dateFrom || null)
+            actions.setDateFrom(timestamp || null)
         },
     })),
 ])

@@ -62,7 +62,7 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
     return (
         <Link
             className="ph-no-capture font-semibold"
-            to={urls.llmObservabilityTrace(row.id, { dateFrom: row.createdAt })}
+            to={urls.llmObservabilityTrace(row.id, { timestamp: row.createdAt })}
         >
             {row.id}
         </Link>
