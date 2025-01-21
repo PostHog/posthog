@@ -1,15 +1,18 @@
 from django.test import override_settings
 from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns, materialize
 from posthog.hogql_queries.experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
+from posthog.hogql_queries.experiments.types import ExperimentMetricType
 from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (
+    BaseMathType,
     DataWarehouseNode,
     EventsNode,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
     ExperimentTrendsQueryResponse,
     PersonsOnEventsMode,
+    PropertyMathType,
     TrendsQuery,
 )
 from posthog.settings import (
@@ -2363,3 +2366,45 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             }
         )
         self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+
+    def test_get_metric_type(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        # Test allowed count math types
+        allowed_count_math_types = [BaseMathType.TOTAL, BaseMathType.DAU, BaseMathType.UNIQUE_SESSION]
+        for math_type in allowed_count_math_types:
+            count_query = TrendsQuery(series=[EventsNode(event="$pageview", math=math_type)])
+            experiment_query = ExperimentTrendsQuery(
+                experiment_id=experiment.id,
+                kind="ExperimentTrendsQuery",
+                count_query=count_query,
+            )
+            query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
+            self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.COUNT)
+
+        # Test that SUM math returns CONTINUOUS
+        count_query = TrendsQuery(
+            series=[EventsNode(event="checkout completed", math=PropertyMathType.SUM, math_property="revenue")]
+        )
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+        )
+        query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
+        self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.CONTINUOUS)
+
+        # Test that AVG math gets converted to SUM and returns CONTINUOUS
+        count_query = TrendsQuery(
+            series=[EventsNode(event="checkout completed", math=PropertyMathType.AVG, math_property="revenue")]
+        )
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+        )
+        query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
+        self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.CONTINUOUS)
+        # Verify the math type was converted to sum
+        self.assertEqual(query_runner.query.count_query.series[0].math, PropertyMathType.SUM)
