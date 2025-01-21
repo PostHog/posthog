@@ -377,7 +377,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             title: 'Action',
         },
         replay_url: {
-            title: 'Recordings',
+            title: ' ',
             render: ({ value }: { value: any }) => (
                 <RenderReplayButton
                     date_from={value.dateFrom}
@@ -707,6 +707,7 @@ const RenderReplayButton = ({
         icon: <IconRewindPlay />,
         type: 'tertiary' as const,
         size: 'xsmall' as const,
+        tooltip: 'View recordings',
         className: 'float-right no-underline',
         targetBlank: true,
         onClick: (e: React.MouseEvent) => {
@@ -722,11 +723,7 @@ const RenderReplayButton = ({
 
     /** If value is null - just open session replay home page */
     if (value === null) {
-        return (
-            <LemonButton {...sharedButtonProps} to={urls.replay(ReplayTabs.Home, { date_from, date_to })}>
-                View recordings
-            </LemonButton>
-        )
+        return <LemonButton {...sharedButtonProps} to={urls.replay(ReplayTabs.Home, { date_from, date_to })} />
     }
 
     /** View port is a unique case, so we need to handle it differently */
@@ -760,9 +757,7 @@ const RenderReplayButton = ({
                         ],
                     },
                 })}
-            >
-                View recordings
-            </LemonButton>
+            />
         )
     }
 
@@ -804,9 +799,7 @@ const RenderReplayButton = ({
                         ],
                     },
                 })}
-            >
-                View recordings
-            </LemonButton>
+            />
         )
     }
 
@@ -877,8 +870,6 @@ const RenderReplayButton = ({
                     ],
                 },
             })}
-        >
-            View recordings
-        </LemonButton>
+        />
     )
 }

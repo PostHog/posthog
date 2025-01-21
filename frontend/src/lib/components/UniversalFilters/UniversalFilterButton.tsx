@@ -43,7 +43,7 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
                     'ph-no-capture': true,
                 })}
             >
-                <div className="flex items-center flex-1 truncate">
+                <div className="flex items-center flex-1 truncate gap-1">
                     {isEvent ? (
                         <EventLabel filter={filter} onClick={onClick} />
                     ) : isAction ? (
