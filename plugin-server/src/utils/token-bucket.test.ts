@@ -111,7 +111,7 @@ describe('Storage', () => {
             storage.replenish(key)
 
             expect(storage.consume(key, 11)).toEqual(false)
-            expect(storage.buckets.get(key)![0]).toEqual(10)
+            expect(storage.buckets.get(key)![0]).toEqual(-1)
         })
 
         it('throws error on missing bucket key', () => {

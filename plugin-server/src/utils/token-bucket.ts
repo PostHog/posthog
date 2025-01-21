@@ -46,7 +46,7 @@ export class Storage {
 
         bucket[0] -= tokens
 
-        if (bucket[0] < tokens) {
+        if (bucket[0] <= 0) {
             return false
         }
 
