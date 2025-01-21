@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './webhook.template'
 
@@ -6,7 +8,7 @@ describe('webhook template', () => {
 
     beforeEach(async () => {
         await tester.beforeEach()
-        jest.useFakeTimers().setSystemTime(new Date('2025-01-01'))
+        jest.useFakeTimers().setSystemTime(DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate())
     })
 
     it('should invoke the function', async () => {
