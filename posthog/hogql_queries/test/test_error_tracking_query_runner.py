@@ -3,6 +3,7 @@ from freezegun import freeze_time
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
+from posthog.models.utils import uuid7
 
 from posthog.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner, search_tokenizer
 from posthog.schema import (
@@ -205,9 +206,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, fingerprint=fingerprint, issue_id=issue_id, version=version
         )
 
-    def create_events_and_issue(self, issue_id, fingerprint, distinct_ids, timestamp=None, exception_list=None):
+    def create_issue(self, issue_id, fingerprint):
         issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team)
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        return issue
+
+    def create_events_and_issue(self, issue_id, fingerprint, distinct_ids, timestamp=None, exception_list=None):
+        self.create_issue(issue_id, fingerprint)
 
         event_properties = {"$exception_issue_id": issue_id, "$exception_fingerprint": fingerprint}
         if exception_list:
@@ -362,12 +367,12 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0]["id"], "01936e81-b0ce-7b56-8497-791e505b0d0c")
         self.assertEqual(results[0]["occurrences"], 1)
-        self.assertEqual(results[0]["sessions"], 1)
+        self.assertEqual(results[0]["sessions"], 0)
         self.assertEqual(results[0]["users"], 1)
 
         self.assertEqual(results[1]["id"], "01936e81-f5ce-79b1-99f1-f0e9675fcfef")
         self.assertEqual(results[1]["occurrences"], 1)
-        self.assertEqual(results[1]["sessions"], 1)
+        self.assertEqual(results[1]["sessions"], 0)
         self.assertEqual(results[1]["users"], 1)
 
     def test_empty_search_query(self):
@@ -411,7 +416,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], "01936e81-b0ce-7b56-8497-791e505b0d0c")
         self.assertEqual(results[0]["occurrences"], 1)
-        self.assertEqual(results[0]["sessions"], 1)
+        self.assertEqual(results[0]["sessions"], 0)
         self.assertEqual(results[0]["users"], 1)
 
     def test_only_returns_exception_events(self):
@@ -426,6 +431,35 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._calculate()["results"]
         self.assertEqual(len(results), 3)
+
+    @snapshot_clickhouse_queries
+    def test_correctly_counts_session_ids(self):
+        with freeze_time("2022-01-10 12:11:00"):
+            _create_event(
+                distinct_id=self.distinct_id_one,
+                event="$exception",
+                team=self.team,
+                properties={"$session_id": str(uuid7()), "$exception_issue_id": self.issue_id_one},
+            )
+            _create_event(
+                distinct_id=self.distinct_id_one,
+                event="$exception",
+                team=self.team,
+                properties={"$session_id": str(uuid7()), "$exception_issue_id": self.issue_id_one},
+            )
+            # blank string
+            _create_event(
+                distinct_id=self.distinct_id_one,
+                event="$exception",
+                team=self.team,
+                properties={"$session_id": "", "$exception_issue_id": self.issue_id_one},
+            )
+            flush_persons_and_events()
+
+        results = self._calculate(issueId=self.issue_id_one)["results"]
+        self.assertEqual(results[0]["id"], self.issue_id_one)
+        # only includes valid session ids
+        self.assertEqual(results[0]["sessions"], 2)
 
     @snapshot_clickhouse_queries
     def test_hogql_filters(self):
