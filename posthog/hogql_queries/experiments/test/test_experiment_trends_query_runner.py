@@ -1121,7 +1121,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         ]
     )
-    def test_query_runner_with_data_warehouse_internal_filters(self, name, filter: object, filter_expected: object):
+    def test_query_runner_with_data_warehouse_internal_filters(self, name, filter: dict, filter_expected: dict):
         table_name = self.create_data_warehouse_table_with_usage()
 
         feature_flag = self.create_feature_flag()
