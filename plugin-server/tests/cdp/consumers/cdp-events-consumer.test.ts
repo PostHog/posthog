@@ -1,5 +1,5 @@
 // eslint-disable-next-line simple-import-sort/imports
-import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer.mock'
+import { getParsedQueuedMessages, mockProducer } from '../../helpers/mocks/producer.mock'
 
 import { CdpInternalEventsConsumer } from '../../../src/cdp/consumers/cdp-internal-events.consumer'
 import { CdpProcessedEventsConsumer } from '../../../src/cdp/consumers/cdp-processed-events.consumer'
@@ -62,8 +62,6 @@ jest.mock('../../../src/utils/db/kafka-producer-wrapper', () => {
 })
 
 const mockFetch: jest.Mock = require('../../../src/utils/fetch').trackedFetch
-
-const mockProducer = require('../../../src/utils/db/kafka-producer-wrapper').KafkaProducerWrapper()
 
 jest.setTimeout(1000)
 

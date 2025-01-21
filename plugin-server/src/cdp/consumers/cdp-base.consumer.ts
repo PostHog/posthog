@@ -1,3 +1,4 @@
+import { KafkaProducerWrapper } from 'kafka/producer'
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 import { Counter } from 'prom-client'
@@ -13,8 +14,6 @@ import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { addSentryBreadcrumbsEventListeners } from '../../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { AppMetric2Type, Hub, PluginServerService, TimestampFormat } from '../../types'
-import { createKafkaProducerWrapper } from '../../utils/db/hub'
-import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
@@ -124,7 +123,6 @@ export abstract class CdpConsumerBase {
                     topic: x.topic,
                     value: Buffer.from(safeClickhouseString(JSON.stringify(x.value))),
                     key: x.key,
-                    waitForAck: true,
                 }).catch((reason) => {
                     status.error('⚠️', `failed to produce message: ${reason}`)
                 })
@@ -279,7 +277,7 @@ export abstract class CdpConsumerBase {
     }): Promise<void> {
         this.batchConsumer = await startBatchConsumer({
             ...options,
-            connectionConfig: createRdConnectionConfigFromEnvVars(this.hub),
+            connectionConfig: createRdConnectionConfigFromEnvVars(this.hub, 'consumer'),
             autoCommit: true,
             sessionTimeout: this.hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.hub.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
@@ -327,7 +325,7 @@ export abstract class CdpConsumerBase {
         // NOTE: This is only for starting shared services
         await Promise.all([
             this.hogFunctionManager.start(this.hogTypes),
-            createKafkaProducerWrapper(this.hub).then((producer) => {
+            KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()
             }),
