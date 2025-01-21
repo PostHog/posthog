@@ -363,6 +363,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprIntervalString(HogQLParser::ColumnExprIntervalStringContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprTrim(HogQLParser::ColumnExprTrimContext *ctx) override {
     return visitChildren(ctx);
   }
