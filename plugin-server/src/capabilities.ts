@@ -35,12 +35,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case null:
             return {
                 ...singleProcessCapabilities,
-                ...sharedCapabilities,
             }
         case PluginServerMode.all_v2:
             return {
                 ...singleProcessCapabilities,
-                ...sharedCapabilities,
                 ingestionV2Combined: true,
             }
 
