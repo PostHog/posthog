@@ -86,6 +86,7 @@ export enum TileId {
 export enum ProductTab {
     ANALYTICS = 'analytics',
     WEB_VITALS = 'web-vitals',
+    SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
 }
 
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
@@ -157,9 +158,9 @@ export interface ErrorTrackingTile extends BaseTile {
     query: QuerySchema
 }
 
-export type WebDashboardTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
+export type WebAnalyticsTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
 
-export interface WebDashboardModalQuery {
+export interface WebAnalyticsModalQuery {
     tileId: TileId
     tabId?: string
     title?: string
@@ -225,12 +226,13 @@ export interface WebAnalyticsStatusCheck {
     isSendingPageLeavesScroll: boolean
 }
 
+// We're setting end to 20% above the poor threshold to have much more space in the UI for the good and poor segments
 export type WebVitalsThreshold = { good: number; poor: number; end: number }
 export const WEB_VITALS_THRESHOLDS: Record<WebVitalsMetric, WebVitalsThreshold> = {
-    INP: { good: 200, poor: 500, end: 550 },
-    LCP: { good: 2500, poor: 4000, end: 4400 },
-    CLS: { good: 0.1, poor: 0.25, end: 0.3 },
-    FCP: { good: 1800, poor: 3000, end: 3300 },
+    INP: { good: 200, poor: 500, end: 500 * 1.2 },
+    LCP: { good: 2500, poor: 4000, end: 4000 * 1.2 },
+    CLS: { good: 0.1, poor: 0.25, end: 0.25 * 1.2 },
+    FCP: { good: 1800, poor: 3000, end: 3000 * 1.2 },
 }
 
 export const WEB_VITALS_COLORS = {
@@ -416,7 +418,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         isPathCleaningEnabled: [
-            null as boolean | null,
+            true as boolean,
             persistConfig,
             {
                 setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
@@ -626,7 +628,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 featureFlags,
                 isGreaterThanMd
-            ): WebDashboardTile[] => {
+            ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
@@ -793,7 +795,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 />
                             </div>
                         }
-                        checked={!!isPathCleaningEnabled}
+                        checked={isPathCleaningEnabled}
                         onChange={(value) => actions.setIsPathCleaningEnabled(value)}
                         className="h-full"
                     />
@@ -856,7 +858,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 properties: webAnalyticsFilters,
                                 percentile: webVitalsPercentile,
                                 metric: webVitalsTab,
-                                doPathCleaning: !!isPathCleaningEnabled,
+                                doPathCleaning: isPathCleaningEnabled,
                                 thresholds: [
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].good,
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
@@ -876,7 +878,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ]
                 }
 
-                const allTiles: (WebDashboardTile | null)[] = [
+                const allTiles: (WebAnalyticsTile | null)[] = [
                     {
                         kind: 'query',
                         tileId: TileId.OVERVIEW,
@@ -982,7 +984,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           {
                                               includeScrollDepth: false, // TODO needs some perf work before it can be enabled
                                               includeBounceRate: true,
-                                              doPathCleaning: !!isPathCleaningEnabled,
+                                              doPathCleaning: isPathCleaningEnabled,
                                           },
                                           {
                                               control: pathCleaningControl,
@@ -1026,7 +1028,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           {
                                               includeBounceRate: true,
                                               includeScrollDepth: false,
-                                              doPathCleaning: !!isPathCleaningEnabled,
+                                              doPathCleaning: isPathCleaningEnabled,
                                           },
                                           {
                                               control: pathCleaningControl,
@@ -1060,7 +1062,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           {
                                               includeBounceRate: false,
                                               includeScrollDepth: false,
-                                              doPathCleaning: !!isPathCleaningEnabled,
+                                              doPathCleaning: isPathCleaningEnabled,
                                           },
                                           {
                                               control: pathCleaningControl,
@@ -1569,7 +1571,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   dateRange: dateRange,
                                   filterTestAccounts: filterTestAccounts,
                                   filterGroup: replayFilters.filter_group,
-                                  sparklineSelectedPeriod: null,
                                   columns: ['error', 'users', 'occurrences'],
                                   limit: 4,
                               }),
@@ -1600,12 +1601,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         modal: [
             (s) => [s.tiles, s._modalTileAndTab],
-            (tiles, modalTileAndTab): WebDashboardModalQuery | null => {
+            (tiles, modalTileAndTab): WebAnalyticsModalQuery | null => {
                 if (!modalTileAndTab) {
                     return null
                 }
                 const { tileId, tabId } = modalTileAndTab
-                const tile: WebDashboardTile | undefined = tiles.find((tile) => tile.tileId === tileId)
+                const tile: WebAnalyticsTile | undefined = tiles.find((tile) => tile.tileId === tileId)
                 if (!tile) {
                     return null
                 }
@@ -1812,7 +1813,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         return query
                     }
 
-                    const tile: WebDashboardTile | undefined = tiles.find((tile) => tile.tileId === tileId)
+                    const tile: WebAnalyticsTile | undefined = tiles.find((tile) => tile.tileId === tileId)
                     if (!tile) {
                         return undefined
                     }
@@ -2021,6 +2022,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setCompareFilter: stateToUrl,
             setProductTab: stateToUrl,
             setWebVitalsPercentile: stateToUrl,
+            setIsPathCleaningEnabled: stateToUrl,
         }
     }),
 
@@ -2045,6 +2047,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 percentile,
             }: Record<string, any>
         ): void => {
+            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS].includes(productTab)) {
+                return
+            }
+
             const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
 
             if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {

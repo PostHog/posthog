@@ -2,7 +2,7 @@ import json
 
 from inline_snapshot import snapshot
 
-from hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.cdp.validation import validate_inputs, validate_inputs_schema
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 

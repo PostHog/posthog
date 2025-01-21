@@ -37,9 +37,12 @@ export const editorModelsStateKey = (key: string | number): string => `${key}/ed
 export const activeModelStateKey = (key: string | number): string => `${key}/activeModelUri`
 export const activeModelVariablesStateKey = (key: string | number): string => `${key}/activeModelVariables`
 
+export const NEW_QUERY = 'New query'
+
 export interface QueryTab {
     uri: Uri
     view?: DataWarehouseSavedQuery
+    name: string
 }
 
 export const multitabEditorLogic = kea<multitabEditorLogicType>([
@@ -62,6 +65,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         updateState: true,
         runQuery: (queryOverride?: string, switchTab?: boolean) => ({ queryOverride, switchTab }),
         setActiveQuery: (query: string) => ({ query }),
+        renameTab: (tab: QueryTab, newName: string) => ({ tab, newName }),
         setTabs: (tabs: QueryTab[]) => ({ tabs }),
         addTab: (tab: QueryTab) => ({ tab }),
         createTab: (query?: string, view?: DataWarehouseSavedQuery) => ({ query, view }),
@@ -134,12 +138,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             [] as QueryTab[],
             {
                 addTab: (state, { tab }) => {
-                    const newTabs = [...state, tab]
-                    return newTabs
+                    return [...state, tab]
                 },
                 removeTab: (state, { tab: tabToRemove }) => {
-                    const newModels = state.filter((tab) => tab.uri.toString() !== tabToRemove.uri.toString())
-                    return newModels
+                    return state.filter((tab) => tab.uri.toString() !== tabToRemove.uri.toString())
                 },
                 setTabs: (_, { tabs }) => tabs,
             },
@@ -199,10 +201,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.addTab({
                     uri,
                     view,
+                    name: view?.name || NEW_QUERY,
                 })
                 actions.selectTab({
                     uri,
                     view,
+                    name: view?.name || NEW_QUERY,
                 })
 
                 const queries = values.allTabs.map((tab) => {
@@ -210,10 +214,24 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         query: props.monaco?.editor.getModel(tab.uri)?.getValue() || '',
                         path: tab.uri.path.split('/').pop(),
                         view: uri.path === tab.uri.path ? view : tab.view,
+                        name: tab.name,
                     }
                 })
                 actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
             }
+        },
+        renameTab: ({ tab, newName }) => {
+            const updatedTabs = values.allTabs.map((t) => {
+                if (t.uri.toString() === tab.uri.toString()) {
+                    return {
+                        ...t,
+                        name: newName,
+                    }
+                }
+                return t
+            })
+            actions.setTabs(updatedTabs)
+            actions.updateState()
         },
         selectTab: ({ tab }) => {
             if (props.monaco) {
@@ -254,6 +272,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const allModelQueries = localStorage.getItem(editorModelsStateKey(props.key))
             const activeModelUri = localStorage.getItem(activeModelStateKey(props.key))
             const activeModelVariablesString = localStorage.getItem(activeModelVariablesStateKey(props.key))
+
             const activeModelVariables =
                 activeModelVariablesString && activeModelVariablesString != 'undefined'
                     ? JSON.parse(activeModelVariablesString)
@@ -284,6 +303,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         newModels.push({
                             uri,
                             view: model.view,
+                            name: model.name || NEW_QUERY,
                         })
                         mountedCodeEditorLogic && initModel(newModel, mountedCodeEditorLogic)
                     }
@@ -315,10 +335,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         actions.selectTab({
                             uri,
                             view: activeView,
+                            name: NEW_QUERY,
                         })
                 } else if (newModels.length) {
                     actions.selectTab({
                         uri: newModels[0].uri,
+                        name: NEW_QUERY,
                     })
                 }
             } else {
@@ -339,6 +361,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return {
                     query: props.monaco?.editor.getModel(model.uri)?.getValue() || '',
                     path: model.uri.path.split('/').pop(),
+                    name: model.name || NEW_QUERY,
                     view: model.view,
                 }
             })
@@ -372,13 +395,19 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             LemonDialog.openForm({
                 title: 'Save as view',
                 initialValues: { viewName: '' },
+                description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
                 content: (
                     <LemonField name="viewName">
                         <LemonInput placeholder="Please enter the name of the view" autoFocus />
                     </LemonField>
                 ),
                 errors: {
-                    viewName: (name) => (!name ? 'You must enter a name' : undefined),
+                    viewName: (name) =>
+                        !name
+                            ? 'You must enter a name'
+                            : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
+                            ? 'Name must be valid'
+                            : undefined,
                 },
                 onSubmit: async ({ viewName }) => {
                     await asyncActions.saveAsViewSubmit(viewName)

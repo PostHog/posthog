@@ -35,7 +35,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['dateRange', 'retentionFilter', 'breakdownFilter', 'vizSpecificOptions'],
+            ['dateRange', 'retentionFilter', 'breakdownFilter', 'vizSpecificOptions', 'theme'],
             retentionLogic(props),
             ['results'],
         ],

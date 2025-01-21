@@ -33,13 +33,6 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub max_pg_connections: u32,
 
-    // These are unused for now, but useful while iterating in prod
-    #[envconfig(default = "true")]
-    pub skip_writes: bool,
-
-    #[envconfig(default = "true")]
-    pub skip_reads: bool,
-
     // cymbal makes HTTP get requests to auto-resolve sourcemaps - and follows redirects. To protect against SSRF, we only allow requests to public URLs by default
     #[envconfig(default = "false")]
     pub allow_internal_ips: bool,
