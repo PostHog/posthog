@@ -247,17 +247,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     if (group?.logic && group?.value) {
                         let items = group.logic.selectors[group.value]?.(state)
+
                         // Handle paginated responses for cohorts, which return a CountedPaginatedResponse
                         if (items?.results) {
                             items = items.results
-                        }
-                        // TRICKY: Feature flags don't support dynamic behavioral cohorts,
-                        // so we don't want to show them as selectable options in the taxonomic filter
-                        // in the feature flag UI.
-                        // TODO: Once we support dynamic behavioral cohorts, we should show them in the taxonomic filter,
-                        // and remove this kludge.
-                        if (Array.isArray(items) && items.every((item) => 'filters' in item)) {
-                            return filterOutBehavioralCohorts(items, props.hideBehavioralCohorts)
                         }
 
                         return items
@@ -315,9 +308,25 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         items: [
-            (s, p) => [s.remoteItems, s.localItems, p.showNumericalPropsOnly ?? (() => false)],
-            (remoteItems, localItems, showNumericalPropsOnly) => {
-                const results = [...localItems.results, ...remoteItems.results].filter((n) => {
+            (s, p) => [
+                s.remoteItems,
+                s.localItems,
+                p.showNumericalPropsOnly ?? (() => false),
+                (_, props) => props.hideBehavioralCohorts,
+            ],
+            (remoteItems, localItems, showNumericalPropsOnly, hideBehavioralCohorts) => {
+                let results = [...localItems.results, ...remoteItems.results]
+
+                // TRICKY: Feature flags don't support dynamic behavioral cohorts,
+                // so we don't want to show them as selectable options in the taxonomic filter
+                // in the feature flag UI.
+                // TODO: Once we support dynamic behavioral cohorts, we should show them in the taxonomic filter,
+                // and remove this kludge.
+                if (Array.isArray(results) && results.every((item) => 'filters' in item)) {
+                    results = filterOutBehavioralCohorts(results, hideBehavioralCohorts)
+                }
+
+                results = results.filter((n) => {
                     if (!showNumericalPropsOnly) {
                         return true
                     }
@@ -327,7 +336,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
 
                     if ('property_type' in n) {
-                        const property_type = n.property_type as string // Data warehouse props dont conformt to PropertyType for some reason
+                        const property_type = n.property_type as string // Data warehouse props dont conform to PropertyType for some reason
                         return property_type === 'Integer' || property_type === 'Float'
                     }
 
