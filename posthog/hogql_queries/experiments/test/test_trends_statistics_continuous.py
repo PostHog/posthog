@@ -17,7 +17,7 @@ from flaky import flaky
 def create_variant(
     key: str, total_sum: float, exposure: float, absolute_exposure: int
 ) -> ExperimentVariantTrendsBaseStats:
-    # Note: We use the count field to store the mean value for continuous metrics
+    # Note: We use the count field to store the total sum for continuous metrics
     return ExperimentVariantTrendsBaseStats(
         key=key, count=total_sum, exposure=exposure, absolute_exposure=absolute_exposure
     )
@@ -89,13 +89,13 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
                 self.assertAlmostEqual(p_value, 0.00049, delta=0.00001)
 
-                # Control: ~$100 mean with wide interval due to small sample
-                self.assertAlmostEqual(intervals["control"][0], 98, delta=5)
-                self.assertAlmostEqual(intervals["control"][1], 102, delta=5)
+                # Control: ~$100 mean with narrow interval due to old implementation
+                self.assertAlmostEqual(intervals["control"][0], 98, delta=3)
+                self.assertAlmostEqual(intervals["control"][1], 102, delta=3)
 
-                # Test: ~$105 mean with wide interval due to small sample
-                self.assertAlmostEqual(intervals["test"][0], 103, delta=5)
-                self.assertAlmostEqual(intervals["test"][1], 107, delta=5)
+                # Test: ~$105 mean with narrow interval due to old implementation
+                self.assertAlmostEqual(intervals["test"][0], 103, delta=3)
+                self.assertAlmostEqual(intervals["test"][1], 107, delta=3)
 
         self.run_test_for_both_implementations(run_test)
 
@@ -280,6 +280,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
                 self.assertAlmostEqual(p_value, 0, delta=0.00001)
 
+                # Generally narrower intervals in old implementation
                 # Control variant
                 self.assertAlmostEqual(intervals["control"][0], 99.8, delta=5)
                 self.assertAlmostEqual(intervals["control"][1], 100.2, delta=5)
@@ -433,12 +434,12 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 self.assertEqual(significance, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
                 self.assertEqual(p_value, 1.0)
 
-                # Both variants should have wide intervals due to small sample size
-                self.assertAlmostEqual(intervals["control"][0], 97, delta=10)
-                self.assertAlmostEqual(intervals["control"][1], 102, delta=10)
+                # Generally narrower intervals in old implementation
+                self.assertAlmostEqual(intervals["control"][0], 97, delta=3)
+                self.assertAlmostEqual(intervals["control"][1], 102, delta=3)
 
-                self.assertAlmostEqual(intervals["test"][0], 117, delta=10)
-                self.assertAlmostEqual(intervals["test"][1], 123, delta=10)
+                self.assertAlmostEqual(intervals["test"][0], 117, delta=3)
+                self.assertAlmostEqual(intervals["test"][1], 123, delta=3)
 
         self.run_test_for_both_implementations(run_test)
 
