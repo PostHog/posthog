@@ -7,6 +7,7 @@ from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
+import posthoganalytics
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
@@ -32,7 +33,6 @@ from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssis
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
-from posthog.ph_client import get_ph_client
 from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -44,8 +44,6 @@ from posthog.schema import (
     VisualizationMessage,
 )
 from posthog.settings import SERVER_GATEWAY_INTERFACE
-
-posthog_client = get_ph_client()
 
 VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
@@ -90,17 +88,16 @@ class Assistant:
         self._graph = AssistantGraph(team).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
         self._state = None
-        distinct_id = user.distinct_id if user else None
         self._callback_handler = (
             CallbackHandler(
-                posthog_client,
-                distinct_id,
+                posthoganalytics.default_client,
+                distinct_id=user.distinct_id if user else None,
                 properties={
                     "conversation_id": str(self._conversation.id),
                     "is_first_conversation": is_new_conversation,
                 },
             )
-            if posthog_client
+            if posthoganalytics.default_client
             else None
         )
 
