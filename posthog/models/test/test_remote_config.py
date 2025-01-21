@@ -609,6 +609,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
     siteApps: [    
     {
       id: 'SITE_DESTINATION_ID',
+      type: 'site_destination',
       init: function(config) { return     (function() {
         function toString (value) { return __STLToString(value) }
         function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }
@@ -758,6 +759,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
     },    
     {
       id: 'SITE_APP_ID',
+      type: 'site_app',
       init: function(config) { return     (function() {
         
         function buildInputs(globals, initial) {
