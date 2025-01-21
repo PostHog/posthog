@@ -50,6 +50,7 @@ module.exports = {
         'simple-import-sort',
         'import',
         'unused-imports',
+        'react-google-translate',
     ],
     rules: {
         'react-hooks/rules-of-hooks': 'error',
@@ -273,6 +274,8 @@ module.exports = {
             },
         ],
         'no-else-return': 'warn',
+        'react-google-translate/no-conditional-text-nodes-with-siblings': 'warn',
+        'react-google-translate/no-return-text-nodes': 'warn',
     },
     overrides: [
         {

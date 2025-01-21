@@ -555,7 +555,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 : null
                                                         }
                                                     >
-                                                        {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
+                                                        <span>{featureFlag.deleted ? 'Restore' : 'Delete'}</span>{' '}
+                                                        <span>feature flag</span>
                                                     </LemonButton>
                                                 </>
                                             }
@@ -962,7 +963,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     <code>true</code>
                                 </strong>
                             )}{' '}
-                            if they match one or more release condition groups.
+                            <span>if they match one or more release condition groups.</span>
                         </div>
                     )}
                 </div>
