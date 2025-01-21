@@ -1,7 +1,4 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { useActions } from 'kea'
-import { useEffect } from 'react'
-import { worldMapLogic } from 'scenes/insights/views/WorldMap/worldMapLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { examples } from '~/queries/examples'
@@ -48,52 +45,21 @@ const meta: Meta<typeof Query> = {
 }
 export default meta
 
-const SimpleQueryTemplate: StoryFn<typeof Query> = (args) => {
+const Template: StoryFn<typeof Query> = (args) => {
     return <Query {...args} context={{ ...webAnalyticsDataTableQueryContext }} readOnly />
 }
 
-const WorldMapTemplate: StoryFn<typeof Query> = (args) => {
-    // TODO: Use the other functions, see below
-    // const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(worldMapLogic({ dashboardItemId: `new-AdHoc.InsightViz.${args.uniqueKey}` }))
-    const { showTooltip } = useActions(worldMapLogic({ dashboardItemId: `new-AdHoc.InsightViz.${args.uniqueKey}` }))
+export const WorldMap: Story = Template.bind({})
+WorldMap.args = { query: examples['WebAnalyticsWorldMap'] }
 
-    useEffect(() => {
-        if (args.uniqueKey === 'new-world-map') {
-            // @ts-expect-error - the code doesn't need to know the extra TrendResult keys besides the agg_value
-            showTooltip('GB', { aggregated_value: 2702 })
-
-            // TODO: Add this back in, it's breaking the snapshots by displaying the tooltip
-            // in some follow-up stories, it's not clear why the `hideTooltip` call is not working
-            // Can be reproduced locally very easily
-            // updateTooltipCoordinates(380, 90)
-        }
-
-        // Hide tooltip when unmounting
-        // TODO: Add this back in, see above
-        // return hideTooltip
-    }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-    // NOTE: Hardcoding width/height to make sure the world map is rendered properly
-    // and that the (380, 90) coordinates are correct and near GB
-    return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ width: '800px', height: '600px' }}>
-            <Query {...args} readOnly />
-        </div>
-    )
-}
-
-export const WorldMap: Story = WorldMapTemplate.bind({})
-WorldMap.args = { query: examples['WebAnalyticsWorldMap'], uniqueKey: 'new-world-map' }
-
-export const ReferrerDomain: Story = SimpleQueryTemplate.bind({})
+export const ReferrerDomain: Story = Template.bind({})
 ReferrerDomain.args = { query: examples['WebAnalyticsReferrerDomain'] }
 
-export const Path: Story = SimpleQueryTemplate.bind({})
+export const Path: Story = Template.bind({})
 Path.args = { query: examples['WebAnalyticsPath'] }
 
-export const Retention: Story = SimpleQueryTemplate.bind({})
+export const Retention: Story = Template.bind({})
 Retention.args = { query: examples['WebAnalyticsRetention'] }
 
-export const Browser: Story = SimpleQueryTemplate.bind({})
+export const Browser: Story = Template.bind({})
 Browser.args = { query: examples['WebAnalyticsBrowser'] }
