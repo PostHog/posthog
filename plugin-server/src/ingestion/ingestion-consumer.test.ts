@@ -327,4 +327,117 @@ describe('IngestionConsumer', () => {
             expect(batches[`${team2.api_token}:distinct-id-1`]).toHaveLength(1)
         })
     })
+
+    describe('typical event processing', () => {
+        /**
+         * NOTE: The majority of these tests should be done in the event pipeline runner but
+         * this is a good place to have some high level happy paths
+         */
+
+        beforeEach(async () => {
+            ingester = new IngestionConsumer(hub)
+            await ingester.start()
+        })
+
+        const eventTests: [string, () => PipelineEvent[]][] = [
+            ['normal event', () => [createEvent()]],
+            [
+                '$identify event',
+                () => [createEvent({ event: '$identify', properties: { $set: { $email: 'test@test.com' } } })],
+            ],
+            [
+                'multiple events',
+                () => [
+                    createEvent({
+                        event: '$pageview',
+                        distinct_id: 'anonymous-id-1',
+                        properties: { $current_url: 'https://example.com/page1' },
+                    }),
+                    createEvent({
+                        event: '$identify',
+                        distinct_id: 'identified-id-1',
+                        properties: { $set: { $email: 'test@test.com' }, $anonymous_distinct_id: 'anonymous-id-1' },
+                    }),
+                    createEvent({
+                        event: '$pageview',
+                        distinct_id: 'identified-id-1',
+                        properties: { $current_url: 'https://example.com/page2' },
+                    }),
+                ],
+            ],
+            // [
+            //     'heatmap event',
+            //     () => [
+            //         createEvent({
+            //             distinct_id: 'distinct-id-1',
+            //             event: '$$heatmap',
+            //             properties: {
+            //                 $heatmap_data: {
+            //                     'http://localhost:3000/': [
+            //                         {
+            //                             x: 1020,
+            //                             y: 363,
+            //                             target_fixed: false,
+            //                             type: 'mousemove',
+            //                         },
+            //                         {
+            //                             x: 634,
+            //                             y: 460,
+            //                             target_fixed: false,
+            //                             type: 'click',
+            //                         },
+            //                     ],
+            //                 },
+            //             },
+            //         }),
+            //     ],
+            // ],
+            [
+                // NOTE: This currently returns as is - for now we keep this broken but once we release the new ingester we should fix this
+                'malformed person information',
+                () => [
+                    createEvent({
+                        distinct_id: 'distinct-id-1',
+                        properties: { $set: 'INVALID', $unset: [[[['definitel invalid']]]] },
+                    }),
+                ],
+            ],
+            ['malformed event', () => [createEvent({ event: '' })]],
+            ['event with common distinct_id that gets dropped', () => [createEvent({ distinct_id: 'distinct_id' })]],
+            [
+                'ai event',
+                () => [
+                    createEvent({
+                        event: '$ai_generation',
+                        properties: {
+                            $ai_model: 'gpt-4',
+                            $ai_provider: 'openai',
+                            $ai_input_tokens: 100,
+                            $ai_output_tokens: 50,
+                        },
+                    }),
+                ],
+            ],
+            [
+                'person processing off',
+                () => [createEvent({ event: '$pageview', properties: { $process_person_profile: false } })],
+            ],
+            [
+                'client ingestion warning',
+                () => [
+                    createEvent({
+                        event: '$$client_ingestion_warning',
+                        properties: { $$client_ingestion_warning_message: 'test' },
+                    }),
+                ],
+            ],
+        ]
+
+        it.each(eventTests)('%s', async (_, createEvents) => {
+            const messages = createKafkaMessages(createEvents())
+            await ingester.handleKafkaBatch(messages)
+
+            expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
+        })
+    })
 })
