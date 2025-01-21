@@ -33,6 +33,7 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from rest_framework.decorators import action
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_migrations
 
+
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
@@ -265,15 +266,14 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return super().update(request, *args, **kwargs)
 
-    @action(detail=True, methods=["post"], permission_classes=[OrganizationAdminWritePermissions])
-    def migrate_feature_flags(self, request: Request, pk=None) -> Response:
-        organization = self.get_object()
-        user = cast(User, request.user)
+    @action(detail=True, methods=["post"])
+    def migrate_feature_flags_rbac(self, request: Request, **kwargs) -> Response:
+        organization = Organization.objects.get(id=kwargs["id"])
+        self.check_object_permissions(request, organization)
 
         try:
-            # Call the migration function
             rbac_feature_flag_migrations(organization.id)
-        except Exception as e:
-            return Response({"status": False, "error": str(e)}, status=500)
+        except Exception:
+            return Response({"status": False, "error": "An internal error has occurred."}, status=500)
 
         return Response({"status": True})

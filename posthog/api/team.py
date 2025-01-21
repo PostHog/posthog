@@ -711,22 +711,22 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
-    
-    @action(detail=True, methods=["post"], permission_classes=[OrganizationAdminWritePermissions])
-    def migrate_feature_flags(self, request: Request, pk=None) -> Response:
-        team = self.get_object()
+
+    @action(detail=True, methods=["post"], permission_classes=[TeamMemberStrictManagementPermission])
+    def migrate_team_rbac(self, request: Request, **kwargs) -> Response:
+        team = Team.objects.get(id=kwargs["id"])
+        self.check_object_permissions(request, team)
 
         try:
-            # Call the migration function
             rbac_team_migrations(team.id)
-        except Exception as e:
-            return Response({"status": False, "error": str(e)}, status=500)
+        except Exception:
+            return Response({"status": False, "error": "An internal error has occurred."}, status=500)
 
         return Response({"status": True})
 
     @cached_property
     def user_permissions(self):
-        team = self.get_object() if self.action == "reset_token" else None
+        team = self.get_object() if self.action in ["reset_token", "migrate_team_rbac"] else None
         return UserPermissions(cast(User, self.request.user), team)
 
 

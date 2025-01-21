@@ -1,13 +1,16 @@
 from rest_framework import status
 from unittest.mock import patch, ANY
 
-from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models import Organization, OrganizationMembership, Team, FeatureFlag
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 from posthog.api.organization import OrganizationSerializer
 from rest_framework.test import APIRequestFactory
 from posthog.user_permissions import UserPermissions
+from ee.models.rbac.role import Role, RoleMembership
+from ee.models.rbac.access_control import AccessControl
+from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 
 
 class TestOrganizationAPI(APIBaseTest):
@@ -221,6 +224,117 @@ class TestOrganizationAPI(APIBaseTest):
                 "attr": None,
             },
         )
+
+
+class TestOrganizationRbacMigrations(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Create some roles
+        self.admin_role = Role.objects.create(
+            name="Admin Role",
+            organization=self.organization,
+            feature_flags_access_level=37,
+        )
+        self.basic_role = Role.objects.create(
+            name="Basic Role",
+            organization=self.organization,
+            feature_flags_access_level=21,
+        )
+
+        # Create test users with different permissions
+        self.admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.member_user = self._create_user("member@posthog.com")
+
+        # Bind admin role to admin user
+        RoleMembership.objects.create(
+            role=self.admin_role,
+            user=self.admin_user,
+            organization_member=self.admin_user.organization_memberships.first(),
+        )
+
+    def test_migrate_feature_flags_rbac_as_admin(self):
+        self.client.force_login(self.admin_user)
+
+        # Create a test feature flag
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.admin_user, key="test-flag", name="Test Flag"
+        )
+        FeatureFlagRoleAccess.objects.create(
+            feature_flag=feature_flag,
+            role=self.admin_role,
+        )
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_feature_flags_rbac/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], True)
+
+        self.assertEqual(FeatureFlagRoleAccess.objects.count(), 1)
+        self.assertEqual(FeatureFlagRoleAccess.objects.first().role, self.admin_role)
+        self.assertEqual(FeatureFlagRoleAccess.objects.first().feature_flag, feature_flag)
+
+        self.assertEqual(AccessControl.objects.count(), 1)
+        self.assertEqual(AccessControl.objects.first().access_level, "editor")
+        self.assertEqual(AccessControl.objects.first().role, self.admin_role)
+        self.assertEqual(AccessControl.objects.first().resource, "feature_flag")
+        self.assertEqual(AccessControl.objects.first().resource_id, str(feature_flag.id))
+
+    def test_migrate_feature_flags_rbac_as_member_without_permissions(self):
+        self.client.force_login(self.member_user)
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_feature_flags_rbac/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_migrate_feature_flags_rbac_organization_without_flags(self):
+        self.client.force_login(self.admin_user)
+
+        # Ensure no feature flags exist
+        FeatureFlag.objects.filter(team=self.team).delete()
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_feature_flags_rbac/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], True)
+
+        self.assertEqual(FeatureFlagRoleAccess.objects.count(), 0)
+        self.assertEqual(AccessControl.objects.count(), 0)
+
+    def test_migrate_feature_flags_rbac_wrong_organization(self):
+        self.client.force_login(self.admin_user)
+
+        other_org, _, _ = Organization.objects.bootstrap(self.user)
+
+        response = self.client.post(f"/api/organizations/{other_org.id}/migrate_feature_flags_rbac/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_migrate_feature_flags_rbac_with_multiple_flags(self):
+        self.client.force_login(self.admin_user)
+
+        # Create multiple feature flags
+        for i in range(3):
+            feature_flag = FeatureFlag.objects.create(
+                team=self.team, created_by=self.admin_user, key=f"test-flag-{i}", name=f"Test Flag {i}"
+            )
+            FeatureFlagRoleAccess.objects.create(
+                feature_flag=feature_flag,
+                role=self.admin_role,
+            )
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_feature_flags_rbac/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], True)
+
+        self.assertEqual(FeatureFlagRoleAccess.objects.count(), 3)
+        self.assertEqual(AccessControl.objects.count(), 3)
+
+        feature_flags = FeatureFlag.objects.all()
+        self.assertEqual(len(feature_flags), 3)
+        feature_flag_ids = [feature_flag.id for feature_flag in feature_flags]
+
+        access_controls = AccessControl.objects.all()
+        self.assertEqual(len(access_controls), 3)
+        for access_control in access_controls:
+            self.assertEqual(access_control.access_level, "editor")
+            self.assertEqual(access_control.resource, "feature_flag")
+            self.assertIn(int(access_control.resource_id), feature_flag_ids)
 
 
 def create_organization(name: str) -> Organization:

@@ -21,15 +21,17 @@ def rbac_team_migrations(team_id: int):
         )
 
         # Get all members for the project
-        members = ExplicitTeamMembership.objects.filter(team_id=team.id)
-        for member in members:
+        team_memberships = ExplicitTeamMembership.objects.filter(team_id=team.id)
+        for team_membership in team_memberships:
             AccessControl.objects.create(
                 team=team,
-                access_level="admin" if member.level == ExplicitTeamMembership.Level.ADMIN else "member",
+                access_level="admin" if team_membership.level == ExplicitTeamMembership.Level.ADMIN else "member",
                 resource="project",
                 resource_id=team.id,
-                organization_member=member.user,
+                organization_member=team_membership.parent_membership,
             )
-            logger.info("Created RBAC access control", team_id=team.id, member_id=member.id)
+            logger.info(
+                "Created RBAC access control", team_id=team.id, user_id=team_membership.parent_membership.user.id
+            )
 
     logger.info("Finished RBAC team migrations", team_id=team_id)

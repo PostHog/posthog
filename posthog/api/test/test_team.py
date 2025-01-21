@@ -28,6 +28,8 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
+from ee.models.rbac.access_control import AccessControl
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 
 
 def team_api_test_factory():
@@ -1372,3 +1374,84 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.post("/api/projects/@current/environments/", {"name": "New Project 2"})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 3)
+
+
+class TestTeamRbacMigrations(APIBaseTest):  # type: ignore
+    def test_migrate_team_rbac_as_admin(self):
+        # Create a new team with access control enabled
+        team_with_access_control = Team.objects.create(
+            organization=self.organization, name="Team with Access Control", access_control=True
+        )
+
+        self.admin_user = self._create_user("member@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.member_user_1 = self._create_user("member2@posthog.com")
+        self.member_user_2 = self._create_user("member3@posthog.com")
+
+        self.client.force_login(self.admin_user)
+
+        ExplicitTeamMembership.objects.create(
+            team=team_with_access_control,
+            parent_membership=self.admin_user.organization_memberships.first(),
+            level=ExplicitTeamMembership.Level.ADMIN,
+        )
+        ExplicitTeamMembership.objects.create(
+            team=team_with_access_control,
+            parent_membership=self.member_user_1.organization_memberships.first(),
+            level=ExplicitTeamMembership.Level.ADMIN,  # Org member as team admin
+        )
+        ExplicitTeamMembership.objects.create(
+            team=team_with_access_control,
+            parent_membership=self.member_user_2.organization_memberships.first(),
+            level=ExplicitTeamMembership.Level.MEMBER,
+        )
+
+        response = self.client.post(f"/api/environments/{team_with_access_control.id}/migrate_team_rbac/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], True)
+
+        # Verify base team access control was created
+        base_access = AccessControl.objects.get(team=team_with_access_control, organization_member__isnull=True)
+        self.assertEqual(base_access.access_level, "none")
+        self.assertEqual(base_access.resource, "project")
+        self.assertEqual(base_access.resource_id, str(team_with_access_control.id))
+
+        # Verify admin access control was created
+        admin_access = AccessControl.objects.get(
+            team=team_with_access_control, organization_member=self.admin_user.organization_memberships.first()
+        )
+        self.assertEqual(admin_access.access_level, "admin")
+        self.assertEqual(admin_access.resource, "project")
+        self.assertEqual(admin_access.resource_id, str(team_with_access_control.id))
+
+        # Verify member access control was created
+        member_access = AccessControl.objects.get(
+            team=team_with_access_control, organization_member=self.member_user_1.organization_memberships.first()
+        )
+        self.assertEqual(member_access.access_level, "admin")
+        self.assertEqual(member_access.resource, "project")
+        self.assertEqual(member_access.resource_id, str(team_with_access_control.id))
+
+        # Verify member access control was created
+        member_access = AccessControl.objects.get(
+            team=team_with_access_control, organization_member=self.member_user_2.organization_memberships.first()
+        )
+        self.assertEqual(member_access.access_level, "member")
+        self.assertEqual(member_access.resource, "project")
+        self.assertEqual(member_access.resource_id, str(team_with_access_control.id))
+
+    def test_migrate_team_rbac_as_member_without_permissions(self):
+        self.member_user = self._create_user("member@posthog.com")
+        self.client.force_login(self.member_user)
+
+        response = self.client.post(f"/api/environments/{self.team.id}/migrate_team_rbac/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_migrate_team_rbac_wrong_team(self):
+        self.admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(self.admin_user)
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        response = self.client.post(f"/api/environments/{other_team.id}/migrate_team_rbac/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
