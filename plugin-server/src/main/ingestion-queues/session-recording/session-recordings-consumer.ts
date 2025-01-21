@@ -11,11 +11,10 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
-import { createKafkaProducer } from '../../../kafka/producer'
+import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
-import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { createRedisPool } from '../../../utils/db/redis'
 import { status } from '../../../utils/status'
@@ -472,24 +471,19 @@ export class SessionRecordingIngester {
         await this.teamsRefresher.refresh()
 
         // NOTE: We use the standard config as we connect to the analytics kafka for producing
-        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
-        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.config)
-
-        this.sharedClusterProducerWrapper = new KafkaProducerWrapper(
-            await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
-        )
+        this.sharedClusterProducerWrapper = await KafkaProducerWrapper.create(this.config)
         this.sharedClusterProducerWrapper.producer.connect()
 
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
             this.consoleLogsIngester = new ConsoleLogsIngester(
-                this.sharedClusterProducerWrapper.producer,
+                this.sharedClusterProducerWrapper,
                 this.persistentHighWaterMarker
             )
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
             this.replayEventsIngester = new ReplayEventsIngester(
-                this.sharedClusterProducerWrapper.producer,
+                this.sharedClusterProducerWrapper,
                 this.persistentHighWaterMarker
             )
         }
@@ -497,7 +491,11 @@ export class SessionRecordingIngester {
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
         // the batch consumer reads from the session replay kafka cluster
-        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.sessionRecordingKafkaConfig())
+        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(
+            // TODO: Replace this with the new ENV vars for producer specific config when ready.
+            this.sessionRecordingKafkaConfig(),
+            'consumer'
+        )
 
         this.batchConsumer = await startBatchConsumer({
             connectionConfig: replayClusterConnectionConfig,

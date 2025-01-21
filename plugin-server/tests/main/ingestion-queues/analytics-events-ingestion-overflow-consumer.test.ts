@@ -1,3 +1,6 @@
+// eslint-disable-next-line simple-import-sort/imports
+import { getParsedQueuedMessages, mockProducer } from '../../helpers/mocks/producer.mock'
+
 import { Settings } from 'luxon'
 
 import { buildStringMatcher } from '../../../src/config/config'
@@ -49,7 +52,6 @@ const captureEndpointEvent2 = {
 
 describe('eachBatchParallelIngestion with overflow consume', () => {
     let queue: any
-    let mockQueueMessage: jest.Mock
 
     function createBatchWithMultipleEventsWithKeys(events: any[], timestamp?: any): any {
         return events.map((event) => ({
@@ -64,21 +66,16 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
         // luxon datetime lets you specify a fixed "now"
         Settings.now = () => new Date(2018, 4, 25).valueOf()
 
-        mockQueueMessage = jest.fn()
         queue = {
             bufferSleep: jest.fn(),
             pluginsServer: {
                 INGESTION_CONCURRENCY: 4,
-                kafkaProducer: {
-                    queueMessage: mockQueueMessage,
-                },
+                kafkaProducer: mockProducer,
                 teamManager: {
                     getTeamForEvent: jest.fn(),
                 },
                 db: {
-                    kafkaProducer: {
-                        queueMessage: mockQueueMessage,
-                    },
+                    kafkaProducer: mockProducer,
                 },
             },
         }
@@ -96,12 +93,14 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
 
             expect(queue.pluginsServer.teamManager.getTeamForEvent).toHaveBeenCalledTimes(1)
             expect(consume).toHaveBeenCalledWith('1:ingestion_capacity_overflow:id', 1)
-            expect(mockQueueMessage).toHaveBeenCalledWith({
-                kafkaMessage: {
+            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(getParsedQueuedMessages()).toEqual([
+                {
                     topic: 'clickhouse_ingestion_warnings_test',
                     messages: [
                         {
-                            value: JSON.stringify({
+                            key: null,
+                            value: {
                                 team_id: 1,
                                 type: 'ingestion_capacity_overflow',
                                 source: 'plugin-server',
@@ -109,12 +108,11 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
                                     overflowDistinctId: 'id',
                                 }),
                                 timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-                            }),
+                            },
                         },
                     ],
                 },
-                waitForAck: false,
-            })
+            ])
 
             // Event is processed
             expect(runEventPipeline).toHaveBeenCalled()
@@ -132,7 +130,7 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
             await eachBatchParallelIngestion(tokenBlockList, batch, queue, mode)
 
             expect(consume).toHaveBeenCalledWith('1:ingestion_capacity_overflow:id', 1)
-            expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
+            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
 
             // Event is processed
             expect(runEventPipeline).toHaveBeenCalled()
@@ -153,7 +151,7 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
             const tokenBlockList = buildStringMatcher('mytoken,more_token', false)
             await eachBatchParallelIngestion(tokenBlockList, batch, queue, mode)
 
-            expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
+            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
 
             // captureEndpointEvent2 is processed, captureEndpointEvent1 are dropped
             expect(runEventPipeline).toHaveBeenCalledTimes(1)

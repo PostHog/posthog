@@ -1,3 +1,5 @@
+import '../helpers/mocks/producer.mock'
+
 import express from 'express'
 import supertest from 'supertest'
 
@@ -44,19 +46,6 @@ jest.mock('../../src/utils/fetch', () => {
                 json: () => Promise.resolve({ success: true }),
             })
         ),
-    }
-})
-
-jest.mock('../../src/utils/db/kafka-producer-wrapper', () => {
-    const mockKafkaProducer = {
-        producer: {
-            connect: jest.fn(),
-        },
-        disconnect: jest.fn(),
-        produce: jest.fn(),
-    }
-    return {
-        KafkaProducerWrapper: jest.fn(() => mockKafkaProducer),
     }
 })
 

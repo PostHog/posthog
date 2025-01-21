@@ -3,7 +3,7 @@ import SnappyCodec from 'kafkajs-snappy'
 import { HighLevelProducer } from 'node-rdkafka'
 
 import { defaultConfig } from '../src/config/config'
-import { produce as defaultProduce } from '../src/kafka/producer'
+import { KafkaProducerWrapper } from '../src/kafka/producer'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
@@ -36,17 +36,8 @@ export async function createKafkaProducer() {
     return producer
 }
 
-export async function produce({
-    topic,
-    message,
-    key,
-    waitForAck,
-}: {
-    topic: string
-    message: Buffer | null
-    key: string
-    waitForAck: boolean
-}) {
+export async function produce({ topic, message, key }: { topic: string; message: Buffer | null; key: string }) {
     producer = producer ?? (await createKafkaProducer())
-    await defaultProduce({ producer, topic, value: message, key: Buffer.from(key), waitForAck })
+
+    await new KafkaProducerWrapper(producer).produce({ topic, value: message, key: Buffer.from(key) })
 }
