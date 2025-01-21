@@ -10,6 +10,7 @@ import { ceilMsToClosestSecond, findLastIndex, humanFriendlyDuration, objectsEqu
 import posthog from 'posthog-js'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
+import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     sessionRecordingPlayerLogic,
@@ -212,7 +213,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 if (startTime) {
                     items.push({
                         label: 'Start',
-                        value: <SimpleTimeLabel muted={false} size="small" isUTC={true} startTime={startTime} />,
+                        value: (
+                            <SimpleTimeLabel
+                                muted={false}
+                                size="small"
+                                timestampFormat={TimestampFormat.UTC}
+                                startTime={startTime}
+                            />
+                        ),
                         type: 'text',
                     })
                 }
