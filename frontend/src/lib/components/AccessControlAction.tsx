@@ -17,7 +17,7 @@ const orderedAccessLevels = (resourceType: string): AccessControlLevel[] => {
     return ['none', 'viewer', 'editor']
 }
 
-const accessLevelSatisfied = (
+export const accessLevelSatisfied = (
     resourceType: string,
     currentLevel: AccessControlLevel,
     requiredLevel: AccessControlLevel
