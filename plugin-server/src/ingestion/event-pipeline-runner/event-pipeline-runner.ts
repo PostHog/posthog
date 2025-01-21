@@ -1,7 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import Sentry from '@sentry/node'
+import Sentry, { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
+
+import { processAiEvent } from '~/src/utils/ai-cost-data/process-ai-event'
 
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../../main/utils'
@@ -143,6 +145,7 @@ export class EventPipelineRunnerV2 {
             return
         }
 
+        this.processAiEvent()
         this.normalizeEvent()
         await this.processPerson()
         await this.processGroups()
@@ -233,18 +236,22 @@ export class EventPipelineRunnerV2 {
     }
 
     private normalizeEvent() {
-        try {
-            this.event.event = sanitizeEventName(this.event.event)
-            this.event = normalizeEvent(this.event)
-            this.event = normalizeProcessPerson(this.event, this.shouldProcessPerson)
-            this.timestamp = parseEventTimestamp(this.event)
-        } catch (error) {
-            status.warn('⚠️', 'Failed normalizing event', {
-                team_id: this.event.team_id,
-                uuid: this.event.uuid,
-                error,
-            })
-            throw error
+        this.event.event = sanitizeEventName(this.event.event)
+        this.event = normalizeEvent(this.event)
+        this.event = normalizeProcessPerson(this.event, this.shouldProcessPerson)
+        this.timestamp = parseEventTimestamp(this.event)
+    }
+
+    private processAiEvent() {
+        if (this.event.event === '$ai_generation' || this.event.event === '$ai_embedding') {
+            try {
+                this.event = processAiEvent(this.event)
+            } catch (error) {
+                // NOTE: Whilst this is pre-production we want to make it as optional as possible
+                // so we don't block the pipeline if it fails
+                captureException(error)
+                status.error(error)
+            }
         }
     }
 
