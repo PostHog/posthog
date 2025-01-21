@@ -3,13 +3,13 @@ from typing import Any, Optional
 from collections.abc import Callable
 
 
-from hogvm.python.execute import execute_bytecode, get_nested_value
-from hogvm.python.operation import (
+from common.hogvm.python.execute import execute_bytecode, get_nested_value
+from common.hogvm.python.operation import (
     Operation as op,
     HOGQL_BYTECODE_IDENTIFIER as _H,
     HOGQL_BYTECODE_VERSION as VERSION,
 )
-from hogvm.python.utils import UncaughtHogVMException
+from common.hogvm.python.utils import UncaughtHogVMException
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program
 
