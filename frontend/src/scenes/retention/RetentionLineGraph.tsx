@@ -63,6 +63,7 @@ export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphP
                 }
             }}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
+            goalLines={[]}
         />
     ) : (
         <InsightEmptyState />
