@@ -126,8 +126,8 @@ export interface ActionFilterRowProps {
     trendsDisplayCategory: ChartDisplayCategory | null
     /** Whether properties shown should be limited to just numerical types */
     showNumericalPropsOnly?: boolean
-    /** Only show these property math definitions */
-    onlyPropertyMathDefinitions?: Array<string>
+    /** Only allow these math types in the selector */
+    allowedMathTypes?: string[]
 }
 
 export function ActionFilterRow({
@@ -157,7 +157,7 @@ export function ActionFilterRow({
     renderRow,
     trendsDisplayCategory,
     showNumericalPropsOnly,
-    onlyPropertyMathDefinitions,
+    allowedMathTypes,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -428,7 +428,7 @@ export function ActionFilterRow({
                                             style={{ maxWidth: '100%', width: 'initial' }}
                                             mathAvailability={mathAvailability}
                                             trendsDisplayCategory={trendsDisplayCategory}
-                                            onlyPropertyMathDefinitions={onlyPropertyMathDefinitions}
+                                            allowedMathTypes={allowedMathTypes}
                                         />
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.PropertyValue && (
@@ -646,8 +646,8 @@ interface MathSelectorProps {
     onMathSelect: (index: number, value: any) => any
     trendsDisplayCategory: ChartDisplayCategory | null
     style?: React.CSSProperties
-    /** Only show these property math definitions */
-    onlyPropertyMathDefinitions?: Array<string>
+    /** Only allow these math types in the selector */
+    allowedMathTypes?: string[]
 }
 
 function isPropertyValueMath(math: string | undefined): math is PropertyMathType {
@@ -666,7 +666,7 @@ function useMathSelectorOptions({
     mathAvailability,
     onMathSelect,
     trendsDisplayCategory,
-    onlyPropertyMathDefinitions,
+    allowedMathTypes,
 }: MathSelectorProps): LemonSelectOptions<string> {
     const mountedInsightDataLogic = insightDataLogic.findMounted()
     const query = mountedInsightDataLogic?.values?.query
@@ -685,8 +685,9 @@ function useMathSelectorOptions({
         if (isPropertyValueMath(math)) {
             return math
         }
-        if (onlyPropertyMathDefinitions?.length) {
-            return onlyPropertyMathDefinitions[0] as PropertyMathType
+        if (allowedMathTypes?.length) {
+            // filter out non-property math types
+            return allowedMathTypes.filter(isPropertyValueMath)[0] as PropertyMathType
         }
         return PropertyMathType.Average
     })
@@ -707,6 +708,9 @@ function useMathSelectorOptions({
             if (isStickiness) {
                 // Remove WAU and MAU from stickiness insights
                 return !TRAILING_MATH_TYPES.has(key)
+            }
+            if (allowedMathTypes) {
+                return allowedMathTypes.includes(key)
             }
             return true
         })
@@ -733,71 +737,83 @@ function useMathSelectorOptions({
         })
 
     if (mathAvailability !== MathAvailability.ActorsOnly && mathAvailability !== MathAvailability.FunnelsOnly) {
-        options.splice(1, 0, {
-            value: countPerActorMathTypeShown,
-            label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
-            labelInMenu: (
-                <div className="flex items-center gap-2">
-                    <span>Count per user</span>
-                    <LemonSelect
-                        value={countPerActorMathTypeShown}
-                        onSelect={(value) => {
-                            setCountPerActorMathTypeShown(value as CountPerActorMathType)
-                            onMathSelect(index, value)
-                        }}
-                        options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS).map(([key, definition]) => ({
-                            value: key,
-                            label: definition.shortName,
-                            'data-attr': `math-${key}-${index}`,
-                        }))}
-                        onClick={(e) => e.stopPropagation()}
-                        size="small"
-                        dropdownMatchSelectWidth={false}
-                        optionTooltipPlacement="right"
-                    />
-                </div>
-            ),
-            tooltip: 'Statistical analysis of event count per user.',
-            'data-attr': `math-node-count-per-actor-${index}`,
-        })
-        options.push({
-            value: propertyMathTypeShown,
-            label: `Property value ${PROPERTY_MATH_DEFINITIONS[propertyMathTypeShown].shortName}`,
-            labelInMenu: (
-                <div className="flex items-center gap-2">
-                    <span>Property value</span>
-                    <LemonSelect
-                        value={propertyMathTypeShown}
-                        onSelect={(value) => {
-                            setPropertyMathTypeShown(value as PropertyMathType)
-                            onMathSelect(index, value)
-                        }}
-                        options={Object.entries(PROPERTY_MATH_DEFINITIONS)
-                            .filter(([key]) => {
-                                if (undefined === onlyPropertyMathDefinitions) {
-                                    return true
-                                }
-                                return onlyPropertyMathDefinitions.includes(key)
-                            })
-                            .map(([key, definition]) => ({
-                                value: key,
-                                label: definition.shortName,
-                                tooltip: definition.description,
-                                'data-attr': `math-${key}-${index}`,
-                            }))}
-                        onClick={(e) => e.stopPropagation()}
-                        size="small"
-                        dropdownMatchSelectWidth={false}
-                        optionTooltipPlacement="right"
-                    />
-                </div>
-            ),
-            tooltip: 'Statistical analysis of property value.',
-            'data-attr': `math-node-property-value-${index}`,
-        })
+        // Add count per user option if any CountPerActorMathType is included in onlyMathTypes
+        const shouldShowCountPerUser =
+            !allowedMathTypes || Object.values(CountPerActorMathType).some((type) => allowedMathTypes.includes(type))
+
+        if (shouldShowCountPerUser) {
+            options.splice(1, 0, {
+                value: countPerActorMathTypeShown,
+                label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
+                labelInMenu: (
+                    <div className="flex items-center gap-2">
+                        <span>Count per user</span>
+                        <LemonSelect
+                            value={countPerActorMathTypeShown}
+                            onSelect={(value) => {
+                                setCountPerActorMathTypeShown(value as CountPerActorMathType)
+                                onMathSelect(index, value)
+                            }}
+                            options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS)
+                                .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
+                                .map(([key, definition]) => ({
+                                    value: key,
+                                    label: definition.shortName,
+                                    'data-attr': `math-${key}-${index}`,
+                                }))}
+                            onClick={(e) => e.stopPropagation()}
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            optionTooltipPlacement="right"
+                        />
+                    </div>
+                ),
+                tooltip: 'Statistical analysis of event count per user.',
+                'data-attr': `math-node-count-per-actor-${index}`,
+            })
+        }
+
+        const shouldShowPropertyValue =
+            !allowedMathTypes || Object.values(PropertyMathType).some((type) => allowedMathTypes.includes(type))
+
+        if (shouldShowPropertyValue) {
+            options.push({
+                value: propertyMathTypeShown,
+                label: `Property value ${PROPERTY_MATH_DEFINITIONS[propertyMathTypeShown].shortName}`,
+                labelInMenu: (
+                    <div className="flex items-center gap-2">
+                        <span>Property value</span>
+                        <LemonSelect
+                            value={propertyMathTypeShown}
+                            onSelect={(value) => {
+                                setPropertyMathTypeShown(value as PropertyMathType)
+                                onMathSelect(index, value)
+                            }}
+                            options={Object.entries(PROPERTY_MATH_DEFINITIONS)
+                                .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
+                                .map(([key, definition]) => ({
+                                    value: key,
+                                    label: definition.shortName,
+                                    tooltip: definition.description,
+                                    'data-attr': `math-${key}-${index}`,
+                                }))}
+                            onClick={(e) => e.stopPropagation()}
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            optionTooltipPlacement="right"
+                        />
+                    </div>
+                ),
+                tooltip: 'Statistical analysis of property value.',
+                'data-attr': `math-node-property-value-${index}`,
+            })
+        }
     }
 
-    if (mathAvailability !== MathAvailability.FunnelsOnly) {
+    if (
+        mathAvailability !== MathAvailability.FunnelsOnly &&
+        (!allowedMathTypes || allowedMathTypes.includes(HogQLMathType.HogQL))
+    ) {
         options.push({
             value: HogQLMathType.HogQL,
             label: 'HogQL expression',
