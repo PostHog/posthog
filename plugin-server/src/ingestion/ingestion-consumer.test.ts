@@ -328,6 +328,45 @@ describe('IngestionConsumer', () => {
         })
     })
 
+    describe('error handling', () => {
+        let messages: Message[]
+
+        beforeEach(async () => {
+            ingester = new IngestionConsumer(hub)
+            await ingester.start()
+            // Simulate some sort of error happening by mocking out the runner
+            messages = createKafkaMessages([createEvent()])
+            jest.spyOn(status, 'error').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('should handle explicitly non retriable errors by sending to DLQ', async () => {
+            // NOTE: I don't think this makes a lot of sense but currently is just mimicing existing behavior for the migration
+            // We should figure this out better and have more explictly named errors
+
+            const error: any = new Error('test')
+            error.isRetriable = false
+            jest.spyOn(ingester as any, 'runEventPipeline').mockRejectedValue(error)
+
+            await ingester.handleKafkaBatch(messages)
+
+            expect(jest.mocked(status.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
+
+            expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
+        })
+
+        it.each([undefined, true])('should throw if isRetriable is set to %s', async (isRetriable) => {
+            const error: any = new Error('test')
+            error.isRetriable = isRetriable
+            jest.spyOn(ingester as any, 'runEventPipeline').mockRejectedValue(error)
+
+            await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
+        })
+    })
+
     describe('typical event processing', () => {
         /**
          * NOTE: The majority of these tests should be done in the event pipeline runner but

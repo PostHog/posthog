@@ -20,7 +20,7 @@ import { normalizeEvent } from '../utils/event'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { MemoryRateLimiter } from '../utils/token-bucket'
-import { EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
+import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -171,10 +171,7 @@ export class IngestionConsumer {
                         continue
                     }
 
-                    const result = await retryIfRetriable(async () => {
-                        const runner = new EventPipelineRunner(this.hub, event)
-                        return await runner.runEventPipeline(event)
-                    })
+                    const result = await this.runEventPipeline(event)
 
                     result.ackPromises?.forEach((promise) => {
                         void this.scheduleWork(
@@ -190,6 +187,13 @@ export class IngestionConsumer {
         })
 
         await Promise.all(this.promises)
+    }
+
+    private async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
+        return await retryIfRetriable(async () => {
+            const runner = new EventPipelineRunner(this.hub, event)
+            return await runner.runEventPipeline(event)
+        })
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<GroupedIncomingEvents> {
@@ -334,6 +338,7 @@ export class IngestionConsumer {
         //
         // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
         // fact that node-rdkafka adheres to the `isRetriable` interface.
+
         if (error?.isRetriable === false) {
             const sentryEventId = Sentry.captureException(error)
             const headers: MessageHeader[] = message.headers ?? []

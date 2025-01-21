@@ -1,5 +1,22 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`IngestionConsumer error handling should handle explicitly non retriable errors by sending to DLQ 1`] = `
+[
+  {
+    "key": null,
+    "topic": "events_plugin_ingestion_dlq_test",
+    "value": {
+      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-1>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-02-01T00:00:00.000+01:00","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+      "distinct_id": "user-1",
+      "ip": "127.0.0.1",
+      "now": "2025-02-01T00:00:00.000+01:00",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+      "uuid": "<REPLACED-UUID-0>",
+    },
+  },
+]
+`;
+
 exports[`IngestionConsumer general overflow should allow some events to pass 1`] = `
 [
   {
