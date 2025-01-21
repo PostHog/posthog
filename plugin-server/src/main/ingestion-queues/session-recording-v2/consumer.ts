@@ -151,7 +151,6 @@ export class SessionRecordingIngester {
                 for (const message of parsedMessages) {
                     await this.consume(message, batch)
                 }
-                return Promise.resolve()
             }
         })
     }
