@@ -18,7 +18,8 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
     const logic = batchExportRunsLogic({ id })
 
     const { batchExportConfig, isBackfillModalOpen, isBackfillFormSubmitting, isEarliestBackfill } = useValues(logic)
-    const { closeBackfillModal, setEarliestBackfill, unsetEarliestBackfill } = useActions(logic)
+    const { closeBackfillModal, setEarliestBackfill, unsetEarliestBackfill, setBackfillFormManualErrors } =
+        useActions(logic)
 
     if (!batchExportConfig) {
         return <NotFound object="batch export" />
@@ -46,6 +47,7 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                         type="primary"
                         data-attr="batch-export-backfill-submit"
                         loading={isBackfillFormSubmitting}
+                        onClick={() => setBackfillFormManualErrors({})}
                     >
                         Schedule runs
                     </LemonButton>
