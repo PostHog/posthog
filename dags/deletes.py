@@ -1,6 +1,5 @@
-import os
 from datetime import datetime
-import pandas as pd
+from clickhouse_driver.client import Client
 
 from dagster import (
     asset,
@@ -22,70 +21,12 @@ from posthog.settings import (
 
 class DeleteConfig(Config):
     team_id: int | None = None
-    file_path: str = "/tmp/pending_person_deletions.parquet"
     run_id: str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 def get_versioned_names(run_id: str) -> dict[str, str]:
     """Get versioned names for tables and dictionaries."""
     return {"table": f"pending_person_deletes_{run_id}", "dictionary": f"pending_person_deletes_dictionary_{run_id}"}
-
-
-@asset
-def pending_person_deletions(context: AssetExecutionContext, config: DeleteConfig) -> dict[str, str]:
-    """Query postgres using django ORM to get pending person deletions and write to parquet."""
-
-    if not config.team_id:
-        # Use Django's queryset iterator for memory efficiency
-        pending_deletions = (
-            AsyncDeletion.objects.filter(deletion_type=DeletionType.Person, delete_verified_at__isnull=True)
-            .values("team_id", "key", "created_at")
-            .iterator()
-        )
-    else:
-        pending_deletions = AsyncDeletion.objects.filter(
-            deletion_type=DeletionType.Person,
-            team_id=config.team_id,
-            delete_verified_at__isnull=True,
-        ).values("team_id", "key", "created_at")
-
-    # Create a temporary directory for our parquet file
-    output_path = config.file_path
-
-    # Write to parquet in chunks
-    chunk_size = 10000
-    current_chunk = []
-    total_rows = 0
-
-    for deletion in pending_deletions:
-        current_chunk.append(deletion)
-        if len(current_chunk) >= chunk_size:
-            if total_rows == 0:
-                # First chunk, create new file
-                pd.DataFrame(current_chunk).to_parquet(output_path, index=False)
-            else:
-                # Append to existing file
-                pd.DataFrame(current_chunk).to_parquet(output_path, index=False, append=True)
-            total_rows += len(current_chunk)
-            current_chunk = []
-
-    # Write any remaining records
-    if current_chunk:
-        if total_rows == 0:
-            pd.DataFrame(current_chunk).to_parquet(output_path, index=False)
-        else:
-            pd.DataFrame(current_chunk).to_parquet(output_path, index=False, append=True)
-        total_rows += len(current_chunk)
-
-    context.add_output_metadata(
-        {
-            "total_rows": MetadataValue.int(total_rows),
-            "file_path": MetadataValue.text(output_path),
-            "file_size": MetadataValue.int(os.path.getsize(output_path)),
-        }
-    )
-
-    return {"file_path": output_path, "total_rows": str(total_rows)}
 
 
 @asset
@@ -108,50 +49,81 @@ def create_pending_deletes_table(context: AssetExecutionContext, config: DeleteC
     return {"table_name": names["table"]}
 
 
-@asset(deps=[pending_person_deletions, create_pending_deletes_table])
-def insert_pending_deletes(context: AssetExecutionContext, pending_person_deletions, create_pending_deletes_table):
-    """Insert pending deletes from parquet file into ClickHouse merge tree using Arrow."""
-    if not pending_person_deletions.get("total_rows", 0):
-        return 0
+@asset(deps=[create_pending_deletes_table])
+def pending_person_deletions(context: AssetExecutionContext, config: DeleteConfig, create_pending_deletes_table) -> int:
+    """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
 
-    import pyarrow.parquet as pq
-    from clickhouse_driver.client import Client
+    if not config.team_id:
+        # Use Django's queryset iterator for memory efficiency
+        pending_deletions = (
+            AsyncDeletion.objects.filter(deletion_type=DeletionType.Person, delete_verified_at__isnull=True)
+            .values("team_id", "key", "created_at")
+            .iterator()
+        )
+    else:
+        pending_deletions = (
+            AsyncDeletion.objects.filter(
+                deletion_type=DeletionType.Person,
+                team_id=config.team_id,
+                delete_verified_at__isnull=True,
+            )
+            .values("team_id", "key", "created_at")
+            .iterator()
+        )
 
-    # Read the parquet file into an Arrow table
-    table = pq.read_table(pending_person_deletions["file_path"])
-
-    # Rename the 'key' column to 'person_id' to match our schema
-    table = table.rename_columns(["team_id", "person_id", "created_at"])
-
-    # Create a ClickHouse client that supports Arrow
+    # Create a ClickHouse client
     client = Client(
         host=CLICKHOUSE_HOST,
         user=CLICKHOUSE_USER,
         password=CLICKHOUSE_PASSWORD,
         secure=CLICKHOUSE_SECURE,
-        settings={"use_numpy": True},  # Required for Arrow support
     )
 
-    # Insert the Arrow table directly
-    client.execute(
-        f"""
-        INSERT INTO {create_pending_deletes_table["table_name"]} (team_id, person_id, created_at)
-        VALUES
-        """,
-        table.to_pydict(),
-        types_check=True,
-        settings={
-            "input_format_arrow_skip_columns": ["created_at"],  # Skip created_at as it's a default value
-        },
+    # Process and insert in chunks
+    chunk_size = 10000
+    current_chunk = []
+    total_rows = 0
+
+    for deletion in pending_deletions:
+        # Rename 'key' to 'person_id' to match our schema
+        current_chunk.append(
+            {"team_id": deletion["team_id"], "person_id": deletion["key"], "created_at": deletion["created_at"]}
+        )
+
+        if len(current_chunk) >= chunk_size:
+            client.execute(
+                f"""
+                INSERT INTO {create_pending_deletes_table["table_name"]} (team_id, person_id, created_at)
+                VALUES
+                """,
+                current_chunk,
+            )
+            total_rows += len(current_chunk)
+            current_chunk = []
+
+    # Insert any remaining records
+    if current_chunk:
+        client.execute(
+            f"""
+            INSERT INTO {create_pending_deletes_table["table_name"]} (team_id, person_id, created_at)
+            VALUES
+            """,
+            current_chunk,
+        )
+        total_rows += len(current_chunk)
+
+    context.add_output_metadata(
+        {
+            "total_rows": MetadataValue.int(total_rows),
+            "table_name": MetadataValue.text(create_pending_deletes_table["table_name"]),
+        }
     )
 
-    context.add_output_metadata({"num_deletions": MetadataValue.int(pending_person_deletions["total_rows"])})
-
-    return pending_person_deletions["total_rows"]
+    return total_rows
 
 
-@asset(deps=[insert_pending_deletes])
-def create_pending_deletes_dictionary(context: AssetExecutionContext, config: DeleteConfig):
+@asset(deps=[pending_person_deletions])
+def create_pending_deletes_dictionary(context: AssetExecutionContext, config: DeleteConfig, pending_person_deletions):
     """Create a dictionary table that wraps pending_person_deletes for efficient lookups."""
     names = get_versioned_names(config.run_id)
     sync_execute(
@@ -176,7 +148,7 @@ def create_pending_deletes_dictionary(context: AssetExecutionContext, config: De
 
 
 @asset(deps=[create_pending_deletes_dictionary])
-def delete_person_events(context: AssetExecutionContext, config: DeleteConfig):
+def delete_person_events(context: AssetExecutionContext, config: DeleteConfig, create_pending_deletes_dictionary):
     """Delete events from sharded_events table for persons pending deletion."""
 
     # First check if there are any pending deletes
@@ -219,7 +191,7 @@ def delete_person_events(context: AssetExecutionContext, config: DeleteConfig):
 
 
 @asset(deps=[delete_person_events])
-def cleanup_delete_assets(context: AssetExecutionContext, config: DeleteConfig):
+def cleanup_delete_assets(context: AssetExecutionContext, config: DeleteConfig, delete_person_events):
     """Clean up temporary tables, dictionary, and mark deletions as verified."""
     names = get_versioned_names(config.run_id)
 
@@ -236,11 +208,6 @@ def cleanup_delete_assets(context: AssetExecutionContext, config: DeleteConfig):
         DROP TABLE IF EXISTS {names["table"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         """
     )
-
-    # Remove the temporary parquet file
-    parquet_path = "/tmp/pending_person_deletions.parquet"
-    if os.path.exists(parquet_path):
-        os.remove(parquet_path)
 
     # Mark deletions as verified in Django
     if not config.team_id:
