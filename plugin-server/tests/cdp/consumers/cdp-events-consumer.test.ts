@@ -1,11 +1,12 @@
-import { CdpInternalEventsConsumer, CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
-import { HogWatcherState } from '../../src/cdp/hog-watcher'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
-import { Hub, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
-import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './fixtures'
+import { CdpInternalEventsConsumer } from '../../../src/cdp/consumers/cdp-internal-events.consumer'
+import { CdpProcessedEventsConsumer } from '../../../src/cdp/consumers/cdp-processed-events.consumer'
+import { HogWatcherState } from '../../../src/cdp/services/hog-watcher.service'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '../../../src/cdp/types'
+import { Hub, Team } from '../../../src/types'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../examples'
+import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from '../fixtures'
 
 const mockConsumer = {
     on: jest.fn(),

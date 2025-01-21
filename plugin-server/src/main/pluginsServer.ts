@@ -11,13 +11,10 @@ import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { CdpApi } from '../cdp/cdp-api'
-import {
-    CdpCyclotronWorker,
-    CdpCyclotronWorkerFetch,
-    CdpFunctionCallbackConsumer,
-    CdpInternalEventsConsumer,
-    CdpProcessedEventsConsumer,
-} from '../cdp/cdp-consumers'
+import { CdpFunctionCallbackConsumer } from '../cdp/consumers/cdp-function-callback.consumer'
+import { CdpInternalEventsConsumer } from '../cdp/consumers/cdp-internal-events.consumer'
+import { CdpProcessedEventsConsumer } from '../cdp/consumers/cdp-processed-events.consumer'
+import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../cdp/consumers/cyclotron-worker.consumer'
 import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
 import { closeHub, createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'

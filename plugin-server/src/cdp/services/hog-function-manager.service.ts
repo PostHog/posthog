@@ -1,11 +1,11 @@
 import { captureException } from '@sentry/node'
 import * as schedule from 'node-schedule'
 
-import { Hub, Team } from '../types'
-import { PostgresUse } from '../utils/db/postgres'
-import { PubSub } from '../utils/pubsub'
-import { status } from '../utils/status'
-import { HogFunctionType, HogFunctionTypeType, IntegrationType } from './types'
+import { Hub, Team } from '../../types'
+import { PostgresUse } from '../../utils/db/postgres'
+import { PubSub } from '../../utils/pubsub'
+import { status } from '../../utils/status'
+import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../types'
 
 type HogFunctionCache = {
     functions: Record<HogFunctionType['id'], HogFunctionType | undefined>
