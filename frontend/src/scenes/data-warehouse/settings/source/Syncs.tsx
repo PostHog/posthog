@@ -1,6 +1,6 @@
-import { TZLabel } from '@posthog/apps-common'
 import { LemonButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 
 import { ExternalDataJob } from '~/types'
 

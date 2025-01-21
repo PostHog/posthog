@@ -18,6 +18,7 @@ import {
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationLogEntry,
     HogFunctionInvocationResult,
+    HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from './types'
@@ -327,7 +328,10 @@ export class HogExecutor {
         }
     }
 
-    execute(invocation: HogFunctionInvocation): HogFunctionInvocationResult {
+    execute(
+        invocation: HogFunctionInvocation,
+        options: { functions?: Record<string, (args: unknown[]) => unknown> } = {}
+    ): HogFunctionInvocationResult {
         const loggingContext = {
             invocationId: invocation.id,
             hogFunctionId: invocation.hogFunction.id,
@@ -458,6 +462,7 @@ export class HogExecutor {
 
             try {
                 let hogLogs = 0
+
                 execRes = execHog(invocationInput, {
                     globals: invocation.functionToExecute ? undefined : globals,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
@@ -465,39 +470,6 @@ export class HogExecutor {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
                     },
-                    // importBytecode: (module) => {
-                    //     // TODO: more than one hardcoded module
-                    //     if (module === 'provider/email') {
-                    //         const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
-                    //         if (!provider) {
-                    //             throw new Error('No email provider configured')
-                    //         }
-                    //         try {
-                    //             const providerGlobals = this.buildHogFunctionGlobals({
-                    //                 id: '',
-                    //                 teamId: invocation.teamId,
-                    //                 hogFunction: provider,
-                    //                 globals: {} as any,
-                    //                 queue: 'hog',
-                    //                 timings: [],
-                    //                 priority: 0,
-                    //             } satisfies HogFunctionInvocation)
-
-                    //             return {
-                    //                 bytecode: provider.bytecode,
-                    //                 globals: providerGlobals,
-                    //             }
-                    //         } catch (e) {
-                    //             result.logs.push({
-                    //                 level: 'error',
-                    //                 timestamp: DateTime.now(),
-                    //                 message: `Error building inputs: ${e}`,
-                    //             })
-                    //             throw e
-                    //         }
-                    //     }
-                    //     throw new Error(`Can't import unknown module: ${module}`)
-                    // },
                     functions: {
                         print: (...args) => {
                             hogLogs++
@@ -552,6 +524,7 @@ export class HogExecutor {
                                 },
                             })
                         },
+                        ...(options.functions ?? {}),
                     },
                 })
                 if (execRes.error) {
@@ -616,14 +589,16 @@ export class HogExecutor {
                                     : JSON.stringify(fetchOptions.body)
                                 : fetchOptions?.body
 
-                            result.invocation.queue = 'fetch'
-                            result.invocation.queueParameters = {
+                            const fetchQueueParameters = this.enrichFetchRequest({
                                 url,
                                 method,
                                 body,
                                 headers,
                                 return_queue: 'hog',
-                            }
+                            })
+
+                            result.invocation.queue = 'fetch'
+                            result.invocation.queueParameters = fetchQueueParameters
                             break
                         default:
                             throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
@@ -700,6 +675,27 @@ export class HogExecutor {
 
         // We don't want to add "REDACTED" for empty strings
         return values.filter((v) => v.trim())
+    }
+
+    public enrichFetchRequest(request: HogFunctionQueueParametersFetchRequest): HogFunctionQueueParametersFetchRequest {
+        // TRICKY: Some 3rd parties require developer tokens to be passed in the headers
+        // We don't want to expose these to the user so we add them here out of the custom code loop
+
+        request.headers = request.headers ?? {}
+
+        if (request.url.startsWith('https://googleads.googleapis.com/') && !request.headers['developer-token']) {
+            request.headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
+        }
+
+        return request
+    }
+
+    public redactFetchRequest(request: HogFunctionQueueParametersFetchRequest): HogFunctionQueueParametersFetchRequest {
+        if (request.headers && request.headers['developer-token'] === this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN) {
+            delete request.headers['developer-token']
+        }
+
+        return request
     }
 }
 

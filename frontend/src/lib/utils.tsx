@@ -1501,6 +1501,48 @@ export function RGBToRGBA(rgb: string, a: number): string {
     return `rgba(${[r, g, b, a].join(',')})`
 }
 
+export function RGBToHSL(r: number, g: number, b: number): { h: number; s: number; l: number } {
+    // Convert RGB values to the range 0-1
+    r /= 255
+    g /= 255
+    b /= 255
+
+    // Find min and max values of r, g, b
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const delta = max - min
+
+    // Calculate lightness
+    let h = 0,
+        s = 0
+    const l = (max + min) / 2
+
+    if (delta !== 0) {
+        // Calculate saturation
+        s = l < 0.5 ? delta / (max + min) : delta / (2 - max - min)
+
+        // Calculate hue
+        switch (max) {
+            case r:
+                h = ((g - b) / delta + (g < b ? 6 : 0)) % 6
+                break
+            case g:
+                h = (b - r) / delta + 2
+                break
+            case b:
+                h = (r - g) / delta + 4
+                break
+        }
+        h *= 60 // Convert hue to degrees
+    }
+
+    return {
+        h: Math.round(h),
+        s: Math.round(s * 100),
+        l: Math.round(l * 100),
+    }
+}
+
 export function lightenDarkenColor(hex: string, pct: number): string {
     /**
      * Returns a lightened or darkened color, similar to SCSS darken()
@@ -1522,24 +1564,23 @@ export function lightenDarkenColor(hex: string, pct: number): string {
     return `rgb(${[r, g, b].join(',')})`
 }
 
-/* Colors in hsl for gradation. */
-export const BRAND_BLUE_HSL: [number, number, number] = [228, 100, 56]
-export const PURPLE: [number, number, number] = [260, 88, 71]
-
 /**
  * Gradate color saturation based on its intended strength.
  * This is for visualizations where a data point's color depends on its value.
- * @param hsl The HSL color to gradate.
+ * @param color A HEX color to gradate.
  * @param strength The strength of the data point.
  * @param floor The minimum saturation. This preserves proportionality of strength, so doesn't just cut it off.
  */
 export function gradateColor(
-    hsl: [number, number, number],
+    color: string,
     strength: number,
     floor: number = 0
 ): `hsla(${number}, ${number}%, ${number}%, ${string})` {
+    const { r, g, b } = hexToRGB(color)
+    const { h, s, l } = RGBToHSL(r, g, b)
+
     const saturation = floor + (1 - floor) * strength
-    return `hsla(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%, ${saturation.toPrecision(3)})`
+    return `hsla(${h}, ${s}%, ${l}%, ${saturation.toPrecision(3)})`
 }
 
 export function toString(input?: any): string {

@@ -10,7 +10,7 @@
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS input_cost,
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS output_cost,
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS total_cost,
-         arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
+         arraySort(x -> x.3, groupArray(tuple(events.uuid, events.event, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -54,7 +54,7 @@
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS input_cost,
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS output_cost,
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS total_cost,
-         arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
+         arraySort(x -> x.3, groupArray(tuple(events.uuid, events.event, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -98,7 +98,7 @@
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS input_cost,
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS output_cost,
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS total_cost,
-         arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
+         arraySort(x -> x.3, groupArray(tuple(events.uuid, events.event, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -142,7 +142,7 @@
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS input_cost,
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS output_cost,
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS total_cost,
-         arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
+         arraySort(x -> x.3, groupArray(tuple(events.uuid, events.event, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -186,7 +186,7 @@
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS input_cost,
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS output_cost,
          round(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 4) AS total_cost,
-         arraySort(x -> x.2, groupArray(tuple(events.uuid, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
+         arraySort(x -> x.3, groupArray(tuple(events.uuid, events.event, toTimeZone(events.timestamp, 'UTC'), events.properties))) AS events
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,

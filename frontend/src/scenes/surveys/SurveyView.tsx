@@ -1,12 +1,12 @@
 import './SurveyView.scss'
 
-import { TZLabel } from '@posthog/apps-common'
 import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -630,6 +630,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                         ],
                         trendsFilter: {
                             formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
+                            display: 'ActionsBar',
                         },
                     },
                 }}

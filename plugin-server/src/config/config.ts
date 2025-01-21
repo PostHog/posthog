@@ -127,6 +127,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         DROP_EVENTS_BY_TOKEN: '',
+        SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
         RUSTY_HOOK_FOR_TEAMS: '',
@@ -194,6 +195,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BATCH_SIZE: 500,
+
+        CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
 
         // Cyclotron
         CYCLOTRON_DATABASE_URL: isTestEnv()
