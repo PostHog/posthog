@@ -1,5 +1,4 @@
 import { captureException } from '@sentry/node'
-import { KafkaProducerWrapper } from 'kafka/producer'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/src/kafka/producer'
