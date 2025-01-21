@@ -50,6 +50,7 @@ export class EventPipelineRunnerV2 {
             },
             team_id: originalEvent.team_id ?? -1,
         }
+        // TODO: Move this up a level (or maybe even to the hub)
         this.groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager, hub.SITE_URL)
     }
 
@@ -192,6 +193,14 @@ export class EventPipelineRunnerV2 {
         // we go with preferring not to do the processing even if the event says to do it, if the
         // setting says not to).
         if (this.team!.person_processing_opt_out) {
+            this.event.properties!.$process_person_profile = false
+        }
+
+        const skipPersonsProcessingForDistinctIds = this.hub.eventsToSkipPersonsProcessingByToken.get(
+            this.originalEvent.token!
+        )
+
+        if (skipPersonsProcessingForDistinctIds?.includes(this.event.distinct_id)) {
             this.event.properties!.$process_person_profile = false
         }
 
