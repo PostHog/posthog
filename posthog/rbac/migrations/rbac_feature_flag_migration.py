@@ -2,7 +2,7 @@ from ee.models.rbac.access_control import AccessControl
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 
 
-def rbac_feature_flag_migrations(organization_id: int):
+def rbac_feature_flag_migrations(organization_id: str):
     # Get feature flag role access for the organization
     feature_flag_role_access = FeatureFlagRoleAccess.objects.filter(role__organization_id=organization_id)
 

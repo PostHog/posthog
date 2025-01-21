@@ -3,6 +3,8 @@ from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 from uuid import UUID
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
@@ -52,6 +54,7 @@ from posthog.utils import (
     get_ip_address,
     get_week_start_for_country_code,
 )
+from posthog.rbac.migrations.rbac_team_migration import rbac_team_migrations
 
 
 class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
@@ -708,6 +711,18 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+    
+    @action(detail=True, methods=["post"], permission_classes=[OrganizationAdminWritePermissions])
+    def migrate_feature_flags(self, request: Request, pk=None) -> Response:
+        team = self.get_object()
+
+        try:
+            # Call the migration function
+            rbac_team_migrations(team.id)
+        except Exception as e:
+            return Response({"status": False, "error": str(e)}, status=500)
+
+        return Response({"status": True})
 
     @cached_property
     def user_permissions(self):
