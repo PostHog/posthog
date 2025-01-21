@@ -399,13 +399,16 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <FeatureFlagRollout />
                         <LemonDivider />
                         {!featureFlag.is_remote_configuration && (
-                            <FeatureFlagReleaseConditions
-                                id={`${featureFlag.id}`}
-                                filters={featureFlag.filters}
-                                onChange={setFeatureFlagFilters}
-                            />
+                            <>
+                                <FeatureFlagReleaseConditions
+                                    id={`${featureFlag.id}`}
+                                    filters={featureFlag.filters}
+                                    onChange={setFeatureFlagFilters}
+                                />
+                                <LemonDivider />
+                            </>
                         )}
-                        <LemonDivider />
+
                         <FeatureFlagCodeExample featureFlag={featureFlag} />
                         <LemonDivider />
                         {isNewFeatureFlag && (
@@ -951,21 +954,31 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             value={flagType}
                         />
                     </div>
-                    {!featureFlag.is_remote_configuration && (
-                        <div className="text-muted mb-4">
-                            {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
-                            {multivariateEnabled ? (
-                                <>
-                                    <strong>a variant key</strong> according to the below distribution
-                                </>
-                            ) : (
-                                <strong>
-                                    <code>true</code>
-                                </strong>
-                            )}{' '}
-                            <span>if they match one or more release condition groups.</span>
-                        </div>
-                    )}
+                    <div className="text-muted mb-4">
+                        {featureFlag.is_remote_configuration ? (
+                            <span>
+                                Remote config flags provide runtime configuration values in your app. Read more in the{' '}
+                                <Link to="https://posthog.com/docs/feature-flags/remote-config" className="italic">
+                                    remote config flags documentation
+                                </Link>
+                                .
+                            </span>
+                        ) : (
+                            <>
+                                {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
+                                {multivariateEnabled ? (
+                                    <>
+                                        <strong>a variant key</strong> according to the below distribution
+                                    </>
+                                ) : (
+                                    <strong>
+                                        <code>true</code>
+                                    </strong>
+                                )}{' '}
+                                <span>if they match one or more release condition groups.</span>
+                            </>
+                        )}
+                    </div>
                 </div>
             )}
             {!multivariateEnabled && (
@@ -1000,6 +1013,16 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         />
                                     </LemonField>
                                 </Group>
+                                {featureFlag.is_remote_configuration && (
+                                    <div className="text-sm text-muted mt-4">
+                                        Note: remote config flags must be accessed through payloads, e.g.{' '}
+                                        <span className="font-mono font-bold">getFeatureFlagPayload</span>. Using
+                                        standard SDK methods such as{' '}
+                                        <span className="font-mono font-bold">getFeatureFlag</span> or{' '}
+                                        <span className="font-mono font-bold">isFeatureEnabled</span> will always return{' '}
+                                        <span className="font-mono font-bold">true</span>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
