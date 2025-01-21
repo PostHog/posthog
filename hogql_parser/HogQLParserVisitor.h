@@ -193,6 +193,8 @@ public:
 
     virtual std::any visitColumnExprNullPropertyAccess(HogQLParser::ColumnExprNullPropertyAccessContext *context) = 0;
 
+    virtual std::any visitColumnExprIntervalString(HogQLParser::ColumnExprIntervalStringContext *context) = 0;
+
     virtual std::any visitColumnExprTrim(HogQLParser::ColumnExprTrimContext *context) = 0;
 
     virtual std::any visitColumnExprTagElement(HogQLParser::ColumnExprTagElementContext *context) = 0;
