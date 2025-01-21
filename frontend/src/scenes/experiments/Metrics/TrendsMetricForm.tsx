@@ -102,6 +102,9 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         BaseMathType.TotalCount,
                                         BaseMathType.UniqueUsers,
                                         BaseMathType.UniqueSessions,
+                                        BaseMathType.WeeklyActiveUsers,
+                                        BaseMathType.MonthlyActiveUsers,
+                                        BaseMathType.FirstTimeForUser,
                                         PropertyMathType.Sum,
                                     ]}
                                     {...commonActionFilterProps}

@@ -70,6 +70,9 @@ export function SharedTrendsMetricForm(): JSX.Element {
                                         BaseMathType.TotalCount,
                                         BaseMathType.UniqueUsers,
                                         BaseMathType.UniqueSessions,
+                                        BaseMathType.WeeklyActiveUsers,
+                                        BaseMathType.MonthlyActiveUsers,
+                                        BaseMathType.FirstTimeForUser,
                                         PropertyMathType.Sum,
                                     ]}
                                     {...commonActionFilterProps}
