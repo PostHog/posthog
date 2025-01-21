@@ -86,3 +86,5 @@ temp_test_run_data.json
 
 # ignore all dagster tmp directories that may be created
 tmp*/
+
+frontend/@posthog/apps-common/dist/
