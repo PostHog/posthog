@@ -1,7 +1,7 @@
 import pytest
 from inline_snapshot import snapshot
 
-from hogvm.python.utils import UncaughtHogVMException
+from common.hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.hubspot.template_hubspot import (
     template as template_hubspot,

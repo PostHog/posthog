@@ -19,7 +19,7 @@
     "scripts": {
         "copy-scripts": "mkdir -p frontend/dist/ && ./bin/copy-posthog-js",
         "test": "pnpm test:unit && pnpm test:visual",
-        "test:unit": "jest --testPathPattern=frontend/",
+        "test:unit": "jest --testPathPattern='(frontend/|products/|common/)'",
         "jest": "jest",
         "test:visual:update": "rm -rf frontend/__snapshots__/__failures__/ && docker compose -f docker-compose.playwright.yml run --rm -it --build playwright pnpm test:visual:update:docker --url http://host.docker.internal:6006",
         "test:visual:update:docker": "NODE_OPTIONS=--max-old-space-size=6144 test-storybook -u --browsers chromium webkit --no-index-json",
@@ -38,22 +38,21 @@
         "grammar:build": "npm run grammar:build:python && npm run grammar:build:cpp",
         "grammar:build:python": "cd posthog/hogql/grammar && antlr -Dlanguage=Python3 HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
         "grammar:build:cpp": "cd posthog/hogql/grammar && antlr -o ../../../hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && antlr -o ../../../hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
-        "packages:build": "pnpm packages:build:apps-common && pnpm packages:build:lemon-ui",
-        "packages:build:apps-common": "cd frontend/@posthog/apps-common && pnpm i && pnpm build",
+        "packages:build": "pnpm packages:build:lemon-ui",
         "packages:build:lemon-ui": "cd frontend/@posthog/lemon-ui && pnpm i && pnpm build",
         "editor:update-tsd": "pnpm packages:build && node frontend/editor-update-tsd.mjs",
         "prettier": "prettier --write \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "prettier:check": "prettier --check \"frontend/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "typescript:check": "tsc --noEmit && echo \"No errors reported by tsc.\"",
-        "lint:js": "eslint --cache frontend/src cypress",
-        "lint:css": "stylelint \"frontend/**/*.{css,scss}\"",
+        "lint:js": "eslint --cache frontend/src cypress products common",
+        "lint:css": "stylelint \"(frontend|products|common)/**/*.{css,scss}\"",
         "format:backend": "ruff .",
         "format:frontend": "pnpm lint:js --fix && pnpm lint:css --fix && pnpm prettier",
         "format": "pnpm format:backend && pnpm format:frontend",
         "typegen:write": "kea-typegen write --delete --show-ts-errors",
         "typegen:check": "kea-typegen check",
         "typegen:watch": "kea-typegen watch --delete --show-ts-errors",
-        "typegen:clean": "find frontend/src -type f -name '*Type.ts' -delete",
+        "typegen:clean": "find frontend/src products common -type f -name '*Type.ts' -delete",
         "storybook": "DEBUG=0 storybook dev -p 6006",
         "build-storybook": "DEBUG=0 storybook build",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
@@ -162,7 +161,7 @@
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
-        "posthog-js": "1.207.0",
+        "posthog-js": "1.207.1",
         "posthog-js-lite": "3.0.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -354,6 +353,18 @@
             "prettier --write"
         ],
         "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
+            "eslint --cache -c .eslintrc.js --fix",
+            "prettier --write"
+        ],
+        "products/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
+            "eslint --cache -c .eslintrc.js --fix",
+            "prettier --write"
+        ],
+        "common/**/src/**/*.{js,jsx,mjs,ts,tsx}": [
+            "eslint --cache -c .eslintrc.js --fix",
+            "prettier --write"
+        ],
+        "common/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
             "eslint --cache -c .eslintrc.js --fix",
             "prettier --write"
         ],
