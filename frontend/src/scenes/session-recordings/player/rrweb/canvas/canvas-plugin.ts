@@ -1,8 +1,7 @@
 import { CanvasArg, canvasMutationData, canvasMutationParam, eventWithTime } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import { debounce } from 'lib/utils'
-import { canvasMutation, EventType, IncrementalSource, Replayer } from 'rrweb'
-import { ReplayPlugin } from 'rrweb/typings/types'
+import { canvasMutation, EventType, IncrementalSource, Replayer, ReplayPlugin } from 'rrweb'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 

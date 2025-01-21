@@ -1,0 +1,622 @@
+diff --git a/dist/rrweb.js b/dist/rrweb.js
+index 5d38597aebe2221dc7450ac0068594ee9de04869..9a8651fabdaf8607f162670db2ced82819ee57f1 100644
+--- a/dist/rrweb.js
++++ b/dist/rrweb.js
+@@ -438,23 +438,82 @@ function absolutifyURLs(cssText, href) {
+ function normalizeCssString(cssText) {
+   return cssText.replace(/(\/\*[^*]*\*\/)|[\s;]/g, "");
+ }
+-function splitCssText(cssText, style) {
+-  const childNodes2 = Array.from(style.childNodes);
++/**
++ * Maps the output of stringifyStylesheet to individual text nodes of a <style> element
++ * which occurs when javascript is used to append to the style element
++ * and may also occur when browsers opt to break up large text nodes
++ * performance needs to be considered, see e.g. #1603
++ * patched into rrweb 18 referencing PR https://github.com/rrweb-io/rrweb/pull/1615
++ */
++export function splitCssText(
++  cssText,
++  style,
++) {
++  const childNodes = Array.from(style.childNodes);
+   const splits = [];
+-  if (childNodes2.length > 1 && cssText && typeof cssText === "string") {
+-    const cssTextNorm = normalizeCssString(cssText);
+-    for (let i2 = 1; i2 < childNodes2.length; i2++) {
+-      if (childNodes2[i2].textContent && typeof childNodes2[i2].textContent === "string") {
+-        const textContentNorm = normalizeCssString(childNodes2[i2].textContent);
+-        for (let j = 3; j < textContentNorm.length; j++) {
++  let iterLimit = 0;
++  if (childNodes.length > 1 && cssText && typeof cssText === 'string') {
++    let cssTextNorm = normalizeCssString(cssText);
++    const normFactor = cssTextNorm.length / cssText.length;
++    for (let i = 1; i < childNodes.length; i++) {
++      if (
++        childNodes[i].textContent &&
++        typeof childNodes[i].textContent === 'string'
++      ) {
++        const textContentNorm = normalizeCssString(childNodes[i].textContent);
++        let j = 3;
++        for (; j < textContentNorm.length; j++) {
++          if (
++            // keep consuming css identifiers (to get a decent chunk more quickly)
++            textContentNorm[j].match(/[a-zA-Z0-9]/) ||
++            // substring needs to be unique to this section
++            textContentNorm.indexOf(textContentNorm.substring(0, j), 1) !== -1
++          ) {
++            continue;
++          }
++          break;
++        }
++        for (; j < textContentNorm.length; j++) {
+           const bit = textContentNorm.substring(0, j);
+-          if (cssTextNorm.split(bit).length === 2) {
+-            const splitNorm = cssTextNorm.indexOf(bit);
+-            for (let k = splitNorm; k < cssText.length; k++) {
+-              if (normalizeCssString(cssText.substring(0, k)).length === splitNorm) {
++          // this substring should appears only once in overall text too
++          const bits = cssTextNorm.split(bit);
++          let splitNorm = -1;
++          if (bits.length === 2) {
++            splitNorm = cssTextNorm.indexOf(bit);
++          } else if (
++            bits.length > 2 &&
++            bits[0] === '' &&
++            childNodes[i - 1].textContent !== ''
++          ) {
++            // this childNode has same starting content as previous
++            splitNorm = cssTextNorm.indexOf(bit, 1);
++          }
++          if (splitNorm !== -1) {
++            // find the split point in the original text
++            let k = Math.floor(splitNorm / normFactor);
++            for (; k > 0 && k < cssText.length; ) {
++              iterLimit += 1;
++              if (iterLimit > 50 * childNodes.length) {
++                // quit for performance purposes
++                splits.push(cssText);
++                return splits;
++              }
++              const normPart = normalizeCssString(cssText.substring(0, k));
++              if (normPart.length === splitNorm) {
+                 splits.push(cssText.substring(0, k));
+                 cssText = cssText.substring(k);
++                cssTextNorm = cssTextNorm.substring(splitNorm);
+                 break;
++              } else if (normPart.length < splitNorm) {
++                k += Math.max(
++                  1,
++                  Math.floor((splitNorm - normPart.length) / normFactor),
++                );
++              } else {
++                k -= Math.max(
++                  1,
++                  Math.floor((normPart.length - splitNorm) * normFactor),
++                );
+               }
+             }
+             break;
+@@ -463,7 +522,7 @@ function splitCssText(cssText, style) {
+       }
+     }
+   }
+-  splits.push(cssText);
++  splits.push(cssText); // either the full thing if no splits were found, or the last split
+   return splits;
+ }
+ function markCssSplits(cssText, style) {
+@@ -14975,7 +15034,7 @@ class MediaManager {
+     this.mediaMap.forEach((_mediaState, target) => {
+       this.syncTargetWithState(target);
+       if (options.pause) {
+-        target.pause();
++        target?.pause();
+       }
+     });
+   }
+@@ -15005,7 +15064,7 @@ class MediaManager {
+       }
+       target.currentTime = seekToTime;
+     } else {
+-      target.pause();
++      target?.pause();
+       target.currentTime = mediaState.currentTimeAtLastInteraction;
+     }
+   }
+@@ -15069,7 +15128,7 @@ class MediaManager {
+       if (isPlaying && !playerIsPaused) {
+         void target.play();
+       } else {
+-        target.pause();
++        target?.pause();
+       }
+     } catch (error) {
+       this.warn(
+@@ -15079,7 +15138,7 @@ class MediaManager {
+     }
+   }
+   addMediaElements(node2, timeOffset, mirror2) {
+-    if (!["AUDIO", "VIDEO"].includes(node2.nodeName)) return;
++    if (!this.isSupportedMediaElement(node2)) return;
+     const target = node2;
+     const serializedNode = mirror2.getMeta(target);
+     if (!serializedNode || !("attributes" in serializedNode)) return;
+@@ -15091,7 +15150,7 @@ class MediaManager {
+     } else {
+       isPlaying = target.getAttribute("autoplay") !== null;
+     }
+-    if (isPlaying && playerIsPaused) target.pause();
++    if (isPlaying && playerIsPaused) target?.pause();
+     let playbackRate = 1;
+     if (typeof mediaAttributes.rr_mediaPlaybackRate === "number") {
+       playbackRate = mediaAttributes.rr_mediaPlaybackRate;
+@@ -15132,6 +15191,7 @@ class MediaManager {
+     timeOffset,
+     mutation
+   }) {
++    if (!this.isSupportedMediaElement(node2)) return;
+     this.mediaMap.set(
+       target,
+       this.getMediaStateFromMutation({
+@@ -15384,7 +15444,11 @@ class Replayer {
+       mouseTail: defaultMouseTailConfig,
+       useVirtualDom: true,
+       // Virtual-dom optimization is enabled by default.
+-      logger: console
++      logger: console,
++      onError: (e) => {
++          // maintain the existing behaviour of throwing if no handler is provided
++            throw e;
++      },
+     };
+     this.config = Object.assign({}, defaultConfig, config);
+     this.handleResize = this.handleResize.bind(this);
+@@ -16016,240 +16080,244 @@ class Replayer {
+   applyIncremental(e2, isSync) {
+     var _a2, _b, _c;
+     const { data: d } = e2;
+-    switch (d.source) {
+-      case IncrementalSource.Mutation: {
+-        try {
+-          this.applyMutation(d, isSync);
+-        } catch (error) {
+-          this.warn(`Exception in mutation ${error.message || error}`, d);
++    try {
++      switch (d.source) {
++        case IncrementalSource.Mutation: {
++          try {
++            this.applyMutation(d, isSync);
++          } catch (error) {
++            this.warn(`Exception in mutation ${error.message || error}`, d);
++          }
++          break;
+         }
+-        break;
+-      }
+-      case IncrementalSource.Drag:
+-      case IncrementalSource.TouchMove:
+-      case IncrementalSource.MouseMove:
+-        if (isSync) {
+-          const lastPosition = d.positions[d.positions.length - 1];
+-          this.mousePos = {
+-            x: lastPosition.x,
+-            y: lastPosition.y,
+-            id: lastPosition.id,
+-            debugData: d
+-          };
+-        } else {
+-          d.positions.forEach((p) => {
+-            const action = {
+-              doAction: () => {
+-                this.moveAndHover(p.x, p.y, p.id, isSync, d);
+-              },
+-              delay: p.timeOffset + e2.timestamp - this.service.state.context.baselineTime
++        case IncrementalSource.Drag:
++        case IncrementalSource.TouchMove:
++        case IncrementalSource.MouseMove:
++          if (isSync) {
++            const lastPosition = d.positions[d.positions.length - 1];
++            this.mousePos = {
++              x: lastPosition.x,
++              y: lastPosition.y,
++              id: lastPosition.id,
++              debugData: d
+             };
+-            this.timer.addAction(action);
+-          });
+-          this.timer.addAction({
+-            doAction() {
+-            },
+-            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+-            delay: e2.delay - ((_a2 = d.positions[0]) == null ? void 0 : _a2.timeOffset)
+-          });
+-        }
+-        break;
+-      case IncrementalSource.MouseInteraction: {
+-        if (d.id === -1) {
++          } else {
++            d.positions.forEach((p) => {
++              const action = {
++                doAction: () => {
++                  this.moveAndHover(p.x, p.y, p.id, isSync, d);
++                },
++                delay: p.timeOffset + e2.timestamp - this.service.state.context.baselineTime
++              };
++              this.timer.addAction(action);
++            });
++            this.timer.addAction({
++              doAction() {
++              },
++              // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
++              delay: e2.delay - ((_a2 = d.positions[0]) == null ? void 0 : _a2.timeOffset)
++            });
++          }
+           break;
+-        }
+-        const event = new Event(toLowerCase(MouseInteractions[d.type]));
+-        const target = this.mirror.getNode(d.id);
+-        if (!target) {
+-          return this.debugNodeNotFound(d, d.id);
+-        }
+-        this.emitter.emit(ReplayerEvents.MouseInteraction, {
+-          type: d.type,
+-          target
+-        });
+-        const { triggerFocus } = this.config;
+-        switch (d.type) {
+-          case MouseInteractions.Blur:
+-            if ("blur" in target) {
+-              target.blur();
+-            }
+-            break;
+-          case MouseInteractions.Focus:
+-            if (triggerFocus && target.focus) {
+-              target.focus({
+-                preventScroll: true
+-              });
+-            }
++        case IncrementalSource.MouseInteraction: {
++          if (d.id === -1) {
+             break;
+-          case MouseInteractions.Click:
+-          case MouseInteractions.TouchStart:
+-          case MouseInteractions.TouchEnd:
+-          case MouseInteractions.MouseDown:
+-          case MouseInteractions.MouseUp:
+-            if (isSync) {
+-              if (d.type === MouseInteractions.TouchStart) {
+-                this.touchActive = true;
+-              } else if (d.type === MouseInteractions.TouchEnd) {
+-                this.touchActive = false;
++          }
++          const event = new Event(toLowerCase(MouseInteractions[d.type]));
++          const target = this.mirror.getNode(d.id);
++          if (!target) {
++            return this.debugNodeNotFound(d, d.id);
++          }
++          this.emitter.emit(ReplayerEvents.MouseInteraction, {
++            type: d.type,
++            target
++          });
++          const { triggerFocus } = this.config;
++          switch (d.type) {
++            case MouseInteractions.Blur:
++              if ("blur" in target) {
++                target.blur();
+               }
+-              if (d.type === MouseInteractions.MouseDown) {
+-                this.lastMouseDownEvent = [target, event];
+-              } else if (d.type === MouseInteractions.MouseUp) {
+-                this.lastMouseDownEvent = null;
++              break;
++            case MouseInteractions.Focus:
++              if (triggerFocus && target.focus) {
++                target.focus({
++                  preventScroll: true
++                });
+               }
+-              this.mousePos = {
+-                x: d.x || 0,
+-                y: d.y || 0,
+-                id: d.id,
+-                debugData: d
+-              };
+-            } else {
+-              if (d.type === MouseInteractions.TouchStart) {
+-                this.tailPositions.length = 0;
++              break;
++            case MouseInteractions.Click:
++            case MouseInteractions.TouchStart:
++            case MouseInteractions.TouchEnd:
++            case MouseInteractions.MouseDown:
++            case MouseInteractions.MouseUp:
++              if (isSync) {
++                if (d.type === MouseInteractions.TouchStart) {
++                  this.touchActive = true;
++                } else if (d.type === MouseInteractions.TouchEnd) {
++                  this.touchActive = false;
++                }
++                if (d.type === MouseInteractions.MouseDown) {
++                  this.lastMouseDownEvent = [target, event];
++                } else if (d.type === MouseInteractions.MouseUp) {
++                  this.lastMouseDownEvent = null;
++                }
++                this.mousePos = {
++                  x: d.x || 0,
++                  y: d.y || 0,
++                  id: d.id,
++                  debugData: d
++                };
++              } else {
++                if (d.type === MouseInteractions.TouchStart) {
++                  this.tailPositions.length = 0;
++                }
++                this.moveAndHover(d.x || 0, d.y || 0, d.id, isSync, d);
++                if (d.type === MouseInteractions.Click) {
++                  this.mouse.classList.remove("active");
++                  void this.mouse.offsetWidth;
++                  this.mouse.classList.add("active");
++                } else if (d.type === MouseInteractions.TouchStart) {
++                  void this.mouse.offsetWidth;
++                  this.mouse.classList.add("touch-active");
++                } else if (d.type === MouseInteractions.TouchEnd) {
++                  this.mouse.classList.remove("touch-active");
++                } else {
++                  target.dispatchEvent(event);
++                }
+               }
+-              this.moveAndHover(d.x || 0, d.y || 0, d.id, isSync, d);
+-              if (d.type === MouseInteractions.Click) {
+-                this.mouse.classList.remove("active");
+-                void this.mouse.offsetWidth;
+-                this.mouse.classList.add("active");
+-              } else if (d.type === MouseInteractions.TouchStart) {
+-                void this.mouse.offsetWidth;
+-                this.mouse.classList.add("touch-active");
+-              } else if (d.type === MouseInteractions.TouchEnd) {
+-                this.mouse.classList.remove("touch-active");
++              break;
++            case MouseInteractions.TouchCancel:
++              if (isSync) {
++                this.touchActive = false;
+               } else {
+-                target.dispatchEvent(event);
++                this.mouse.classList.remove("touch-active");
+               }
+-            }
++              break;
++            default:
++              target.dispatchEvent(event);
++          }
++          break;
++        }
++        case IncrementalSource.Scroll: {
++          if (d.id === -1) {
+             break;
+-          case MouseInteractions.TouchCancel:
+-            if (isSync) {
+-              this.touchActive = false;
+-            } else {
+-              this.mouse.classList.remove("touch-active");
++          }
++          if (this.usingVirtualDom) {
++            const target = this.virtualDom.mirror.getNode(d.id);
++            if (!target) {
++              return this.debugNodeNotFound(d, d.id);
+             }
++            target.scrollData = d;
+             break;
+-          default:
+-            target.dispatchEvent(event);
++          }
++          this.applyScroll(d, isSync);
++          break;
+         }
+-        break;
+-      }
+-      case IncrementalSource.Scroll: {
+-        if (d.id === -1) {
++        case IncrementalSource.ViewportResize:
++          this.emitter.emit(ReplayerEvents.Resize, {
++            width: d.width,
++            height: d.height
++          });
++          break;
++        case IncrementalSource.Input: {
++          if (d.id === -1) {
++            break;
++          }
++          if (this.usingVirtualDom) {
++            const target = this.virtualDom.mirror.getNode(d.id);
++            if (!target) {
++              return this.debugNodeNotFound(d, d.id);
++            }
++            target.inputData = d;
++            break;
++          }
++          this.applyInput(d);
+           break;
+         }
+-        if (this.usingVirtualDom) {
+-          const target = this.virtualDom.mirror.getNode(d.id);
++        case IncrementalSource.MediaInteraction: {
++          const target = this.usingVirtualDom ? this.virtualDom.mirror.getNode(d.id) : this.mirror.getNode(d.id);
+           if (!target) {
+             return this.debugNodeNotFound(d, d.id);
+           }
+-          target.scrollData = d;
++          const mediaEl = target;
++          const { events } = this.service.state.context;
++          this.mediaManager.mediaMutation({
++            target: mediaEl,
++            timeOffset: e2.timestamp - events[0].timestamp,
++            mutation: d
++          });
+           break;
+         }
+-        this.applyScroll(d, isSync);
+-        break;
+-      }
+-      case IncrementalSource.ViewportResize:
+-        this.emitter.emit(ReplayerEvents.Resize, {
+-          width: d.width,
+-          height: d.height
+-        });
+-        break;
+-      case IncrementalSource.Input: {
+-        if (d.id === -1) {
++        case IncrementalSource.StyleSheetRule:
++        case IncrementalSource.StyleDeclaration: {
++          if (this.usingVirtualDom) {
++            if (d.styleId) this.constructedStyleMutations.push(d);
++            else if (d.id)
++              (_b = this.virtualDom.mirror.getNode(d.id)) == null ? void 0 : _b.rules.push(d);
++          } else this.applyStyleSheetMutation(d);
+           break;
+         }
+-        if (this.usingVirtualDom) {
+-          const target = this.virtualDom.mirror.getNode(d.id);
+-          if (!target) {
+-            return this.debugNodeNotFound(d, d.id);
++        case IncrementalSource.CanvasMutation: {
++          if (!this.config.UNSAFE_replayCanvas) {
++            return;
++          }
++          if (this.usingVirtualDom) {
++            const target = this.virtualDom.mirror.getNode(
++              d.id
++            );
++            if (!target) {
++              return this.debugNodeNotFound(d, d.id);
++            }
++            target.canvasMutations.push({
++              event: e2,
++              mutation: d
++            });
++          } else {
++            const target = this.mirror.getNode(d.id);
++            if (!target) {
++              return this.debugNodeNotFound(d, d.id);
++            }
++            void canvasMutation({
++              event: e2,
++              mutation: d,
++              target,
++              imageMap: this.imageMap,
++              canvasEventMap: this.canvasEventMap,
++              errorHandler: this.warnCanvasMutationFailed.bind(this)
++            });
+           }
+-          target.inputData = d;
+           break;
+         }
+-        this.applyInput(d);
+-        break;
+-      }
+-      case IncrementalSource.MediaInteraction: {
+-        const target = this.usingVirtualDom ? this.virtualDom.mirror.getNode(d.id) : this.mirror.getNode(d.id);
+-        if (!target) {
+-          return this.debugNodeNotFound(d, d.id);
+-        }
+-        const mediaEl = target;
+-        const { events } = this.service.state.context;
+-        this.mediaManager.mediaMutation({
+-          target: mediaEl,
+-          timeOffset: e2.timestamp - events[0].timestamp,
+-          mutation: d
+-        });
+-        break;
+-      }
+-      case IncrementalSource.StyleSheetRule:
+-      case IncrementalSource.StyleDeclaration: {
+-        if (this.usingVirtualDom) {
+-          if (d.styleId) this.constructedStyleMutations.push(d);
+-          else if (d.id)
+-            (_b = this.virtualDom.mirror.getNode(d.id)) == null ? void 0 : _b.rules.push(d);
+-        } else this.applyStyleSheetMutation(d);
+-        break;
+-      }
+-      case IncrementalSource.CanvasMutation: {
+-        if (!this.config.UNSAFE_replayCanvas) {
+-          return;
+-        }
+-        if (this.usingVirtualDom) {
+-          const target = this.virtualDom.mirror.getNode(
+-            d.id
+-          );
+-          if (!target) {
+-            return this.debugNodeNotFound(d, d.id);
+-          }
+-          target.canvasMutations.push({
+-            event: e2,
+-            mutation: d
+-          });
+-        } else {
+-          const target = this.mirror.getNode(d.id);
+-          if (!target) {
+-            return this.debugNodeNotFound(d, d.id);
++        case IncrementalSource.Font: {
++          try {
++            const fontFace = new FontFace(
++              d.family,
++              d.buffer ? new Uint8Array(JSON.parse(d.fontSource)) : d.fontSource,
++              d.descriptors
++            );
++            (_c = this.iframe.contentDocument) == null ? void 0 : _c.fonts.add(fontFace);
++          } catch (error) {
++            this.warn(error);
+           }
+-          void canvasMutation({
+-            event: e2,
+-            mutation: d,
+-            target,
+-            imageMap: this.imageMap,
+-            canvasEventMap: this.canvasEventMap,
+-            errorHandler: this.warnCanvasMutationFailed.bind(this)
+-          });
++          break;
+         }
+-        break;
+-      }
+-      case IncrementalSource.Font: {
+-        try {
+-          const fontFace = new FontFace(
+-            d.family,
+-            d.buffer ? new Uint8Array(JSON.parse(d.fontSource)) : d.fontSource,
+-            d.descriptors
+-          );
+-          (_c = this.iframe.contentDocument) == null ? void 0 : _c.fonts.add(fontFace);
+-        } catch (error) {
+-          this.warn(error);
++        case IncrementalSource.Selection: {
++          if (isSync) {
++            this.lastSelectionData = d;
++            break;
++          }
++          this.applySelection(d);
++          break;
+         }
+-        break;
+-      }
+-      case IncrementalSource.Selection: {
+-        if (isSync) {
+-          this.lastSelectionData = d;
++        case IncrementalSource.AdoptedStyleSheet: {
++          if (this.usingVirtualDom) this.adoptedStyleSheets.push(d);
++          else this.applyAdoptedStyleSheet(d);
+           break;
+         }
+-        this.applySelection(d);
+-        break;
+-      }
+-      case IncrementalSource.AdoptedStyleSheet: {
+-        if (this.usingVirtualDom) this.adoptedStyleSheets.push(d);
+-        else this.applyAdoptedStyleSheet(d);
+-        break;
+       }
++    } catch (error) {
++      this.config.onError(error);
+     }
+   }
+   /**
