@@ -15,6 +15,7 @@ import {
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
@@ -948,8 +949,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dashboard, s.featureFlags],
             (dashboard, featureFlags) => {
                 if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
-                    const requiredLevels = ['admin', 'editor']
-                    return dashboard?.user_access_level ? requiredLevels.includes(dashboard.user_access_level) : true
+                    return dashboard?.user_access_level
+                        ? accessLevelSatisfied('dashboard', dashboard.user_access_level, 'editor')
+                        : false
                 }
                 return !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
             },
