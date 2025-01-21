@@ -19,15 +19,9 @@ def prepare_s3_files_for_querying(
 
     s3_folder_for_job = f"{settings.BUCKET_URL}/{folder_path}"
 
-    if pipeline_version == ExternalDataJob.PipelineVersion.V2:
-        s3_folder_for_schema = f"{s3_folder_for_job}/{normalized_table_name}__v2"
-    else:
-        s3_folder_for_schema = f"{s3_folder_for_job}/{normalized_table_name}"
+    s3_folder_for_schema = f"{s3_folder_for_job}/{normalized_table_name}"
 
-    if pipeline_version == ExternalDataJob.PipelineVersion.V2:
-        s3_folder_for_querying = f"{s3_folder_for_job}/{normalized_table_name}__query_v2"
-    else:
-        s3_folder_for_querying = f"{s3_folder_for_job}/{normalized_table_name}__query"
+    s3_folder_for_querying = f"{s3_folder_for_job}/{normalized_table_name}__query"
 
     if s3.exists(s3_folder_for_querying):
         s3.delete(s3_folder_for_querying, recursive=True)

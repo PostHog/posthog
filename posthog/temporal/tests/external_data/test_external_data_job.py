@@ -16,7 +16,7 @@ from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
     ExternalDataWorkflowInputs,
 )
-from posthog.temporal.data_imports.pipelines.pipeline_sync import DataImportPipelineSync
+from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import check_billing_limits_activity
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
@@ -687,7 +687,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
 
     with (
         mock.patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}),
-        mock.patch.object(DataImportPipelineSync, "run", mock_func),
+        mock.patch.object(PipelineNonDLT, "run", mock_func),
     ):
         with override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",

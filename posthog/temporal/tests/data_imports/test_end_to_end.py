@@ -21,7 +21,7 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE, DATA_WAREHOUSE_TASK_QUEUE_V2
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.funnels.funnel import Funnel
@@ -101,19 +101,6 @@ async def minio_client():
         yield minio_client
 
 
-def pytest_generate_tests(metafunc):
-    if "task_queue" in metafunc.fixturenames:
-        metafunc.parametrize("task_queue", [DATA_WAREHOUSE_TASK_QUEUE, DATA_WAREHOUSE_TASK_QUEUE_V2], indirect=True)
-
-
-@pytest.fixture(autouse=True)
-def task_queue(request):
-    queue = getattr(request, "param", None)
-
-    with override_settings(TEMPORAL_TASK_QUEUE=queue):
-        yield
-
-
 async def _run(
     team: Team,
     schema_name: str,
@@ -158,22 +145,18 @@ async def _run(
 
     await sync_to_async(schema.refresh_from_db)()
 
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE:
-        assert schema.last_synced_at == run.created_at
-    else:
-        assert schema.last_synced_at is None
+    assert schema.last_synced_at == run.created_at
 
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE:
-        res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
-        assert len(res.results) == 1
+    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
+    assert len(res.results) == 1
 
-        for name, field in external_tables.get(table_name, {}).items():
-            if field.hidden:
-                continue
-            assert name in (res.columns or [])
+    for name, field in external_tables.get(table_name, {}).items():
+        if field.hidden:
+            continue
+        assert name in (res.columns or [])
 
-        await sync_to_async(source.refresh_from_db)()
-        assert source.job_inputs.get("reset_pipeline", None) is None
+    await sync_to_async(source.refresh_from_db)()
+    assert source.job_inputs.get("reset_pipeline", None) is None
 
     return workflow_id, inputs
 
@@ -234,12 +217,11 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
-        mock.patch("posthog.temporal.data_imports.external_data_job.trigger_pipeline_v2"),
     ):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=DATA_WAREHOUSE_TASK_QUEUE,
                 workflows=[ExternalDataJobWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -250,7 +232,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                     ExternalDataJobWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=DATA_WAREHOUSE_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -557,13 +539,12 @@ async def test_postgres_binary_columns(team, postgres_config, postgres_connectio
         mock_data_response=[],
     )
 
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE:
-        res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_binary_col_test", team)
-        columns = res.columns
+    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_binary_col_test", team)
+    columns = res.columns
 
-        assert columns is not None
-        assert len(columns) == 1
-        assert columns[0] == "id"
+    assert columns is not None
+    assert len(columns) == 1
+    assert columns[0] == "id"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -591,14 +572,9 @@ async def test_delta_wrapper_files(team, stripe_balance_transaction, minio_clien
     latest_job = jobs[0]
     folder_path = await sync_to_async(latest_job.folder_path)()
 
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE:
-        s3_objects = await minio_client.list_objects_v2(
-            Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query/"
-        )
-    else:
-        s3_objects = await minio_client.list_objects_v2(
-            Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_v2/"
-        )
+    s3_objects = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query/"
+    )
 
     assert len(s3_objects["Contents"]) != 0
 
@@ -625,24 +601,23 @@ async def test_funnels_lazy_joins_ordering(team, stripe_customer):
         field_name="stripe_customer",
     )
 
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE:
-        query = FunnelsQuery(
-            series=[EventsNode(), EventsNode()],
-            breakdownFilter=BreakdownFilter(
-                breakdown_type=BreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY, breakdown="stripe_customer.email"
-            ),
-        )
-        funnel_class = Funnel(context=FunnelQueryContext(query=query, team=team))
+    query = FunnelsQuery(
+        series=[EventsNode(), EventsNode()],
+        breakdownFilter=BreakdownFilter(
+            breakdown_type=BreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY, breakdown="stripe_customer.email"
+        ),
+    )
+    funnel_class = Funnel(context=FunnelQueryContext(query=query, team=team))
 
-        query_ast = funnel_class.get_query()
-        await sync_to_async(execute_hogql_query)(
-            query_type="FunnelsQuery",
-            query=query_ast,
-            team=team,
-            modifiers=create_default_modifiers_for_team(
-                team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
-            ),
-        )
+    query_ast = funnel_class.get_query()
+    await sync_to_async(execute_hogql_query)(
+        query_type="FunnelsQuery",
+        query=query_ast,
+        team=team,
+        modifiers=create_default_modifiers_for_team(
+            team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
+        ),
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -675,13 +650,12 @@ async def test_postgres_schema_evolution(team, postgres_config, postgres_connect
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
     )
 
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE:
-        res = await sync_to_async(execute_hogql_query)("SELECT * FROM postgres_test_table", team)
-        columns = res.columns
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM postgres_test_table", team)
+    columns = res.columns
 
-        assert columns is not None
-        assert len(columns) == 1
-        assert any(x == "id" for x in columns)
+    assert columns is not None
+    assert len(columns) == 1
+    assert any(x == "id" for x in columns)
 
     # Evole schema
     await postgres_connection.execute(
@@ -695,14 +669,13 @@ async def test_postgres_schema_evolution(team, postgres_config, postgres_connect
     # Execute the same schema again - load
     await _execute_run(str(uuid.uuid4()), inputs, [])
 
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE:
-        res = await sync_to_async(execute_hogql_query)("SELECT * FROM postgres_test_table", team)
-        columns = res.columns
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM postgres_test_table", team)
+    columns = res.columns
 
-        assert columns is not None
-        assert len(columns) == 2
-        assert any(x == "id" for x in columns)
-        assert any(x == "new_col" for x in columns)
+    assert columns is not None
+    assert len(columns) == 2
+    assert any(x == "id" for x in columns)
+    assert any(x == "new_col" for x in columns)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -739,16 +712,15 @@ async def test_sql_database_missing_incremental_values(team, postgres_config, po
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
     )
 
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE:
-        res = await sync_to_async(execute_hogql_query)("SELECT * FROM postgres_test_table", team)
-        columns = res.columns
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM postgres_test_table", team)
+    columns = res.columns
 
-        assert columns is not None
-        assert len(columns) == 1
-        assert any(x == "id" for x in columns)
+    assert columns is not None
+    assert len(columns) == 1
+    assert any(x == "id" for x in columns)
 
-        # Exclude rows that don't have the incremental cursor key set
-        assert len(res.results) == 1
+    # Exclude rows that don't have the incremental cursor key set
+    assert len(res.results) == 1
 
 
 @pytest.mark.django_db(transaction=True)
@@ -782,16 +754,15 @@ async def test_sql_database_incremental_initial_value(team, postgres_config, pos
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
     )
 
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE:
-        res = await sync_to_async(execute_hogql_query)("SELECT * FROM postgres_test_table", team)
-        columns = res.columns
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM postgres_test_table", team)
+    columns = res.columns
 
-        assert columns is not None
-        assert len(columns) == 1
-        assert any(x == "id" for x in columns)
+    assert columns is not None
+    assert len(columns) == 1
+    assert any(x == "id" for x in columns)
 
-        # Include rows that have the same incremental value as the `initial_value`
-        assert len(res.results) == 1
+    # Include rows that have the same incremental value as the `initial_value`
+    assert len(res.results) == 1
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1040,26 +1011,6 @@ async def test_non_retryable_error_with_special_characters(team, stripe_customer
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_delta_table_deleted(team, stripe_balance_transaction):
-    workflow_id, inputs = await _run(
-        team=team,
-        schema_name="BalanceTransaction",
-        table_name="stripe_balancetransaction",
-        source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
-        mock_data_response=stripe_balance_transaction["data"],
-        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
-    )
-
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE:
-        with mock.patch.object(DeltaTable, "delete") as mock_delta_table_delete:
-            await _execute_run(str(uuid.uuid4()), inputs, stripe_balance_transaction["data"])
-
-            mock_delta_table_delete.assert_called_once()
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
 async def test_inconsistent_types_in_data(team, stripe_balance_transaction):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
@@ -1112,52 +1063,51 @@ async def test_postgres_uuid_type(team, postgres_config, postgres_connection):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_decimal_down_scales(team, postgres_config, postgres_connection):
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
-        await postgres_connection.execute(
-            "CREATE TABLE IF NOT EXISTS {schema}.downsizing_column (id integer, dec_col numeric(10, 2))".format(
-                schema=postgres_config["schema"]
-            )
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.downsizing_column (id integer, dec_col numeric(10, 2))".format(
+            schema=postgres_config["schema"]
         )
-        await postgres_connection.execute(
-            "INSERT INTO {schema}.downsizing_column (id, dec_col) VALUES (1, 12345.60)".format(
-                schema=postgres_config["schema"]
-            )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.downsizing_column (id, dec_col) VALUES (1, 12345.60)".format(
+            schema=postgres_config["schema"]
         )
+    )
 
-        await postgres_connection.commit()
+    await postgres_connection.commit()
 
-        workflow_id, inputs = await _run(
-            team=team,
-            schema_name="downsizing_column",
-            table_name="postgres_downsizing_column",
-            source_type="Postgres",
-            job_inputs={
-                "host": postgres_config["host"],
-                "port": postgres_config["port"],
-                "database": postgres_config["database"],
-                "user": postgres_config["user"],
-                "password": postgres_config["password"],
-                "schema": postgres_config["schema"],
-                "ssh_tunnel_enabled": "False",
-            },
-            mock_data_response=[],
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="downsizing_column",
+        table_name="postgres_downsizing_column",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+    )
+
+    await postgres_connection.execute(
+        "ALTER TABLE {schema}.downsizing_column ALTER COLUMN dec_col type numeric(9, 2) using dec_col::numeric(9, 2);".format(
+            schema=postgres_config["schema"]
         )
+    )
 
-        await postgres_connection.execute(
-            "ALTER TABLE {schema}.downsizing_column ALTER COLUMN dec_col type numeric(9, 2) using dec_col::numeric(9, 2);".format(
-                schema=postgres_config["schema"]
-            )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.downsizing_column (id, dec_col) VALUES (1, 1234567.89)".format(
+            schema=postgres_config["schema"]
         )
+    )
 
-        await postgres_connection.execute(
-            "INSERT INTO {schema}.downsizing_column (id, dec_col) VALUES (1, 1234567.89)".format(
-                schema=postgres_config["schema"]
-            )
-        )
+    await postgres_connection.commit()
 
-        await postgres_connection.commit()
-
-        await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _execute_run(str(uuid.uuid4()), inputs, [])
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1221,51 +1171,49 @@ async def test_postgres_nan_numerical_values(team, postgres_config, postgres_con
         mock_data_response=[],
     )
 
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE:
-        res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_numerical_nan", team)
-        columns = res.columns
-        results = res.results
+    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_numerical_nan", team)
+    columns = res.columns
+    results = res.results
 
-        assert columns is not None
-        assert len(columns) == 2
-        assert columns[0] == "id"
-        assert columns[1] == "nan_column"
+    assert columns is not None
+    assert len(columns) == 2
+    assert columns[0] == "id"
+    assert columns[1] == "nan_column"
 
-        assert results is not None
-        assert len(results) == 1
-        assert results[0] == (1, None)
+    assert results is not None
+    assert len(results) == 1
+    assert results[0] == (1, None)
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_delete_table_on_reset(team, stripe_balance_transaction):
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
-        with (
-            mock.patch.object(DeltaTable, "delete") as mock_delta_table_delete,
-            mock.patch.object(s3fs.S3FileSystem, "delete") as mock_s3_delete,
-        ):
-            workflow_id, inputs = await _run(
-                team=team,
-                schema_name="BalanceTransaction",
-                table_name="stripe_balancetransaction",
-                source_type="Stripe",
-                job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id", "reset_pipeline": "True"},
-                mock_data_response=stripe_balance_transaction["data"],
-            )
+    with (
+        mock.patch.object(DeltaTable, "delete") as mock_delta_table_delete,
+        mock.patch.object(s3fs.S3FileSystem, "delete") as mock_s3_delete,
+    ):
+        workflow_id, inputs = await _run(
+            team=team,
+            schema_name="BalanceTransaction",
+            table_name="stripe_balancetransaction",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id", "reset_pipeline": "True"},
+            mock_data_response=stripe_balance_transaction["data"],
+        )
 
-            source = await sync_to_async(ExternalDataSource.objects.get)(id=inputs.external_data_source_id)
-
-            assert source.job_inputs is not None and isinstance(source.job_inputs, dict)
-            source.job_inputs["reset_pipeline"] = "True"
-
-            await sync_to_async(source.save)()
-
-            await _execute_run(str(uuid.uuid4()), inputs, stripe_balance_transaction["data"])
-
-        mock_delta_table_delete.assert_called()
-        mock_s3_delete.assert_called()
-
-        await sync_to_async(source.refresh_from_db)()
+        source = await sync_to_async(ExternalDataSource.objects.get)(id=inputs.external_data_source_id)
 
         assert source.job_inputs is not None and isinstance(source.job_inputs, dict)
-        assert "reset_pipeline" not in source.job_inputs.keys()
+        source.job_inputs["reset_pipeline"] = "True"
+
+        await sync_to_async(source.save)()
+
+        await _execute_run(str(uuid.uuid4()), inputs, stripe_balance_transaction["data"])
+
+    mock_delta_table_delete.assert_called()
+    mock_s3_delete.assert_called()
+
+    await sync_to_async(source.refresh_from_db)()
+
+    assert source.job_inputs is not None and isinstance(source.job_inputs, dict)
+    assert "reset_pipeline" not in source.job_inputs.keys()

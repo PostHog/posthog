@@ -30,7 +30,7 @@ from .external_table_definitions import external_tables
 from posthog.hogql.context import HogQLContext
 
 if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataJob
+    pass
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
@@ -143,7 +143,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     def get_columns(
         self,
-        pipeline_version: Optional["ExternalDataJob.PipelineVersion"] = None,
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableColumns:
         try:
@@ -154,7 +153,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
-                pipeline_version=pipeline_version,
             )
 
             result = sync_execute(
