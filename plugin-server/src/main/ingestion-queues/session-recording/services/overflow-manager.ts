@@ -3,7 +3,7 @@ import LRUCache from 'lru-cache'
 import { Gauge } from 'prom-client'
 
 import { status } from '../../../../utils/status'
-import { Limiter } from '../../../../utils/token-bucket'
+import { MemoryRateLimiter } from '../../../../utils/token-bucket'
 
 export const overflowTriggeredGauge = new Gauge({
     name: 'overflow_detection_triggered_total',
@@ -20,7 +20,7 @@ export const overflowTriggeredGauge = new Gauge({
  * calls will return early until cooldownSeconds is reached.
  */
 export class OverflowManager {
-    private limiter: Limiter
+    private limiter: MemoryRateLimiter
     private triggered: LRUCache<string, boolean>
 
     constructor(
@@ -31,7 +31,7 @@ export class OverflowManager {
         private redisKey: string,
         private redisClient: Redis
     ) {
-        this.limiter = new Limiter(burstCapacity, replenishRate)
+        this.limiter = new MemoryRateLimiter(burstCapacity, replenishRate)
         this.triggered = new LRUCache({ max: 1_000_000, maxAge: cooldownSeconds * 1000 })
         status.info('🚛 ', '[overflow-manager] manager stated', {
             redis_key: this.redisKey,
