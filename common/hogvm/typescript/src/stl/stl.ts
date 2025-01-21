@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
-import { AsyncSTLFunction, STLFunction, HogInterval, HogDate, HogDateTime } from '../types'
+import { AsyncSTLFunction, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
 import { getNestedValue, like } from '../utils'
 import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
 import {
@@ -34,9 +34,9 @@ function STLToString(args: any[]): string {
 }
 
 // Helper: HogInterval
-function isHogInterval(obj: any): obj is HogInterval {
-    return obj && obj.__hogInterval__ === true
-}
+// function isHogInterval(obj: any): obj is HogInterval {
+//     return obj && obj.__hogInterval__ === true
+// }
 
 function toHogInterval(value: number, unit: string): HogInterval {
     return {
@@ -97,13 +97,12 @@ function applyIntervalToDateTime(base: HogDate | HogDateTime, interval: HogInter
             dt: newDt.toSeconds(),
             zone: newDt.zoneName || 'UTC',
         }
-    } else {
-        return {
-            __hogDate__: true,
-            year: newDt.year,
-            month: newDt.month,
-            day: newDt.day,
-        }
+    }
+    return {
+        __hogDate__: true,
+        year: newDt.year,
+        month: newDt.month,
+        day: newDt.day,
     }
 }
 
@@ -119,10 +118,9 @@ function dateDiffFn([unit, startVal, endVal]: any[]): number {
             return DateTime.fromSeconds(obj.dt, { zone: obj.zone })
         } else if (isHogDate(obj)) {
             return DateTime.fromObject({ year: obj.year, month: obj.month, day: obj.day }, { zone: 'UTC' })
-        } else {
-            // try parse ISO string
-            return DateTime.fromISO(obj, { zone: 'UTC' })
         }
+        // try parse ISO string
+        return DateTime.fromISO(obj, { zone: 'UTC' })
     }
 
     const start = toDT(startVal)
@@ -168,10 +166,16 @@ function dateTruncFn([unit, val]: any[]): HogDateTime {
             truncated = DateTime.fromObject({ year: dt.year, month: dt.month, day: dt.day }, { zone: dt.zoneName })
             break
         case 'hour':
-            truncated = DateTime.fromObject({ year: dt.year, month: dt.month, day: dt.day, hour: dt.hour }, { zone: dt.zoneName })
+            truncated = DateTime.fromObject(
+                { year: dt.year, month: dt.month, day: dt.day, hour: dt.hour },
+                { zone: dt.zoneName }
+            )
             break
         case 'minute':
-            truncated = DateTime.fromObject({ year: dt.year, month: dt.month, day: dt.day, hour: dt.hour, minute: dt.minute }, { zone: dt.zoneName })
+            truncated = DateTime.fromObject(
+                { year: dt.year, month: dt.month, day: dt.day, hour: dt.hour, minute: dt.minute },
+                { zone: dt.zoneName }
+            )
             break
         default:
             throw new Error(`Unsupported unit for dateTrunc: ${unit}`)
@@ -185,14 +189,16 @@ function dateTruncFn([unit, val]: any[]): HogDateTime {
 
 function coalesceFn(args: any[]): any {
     for (const a of args) {
-        if (a !== null && a !== undefined) return a
+        if (a !== null && a !== undefined) {
+            return a
+        }
     }
     return null
 }
 
 function assumeNotNullFn([val]: any[]): any {
     if (val === null || val === undefined) {
-        throw new Error("Value is null in assumeNotNull")
+        throw new Error('Value is null in assumeNotNull')
     }
     return val
 }
@@ -278,9 +284,8 @@ function extractFn([part, val]: any[]): number {
             return DateTime.fromSeconds(obj.dt, { zone: obj.zone })
         } else if (isHogDate(obj)) {
             return DateTime.fromObject({ year: obj.year, month: obj.month, day: obj.day }, { zone: 'UTC' })
-        } else {
-            return DateTime.fromISO(obj, { zone: 'UTC' })
         }
+        return DateTime.fromISO(obj, { zone: 'UTC' })
     }
 
     const dt = toDT(val)
@@ -311,9 +316,13 @@ function startsWithFn([str, prefix]: any[]): boolean {
 }
 
 function substringFn([s, start, length]: any[]): string {
-    if (typeof s !== 'string') return ''
+    if (typeof s !== 'string') {
+        return ''
+    }
     const startIdx = start - 1
-    if (startIdx < 0 || length < 0) return ''
+    if (startIdx < 0 || length < 0) {
+        return ''
+    }
     const endIdx = startIdx + length
     return startIdx < s.length ? s.slice(startIdx, endIdx) : ''
 }
@@ -359,14 +368,15 @@ function toStartOfMonthFn([val]: any[]): HogDateTime {
 }
 
 function toStartOfWeekFn([val]: any[]): HogDateTime {
-    const dt = isHogDateTime(val) ? DateTime.fromSeconds(val.dt, { zone: val.zone }) :
-        DateTime.fromObject({ year: val.year, month: val.month, day: val.day }, { zone: 'UTC' })
+    const dt = isHogDateTime(val)
+        ? DateTime.fromSeconds(val.dt, { zone: val.zone })
+        : DateTime.fromObject({ year: val.year, month: val.month, day: val.day }, { zone: 'UTC' })
     const weekday = dt.weekday // Monday=1, Sunday=7
     const startOfWeek = dt.minus({ days: weekday - 1 }).startOf('day')
     return {
         __hogDateTime__: true,
         dt: startOfWeek.toSeconds(),
-        zone: startOfWeek.zoneName || 'UTC'
+        zone: startOfWeek.zoneName || 'UTC',
     }
 }
 
@@ -398,14 +408,13 @@ function toDateTimeFromDate(date: HogDate): HogDateTime {
 function rangeFn(args: any[]): any[] {
     if (args.length === 1) {
         return Array.from({ length: args[0] }, (_, i) => i)
-    } else {
-        return Array.from({ length: args[1] - args[0] }, (_, i) => args[0] + i)
     }
+    return Array.from({ length: args[1] - args[0] }, (_, i) => args[0] + i)
 }
 
 // JSON extraction
 function JSONExtractArrayRawFn(args: any[]): any {
-    let [obj, ...path] = args
+    let [obj, ...path] = args // eslint-disable-line prefer-const
     try {
         if (typeof obj === 'string') {
             obj = JSON.parse(obj)
@@ -418,7 +427,7 @@ function JSONExtractArrayRawFn(args: any[]): any {
 }
 
 function JSONExtractFloatFn(args: any[]): number | null {
-    let [obj, ...path] = args
+    let [obj, ...path] = args // eslint-disable-line prefer-const
     try {
         if (typeof obj === 'string') {
             obj = JSON.parse(obj)
@@ -432,7 +441,7 @@ function JSONExtractFloatFn(args: any[]): number | null {
 }
 
 function JSONExtractIntFn(args: any[]): number | null {
-    let [obj, ...path] = args
+    let [obj, ...path] = args // eslint-disable-line prefer-const
     try {
         if (typeof obj === 'string') {
             obj = JSON.parse(obj)
@@ -446,7 +455,7 @@ function JSONExtractIntFn(args: any[]): number | null {
 }
 
 function JSONExtractStringFn(args: any[]): string | null {
-    let [obj, ...path] = args
+    let [obj, ...path] = args // eslint-disable-line prefer-const
     try {
         if (typeof obj === 'string') {
             obj = JSON.parse(obj)
@@ -457,7 +466,6 @@ function JSONExtractStringFn(args: any[]): string | null {
     const val = getNestedValue(obj, path, true)
     return val != null ? String(val) : null
 }
-
 
 export const STL: Record<string, STLFunction> = {
     concat: {
@@ -588,8 +596,8 @@ export const STL: Record<string, STLFunction> = {
     },
     tuple: {
         fn: (args) => {
-            const tuple = args.slice();
-            (tuple as any).__isHogTuple = true
+            const tuple = args.slice()
+            ;(tuple as any).__isHogTuple = true
             return tuple
         },
         minArgs: 0,
@@ -858,9 +866,8 @@ export const STL: Record<string, STLFunction> = {
         fn: ([str, elem]) => {
             if (typeof str === 'string') {
                 return str.indexOf(String(elem)) + 1
-            } else {
-                return 0
             }
+            return 0
         },
         minArgs: 2,
         maxArgs: 2,
@@ -869,9 +876,8 @@ export const STL: Record<string, STLFunction> = {
         fn: ([str, elem]) => {
             if (typeof str === 'string') {
                 return str.toLowerCase().indexOf(String(elem).toLowerCase()) + 1
-            } else {
-                return 0
             }
+            return 0
         },
         minArgs: 2,
         maxArgs: 2,
@@ -1004,9 +1010,8 @@ export const STL: Record<string, STLFunction> = {
         fn: ([arrOrString, elem]) => {
             if (Array.isArray(arrOrString)) {
                 return arrOrString.indexOf(elem) + 1
-            } else {
-                return 0
             }
+            return 0
         },
         minArgs: 2,
         maxArgs: 2,

@@ -1,8 +1,9 @@
 import RE2 from 're2'
+
 import { exec, execAsync, execSync } from '../execute'
 import { Operation as op } from '../operation'
-import { UncaughtHogVMException } from '../utils'
 import { BytecodeEntry } from '../types'
+import { UncaughtHogVMException } from '../utils'
 
 export function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
@@ -674,7 +675,7 @@ describe('hogvm execute', () => {
             },
         })
     })
-    test('test bytecode dicts', () => {
+    test('bytecode dicts', () => {
         // return {};
         expect(exec(['_h', op.DICT, 0, op.RETURN]).result).toEqual(map({}))
 
@@ -785,7 +786,7 @@ describe('hogvm execute', () => {
         ).toEqual('value')
     })
 
-    test('test bytecode arrays', () => {
+    test('bytecode arrays', () => {
         // return [];
         expect(exec(['_h', op.ARRAY, 0, op.RETURN]).result).toEqual([])
 
@@ -994,7 +995,7 @@ describe('hogvm execute', () => {
         )
     })
 
-    test('test bytecode tuples', () => {
+    test('bytecode tuples', () => {
         // return (1, 2, 3);
         expect(exec(['_h', op.INTEGER, 1, op.INTEGER, 2, op.INTEGER, 3, op.TUPLE, 3, op.RETURN]).result).toEqual(
             tuple([1, 2, 3])
@@ -1174,7 +1175,7 @@ describe('hogvm execute', () => {
         ).toEqual(5)
     })
 
-    test('test bytecode nested', () => {
+    test('bytecode nested', () => {
         // var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.3.d.2;
         expect(
             exec([
@@ -1327,7 +1328,7 @@ describe('hogvm execute', () => {
         ).toEqual(3)
     })
 
-    test('test bytecode nested modify', () => {
+    test('bytecode nested modify', () => {
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
         // r.3.d.3 := 3;
         // return r.3.d.3;
@@ -1663,7 +1664,7 @@ describe('hogvm execute', () => {
         ).toEqual('c')
     })
 
-    test('test bytecode nested modify dict', () => {
+    test('bytecode nested modify dict', () => {
         // let event := {
         //     'event': '$pageview',
         //     'properties': {
@@ -1799,7 +1800,7 @@ describe('hogvm execute', () => {
         ).toEqual(map({ event: '$pageview', properties: map({ $browser: 'Chrome', $os: 'Windows' }) }))
     })
 
-    test('test bytecode json', () => {
+    test('bytecode json', () => {
         const dict = [
             op.STRING,
             'event',

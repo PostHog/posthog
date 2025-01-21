@@ -5,7 +5,8 @@ const config = {
         './ee/frontend/**/*.{ts,tsx}',
         './frontend/src/index.html',
         './products/**/frontend/**/*.{ts,tsx}',
-        './common/**/*.{ts,tsx}',
+        './common/**/src/**/*.{ts,tsx}',
+        './common/**/frontend/**/*.{ts,tsx}',
     ],
     important: true, // Basically this: https://sebastiandedeyne.com/why-we-use-important-with-tailwind
     darkMode: ['selector', '[theme="dark"]'],

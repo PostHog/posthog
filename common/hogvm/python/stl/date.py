@@ -3,7 +3,7 @@ from typing import Optional
 
 import pytz
 
-from hogvm.python.objects import is_hog_date, is_hog_datetime
+from common.hogvm.python.objects import is_hog_date, is_hog_datetime
 
 
 def to_hog_date(year: int, month: int, day: int):
