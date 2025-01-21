@@ -45,7 +45,7 @@ export default function SchemaForm(): JSX.Element {
                             {
                                 title: 'Rows',
                                 key: 'rows',
-                                is_disabled: !databaseSchema.some((schema) => schema.rows),
+                                isHidden: !databaseSchema.some((schema) => schema.rows),
                                 render: (_, schema) => {
                                     return schema.rows != null ? schema.rows : 'Unknown'
                                 },

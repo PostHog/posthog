@@ -86,7 +86,7 @@ function TableRowRaw<T extends Record<string, any>>({
                 )}
                 {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                     columnGroup.children
-                        .filter((column) => !column.is_disabled)
+                        .filter((column) => !column.isHidden)
                         .map((column, columnIndex) => {
                             const columnKeyRaw = column.key || column.dataIndex
                             const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex

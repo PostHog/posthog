@@ -20,8 +20,8 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     /** Tooltip to display on title hover. An info icon ("i" in circle) is shown when a tooltip is available. */
     tooltip?: string
     key?: string
-    /** If true, the column is not displayed. Optional, defaults to not disabled. */
-    is_disabled?: boolean
+    /** If true, the column is not displayed. Optional, defaults to not hidden. */
+    isHidden?: boolean
     dataIndex?: D
     render?: (dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => TableCellRenderResult
     /** Sorting function. Set to `true` if using manual pagination, in which case you'll also have to provide `sorting` on the table. */

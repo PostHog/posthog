@@ -13,6 +13,7 @@ from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 import uuid
 import psycopg2
+from psycopg2 import sql
 import pymysql
 from .external_data_source import ExternalDataSource
 from posthog.warehouse.data_load.service import (
@@ -335,12 +336,16 @@ def get_postgres_row_count(
 
             if not tables:
                 return {}
-            union = [
-                f"SELECT '{table[0]}' AS table_name, COUNT(*) AS row_count FROM {schema}.{table[0]}" for table in tables
-            ]
-            all_counts = " UNION ALL ".join(union)
 
-            cursor.execute(all_counts)
+            counts = [
+                sql.SQL("SELECT {table_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{table}").format(
+                    table_name=sql.Literal(table[0]), schema=sql.Identifier(schema), table=sql.Identifier(table[0])
+                )
+                for table in tables
+            ]
+
+            union_counts = sql.SQL(" UNION ALL ").join(counts)
+            cursor.execute(union_counts)
             row_count_result = cursor.fetchall()
             row_counts = {row[0]: row[1] for row in row_count_result}
         return row_counts

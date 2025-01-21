@@ -247,7 +247,7 @@ export function LemonTable<T extends Record<string, any>>({
                         <colgroup>
                             {!!expandable && <col className="w-0" /> /* Expand/collapse column */}
                             {columns
-                                .filter((column) => !column.is_disabled)
+                                .filter((column) => !column.isHidden)
                                 .map((column, index) => (
                                     // eslint-disable-next-line react/forbid-dom-props
                                     <col key={`LemonTable-col-${index}`} style={{ width: column.width }} />
@@ -285,7 +285,7 @@ export function LemonTable<T extends Record<string, any>>({
                                     {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
                                     {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                         columnGroup.children
-                                            .filter((column) => !column.is_disabled)
+                                            .filter((column) => !column.isHidden)
                                             .map((column, columnIndex) => (
                                                 <th
                                                     key={`LemonTable-th-${columnGroupIndex}-${
