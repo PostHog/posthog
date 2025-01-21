@@ -8,7 +8,7 @@ use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
-use common_types::CapturedEvent;
+use common_types::{CapturedEvent, RawEvent};
 use metrics::counter;
 use serde_json::json;
 use serde_json::Value;
@@ -23,7 +23,7 @@ use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     router, sinks,
     utils::uuid_v7,
-    v0_request::{EventFormData, EventQuery, RawEvent},
+    v0_request::{EventFormData, EventQuery},
 };
 
 /// Flexible endpoint that targets wide compatibility with the wide range of requests
@@ -182,7 +182,6 @@ pub async fn event(
             .await
             {
                 let cause = match err {
-                    CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
                     CaptureError::MissingEventName => "missing_event_name",
                     _ => "process_events_error",
@@ -234,7 +233,6 @@ pub async fn recording(
             let count = events.len() as u64;
             if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
                 let cause = match err {
-                    CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
                     CaptureError::MissingSessionId => "missing_session_id",
                     CaptureError::MissingWindowId => "missing_window_id",
@@ -295,7 +293,9 @@ pub fn process_single_event(
 
     let event = CapturedEvent {
         uuid: event.uuid.unwrap_or_else(uuid_v7),
-        distinct_id: event.extract_distinct_id()?,
+        distinct_id: event
+            .extract_distinct_id()
+            .ok_or(CaptureError::MissingDistinctId)?,
         ip: context.client_ip.clone(),
         data,
         now: context.now.clone(),
@@ -352,7 +352,9 @@ pub async fn process_replay_events<'a>(
         .remove("$window_id")
         .unwrap_or(session_id.clone());
     let uuid = events[0].uuid.unwrap_or_else(uuid_v7);
-    let distinct_id = events[0].extract_distinct_id()?;
+    let distinct_id = events[0]
+        .extract_distinct_id()
+        .ok_or(CaptureError::MissingDistinctId)?;
     let snapshot_source = events[0]
         .properties
         .remove("$snapshot_source")

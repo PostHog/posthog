@@ -16,8 +16,8 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     CachedTracesQueryResponse,
     IntervalType,
-    LLMGeneration,
     LLMTrace,
+    LLMTraceEvent,
     LLMTracePerson,
     NodeKind,
     TracesQuery,
@@ -90,6 +90,13 @@ class TracesQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
+    def get_cache_payload(self):
+        return {
+            **super().get_cache_payload(),
+            # When the response schema changes, increment this version to invalidate the cache.
+            "schema_version": 1,
+        }
+
     @cached_property
     def _date_range(self):
         # Minute-level precision for 10m capture range
@@ -127,8 +134,8 @@ class TracesQueryRunner(QueryRunner):
         }
 
         generations = []
-        for uuid, timestamp, properties in result["events"]:
-            generations.append(self._map_generation(uuid, timestamp, properties))
+        for uuid, event_name, timestamp, properties in result["events"]:
+            generations.append(self._map_event(uuid, event_name, timestamp, properties))
 
         trace_dict = {
             **result,
@@ -142,38 +149,16 @@ class TracesQueryRunner(QueryRunner):
         )
         return trace
 
-    def _map_generation(self, event_uuid: UUID, event_timestamp: datetime, event_properties: str) -> LLMGeneration:
-        properties: dict = orjson.loads(event_properties)
-
-        GENERATION_MAPPING = {
-            "$ai_input": "input",
-            "$ai_latency": "latency",
-            "$ai_output": "output",
-            "$ai_provider": "provider",
-            "$ai_model": "model",
-            "$ai_input_tokens": "inputTokens",
-            "$ai_output_tokens": "outputTokens",
-            "$ai_input_cost_usd": "inputCost",
-            "$ai_output_cost_usd": "outputCost",
-            "$ai_total_cost_usd": "totalCost",
-            "$ai_http_status": "httpStatus",
-            "$ai_base_url": "baseUrl",
-            "$ai_model_parameters": "modelParameters",
-        }
-
+    def _map_event(
+        self, event_uuid: UUID, event_name: str, event_timestamp: datetime, event_properties: str
+    ) -> LLMTraceEvent:
         generation: dict[str, Any] = {
             "id": str(event_uuid),
+            "event": event_name,
             "createdAt": event_timestamp.isoformat(),
+            "properties": orjson.loads(event_properties),
         }
-
-        for event_prop, model_prop in GENERATION_MAPPING.items():
-            if event_prop in properties:
-                if event_prop == "$ai_input" and not properties[event_prop]:
-                    generation[model_prop] = []
-                else:
-                    generation[model_prop] = properties[event_prop]
-
-        return LLMGeneration.model_validate(generation)
+        return LLMTraceEvent.model_validate(generation)
 
     def _map_person(self, person: tuple[UUID, UUID, datetime, str]) -> LLMTracePerson:
         uuid, distinct_id, created_at, properties = person
@@ -197,7 +182,7 @@ class TracesQueryRunner(QueryRunner):
                     round(toFloat(sum(properties.$ai_input_cost_usd)), 4) as input_cost,
                     round(toFloat(sum(properties.$ai_output_cost_usd)), 4) as output_cost,
                     round(toFloat(sum(properties.$ai_total_cost_usd)), 4) as total_cost,
-                    arraySort(x -> x.2, groupArray(tuple(uuid, timestamp, properties))) as events
+                    arraySort(x -> x.3, groupArray(tuple(uuid, event, timestamp, properties))) as events
                 FROM
                     events
                 GROUP BY
