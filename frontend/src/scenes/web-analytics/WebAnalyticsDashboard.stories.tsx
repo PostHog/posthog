@@ -30,6 +30,10 @@ const meta: Meta = {
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
+            waitForSelector: [
+                '[data-attr=trend-line-graph] > canvas',
+                '[data-attr=web-analytics-live-user-count] > svg',
+            ],
         },
     },
     decorators: [
