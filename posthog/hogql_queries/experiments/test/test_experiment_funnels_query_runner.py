@@ -10,6 +10,7 @@ from posthog.schema import (
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from freezegun import freeze_time
+from parameterized import parameterized
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework.exceptions import ValidationError
@@ -293,6 +294,151 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(result.significant)
         self.assertEqual(len(result.variants), 2)
         self.assertAlmostEqual(result.expected_loss, 1.0, places=1)
+
+    @parameterized.expand(
+        [
+            [
+                "first_touch",
+                # 8 total
+                {
+                    "control_success": 3,
+                    "control_failure": 1,
+                    "test_success": 3,
+                    "test_failure": 1,
+                },
+            ],
+            [
+                "last_touch",
+                # 8 total
+                {
+                    "control_success": 3,
+                    "control_failure": 1,
+                    "test_success": 3,
+                    "test_failure": 1,
+                },
+            ],
+            [
+                "all_events",
+                # 7 total (one dropped)
+                {
+                    "control_success": 2,
+                    "control_failure": 1,
+                    "test_success": 3,
+                    "test_failure": 1,
+                },
+            ],
+            [
+                "step",
+                # 8 total
+                {
+                    "control_success": 2,
+                    "control_failure": 2,
+                    "test_success": 3,
+                    "test_failure": 1,
+                },
+            ],
+        ]
+    )
+    @freeze_time("2020-01-01T00:00:00Z")
+    def test_query_runner_attribution(self, attribution_type, expected_counts):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        # use the second step when testing step attribution
+        attribution_value = 1 if attribution_type == "steps" else 0
+
+        ff_property = f"$feature/{feature_flag.key}"
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="seen"), EventsNode(event="signup"), EventsNode(event="purchase")],
+            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
+            funnelsFilter={
+                "breakdownAttributionType": attribution_type,
+                "breakdownAttributionValue": attribution_value,
+                "funnelVizType": "steps",
+                "funnelWindowInterval": "14",
+                "funnelWindowIntervalUnit": "day",
+                "layout": "horizontal",
+            },
+        )
+        experiment_query = ExperimentFunnelsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentFunnelsQuery",
+            funnels_query=funnels_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        journeys_for(
+            {
+                # control success always
+                "user_control_1": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "control"}},
+                    {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "control"}},
+                ],
+                # control failure always
+                "user_control_2": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    # Doesn't sign up or make a purchase
+                ],
+                # control success always
+                "user_control_3": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "control"}},
+                    {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "control"}},
+                ],
+                # control success for "first_touch", "last_touch"
+                # dropped for "all_events"
+                # test success for "steps"
+                "user_mixed_4": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                    {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "control"}},
+                ],
+                # test success always
+                "user_test_5": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                    {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "test"}},
+                ],
+                # test success always
+                "user_test_6": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                    {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "test"}},
+                ],
+                # test failure always
+                "user_test_7": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                    # Doesn't make a purchase
+                ],
+                # test success always
+                "user_test_8": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                    {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "test"}},
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentFunnelsQueryRunner(
+            query=ExperimentFunnelsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+        control_variant = next(v for v in result.variants if v.key == "control")
+        test_variant = next(v for v in result.variants if v.key == "test")
+
+        self.assertEqual(control_variant.success_count, expected_counts["control_success"])
+        self.assertEqual(control_variant.failure_count, expected_counts["control_failure"])
+        self.assertEqual(test_variant.success_count, expected_counts["test_success"])
+        self.assertEqual(test_variant.failure_count, expected_counts["test_failure"])
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_holdout(self):
