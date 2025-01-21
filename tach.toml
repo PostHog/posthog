@@ -18,7 +18,7 @@ depends_on = [
 [[modules]]
 path = "ee"
 depends_on = [
-    "hogvm.python",
+    "common.hogvm.python",
     "posthog",
 ]
 
@@ -27,7 +27,7 @@ path = "common.hogql_parser"
 depends_on = []
 
 [[modules]]
-path = "hogvm.python"
+path = "common.hogvm.python"
 depends_on = [
     "posthog",
 ]
@@ -38,7 +38,7 @@ depends_on = [
     "<root>",
     "ee",
     "common.hogql_parser",
-    "hogvm.python",
+    "common.hogvm.python",
     "products.early_access_features",
 ]
 

@@ -68,7 +68,7 @@ jobs:
                         # including the negated rule appears to work
                         # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
-                        - 'hogvm/**/*'
+                        - 'common/hogvm/**/*'
                         - 'posthog/**/*'
                         - 'bin/*.py'
                         - requirements.txt

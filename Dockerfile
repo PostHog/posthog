@@ -116,7 +116,7 @@ ENV PATH=/python-runtime/bin:$PATH \
 
 # Add in Django deps and generate Django's static files.
 COPY manage.py manage.py
-COPY hogvm hogvm/
+COPY common/hogvm common/hogvm/
 COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
@@ -216,7 +216,7 @@ COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
-COPY --chown=posthog:posthog hogvm hogvm/
+COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog dags dags/
 COPY --chown=posthog:posthog products products/
 
