@@ -53,7 +53,7 @@ if [[ -n $DEBUG ]]; then
     cmd="pnpm start:dev"
   fi
 else
-  cmd="node dist/index.js"
+  cmd="pnpm start:dist"
 fi
 
 if [[ -n $NO_RESTART_LOOP ]]; then
