@@ -1,6 +1,6 @@
-import { TZLabel } from '@posthog/apps-common'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 
