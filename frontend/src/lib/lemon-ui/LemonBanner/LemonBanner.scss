@@ -7,7 +7,7 @@
     font-weight: 500;
     color: var(--content-primary);
     text-align: left;
-    border: solid 1px var(--border-tertiary);
+    border: solid 1px var(--border-info);
     border-radius: var(--radius);
 
     &.LemonBanner--square {
@@ -15,22 +15,25 @@
     }
 
     &.LemonBanner--info {
-        background-color: var(--background-secondary);
+        background-color: var(--fill-info-overlay);
     }
 
     &.LemonBanner--warning {
-        color: var(--content-warning-bold);
-        background-color: var(--background-warning-subtle);
+        color: var(--content-on-fill-warning);
+        background-color: var(--fill-warning-overlay);
+        border-color: var(--border-warning);
     }
 
     &.LemonBanner--error {
-        color: var(--content-danger-bold);
-        background-color: var(--background-danger-subtle);
+        color: var(--content-on-fill-error);
+        background-color: var(--fill-error-overlay);
+        border-color: var(--border-error);
     }
 
     &.LemonBanner--success {
-        color: var(--content-success-bold);
-        background-color: var(--background-success-subtle);
+        color: var(--content-on-fill-success);
+        background-color: var(--fill-success-overlay);
+        border-color: var(--border-success);
     }
 
     .LemonBanner__icon {

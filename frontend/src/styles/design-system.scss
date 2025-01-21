@@ -1,0 +1,361 @@
+// Primitive colors
+// We shouldn't use these directly in our app, instead we should use the semantic colors below
+// Note: We use SCSS -> CSS variables, so we can manipulate these variables later if needed.
+// //////////////////////////////////////////////////////////
+$primitive-white: hsl(0deg 0% 100%);
+$primitive-black: hsl(0deg 0% 0%);
+$primitive-transparent: hsl(0deg 0% 0% / 0%);
+$primitive-3000: (
+    25: hsl(75deg 14% 96.5%),
+    50: hsl(75deg 14% 95%),
+    100: hsl(70deg 16% 93%),
+    /* mapped: 4000: light background */ 150: hsl(77deg 13% 89%),
+    /* mapped: 4000: medium accent */ 200: hsl(78deg 13% 85%),
+    250: hsl(67deg 8% 80%),
+    /* mapped: 4000: light border */ 300: hsl(72deg 8% 76%),
+    350: hsl(70deg 8% 71%),
+    400: hsl(69deg 8% 65%),
+    450: hsl(67deg 8% 60%),
+    500: hsl(67deg 8% 55%),
+);
+$primitive-neutral: (
+    50: hsl(0deg 0% 98%),
+    100: hsl(0deg 0% 96%),
+    150: hsl(0deg 0% 92%),
+    200: hsl(0deg 0% 88%),
+    250: hsl(0deg 0% 84%),
+    300: hsl(0deg 0% 80%),
+    350: hsl(0deg 0% 75%),
+    400: hsl(0deg 0% 70%),
+    450: hsl(0deg 0% 65%),
+    500: hsl(0deg 0% 60%),
+    550: hsl(0deg 0% 55%),
+    600: hsl(0deg 0% 50%),
+    650: hsl(0deg 0% 45%),
+    700: hsl(0deg 0% 40%),
+    750: hsl(0deg 0% 35%),
+    800: hsl(0deg 0% 30%),
+    850: hsl(0deg 0% 25%),
+    900: hsl(0deg 0% 20%),
+    950: hsl(0deg 0% 15%),
+);
+$primitive-neutral-cool: (
+    50: hsl(240deg 8% 95%),
+    100: hsl(232deg 8% 91%),
+    150: hsl(230deg 8% 86%),
+    200: hsl(233deg 8% 81%),
+    250: hsl(231deg 8% 76%),
+    300: hsl(230deg 8% 72%),
+    350: hsl(231deg 8% 67%),
+    400: hsl(231deg 8% 62%),
+    450: hsl(232deg 8% 58%),
+    500: hsl(231deg 8% 53%),
+    550: hsl(231deg 8% 53%),
+    600: hsl(230deg 8% 48%),
+    650: hsl(229deg 8% 42%),
+    700: hsl(230deg 8% 37%),
+    750: hsl(231deg 8% 32%),
+    800: hsl(230deg 8% 26%),
+    850: hsl(236deg 8% 19%),
+    900: hsl(240deg 8% 15%),
+    950: hsl(240deg 8% 10%),
+);
+$primitive-blue: (
+    50: hsl(215deg 90% 96%),
+    100: hsl(217deg 90% 92%),
+    200: hsl(216deg 90% 84%),
+    300: hsl(217deg 92% 76%),
+    400: hsl(217deg 91% 68%),
+    500: hsl(217deg 91% 60%),
+    600: hsl(217deg 91% 48%),
+    700: hsl(217deg 91% 36%),
+    800: hsl(217deg 92% 24%),
+    900: hsl(218deg 90% 12%),
+    950: hsl(216deg 93% 6%),
+);
+$primitive-purple: (
+    50: hsl(263deg 100% 95%),
+    100: hsl(264deg 100% 90%),
+    200: hsl(263deg 100% 81%),
+    300: hsl(263deg 100% 71%),
+    400: hsl(263deg 100% 61%),
+    500: hsl(263deg 100% 52%),
+    600: hsl(263deg 100% 41%),
+    700: hsl(263deg 100% 31%),
+    800: hsl(263deg 100% 21%),
+    900: hsl(264deg 100% 10%),
+    950: hsl(264deg 100% 5%),
+);
+$primitive-violet: (
+    50: hsl(279deg 100% 96%),
+    100: hsl(280deg 100% 92%),
+    200: hsl(280deg 100% 84%),
+    300: hsl(280deg 100% 76%),
+    400: hsl(280deg 100% 68%),
+    500: hsl(280deg 100% 60%),
+    600: hsl(280deg 100% 48%),
+    700: hsl(280deg 100% 36%),
+    800: hsl(280deg 100% 24%),
+    900: hsl(280deg 100% 12%),
+    950: hsl(279deg 100% 6%),
+);
+$primitive-red: (
+    50: hsl(8deg 85% 95%),
+    100: hsl(8deg 86% 89%),
+    200: hsl(8deg 88% 78%),
+    300: hsl(8deg 87% 67%),
+    400: hsl(8deg 87% 56%),
+    500: hsl(8deg 87% 45%),
+    600: hsl(8deg 87% 36%),
+    700: hsl(8deg 87% 27%),
+    800: hsl(8deg 87% 18%),
+    900: hsl(8deg 87% 9%),
+    950: hsl(8deg 85% 5%),
+);
+$primitive-amber: (
+    50: hsl(36deg 71% 93%),
+    100: hsl(38deg 70% 87%),
+    200: hsl(38deg 70% 74%),
+    300: hsl(38deg 71% 60%),
+    400: hsl(38deg 70% 47%),
+    500: hsl(38deg 70% 34%),
+    600: hsl(38deg 70% 27%),
+    700: hsl(38deg 71% 20%),
+    800: hsl(37deg 69% 14%),
+    900: hsl(38deg 71% 7%),
+    950: hsl(38deg 73% 3%),
+);
+$primitive-orange: (
+    50: hsl(30deg 100% 95%),
+    100: hsl(31deg 100% 90%),
+    200: hsl(30deg 100% 80%),
+    300: hsl(30deg 100% 70%),
+    400: hsl(30deg 100% 60%),
+    500: hsl(30deg 100% 50%),
+    600: hsl(30deg 100% 40%),
+    700: hsl(30deg 100% 30%),
+    800: hsl(30deg 100% 20%),
+    900: hsl(31deg 100% 10%),
+    950: hsl(31deg 100% 5%),
+);
+$primitive-yellow: (
+    50: hsl(39deg 100% 95%),
+    100: hsl(39deg 100% 90%),
+    200: hsl(39deg 100% 80%),
+    300: hsl(39deg 100% 70%),
+    400: hsl(39deg 100% 60%),
+    500: hsl(39deg 100% 50%),
+    600: hsl(39deg 100% 40%),
+    700: hsl(39deg 100% 30%),
+    800: hsl(39deg 100% 20%),
+    900: hsl(39deg 100% 10%),
+    950: hsl(41deg 100% 5%),
+);
+$primitive-green: (
+    50: hsl(100deg 100% 93%),
+    100: hsl(101deg 100% 85%),
+    200: hsl(101deg 100% 70%),
+    300: hsl(101deg 100% 56%),
+    400: hsl(101deg 100% 41%),
+    500: hsl(101deg 100% 26%),
+    600: hsl(101deg 100% 21%),
+    700: hsl(101deg 100% 16%),
+    800: hsl(101deg 100% 10%),
+    900: hsl(101deg 100% 5%),
+    950: hsl(100deg 100% 3%),
+);
+$primitive-pink: (
+    50: hsl(324deg 100% 97%),
+    100: hsl(321deg 100% 94%),
+    200: hsl(323deg 100% 89%),
+    300: hsl(322deg 100% 83%),
+    400: hsl(322deg 100% 78%),
+    500: hsl(322deg 100% 72%),
+    600: hsl(322deg 100% 58%),
+    700: hsl(322deg 100% 43%),
+    800: hsl(322deg 100% 29%),
+    900: hsl(322deg 100% 14%),
+    950: hsl(322deg 100% 7%),
+);
+$primitive-teal: (
+    50: hsl(180deg 100% 93%),
+    100: hsl(180deg 100% 85%),
+    200: hsl(180deg 100% 70%),
+    300: hsl(180deg 100% 56%),
+    400: hsl(180deg 100% 41%),
+    500: hsl(180deg 100% 26%),
+    600: hsl(180deg 100% 21%),
+    700: hsl(180deg 100% 16%),
+    800: hsl(180deg 100% 10%),
+    900: hsl(180deg 100% 5%),
+    950: hsl(180deg 100% 3%),
+);
+
+:root {
+    // Primitive colors (mapped to css custom properties)
+    // //////////////////////////////////////////////////////////
+    --primitive-transparent: $primitive-transparent;
+    --primitive-white: $primitive-white;
+    --primitive-black: $primitive-black;
+
+    // PostHog brand colors
+    // Split into hue, saturation, lightness to make it easier to change the brand colors
+    // //////////////////////////////////////////////////////////
+    --primitive-posthog-brand-blue-hue: 228;
+    --primitive-posthog-brand-blue-saturation: 100%;
+    --primitive-posthog-brand-blue-lightness: 56%;
+    --primitive-posthog-brand-orange-hue: 19;
+    --primitive-posthog-brand-orange-saturation: 100%;
+    --primitive-posthog-brand-orange-lightness: 48%;
+    --primitive-posthog-brand-yellow-hue: 43;
+    --primitive-posthog-brand-yellow-saturation: 94%;
+    --primitive-posthog-brand-yellow-lightness: 57%;
+
+    // General brand colors
+    // Defaulted to PostHog brand colors,
+    // NOTE: to be changed by a company to change the brand colors and accent colors
+    // //////////////////////////////////////////////////////////
+    --primitive-brand-primary-hue: var(--primitive-posthog-brand-blue-hue);
+    --primitive-brand-primary-saturation: var(--primitive-posthog-brand-blue-saturation);
+    --primitive-brand-primary-lightness: var(--primitive-posthog-brand-blue-lightness);
+    --primitive-brand-secondary-hue: var(--primitive-posthog-brand-orange-hue);
+    --primitive-brand-secondary-saturation: var(--primitive-posthog-brand-orange-saturation);
+    --primitive-brand-secondary-lightness: var(--primitive-posthog-brand-orange-lightness);
+
+    // Accent colors (accents can be changed to change the brand colors)
+    // Used for interactive elements like inputs, toggles, charts, etc.
+    // NOTE: Not intended to be changed.
+    // //////////////////////////////////////////////////////////
+    --primitive-accent-primary: hsl(
+        var(--primitive-brand-primary-hue),
+        var(--primitive-brand-primary-saturation),
+        var(--primitive-brand-primary-lightness)
+    );
+    --primitive-accent-secondary: hsl(
+        var(--primitive-brand-secondary-hue),
+        var(--primitive-brand-secondary-saturation),
+        var(--primitive-brand-secondary-lightness)
+    );
+
+    // Backgrounds
+    // Behind surfaces, large areas: app scenes, etc.
+    // //////////////////////////////////////////////////////////
+    // --bg-primary: var(--primitive-neutral-100); /* Most prominent/used background */
+
+    // Surfaces
+    // Above backgrounds, smaller areas: Cards, Tables, stuff that stands out
+    // //////////////////////////////////////////////////////////
+    // --surface-primary: var(--primitive-white); /* Most prominent surface (Cards, tables, etc.) */
+
+    // Content (text, icons)
+    // General text, icons, etc on surfaces
+    // //////////////////////////////////////////////////////////
+    --content-primary: var(--primitive-neutral-950); /* Text on primary surface/background */
+
+    // Fills
+    // Small colourful areas: banners, pills, buttons, etc.
+    // //////////////////////////////////////////////////////////
+    --fill-info-overlay: var(--primitive-3000-25); /* Fill for info blocks */
+    --fill-warning-overlay: var(--primitive-orange-50); /* Fill for warning blocks */
+    --fill-error-overlay: var(--primitive-red-50); /* Fill for error blocks */
+    --fill-success-overlay: var(--primitive-green-50); /* Fill for success blocks */
+
+    // Content on fills
+    // Texts which are on colourful fills
+    // //////////////////////////////////////////////////////////
+    --content-on-fill-warning: var(--primitive-orange-800); /* On-fill text for warning */
+    --content-on-fill-error: var(--primitive-red-800); /* On-fill text for error */
+    --content-on-fill-success: var(--primitive-green-800); /* On-fill text for success */
+
+    // Borders
+    // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
+    // //////////////////////////////////////////////////////////
+    --border-info: var(--primitive-3000-300); /* Most prominent border */
+    --border-warning: var(--primitive-orange-400); /* Border for warning */
+    --border-error: var(--primitive-red-400); /* Border for error */
+    --border-success: var(--primitive-green-400); /* Border for success */
+
+    @each $name, $value in $primitive-3000 {
+        --primitive-3000-#{$name}: #{$value};
+    }
+
+    @each $name, $value in $primitive-neutral {
+        --primitive-neutral-#{$name}: #{$value};
+    }
+
+    @each $name, $value in $primitive-neutral-cool {
+        --primitive-neutral-cool-#{$name}: #{$value};
+    }
+
+    @each $name, $value in $primitive-blue {
+        --primitive-blue-#{$name}: #{$value};
+    }
+
+    @each $name, $value in $primitive-purple {
+        --primitive-purple-#{$name}: #{$value};
+    }
+
+    @each $name, $value in $primitive-violet {
+        --primitive-violet-#{$name}: #{$value};
+    }
+
+    @each $name, $value in $primitive-red {
+        --primitive-red-#{$name}: #{$value};
+    }
+
+    @each $name, $value in $primitive-amber {
+        --primitive-amber-#{$name}: #{$value};
+    }
+
+    @each $name, $value in $primitive-orange {
+        --primitive-orange-#{$name}: #{$value};
+    }
+
+    @each $name, $value in $primitive-yellow {
+        --primitive-yellow-#{$name}: #{$value};
+    }
+
+    @each $name, $value in $primitive-green {
+        --primitive-green-#{$name}: #{$value};
+    }
+
+    @each $name, $value in $primitive-pink {
+        --primitive-pink-#{$name}: #{$value};
+    }
+
+    @each $name, $value in $primitive-teal {
+        --primitive-teal-#{$name}: #{$value};
+    }
+}
+
+[theme='dark'] {
+    // Backgrounds
+    // //////////////////////////////////////////////////////////
+
+    // Surfaces
+    // //////////////////////////////////////////////////////////
+
+    // Fills
+    // //////////////////////////////////////////////////////////
+    --fill-info-overlay: var(--primitive-neutral-cool-900);
+    --fill-warning-overlay: var(--primitive-amber-800);
+    --fill-error-overlay: var(--primitive-red-900);
+    --fill-success-overlay: var(--primitive-green-900);
+
+    // Content
+    // //////////////////////////////////////////////////////////
+    --content-primary: var(--primitive-neutral-100);
+
+    // Content on fills
+    // //////////////////////////////////////////////////////////
+    --content-on-fill-warning: var(--primitive-orange-200);
+    --content-on-fill-error: var(--primitive-red-200);
+    --content-on-fill-success: var(--primitive-green-200);
+
+    // Borders
+    // //////////////////////////////////////////////////////////
+    --border-info: var(--primitive-neutral-700);
+    --border-warning: var(--primitive-orange-700);
+    --border-error: var(--primitive-red-700);
+    --border-success: var(--primitive-green-700);
+}
