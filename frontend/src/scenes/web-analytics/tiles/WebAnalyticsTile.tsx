@@ -714,7 +714,7 @@ const RenderReplayButton = ({
             trackProductCrossSell({
                 from: ProductKey.WEB_ANALYTICS,
                 to: ProductKey.SESSION_REPLAY,
-                location: ProductCrossSellLocation.TAXONOMIC_FILTER_EMPTY_STATE,
+                location: ProductCrossSellLocation.WEB_ANALYTICS_INSIGHT,
                 context: {},
             })
         },
