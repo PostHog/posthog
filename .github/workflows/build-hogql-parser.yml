@@ -96,8 +96,10 @@ jobs:
               env:
                   MACOSX_DEPLOYMENT_TARGET: '12' # A modern target allows us to use C++20
 
-            - uses: actions/upload-artifact@v4
+            - name: Upload wheels artifact
+              uses: actions/upload-artifact@v4
               with:
+                  name: wheels-${{ matrix.os }}
                   path: |
                       hogql_parser/dist/*.whl
                       hogql_parser/dist/*.tar.gz
@@ -111,11 +113,23 @@ jobs:
             id-token: write
         runs-on: ubuntu-22.04
         steps:
-            - name: Fetch wheels
+            - name: Download wheels from ubuntu-22.04
               uses: actions/download-artifact@v4
               with:
-                  name: artifact
-                  path: dist/
+                  name: wheels-ubuntu-22.04
+                  path: dist
+
+            - name: Download wheels from buildjet-2vcpu-ubuntu-2204-arm
+              uses: actions/download-artifact@v4
+              with:
+                  name: wheels-buildjet-2vcpu-ubuntu-2204-arm
+                  path: dist
+
+            - name: Download wheels from macos-12
+              uses: actions/download-artifact@v4
+              with:
+                  name: wheels-macos-12
+                  path: dist
 
             - name: Publish package to PyPI
               uses: pypa/gh-action-pypi-publish@release/v1
