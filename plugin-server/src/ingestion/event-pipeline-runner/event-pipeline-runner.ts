@@ -60,7 +60,7 @@ export class EventPipelineRunnerV2 {
     private captureIngestionWarning(warning: string, details: Record<string, any> = {}): void {
         this.promises.push(
             captureIngestionWarning(this.hub.kafkaProducer, this.team!.id, warning, {
-                eventUuid: JSON.stringify(this.event.uuid),
+                eventUuid: typeof this.event.uuid !== 'string' ? JSON.stringify(this.event.uuid) : this.event.uuid,
                 event: this.event.event,
                 distinctId: this.event.distinct_id,
                 ...details,
