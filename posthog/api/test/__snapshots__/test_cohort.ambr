@@ -174,7 +174,7 @@
                                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                     GROUP BY person_distinct_id_overrides.distinct_id
                                     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2025-01-19 23:59:59.999999', 6, 'UTC')), equals(e.event, '$pageview')))
+                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-01-20 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2025-01-21 23:59:59.999999', 6, 'UTC')), equals(e.event, '$pageview')))
                               GROUP BY actor_id) AS source
                            ORDER BY source.id ASC
                            LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
