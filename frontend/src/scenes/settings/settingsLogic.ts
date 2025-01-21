@@ -172,6 +172,12 @@ export const settingsLogic = kea<settingsLogicType>([
                 })
             },
         ],
+        selectedSetting: [
+            (s) => [s.settings, s.selectedSettingId],
+            (settings, selectedSettingId): Setting | null => {
+                return settings.find((s) => s.id === selectedSettingId) ?? null
+            },
+        ],
         doesMatchFlags: [
             (s) => [s.featureFlags],
             (featureFlags) => {

@@ -31,6 +31,7 @@ export function Settings({
         selectedSection,
         selectedLevel,
         selectedSettingId,
+        selectedSetting,
         sections,
         settings,
         isCompactNavigationOpen,
@@ -52,6 +53,7 @@ export function Settings({
     const isCompact = !inStorybookTestRunner() && size === 'small'
 
     const showOptions = isCompact ? isCompactNavigationOpen : true
+    const settingsInSidebar = props.sectionId && !!selectedSetting
 
     // Currently environment and project settings do not require periodic re-authentication,
     // though this is likely to change (see https://github.com/posthog/posthog/pull/22421).
@@ -61,7 +63,7 @@ export function Settings({
             ? TimeSensitiveAuthenticationArea
             : React.Fragment
 
-    const options: SettingOption[] = props.sectionId
+    const options: SettingOption[] = settingsInSidebar
         ? settings.map((s) => ({
               key: s.id,
               content: (
@@ -103,6 +105,15 @@ export function Settings({
                   })),
           }))
 
+    const compactNavigationContent: JSX.Element = settingsInSidebar ? (
+        <>{selectedSetting.title}</>
+    ) : (
+        <>
+            {capitalizeFirstLetter(selectedLevel)}
+            {selectedSection ? ` / ${selectedSection.title}` : null}
+        </>
+    )
+
     return (
         <div className={clsx('Settings flex', isCompact && 'Settings--compact')} ref={ref}>
             {hideSections ? null : (
@@ -113,8 +124,7 @@ export function Settings({
                         </div>
                     ) : (
                         <LemonButton fullWidth sideIcon={<IconChevronRight />} onClick={() => openCompactNavigation()}>
-                            {capitalizeFirstLetter(selectedLevel)}
-                            {selectedSection ? ` / ${selectedSection.title}` : null}
+                            {compactNavigationContent}
                         </LemonButton>
                     )}
                     {isCompact ? <LemonDivider /> : null}
@@ -143,42 +153,37 @@ export function Settings({
 }
 
 function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }): JSX.Element {
-    const {
-        settings: allSettings,
-        selectedLevel,
-        selectedSectionId,
-        selectedSettingId,
-    } = useValues(settingsLogic(props))
+    const { settings: allSettings, selectedLevel, selectedSectionId, selectedSetting } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
 
-    const settingsInSidebar = selectedSettingId && !!props.sectionId
+    const settingsInSidebar = !!selectedSetting && !!props.sectionId
 
-    const settings = settingsInSidebar ? allSettings.filter((s) => s.id === selectedSettingId) : allSettings
+    const settings = settingsInSidebar ? [selectedSetting] : allSettings
 
     return (
         <div className="space-y-8">
             {settings.length ? (
-                settings.map((s) => (
-                    <div key={s.id} className="relative">
+                settings.map((x) => (
+                    <div key={x.id} className="relative">
                         {!settingsInSidebar && (
-                            <h2 id={s.id} className="flex gap-2 items-center">
-                                {s.title}
+                            <h2 id={x.id} className="flex gap-2 items-center">
+                                {x.title}
                                 {props.logicKey === 'settingsScene' && (
                                     <LemonButton
                                         icon={<IconLink />}
                                         size="small"
-                                        to={urls.settings(selectedSectionId ?? selectedLevel, s.id)}
+                                        to={urls.settings(selectedSectionId ?? selectedLevel, x.id)}
                                         onClick={(e) => {
-                                            selectSetting(s.id)
+                                            selectSetting(x.id)
                                             e.preventDefault()
                                         }}
                                     />
                                 )}
                             </h2>
                         )}
-                        {s.description && <p>{s.description}</p>}
+                        {x.description && <p>{x.description}</p>}
 
-                        {s.component}
+                        {x.component}
                     </div>
                 ))
             ) : (
