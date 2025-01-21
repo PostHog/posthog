@@ -1012,6 +1012,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 name: experiment.name,
                 id: experiment.id,
                 type: experiment.type,
+                // TODO fix these
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,
@@ -1021,6 +1022,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment viewed', {
                 name: experiment.name,
                 id: experiment.id,
+                // TODO fix these
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,
@@ -1030,6 +1032,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment launched', {
                 name: experiment.name,
                 id: experiment.id,
+                // TODO fix these
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,
@@ -1048,6 +1051,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment completed', {
                 name: experiment.name,
                 id: experiment.id,
+                // TODO fix these
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,
