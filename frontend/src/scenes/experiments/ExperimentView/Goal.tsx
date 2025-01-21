@@ -178,7 +178,7 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 }
 
 export function Goal(): JSX.Element {
-    const { experiment, experimentId, _getMetricType, experimentMathAggregationForTrends, hasGoalSet } =
+    const { experiment, experimentId, _getMetricType, experimentMathAggregationForTrends, hasPrimaryMetricSet } =
         useValues(experimentLogic)
     const { setExperiment, openPrimaryMetricModal } = useActions(experimentLogic)
     const metricType = _getMetricType(experiment.metrics[0])
@@ -207,7 +207,7 @@ export function Goal(): JSX.Element {
                     </Tooltip>
                 </div>
             </div>
-            {!hasGoalSet ? (
+            {!hasPrimaryMetricSet ? (
                 <div className="text-muted">
                     <div className="text-sm text-balance mt-2 mb-2">
                         Add the main goal before launching the experiment.

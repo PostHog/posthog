@@ -1765,7 +1765,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
             },
         ],
-        hasGoalSet: [
+        hasPrimaryMetricSet: [
             (s) => [s.primaryMetricsLengthWithSharedMetrics],
             (primaryMetricsLengthWithSharedMetrics): boolean => {
                 return primaryMetricsLengthWithSharedMetrics > 0
