@@ -1,8 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import bigDecimal from 'js-big-decimal'
 
-import { ModelRow } from '../../../types'
-import { providers } from '../../../utils/ai-cost-data/mappings'
+import { ModelRow } from '~/src/types'
+
+import { providers } from './mappings'
 
 export const processAiEvent = (event: PluginEvent): PluginEvent => {
     if ((event.event !== '$ai_generation' && event.event !== '$ai_embedding') || !event.properties) {
