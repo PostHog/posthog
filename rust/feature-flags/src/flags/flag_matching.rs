@@ -305,10 +305,11 @@ impl FeatureFlagMatcher {
             .await;
 
         FlagsResponse {
-            error_while_computing_flags: initial_error
-                || flags_response.error_while_computing_flags,
+            errors_while_computing_flags: initial_error
+                || flags_response.errors_while_computing_flags,
             feature_flags: flags_response.feature_flags,
             feature_flag_payloads: flags_response.feature_flag_payloads,
+            quota_limited: None,
         }
     }
 
@@ -426,7 +427,7 @@ impl FeatureFlagMatcher {
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> FlagsResponse {
-        let mut error_while_computing_flags = false;
+        let mut errors_while_computing_flags = false;
         let mut feature_flags_map = HashMap::new();
         let mut feature_flag_payloads_map = HashMap::new();
         let mut flags_needing_db_properties = Vec::new();
@@ -458,7 +459,7 @@ impl FeatureFlagMatcher {
                     flags_needing_db_properties.push(flag.clone());
                 }
                 Err(e) => {
-                    error_while_computing_flags = true;
+                    errors_while_computing_flags = true;
                     error!(
                         "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
                         flag.key, self.distinct_id, e
@@ -531,7 +532,7 @@ impl FeatureFlagMatcher {
                     );
                 }
                 Err(e) => {
-                    error_while_computing_flags = true;
+                    errors_while_computing_flags = true;
                     // TODO add sentry exception tracking
                     error!("Error fetching properties: {:?}", e);
                     let reason = parse_exception_for_prometheus_label(&e);
@@ -558,7 +559,7 @@ impl FeatureFlagMatcher {
                         }
                     }
                     Err(e) => {
-                        error_while_computing_flags = true;
+                        errors_while_computing_flags = true;
                         // TODO add sentry exception tracking
                         error!(
                             "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
@@ -570,15 +571,17 @@ impl FeatureFlagMatcher {
                             &[("reason".to_string(), reason.to_string())],
                             1,
                         );
+                        feature_flags_map.insert(flag.key.clone(), FlagValue::Boolean(false));
                     }
                 }
             }
         }
 
         FlagsResponse {
-            error_while_computing_flags,
+            errors_while_computing_flags,
             feature_flags: feature_flags_map,
             feature_flag_payloads: feature_flag_payloads_map,
+            quota_limited: None,
         }
     }
 
@@ -697,10 +700,6 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        let ha = self
-            .hashed_identifier(flag, hash_key_overrides.clone())
-            .await?;
-        println!("hashed_identifier: {:?}", ha);
         if self
             .hashed_identifier(flag, hash_key_overrides.clone())
             .await?
@@ -1244,7 +1243,7 @@ impl FeatureFlagMatcher {
                 .await?
                 .get(&group_type_index)
                 .and_then(|group_type_name| self.groups.get(group_type_name))
-                .and_then(|v| v.as_str())
+                .and_then(|group_key_value| group_key_value.as_str())
                 // NB: we currently use empty string ("") as the hashed identifier for group flags without a group key,
                 // and I don't want to break parity with the old service since I don't want the hash values to change
                 .unwrap_or("")
@@ -2181,7 +2180,7 @@ mod tests {
         let result = matcher
             .evaluate_all_feature_flags(flags, Some(overrides), None, None)
             .await;
-        assert!(!result.error_while_computing_flags);
+        assert!(!result.errors_while_computing_flags);
         assert_eq!(
             result.feature_flags.get("test_flag"),
             Some(&FlagValue::Boolean(true))
@@ -2256,7 +2255,7 @@ mod tests {
             .evaluate_all_feature_flags(flags, None, Some(group_overrides), None)
             .await;
 
-        assert!(!result.error_while_computing_flags);
+        assert!(!result.errors_while_computing_flags);
         assert_eq!(
             result.feature_flags.get("test_flag"),
             Some(&FlagValue::Boolean(true))
@@ -2469,7 +2468,7 @@ mod tests {
             )
             .await;
 
-        assert!(!result.error_while_computing_flags);
+        assert!(!result.errors_while_computing_flags);
         assert_eq!(
             result.feature_flags.get("test_flag"),
             Some(&FlagValue::Boolean(true))
@@ -4692,7 +4691,10 @@ mod tests {
         .evaluate_all_feature_flags(flags, None, None, Some("hash_key_continuity".to_string()))
         .await;
 
-        assert!(!result.error_while_computing_flags, "No error should occur");
+        assert!(
+            !result.errors_while_computing_flags,
+            "No error should occur"
+        );
         assert_eq!(
             result.feature_flags.get("flag_continuity"),
             Some(&FlagValue::Boolean(true)),
@@ -4762,7 +4764,10 @@ mod tests {
         .evaluate_all_feature_flags(flags, None, None, None)
         .await;
 
-        assert!(!result.error_while_computing_flags, "No error should occur");
+        assert!(
+            !result.errors_while_computing_flags,
+            "No error should occur"
+        );
         assert_eq!(
             result.feature_flags.get("flag_continuity_missing"),
             Some(&FlagValue::Boolean(true)),
@@ -4876,7 +4881,10 @@ mod tests {
         )
         .await;
 
-        assert!(!result.error_while_computing_flags, "No error should occur");
+        assert!(
+            !result.errors_while_computing_flags,
+            "No error should occur"
+        );
         assert_eq!(
             result.feature_flags.get("flag_continuity_mix"),
             Some(&FlagValue::Boolean(true)),

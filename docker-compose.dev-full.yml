@@ -150,6 +150,14 @@ services:
         depends_on:
             - kafka
 
+    feature-flags:
+        extends:
+            file: docker-compose.base.yml
+            service: feature-flags
+        depends_on:
+            - redis
+            - db
+
     plugins:
         extends:
             file: docker-compose.base.yml
