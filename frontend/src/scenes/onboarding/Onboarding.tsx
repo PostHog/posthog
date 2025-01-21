@@ -2,7 +2,6 @@ import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -119,8 +118,6 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         featureFlags[FEATURE_FLAGS.ONBOARDING_DASHBOARD_TEMPLATES] == 'test' &&
         window.innerWidth > 1000 &&
         combinedSnippetAndLiveEventsHosts.length > 0
-
-    posthog.featureFlags.override({ 'onboarding-session-replay-separate-step': 'test' })
 
     const showSessionReplayStep = featureFlags[FEATURE_FLAGS.ONBOARDING_SESSION_REPLAY_SEPERATE_STEP] === 'test'
 
