@@ -86,7 +86,7 @@ services:
             retries: 10
 
     query-service:
-        image: contentsquareplatform/chproxy:v1.26.6
+        image: posthog/chproxy:v1.27.1
         restart: on-failure
 
     clickhouse:
