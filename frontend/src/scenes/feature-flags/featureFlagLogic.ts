@@ -9,9 +9,9 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
@@ -233,7 +233,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     connect((props: FeatureFlagLogicProps) => ({
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeam', 'currentTeamId'],
             projectLogic,
             ['currentProjectId'],
             groupsModel,
@@ -291,7 +291,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
-            defaults: { ...NEW_FLAG },
+            defaults: {
+                ...NEW_FLAG,
+                ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
+            },
             errors: ({ key, filters }) => {
                 return {
                     key: validateFeatureFlagKey(key),
@@ -538,7 +541,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         throw e
                     }
                 }
-                return NEW_FLAG
+                return {
+                    ...NEW_FLAG,
+                    ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                }
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 const { created_at, id, ...flag } = updatedFlag

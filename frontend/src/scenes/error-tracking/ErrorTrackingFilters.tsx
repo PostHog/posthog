@@ -1,16 +1,19 @@
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { MemberSelect } from 'lib/components/MemberSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { dateMapping } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
+import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
+
+const errorTrackingDateOptions = dateMapping.filter((dm) => dm.key != 'Yesterday')
 
 export const FilterGroup = ({ children }: { children?: React.ReactNode }): JSX.Element => {
     const { filterGroup, filterTestAccounts } = useValues(errorTrackingLogic)
@@ -93,6 +96,7 @@ export const Options = (): JSX.Element => {
                     <DateFilter
                         dateFrom={dateRange.date_from}
                         dateTo={dateRange.date_to}
+                        dateOptions={errorTrackingDateOptions}
                         onChange={(changedDateFrom, changedDateTo) => {
                             setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
                         }}
@@ -134,11 +138,14 @@ export const Options = (): JSX.Element => {
             <div className="flex items-center gap-1">
                 <>
                     <span>Assigned to:</span>
-                    <MemberSelect
-                        value={assignee}
-                        onChange={(user) => {
-                            setAssignee(user?.id || null)
-                        }}
+                    <AssigneeSelect
+                        showName
+                        showIcon={false}
+                        assignee={assignee}
+                        onChange={(assignee) => setAssignee(assignee)}
+                        unassignedLabel="Any user"
+                        type="secondary"
+                        size="small"
                     />
                 </>
             </div>

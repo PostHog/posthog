@@ -1,3 +1,5 @@
+import '../helpers/mocks/producer.mock'
+
 import { CdpInternalEventsConsumer } from '../../src/cdp/cdp-consumers'
 import { HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
@@ -24,12 +26,11 @@ describe('CDP Internal Events Consumer', () => {
         team = await getFirstTeam(hub)
 
         processor = new CdpInternalEventsConsumer(hub)
-        // Speed hack as we don't need all of kafka to be started for this test
-        await processor.hogFunctionManager.start(processor['hogTypes'])
+        await processor.start()
     })
 
     afterEach(async () => {
-        jest.setTimeout(1000)
+        await processor.stop()
         await closeHub(hub)
     })
 

@@ -168,8 +168,8 @@ class SessionReplayEvents:
 
 def ttl_days(team: Team) -> int:
     if is_cloud():
-        # NOTE: We use Playlists as a proxy to see if they are subbed to Recordings
-        is_paid = team.organization.is_feature_available(AvailableFeature.RECORDINGS_PLAYLISTS)
+        # NOTE: We use file export as a proxy to see if they are subbed to Recordings
+        is_paid = team.organization.is_feature_available(AvailableFeature.RECORDINGS_FILE_EXPORT)
         ttl_days = settings.REPLAY_RETENTION_DAYS_MAX if is_paid else settings.REPLAY_RETENTION_DAYS_MIN
 
         # NOTE: The date we started reliably ingested data to blob storage

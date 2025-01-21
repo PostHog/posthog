@@ -7,7 +7,7 @@ from freezegun import freeze_time
 from inline_snapshot import snapshot
 from rest_framework import status
 
-from hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
@@ -264,11 +264,14 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name": "Fetch URL",
                 "description": "Test description",
                 "hog": "fetch(inputs.url);",
+                "inputs": {"url": {"value": "https://example.com"}},
                 "template_id": template_webhook.id,
                 "type": "destination",
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        assert response.json()["hog"] == "fetch(inputs.url);"
         assert response.json()["template"] == {
             "type": "destination",
             "name": template_webhook.name,
@@ -286,14 +289,35 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "sub_templates": response.json()["template"]["sub_templates"],
         }
 
+    def test_creates_with_template_values_if_not_provided(self, *args):
+        payload: dict = {
+            "name": "Fetch URL",
+            "description": "Test description",
+            "template_id": template_webhook.id,
+            "type": "destination",
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "attr": "inputs__url",
+            "code": "invalid_input",
+            "detail": "This field is required.",
+            "type": "validation_error",
+        }
+
+        payload["inputs"] = {"url": {"value": "https://example.com"}}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["hog"] == template_webhook.hog
+        assert response.json()["inputs_schema"] == template_webhook.inputs_schema
+
     def test_deletes_via_update(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                "type": "destination",
+                **EXAMPLE_FULL,
                 "name": "Fetch URL",
-                "description": "Test description",
-                "hog": "fetch(inputs.url);",
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -640,8 +664,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                "type": "destination",
-                "name": "Fetch URL",
+                **EXAMPLE_FULL,
                 "hog": "let i := 0;\nwhile(i < 3) {\n  i := i + 1;\n  fetch(inputs.url, {\n    'headers': {\n      'x-count': f'{i}'\n    },\n    'body': inputs.payload,\n    'method': inputs.method\n  });\n}",
             },
         )
@@ -882,7 +905,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_functions/",
-                    data={"type": "destination", "name": "Fetch URL", "hog": "fetch(inputs.url);", "enabled": True},
+                    data={
+                        **EXAMPLE_FULL,
+                        "name": "Fetch URL",
+                    },
                 )
                 id = response.json()["id"]
 
@@ -1110,11 +1136,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_cannot_modify_type_of_existing_hog_function(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "name": "Site Destination Function",
-                "hog": "export function onLoad() { console.log('Hello, site_destination'); }",
-                "type": "site_destination",
-            },
+            data=EXAMPLE_FULL,
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -1134,11 +1156,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_transpiled_field_not_populated_for_other_types(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "name": "Regular Function",
-                "hog": "fetch(inputs.url);",
-                "type": "destination",
-            },
+            data=EXAMPLE_FULL,
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -1196,3 +1214,37 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!",
             }
         }
+
+    def test_validates_mappings(self):
+        payload = {
+            "name": "TypeScript Destination Function",
+            "hog": "export function onLoad() { console.log(inputs.message); }",
+            "type": "site_destination",
+            "mappings": [
+                {
+                    "inputs": {"message": {"value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!"}},
+                    "inputs_schema": [
+                        {"key": "message", "type": "string", "label": "Message", "required": True},
+                        {"key": "required", "type": "string", "label": "Required", "required": True},
+                    ],
+                },
+            ],
+        }
+
+        def create(payload):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data=payload,
+            )
+            return response
+
+        response = create(payload)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == snapshot(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This field is required.",
+                "attr": "inputs__required",
+            }
+        )

@@ -1,3 +1,5 @@
+import '../helpers/mocks/producer.mock'
+
 import express from 'express'
 import supertest from 'supertest'
 
@@ -47,19 +49,6 @@ jest.mock('../../src/utils/fetch', () => {
     }
 })
 
-jest.mock('../../src/utils/db/kafka-producer-wrapper', () => {
-    const mockKafkaProducer = {
-        producer: {
-            connect: jest.fn(),
-        },
-        disconnect: jest.fn(),
-        produce: jest.fn(),
-    }
-    return {
-        KafkaProducerWrapper: jest.fn(() => mockKafkaProducer),
-    }
-})
-
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
 jest.setTimeout(1000)
@@ -80,6 +69,8 @@ describe('CDP API', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub)
+
+        hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
 
         processor = new CdpFunctionCallbackConsumer(hub)
 
@@ -165,8 +156,7 @@ describe('CDP API', () => {
             expect(res.status).toEqual(200)
             console.log(res.body.logs[3].message)
             expect(res.body).toMatchObject({
-                status: 'success',
-                error: null,
+                errors: [],
                 logs: [
                     {
                         level: 'debug',
@@ -215,8 +205,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
             expect(res.body).toMatchObject({
-                status: 'success',
-                error: null,
+                errors: [],
                 logs: [
                     {
                         level: 'debug',
@@ -243,35 +232,53 @@ describe('CDP API', () => {
             })
         })
 
-        it('call exported sendEmail for email provider functions', async () => {
+        it('includes enriched values in the request', async () => {
+            mockFetch.mockImplementationOnce(() => {
+                return Promise.resolve({
+                    status: 201,
+                    text: () => Promise.resolve(JSON.stringify({ real: true })),
+                    headers: new Headers({ 'Content-Type': 'application/json' }),
+                })
+            })
+
             hogFunction = await insertHogFunction({
-                ...HOG_EXAMPLES.export_send_email,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_google_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            mockFetch.mockImplementationOnce(() =>
-                Promise.resolve({
-                    status: 201,
-                    text: () => Promise.resolve(JSON.stringify({ real: true })),
-                })
-            )
             const res = await supertest(app)
                 .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
-                .send({ globals: { ...globals, email: { from: 'me@mycompany.com' } }, mock_async_functions: false })
+                .send({ globals, mock_async_functions: false })
+
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://googleads.googleapis.com/',
+                expect.objectContaining({
+                    headers: expect.objectContaining({
+                        'developer-token': 'ADWORDS_TOKEN',
+                    }),
+                })
+            )
 
             expect(res.status).toEqual(200)
             expect(res.body).toMatchObject({
-                status: 'success',
-                error: null,
                 logs: [
                     {
                         level: 'debug',
                         message: 'Executing function',
                     },
                     {
+                        level: 'debug',
+                        message:
+                            "Suspending function due to async function call 'fetch'. Payload: 2108 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                    },
+                    {
+                        level: 'debug',
+                        message: 'Resuming function',
+                    },
+                    {
                         level: 'info',
-                        message: '{"from":"me@mycompany.com"}',
+                        message: 'Fetch response:, {"status":201,"body":{"real":true}}',
                     },
                     {
                         level: 'debug',
@@ -279,6 +286,230 @@ describe('CDP API', () => {
                     },
                 ],
             })
+        })
+
+        it('doesnt include enriched values in the mock response', async () => {
+            hogFunction = await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_google_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+                .send({ globals, mock_async_functions: true })
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toMatchObject({
+                logs: [
+                    {
+                        level: 'debug',
+                        message: 'Executing function',
+                    },
+                    {
+                        level: 'debug',
+                        message:
+                            "Suspending function due to async function call 'fetch'. Payload: 2108 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                    },
+                    {
+                        level: 'info',
+                        message: "Async function 'fetch' was mocked with arguments:",
+                    },
+                    {
+                        level: 'info',
+                        message: expect.not.stringContaining('developer-token'),
+                    },
+                    {
+                        level: 'debug',
+                        message: 'Resuming function',
+                    },
+                    {
+                        level: 'info',
+                        message: 'Fetch response:, {"status":200,"body":{}}',
+                    },
+                    {
+                        level: 'debug',
+                        message: expect.stringContaining('Function completed in '),
+                    },
+                ],
+            })
+        })
+
+        it('handles mappings', async () => {
+            const hogFunction = await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                mappings: [
+                    {
+                        // Filters for pageview or autocapture
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                    },
+                    {
+                        // No filters so should match all events
+                        ...HOG_FILTERS_EXAMPLES.no_filters,
+                    },
+                    {
+                        // Broken filters so shouldn't match
+                        ...HOG_FILTERS_EXAMPLES.broken_filters,
+                    },
+                ],
+            })
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+                .send({ globals, mock_async_functions: true })
+
+            expect(res.status).toEqual(200)
+
+            const minimalLogs = res.body.logs.map((log) => ({
+                level: log.level,
+                message: log.message,
+            }))
+
+            expect(minimalLogs).toMatchObject([
+                { level: 'info', message: 'Mapping trigger not matching filters was ignored.' },
+                {
+                    level: 'error',
+                    message:
+                        'Error filtering event b3a1fe86-b10c-43cc-acaf-d208977608d0: Invalid HogQL bytecode, stack is empty, can not pop',
+                },
+                { level: 'debug', message: 'Executing function' },
+                {
+                    level: 'debug',
+                    message:
+                        "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                },
+                {
+                    level: 'info',
+                    message: "Async function 'fetch' was mocked with arguments:",
+                },
+                {
+                    level: 'info',
+                    message: expect.stringContaining('fetch({'),
+                },
+                { level: 'debug', message: 'Resuming function' },
+                {
+                    level: 'info',
+                    message: 'Fetch response:, {"status":200,"body":{}}',
+                },
+                {
+                    level: 'debug',
+                    message: expect.stringContaining('Function completed in '),
+                },
+            ])
+        })
+
+        it('doesnt include enriched values in the mock response', async () => {
+            hogFunction = await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_google_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+                .send({ globals, mock_async_functions: true })
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toMatchObject({
+                logs: [
+                    {
+                        level: 'debug',
+                        message: 'Executing function',
+                    },
+                    {
+                        level: 'debug',
+                        message:
+                            "Suspending function due to async function call 'fetch'. Payload: 2108 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                    },
+                    {
+                        level: 'info',
+                        message: "Async function 'fetch' was mocked with arguments:",
+                    },
+                    {
+                        level: 'info',
+                        message: expect.not.stringContaining('developer-token'),
+                    },
+                    {
+                        level: 'debug',
+                        message: 'Resuming function',
+                    },
+                    {
+                        level: 'info',
+                        message: 'Fetch response:, {"status":200,"body":{}}',
+                    },
+                    {
+                        level: 'debug',
+                        message: expect.stringContaining('Function completed in '),
+                    },
+                ],
+            })
+        })
+
+        it('handles mappings', async () => {
+            const hogFunction = await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                mappings: [
+                    {
+                        // Filters for pageview or autocapture
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                    },
+                    {
+                        // No filters so should match all events
+                        ...HOG_FILTERS_EXAMPLES.no_filters,
+                    },
+                    {
+                        // Broken filters so shouldn't match
+                        ...HOG_FILTERS_EXAMPLES.broken_filters,
+                    },
+                ],
+            })
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+                .send({ globals, mock_async_functions: true })
+
+            expect(res.status).toEqual(200)
+
+            const minimalLogs = res.body.logs.map((log) => ({
+                level: log.level,
+                message: log.message,
+            }))
+
+            expect(minimalLogs).toMatchObject([
+                { level: 'info', message: 'Mapping trigger not matching filters was ignored.' },
+                {
+                    level: 'error',
+                    message:
+                        'Error filtering event b3a1fe86-b10c-43cc-acaf-d208977608d0: Invalid HogQL bytecode, stack is empty, can not pop',
+                },
+                { level: 'debug', message: 'Executing function' },
+                {
+                    level: 'debug',
+                    message:
+                        "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                },
+                {
+                    level: 'info',
+                    message: "Async function 'fetch' was mocked with arguments:",
+                },
+                {
+                    level: 'info',
+                    message: expect.stringContaining('fetch({'),
+                },
+                { level: 'debug', message: 'Resuming function' },
+                {
+                    level: 'info',
+                    message: 'Fetch response:, {"status":200,"body":{}}',
+                },
+                {
+                    level: 'debug',
+                    message: expect.stringContaining('Function completed in '),
+                },
+            ])
         })
     })
 })

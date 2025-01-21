@@ -2,7 +2,7 @@ import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
@@ -33,28 +33,19 @@ export function SharedMetricModal({
         closeSecondarySharedMetricModal,
         addSharedMetricsToExperiment,
         removeSharedMetricFromExperiment,
-        loadExperiment,
+        restoreUnmodifiedExperiment,
     } = useActions(experimentLogic({ experimentId }))
 
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
-    const [selectedMetricId, setSelectedMetricId] = useState<SharedMetric['id'] | null>(null)
-    const [mode, setMode] = useState<'create' | 'edit'>('create')
-
-    useEffect(() => {
-        if (editingSharedMetricId) {
-            setSelectedMetricId(editingSharedMetricId)
-            setMode('edit')
-        }
-    }, [editingSharedMetricId])
+    const mode = editingSharedMetricId ? 'edit' : 'create'
 
     if (!sharedMetrics) {
         return <></>
     }
 
     const isOpen = isSecondary ? isSecondarySharedMetricModalOpen : isPrimarySharedMetricModalOpen
-    const closeModal = (): void => {
-        // :KLUDGE: Removes any local changes and resets the experiment to the server state
-        loadExperiment()
+    const onClose = (): void => {
+        restoreUnmodifiedExperiment()
         isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
     }
 
@@ -78,7 +69,7 @@ export function SharedMetricModal({
     return (
         <LemonModal
             isOpen={isOpen}
-            onClose={closeModal}
+            onClose={onClose}
             width={500}
             title={mode === 'create' ? 'Select one or more shared metrics' : 'Shared metric'}
             footer={
@@ -87,7 +78,10 @@ export function SharedMetricModal({
                         {editingSharedMetricId && (
                             <LemonButton
                                 status="danger"
-                                onClick={() => removeSharedMetricFromExperiment(editingSharedMetricId)}
+                                onClick={() => {
+                                    removeSharedMetricFromExperiment(editingSharedMetricId)
+                                    isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
+                                }}
                                 type="secondary"
                             >
                                 Remove from experiment
@@ -95,7 +89,7 @@ export function SharedMetricModal({
                         )}
                     </div>
                     <div className="flex gap-2">
-                        <LemonButton onClick={closeModal} type="secondary">
+                        <LemonButton onClick={onClose} type="secondary">
                             Cancel
                         </LemonButton>
                         {/* Changing the existing metric is a pain because saved metrics are stored separately */}
@@ -106,6 +100,7 @@ export function SharedMetricModal({
                                     addSharedMetricsToExperiment(selectedMetricIds, {
                                         type: isSecondary ? 'secondary' : 'primary',
                                     })
+                                    isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
                                 }}
                                 type="primary"
                                 disabledReason={addSharedMetricDisabledReason()}
@@ -193,10 +188,10 @@ export function SharedMetricModal({
                 </div>
             )}
 
-            {selectedMetricId && (
+            {editingSharedMetricId && (
                 <div>
                     {(() => {
-                        const metric = sharedMetrics.find((m: SharedMetric) => m.id === selectedMetricId)
+                        const metric = sharedMetrics.find((m: SharedMetric) => m.id === editingSharedMetricId)
                         if (!metric) {
                             return <></>
                         }

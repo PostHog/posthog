@@ -1,7 +1,7 @@
 import pytest
 
 from posthog.hogql.compiler.bytecode import to_bytecode, execute_hog, create_bytecode
-from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_VERSION
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.parser import parse_program
 from posthog.test.base import BaseTest
@@ -235,7 +235,7 @@ class TestBytecode(BaseTest):
         )
 
     def test_bytecode_execute(self):
-        # Test a simple operations. The Hog execution itself is tested under hogvm/python/
+        # Test a simple operations. The Hog execution itself is tested under common/hogvm/python/
         self.assertEqual(execute_hog("1 + 2", team=self.team).result, 3)
         self.assertEqual(
             execute_hog(

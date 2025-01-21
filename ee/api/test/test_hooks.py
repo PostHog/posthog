@@ -1,10 +1,11 @@
 from typing import cast
-from unittest.mock import ANY
+
+from inline_snapshot import snapshot
 
 from ee.api.hooks import valid_domain
 from ee.api.test.base import APILicensedTest
 from ee.models.hook import Hook
-from hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import ClickhouseTestMixin
@@ -117,42 +118,81 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11, 3, 1, 4, 1],
         }
 
-        assert hog_function.inputs == {
-            "body": {
-                "bytecode": ANY,
-                "value": {
-                    "data": {
-                        "distinctId": "{event.distinct_id}",
-                        "event": "{event.name}",
-                        "eventUuid": "{event.uuid}",
-                        "person": {
-                            "properties": "{person.properties}",
-                            "uuid": "{person.uuid}",
+        assert hog_function.hog == snapshot(
+            """\
+let res := fetch(f'https://hooks.zapier.com/{inputs.hook}', {
+  'method': 'POST',
+  'body': inputs.body
+});
+
+if (inputs.debug) {
+  print('Response', res.status, res.body);
+}\
+"""
+        )
+
+        assert hog_function.inputs == snapshot(
+            {
+                "body": {
+                    "order": 2,
+                    "value": {
+                        "data": {
+                            "event": "{event.event}",
+                            "person": {"uuid": "{person.id}", "properties": "{person.properties}"},
+                            "teamId": "{project.id}",
+                            "eventUuid": "{event.uuid}",
+                            "timestamp": "{event.timestamp}",
+                            "distinctId": "{event.distinct_id}",
+                            "properties": "{event.properties}",
                         },
-                        "properties": "{event.properties}",
-                        "teamId": "{project.id}",
-                        "timestamp": "{event.timestamp}",
+                        "hook": {
+                            "id": "{event.uuid}",
+                            "event": "{event.event}",
+                            "target": "https://hooks.zapier.com/{inputs.hook}",
+                        },
                     },
-                    "hook": {
-                        "event": "{event}",
-                        "id": "{eventUuid}",
-                        "target": "https://hooks.zapier.com/{inputs.hook}",
+                    "bytecode": {
+                        "data": {
+                            "event": ["_H", 1, 32, "event", 32, "event", 1, 2],
+                            "person": {
+                                "uuid": ["_H", 1, 32, "id", 32, "person", 1, 2],
+                                "properties": ["_H", 1, 32, "properties", 32, "person", 1, 2],
+                            },
+                            "teamId": ["_H", 1, 32, "id", 32, "project", 1, 2],
+                            "eventUuid": ["_H", 1, 32, "uuid", 32, "event", 1, 2],
+                            "timestamp": ["_H", 1, 32, "timestamp", 32, "event", 1, 2],
+                            "distinctId": ["_H", 1, 32, "distinct_id", 32, "event", 1, 2],
+                            "properties": ["_H", 1, 32, "properties", 32, "event", 1, 2],
+                        },
+                        "hook": {
+                            "id": ["_H", 1, 32, "uuid", 32, "event", 1, 2],
+                            "event": ["_H", 1, 32, "event", 32, "event", 1, 2],
+                            "target": [
+                                "_H",
+                                1,
+                                32,
+                                "https://hooks.zapier.com/",
+                                32,
+                                "hook",
+                                32,
+                                "inputs",
+                                1,
+                                2,
+                                2,
+                                "concat",
+                                2,
+                            ],
+                        },
                     },
                 },
-                "order": 2,
-            },
-            "debug": {"order": 1},
-            "hook": {
-                "bytecode": [
-                    "_H",
-                    HOGQL_BYTECODE_VERSION,
-                    32,
-                    "hooks/standard/1234/abcd",
-                ],
-                "value": "hooks/standard/1234/abcd",
-                "order": 0,
-            },
-        }
+                "hook": {
+                    "order": 0,
+                    "value": "hooks/standard/1234/abcd",
+                    "bytecode": ["_H", 1, 32, "hooks/standard/1234/abcd"],
+                },
+                "debug": {"order": 1},
+            }
+        )
 
     def test_delete_hog_function_via_hook(self):
         data = {
