@@ -40,7 +40,7 @@ export function ErrorTrackingConfigurationScene(): JSX.Element {
             <Settings
                 logicKey="errorTracking"
                 sectionId="environment-error-tracking"
-                settingId="error-tracking-user-groups"
+                settingId="error-tracking-user-groups" // acts as a default
                 handleLocally
             />
         </AlphaAccessScenePrompt>

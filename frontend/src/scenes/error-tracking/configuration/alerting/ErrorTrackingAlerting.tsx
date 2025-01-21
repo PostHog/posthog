@@ -25,8 +25,8 @@ export function ErrorTrackingAlerting(): JSX.Element {
                         },
                     ],
                 }}
-            /> */}
-            {/* <DestinationsTable types={['error_tracking_alert']} hideKind hideFeedback /> */}
+            />
+            <DestinationsTable types={['error_tracking_alert']} hideKind hideFeedback /> */}
         </>
     )
 }
