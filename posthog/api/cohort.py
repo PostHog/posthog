@@ -248,7 +248,7 @@ class CohortSerializer(serializers.ModelSerializer):
                             team_id=team_id,
                             # Only appending `team_id` if it's not the same as the cohort's `team_id``, so that
                             # the migration to environments does not accidentally cause duplicate `AsyncDeletion`s
-                            key=f"{cohort.pk}_{cohort.version}{('_'+str(team_id)) if team_id != cohort.team_id else ''}",
+                            key=f"{cohort.pk}_{cohort.version}{('_' + str(team_id)) if team_id != cohort.team_id else ''}",
                         )
                         for team_id in relevant_team_ids
                     ],
