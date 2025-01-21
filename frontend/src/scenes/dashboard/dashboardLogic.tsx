@@ -15,8 +15,8 @@ import {
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+// import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
+import { DashboardPrivilegeLevel, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -946,13 +946,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         canEditDashboard: [
-            (s) => [s.dashboard, s.featureFlags],
-            (dashboard, featureFlags) => {
-                if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
-                    return dashboard?.user_access_level
-                        ? accessLevelSatisfied('dashboard', dashboard.user_access_level, 'editor')
-                        : false
-                }
+            (s) => [s.dashboard],
+            (dashboard) => {
+                // if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
+                //     return dashboard?.user_access_level
+                //         ? accessLevelSatisfied('dashboard', dashboard.user_access_level, 'editor')
+                //         : false
+                // }
                 return !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
             },
         ],
