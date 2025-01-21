@@ -18,8 +18,8 @@ archs = [ # We could also build a universal wheel, but separate ones are lighter
 ]
 before-build = [ # We need to install the libraries for each architecture separately
     "brew uninstall --ignore-dependencies --force boost antlr4-cpp-runtime",
-    "brew fetch --force --bottle-tag=${ARCHFLAGS##'-arch '}_monterey boost antlr4-cpp-runtime",
-    "brew install $(brew --cache --bottle-tag=${ARCHFLAGS##'-arch '}_monterey boost antlr4-cpp-runtime)",
+    "brew fetch --force --bottle-tag=${ARCHFLAGS##'-arch '}_ventura boost antlr4-cpp-runtime",
+    "brew install $(brew --cache --bottle-tag=${ARCHFLAGS##'-arch '}_ventura boost antlr4-cpp-runtime)",
 ]
 
 [tool.cibuildwheel.linux]

@@ -1,12 +1,14 @@
 # serializer version: 1
 # name: TestErrorTrackingQueryRunner.test_column_names
   '''
-  SELECT count(DISTINCT events.uuid) AS occurrences,
-         count(DISTINCT events.`$session_id`) AS sessions,
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC')))), x), range(24))) AS volumeDay,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC')))), x), range(31))) AS volumeMonth
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -29,12 +31,45 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_column_names.1
   '''
-  SELECT count(DISTINCT events.uuid) AS occurrences,
-         count(DISTINCT events.`$session_id`) AS sessions,
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC')))), x), range(24))) AS volumeDay,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC')))), x), range(31))) AS volumeMonth,
+         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
+            error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+     FROM error_tracking_issue_fingerprint_overrides
+     WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+     GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+     HAVING ifNull(equals(argMax(error_tracking_issue_fingerprint_overrides.is_deleted, error_tracking_issue_fingerprint_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint)
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))), 1, ifNull(equals(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
+  GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestErrorTrackingQueryRunner.test_correctly_counts_session_ids
+  '''
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
+         count(DISTINCT events.distinct_id) AS users,
+         max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
+         min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC')))), x), range(24))) AS volumeDay,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC')))), x), range(31))) AS volumeMonth,
          argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest
   FROM events
   LEFT OUTER JOIN
@@ -58,12 +93,14 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_hogql_filters
   '''
-  SELECT count(DISTINCT events.uuid) AS occurrences,
-         count(DISTINCT events.`$session_id`) AS sessions,
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC')))), x), range(24))) AS volumeDay,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC')))), x), range(31))) AS volumeMonth
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -103,12 +140,14 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_issue_grouping
   '''
-  SELECT count(DISTINCT events.uuid) AS occurrences,
-         count(DISTINCT events.`$session_id`) AS sessions,
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC')))), x), range(24))) AS volumeDay,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC')))), x), range(31))) AS volumeMonth,
          argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest
   FROM events
   LEFT OUTER JOIN
@@ -132,12 +171,14 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_ordering
   '''
-  SELECT count(DISTINCT events.uuid) AS occurrences,
-         count(DISTINCT events.`$session_id`) AS sessions,
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC')))), x), range(24))) AS volumeDay,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC')))), x), range(31))) AS volumeMonth
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -161,12 +202,14 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_ordering.1
   '''
-  SELECT count(DISTINCT events.uuid) AS occurrences,
-         count(DISTINCT events.`$session_id`) AS sessions,
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC')))), x), range(24))) AS volumeDay,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC')))), x), range(31))) AS volumeMonth
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -190,12 +233,14 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_search_query
   '''
-  SELECT count(DISTINCT events.uuid) AS occurrences,
-         count(DISTINCT events.`$session_id`) AS sessions,
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC')))), x), range(24))) AS volumeDay,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC')))), x), range(31))) AS volumeMonth
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -235,12 +280,14 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_search_query_with_multiple_search_items
   '''
-  SELECT count(DISTINCT events.uuid) AS occurrences,
-         count(DISTINCT events.`$session_id`) AS sessions,
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC')))), x), range(24))) AS volumeDay,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC')))), x), range(31))) AS volumeMonth
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -280,12 +327,14 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_user_assignee
   '''
-  SELECT count(DISTINCT events.uuid) AS occurrences,
-         count(DISTINCT events.`$session_id`) AS sessions,
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC')))), x), range(24))) AS volumeDay,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC')))), x), range(31))) AS volumeMonth
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -308,12 +357,14 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_user_group_assignee
   '''
-  SELECT count(DISTINCT events.uuid) AS occurrences,
-         count(DISTINCT events.`$session_id`) AS sessions,
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC')))), x), range(24))) AS volumeDay,
+         reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC')))), x), range(31))) AS volumeMonth
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
