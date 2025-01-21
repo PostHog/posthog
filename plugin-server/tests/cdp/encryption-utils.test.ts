@@ -1,6 +1,5 @@
 import { EncryptedFields } from '../../src/cdp/services/encryption-utils.service'
 import { Hub } from '../../src/types'
-import { insertHogFunction as _insertHogFunction } from './fixtures'
 
 describe('Encrypted fields', () => {
     jest.setTimeout(1000)

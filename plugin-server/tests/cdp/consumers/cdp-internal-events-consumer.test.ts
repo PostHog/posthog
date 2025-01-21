@@ -1,5 +1,3 @@
-import '../helpers/mocks/producer.mock'
-
 import { CdpInternalEventsConsumer } from '../../../src/cdp/consumers/cdp-internal-events.consumer'
 import { HogFunctionType } from '../../../src/cdp/types'
 import { Hub, Team } from '../../../src/types'

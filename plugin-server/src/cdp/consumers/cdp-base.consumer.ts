@@ -1,4 +1,3 @@
-import { KafkaProducerWrapper } from 'kafka/producer'
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 import { Counter } from 'prom-client'
@@ -11,6 +10,7 @@ import {
 } from '../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { AppMetric2Type, Hub, PluginServerService, TimestampFormat } from '../../types'
