@@ -6,10 +6,10 @@ import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -60,7 +60,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             ['mathDefinitions'],
             userLogic,
             ['user'],
-            featureFlagsLogic,
+            featureFlagLogic,
             ['featureFlags'],
         ],
         actions: [tagsModel, ['loadTags']],
