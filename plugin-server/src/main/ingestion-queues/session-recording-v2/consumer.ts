@@ -17,12 +17,14 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from './constants'
 import { KafkaMetrics } from './kafka/metrics'
+import { KafkaOffsetManager } from './kafka/offset-manager'
 import { KafkaParser } from './kafka/parser'
 import { SessionRecordingMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
 import { BlackholeFlusher } from './sessions/blackhole-flusher'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
+import { BaseSessionBatchRecorder } from './sessions/session-batch-recorder'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
@@ -55,16 +57,34 @@ export class SessionRecordingIngester {
         batchConsumerFactory: BatchConsumerFactory,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
+        this.topic = consumeOverflow
+            ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
+            : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        this.batchConsumerFactory = batchConsumerFactory
+
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
+
+        this.promiseScheduler = new PromiseScheduler()
+
         const kafkaMetrics = KafkaMetrics.getInstance()
         const kafkaParser = new KafkaParser(kafkaMetrics)
         const teamService = new TeamService()
         this.metrics = SessionRecordingMetrics.getInstance()
-        this.promiseScheduler = new PromiseScheduler()
-        this.batchConsumerFactory = batchConsumerFactory
+
+        const offsetManager = new KafkaOffsetManager(async (offsets) => {
+            await new Promise<void>((resolve, reject) => {
+                try {
+                    this.batchConsumer!.consumer.commitSync(offsets)
+                    resolve()
+                } catch (error) {
+                    reject(error)
+                }
+            })
+        }, this.topic)
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 0) * 1024,
-            createBatch: () => new SessionBatchRecorder(new BlackholeFlusher()),
+            createBatch: () => new BaseSessionBatchRecorder(new BlackholeFlusher()),
+            offsetManager,
         })
 
         const teamFilter = new TeamFilter(teamService, kafkaParser)
@@ -82,9 +102,6 @@ export class SessionRecordingIngester {
             this.messageProcessor = teamFilter
         }
 
-        this.topic = consumeOverflow
-            ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
-            : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
     }
 

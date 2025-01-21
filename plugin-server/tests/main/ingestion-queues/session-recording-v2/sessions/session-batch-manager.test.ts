@@ -1,3 +1,4 @@
+import { KafkaOffsetManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/offset-manager'
 import { SessionBatchManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-manager'
 import { SessionBatchRecorder } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
 
@@ -16,6 +17,7 @@ describe('SessionBatchManager', () => {
     let executionOrder: number[]
     let createBatchMock: jest.Mock<SessionBatchRecorder>
     let currentBatch: jest.Mocked<SessionBatchRecorder>
+    let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
 
     beforeEach(() => {
         currentBatch = createMockBatch()
@@ -23,12 +25,21 @@ describe('SessionBatchManager', () => {
             currentBatch = createMockBatch()
             return currentBatch
         })
+
+        mockOffsetManager = {
+            wrapBatch: jest.fn().mockImplementation((batch) => batch),
+            commit: jest.fn().mockResolvedValue(undefined),
+            trackOffset: jest.fn(),
+        } as unknown as jest.Mocked<KafkaOffsetManager>
+
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             createBatch: createBatchMock,
+            offsetManager: mockOffsetManager,
         })
         executionOrder = []
     })
+
     const waitForNextTick = () => new Promise((resolve) => process.nextTick(resolve))
 
     const waitFor = async (condition: () => boolean) => {
@@ -84,8 +95,8 @@ describe('SessionBatchManager', () => {
 
         await Promise.all([promise1, promise2])
 
-        expect(errorSpy).toHaveBeenCalled()
         expect(executionOrder).toEqual([1, 2])
+        expect(errorSpy).toHaveBeenCalled()
     })
 
     it('should maintain order even with immediate callbacks', async () => {
@@ -150,22 +161,24 @@ describe('SessionBatchManager', () => {
         })
     })
 
-    it('should flush the current batch before creating a new one', async () => {
+    it('should create new batch and commit offsets on flush', async () => {
         const firstBatch = currentBatch
 
         await manager.flush()
 
         expect(firstBatch.flush).toHaveBeenCalled()
+        expect(mockOffsetManager.commit).toHaveBeenCalled()
         expect(createBatchMock).toHaveBeenCalledTimes(2)
     })
 
-    it('should flush when buffer is full', async () => {
+    it('should flush and commit when buffer is full', async () => {
         const firstBatch = currentBatch
         jest.spyOn(firstBatch, 'size', 'get').mockReturnValue(150)
 
         await manager.flushIfFull()
 
         expect(firstBatch.flush).toHaveBeenCalled()
+        expect(mockOffsetManager.commit).toHaveBeenCalled()
         expect(createBatchMock).toHaveBeenCalledTimes(2)
     })
 
@@ -176,6 +189,7 @@ describe('SessionBatchManager', () => {
         await manager.flushIfFull()
 
         expect(firstBatch.flush).not.toHaveBeenCalled()
+        expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         expect(createBatchMock).toHaveBeenCalledTimes(1)
     })
 
@@ -198,5 +212,6 @@ describe('SessionBatchManager', () => {
 
         expect(executionOrder).toEqual([1, 2])
         expect(firstBatch.flush).toHaveBeenCalled()
+        expect(mockOffsetManager.commit).toHaveBeenCalled()
     })
 })

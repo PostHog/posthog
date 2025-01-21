@@ -1,8 +1,8 @@
 import { PassThrough } from 'stream'
 
 import {
+    BaseSessionBatchRecorder,
     SessionBatchFlusher,
-    SessionBatchRecorder,
 } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
 import { MessageWithTeam } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/types'
 
@@ -22,8 +22,8 @@ interface RRWebEvent {
     data: Record<string, any>
 }
 
-describe('SessionBatchRecorder', () => {
-    let recorder: SessionBatchRecorder
+describe('BaseSessionBatchRecorder', () => {
+    let recorder: BaseSessionBatchRecorder
     let mockFlusher: jest.Mocked<SessionBatchFlusher>
     let mockStream: PassThrough
 
@@ -33,7 +33,7 @@ describe('SessionBatchRecorder', () => {
             open: jest.fn().mockResolvedValue(mockStream),
             finish: jest.fn().mockResolvedValue(undefined),
         }
-        recorder = new SessionBatchRecorder(mockFlusher)
+        recorder = new BaseSessionBatchRecorder(mockFlusher)
     })
 
     const createMessage = (sessionId: string, events: RRWebEvent[]): MessageWithTeam => ({
@@ -61,11 +61,14 @@ describe('SessionBatchRecorder', () => {
         },
     })
 
-    const parseLines = (data: string): Array<[string, RRWebEvent]> => {
-        return data
+    const parseLines = (output: string): [string, RRWebEvent][] => {
+        return output
             .trim()
             .split('\n')
-            .map((line) => JSON.parse(line))
+            .map((line) => {
+                const [windowId, event] = JSON.parse(line)
+                return [windowId, event]
+            })
     }
 
     const captureOutput = (): Promise<string> => {
@@ -218,7 +221,6 @@ describe('SessionBatchRecorder', () => {
                 ]),
             ]
 
-            // Record events in interleaved order
             messages.forEach((message) => recorder.record(message))
             const outputPromise = captureOutput()
             await recorder.flush()

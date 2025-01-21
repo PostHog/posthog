@@ -8,7 +8,13 @@ export interface SessionBatchFlusher {
     finish(): Promise<void>
 }
 
-export class SessionBatchRecorder {
+export interface SessionBatchRecorder {
+    record(message: MessageWithTeam): number
+    flush(): Promise<void>
+    readonly size: number
+}
+
+export class BaseSessionBatchRecorder implements SessionBatchRecorder {
     private readonly sessions: Map<string, SessionRecorder> = new Map()
     private _size: number = 0
 
