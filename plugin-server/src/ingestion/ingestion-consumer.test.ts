@@ -156,7 +156,7 @@ describe('IngestionConsumer', () => {
                     createEvent({ distinct_id: 'overflow-distinct-id' }),
                     createEvent({ distinct_id: 'overflow-distinct-id' }),
                 ])
-                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 998, now())
+                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 999, now())
                 await ingester.handleKafkaBatch(manyOverflowedMessages)
                 expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(2)
 
