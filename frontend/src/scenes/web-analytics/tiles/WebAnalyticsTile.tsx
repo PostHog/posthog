@@ -835,7 +835,7 @@ const RenderReplayButton = ({
         [WebStatsBreakdown.DeviceType]: '$device_type',
         [WebStatsBreakdown.InitialPage]: '$entry_pathname',
         [WebStatsBreakdown.ExitPage]: '$end_pathname',
-        [WebStatsBreakdown.Page]: '$visited_page',
+        [WebStatsBreakdown.Page]: '$pathname',
         [WebStatsBreakdown.Browser]: '$browser',
         [WebStatsBreakdown.OS]: '$os',
         [WebStatsBreakdown.InitialChannelType]: '$channel_type',
