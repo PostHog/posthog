@@ -3,11 +3,11 @@ import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
-import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
+import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
     Action,
     ClickHouseEvent,
@@ -63,7 +63,6 @@ import {
     UUIDT,
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
-import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {
@@ -697,7 +696,7 @@ export class DB {
             })
         }
 
-        await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+        await this.kafkaProducer.queueMessages(kafkaMessages)
         return person
     }
 
@@ -706,7 +705,7 @@ export class DB {
         person: InternalPerson,
         update: Partial<InternalPerson>,
         tx?: TransactionClient
-    ): Promise<[InternalPerson, ProducerRecord[]]> {
+    ): Promise<[InternalPerson, TopicMessage[]]> {
         let versionString = 'COALESCE(version, 0)::numeric + 1'
         if (update.version) {
             versionString = update.version.toString()
@@ -758,7 +757,7 @@ export class DB {
         return [updatedPerson, [kafkaMessage]]
     }
 
-    public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<ProducerRecord[]> {
+    public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
         const { rows } = await this.postgres.query<{ version: string }>(
             tx ?? PostgresUse.COMMON_WRITE,
             'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
@@ -766,7 +765,7 @@ export class DB {
             'deletePerson'
         )
 
-        let kafkaMessages: ProducerRecord[] = []
+        let kafkaMessages: TopicMessage[] = []
 
         if (rows.length > 0) {
             const [row] = rows
@@ -881,7 +880,7 @@ export class DB {
     ): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version, tx)
         if (kafkaMessages.length) {
-            await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+            await this.kafkaProducer.queueMessages(kafkaMessages)
         }
     }
 
@@ -890,7 +889,7 @@ export class DB {
         distinctId: string,
         version: number,
         tx?: TransactionClient
-    ): Promise<ProducerRecord[]> {
+    ): Promise<TopicMessage[]> {
         const insertResult = await this.postgres.query(
             tx ?? PostgresUse.COMMON_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
@@ -923,7 +922,7 @@ export class DB {
         source: InternalPerson,
         target: InternalPerson,
         tx?: TransactionClient
-    ): Promise<ProducerRecord[]> {
+    ): Promise<TopicMessage[]> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgres.query(
@@ -1099,12 +1098,12 @@ export class DB {
         return queryResult.data as PluginLogEntry[]
     }
 
-    public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
+    public queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
         const configuredLogLevel = pluginConfig.plugin?.log_level || this.pluginsDefaultLogLevel
 
         if (!shouldStoreLog(configuredLogLevel, type)) {
-            return
+            return Promise.resolve()
         }
 
         const parsedEntry = {
@@ -1122,24 +1121,33 @@ export class DB {
         if (parsedEntry.message.length > 50_000) {
             const { message, ...rest } = parsedEntry
             status.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
-            return
+            return Promise.resolve()
         }
 
         pluginLogEntryCounter.labels({ plugin_id: String(pluginConfig.plugin_id), source }).inc()
 
         try {
-            await this.kafkaProducer.queueSingleJsonMessage({
-                topic: KAFKA_PLUGIN_LOG_ENTRIES,
-                key: parsedEntry.id,
-                object: parsedEntry,
-                // For logs, we relax our durability requirements a little and
-                // do not wait for acks that Kafka has persisted the message to
-                // disk.
-                waitForAck: false,
-            })
+            // For logs, we relax our durability requirements a little and
+            // do not wait for acks that Kafka has persisted the message to
+            // disk.
+            void this.kafkaProducer
+                .queueMessages({
+                    topic: KAFKA_PLUGIN_LOG_ENTRIES,
+                    messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
+                })
+                .catch((error) => {
+                    status.warn('⚠️', 'Failed to produce plugin log entry', {
+                        error,
+                        entry: parsedEntry,
+                    })
+                })
+
+            // TRICKY: We don't want to block the caller, so we return a promise that resolves immediately.
+            return Promise.resolve()
         } catch (e) {
             captureException(e, { tags: { team_id: entry.pluginConfig.team_id } })
             console.error('Failed to produce message', e, parsedEntry)
+            return Promise.resolve()
         }
     }
 
@@ -1412,23 +1420,20 @@ export class DB {
         createdAt: DateTime,
         version: number
     ): Promise<void> {
-        await this.kafkaProducer.queueMessage({
-            kafkaMessage: {
-                topic: KAFKA_GROUPS,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            group_type_index: groupTypeIndex,
-                            group_key: groupKey,
-                            team_id: teamId,
-                            group_properties: JSON.stringify(properties),
-                            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                            version,
-                        }),
-                    },
-                ],
-            },
-            waitForAck: true,
+        await this.kafkaProducer.queueMessages({
+            topic: KAFKA_GROUPS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        group_type_index: groupTypeIndex,
+                        group_key: groupKey,
+                        team_id: teamId,
+                        group_properties: JSON.stringify(properties),
+                        created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                        version,
+                    }),
+                },
+            ],
         })
     }
 

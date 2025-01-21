@@ -1,6 +1,6 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
@@ -46,7 +46,7 @@ export function ErrorTrackingScene(): JSX.Element {
                 render: CustomGroupTitleColumn,
             },
             occurrences: { align: 'center', render: CountColumn },
-            sessions: { align: 'center', render: CountColumn },
+            sessions: { align: 'center', render: SessionCountColumn },
             users: { align: 'center', render: CountColumn },
             volume: { renderTitle: VolumeColumnHeader, render: VolumeColumn },
             assignee: { render: AssigneeColumn },
@@ -167,6 +167,17 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                 }}
             />
         </div>
+    )
+}
+
+const SessionCountColumn: QueryContextColumnComponent = ({ children, ...props }) => {
+    const count = props.value as number
+    return count === 0 ? (
+        <Tooltip title="No $session_id was set for any event in this issue" delayMs={0}>
+            -
+        </Tooltip>
+    ) : (
+        <CountColumn {...props} />
     )
 }
 
