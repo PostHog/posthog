@@ -83,6 +83,8 @@ export enum PluginServerMode {
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
+    recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
+    recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
@@ -124,6 +126,7 @@ export type CdpConfig = {
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
+    CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
 }
 
 export interface PluginsServerConfig extends CdpConfig {
@@ -354,6 +357,8 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
+    sessionRecordingBlobIngestionV2?: boolean
+    sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
     cdpInternalEvents?: boolean
     cdpFunctionCallbacks?: boolean
@@ -1265,4 +1270,59 @@ export type AppMetric2Type = {
         | 'inputs_failed'
         | 'fetch'
     count: number
+}
+
+interface TextOperator {
+    operator: 'equals' | 'startsWith' | 'includes'
+    value: string
+}
+
+export interface ModelDetails {
+    matches: string[]
+    searchTerms: string[]
+    info: {
+        releaseDate: string
+        maxTokens?: number
+        description: string
+        tradeOffs: string[]
+        benchmarks: {
+            [key: string]: number
+        }
+        capabilities: string[]
+        strengths: string[]
+        weaknesses: string[]
+        recommendations: string[]
+    }
+}
+
+export type ModelDetailsMap = {
+    [key: string]: ModelDetails
+}
+
+export interface ModelRow {
+    model: TextOperator
+    cost: {
+        prompt_token: number
+        completion_token: number
+    }
+    showInPlayground?: boolean
+    targetUrl?: string
+    dateRange?: {
+        start: string
+        end: string
+    }
+}
+
+export interface ModelRow {
+    model: TextOperator
+    cost: {
+        prompt_token: number
+        completion_token: number
+    }
+    showInPlayground?: boolean
+    targetUrl?: string
+    dateRange?: {
+        start: string
+        end: string
+    }
 }
