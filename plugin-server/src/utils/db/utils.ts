@@ -1,7 +1,8 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { TopicMessage } from 'kafka/producer'
 import { Counter } from 'prom-client'
+
+import { TopicMessage } from '~/src/kafka/producer'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'

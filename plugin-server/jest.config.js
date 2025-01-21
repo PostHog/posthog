@@ -10,6 +10,7 @@ module.exports = {
     testTimeout: 60000,
     modulePathIgnorePatterns: ['<rootDir>/.tmp/'],
 
+    // NOTE: This should be kept in sync with tsconfig.json
     moduleNameMapper: {
         '^~/(.*)$': '<rootDir>/$1',
     },

@@ -13,12 +13,12 @@ import {
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
-import { BatchConsumer } from 'kafka/batch-consumer'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ObjectStorage } from './main/services/object_storage'
 import { Celery } from './utils/db/celery'
@@ -1291,4 +1291,59 @@ export type AppMetric2Type = {
         | 'inputs_failed'
         | 'fetch'
     count: number
+}
+
+interface TextOperator {
+    operator: 'equals' | 'startsWith' | 'includes'
+    value: string
+}
+
+export interface ModelDetails {
+    matches: string[]
+    searchTerms: string[]
+    info: {
+        releaseDate: string
+        maxTokens?: number
+        description: string
+        tradeOffs: string[]
+        benchmarks: {
+            [key: string]: number
+        }
+        capabilities: string[]
+        strengths: string[]
+        weaknesses: string[]
+        recommendations: string[]
+    }
+}
+
+export type ModelDetailsMap = {
+    [key: string]: ModelDetails
+}
+
+export interface ModelRow {
+    model: TextOperator
+    cost: {
+        prompt_token: number
+        completion_token: number
+    }
+    showInPlayground?: boolean
+    targetUrl?: string
+    dateRange?: {
+        start: string
+        end: string
+    }
+}
+
+export interface ModelRow {
+    model: TextOperator
+    cost: {
+        prompt_token: number
+        completion_token: number
+    }
+    showInPlayground?: boolean
+    targetUrl?: string
+    dateRange?: {
+        start: string
+        end: string
+    }
 }

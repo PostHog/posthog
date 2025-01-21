@@ -1,9 +1,13 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { PreIngestionEvent } from 'types'
+import { captureException } from '@sentry/node'
 
+import { PreIngestionEvent } from '~/src/types'
+
+import { status } from '../../../utils/status'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
 import { invalidTimestampCounter } from './metrics'
+import { processAiEvent } from './processAiEvent'
 import { EventPipelineRunner } from './runner'
 
 export async function prepareEventStep(
@@ -17,6 +21,17 @@ export async function prepareEventStep(
         invalidTimestampCounter.labels(type).inc()
 
         tsParsingIngestionWarnings.push(captureIngestionWarning(runner.hub.db.kafkaProducer, team_id, type, details))
+    }
+
+    if (event.event === '$ai_generation' || event.event === '$ai_embedding') {
+        try {
+            event = processAiEvent(event)
+        } catch (error) {
+            // NOTE: Whilst this is pre-production we want to make it as optional as possible
+            // so we don't block the pipeline if it fails
+            captureException(error)
+            status.error(error)
+        }
     }
 
     const preIngestionEvent = await runner.eventsProcessor.processEvent(
