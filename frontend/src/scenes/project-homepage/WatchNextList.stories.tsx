@@ -12,7 +12,6 @@ function asRecording(param: Partial<SessionRecordingType>): SessionRecordingType
         },
         activity_score: 0,
         recording_duration: 0,
-        matching_events: [],
         viewed: false,
         start_time: '2024-11-01 12:34',
         end_time: '2024-11-01 13:34',

@@ -1438,8 +1438,6 @@ export interface SessionRecordingType {
     start_time: string
     /** When the recording ends in ISO format. */
     end_time: string
-    /** List of matching events. **/
-    matching_events?: MatchedRecording[]
     distinct_id?: string
     email?: string
     person?: PersonType

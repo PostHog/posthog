@@ -15,33 +15,21 @@ import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
  *
  */
 export function SessionPlayerModal(): JSX.Element | null {
-    const { activeSessionRecording } = useValues(sessionPlayerModalLogic())
+    const { activeSessionRecordingId, matchingEventsMatchType } = useValues(sessionPlayerModalLogic())
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
-
-    // activeSessionRecording?.matching_events should always be a single element array
-    // but, we're filtering and using flatMap just in case
-    const eventUUIDs =
-        activeSessionRecording?.matching_events
-            ?.filter((matchingEvents) => {
-                return matchingEvents.session_id === activeSessionRecording?.id
-            })
-            .flatMap((matchedRecording) => matchedRecording.events.map((x) => x.uuid)) || []
 
     const logicProps: SessionRecordingPlayerLogicProps = {
         playerKey: 'modal',
-        sessionRecordingId: activeSessionRecording?.id || '',
+        sessionRecordingId: activeSessionRecordingId || '',
         autoPlay: true,
-        matchingEventsMatchType: {
-            matchType: 'uuid',
-            eventUUIDs: eventUUIDs,
-        },
+        matchingEventsMatchType: matchingEventsMatchType || { matchType: 'none' },
     }
 
     const { isFullScreen } = useValues(sessionRecordingPlayerLogic(logicProps))
 
     return (
         <LemonModal
-            isOpen={!!activeSessionRecording}
+            isOpen={!!activeSessionRecordingId}
             onClose={closeSessionPlayer}
             simple
             title=""
@@ -52,14 +40,14 @@ export function SessionPlayerModal(): JSX.Element | null {
             hideCloseButton={true}
         >
             <header>
-                {activeSessionRecording ? (
+                {activeSessionRecordingId ? (
                     <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
                         <PlayerMeta iconsOnly={false} />
                     </BindLogic>
                 ) : null}
             </header>
             <LemonModal.Content embedded>
-                {activeSessionRecording?.id && <SessionRecordingPlayer {...logicProps} noMeta noBorder />}
+                {activeSessionRecordingId && <SessionRecordingPlayer {...logicProps} noMeta noBorder />}
             </LemonModal.Content>
         </LemonModal>
     )

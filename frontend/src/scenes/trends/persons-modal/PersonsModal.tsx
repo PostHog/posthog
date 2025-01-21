@@ -224,8 +224,11 @@ export function PersonsModal({
                                     <ActorRow
                                         key={actor.id}
                                         actor={actor}
-                                        onOpenRecording={(sessionRecording) => {
-                                            openSessionPlayer(sessionRecording)
+                                        onOpenRecording={(sessionRecordingId, eventUUIDs) => {
+                                            openSessionPlayer(sessionRecordingId, null, {
+                                                matchType: 'uuid',
+                                                eventUUIDs,
+                                            })
                                         }}
                                         propertiesTimelineFilter={
                                             actor.type == 'person' && currentTeam?.person_on_events_querying_enabled
@@ -320,7 +323,7 @@ export function PersonsModal({
 
 interface ActorRowProps {
     actor: ActorType
-    onOpenRecording: (sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>) => void
+    onOpenRecording: (sessionRecordingId: SessionRecordingType['id'], eventUUIDs: string[]) => void
     propertiesTimelineFilter?: PropertiesTimelineFilterType
 }
 
@@ -337,11 +340,11 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
             setExpanded(true)
             setTab('recordings')
         } else {
-            actor.matched_recordings[0].session_id &&
-                onOpenRecording({
-                    id: actor.matched_recordings[0].session_id,
-                    matching_events: actor.matched_recordings,
-                })
+            const sessionId = actor.matched_recordings[0].session_id
+            const eventUUIDs =
+                actor.matched_recordings.flatMap((matchedRecording) => matchedRecording.events.map((x) => x.uuid)) || []
+
+            sessionId && onOpenRecording(sessionId, eventUUIDs)
         }
     }
 
@@ -436,15 +439,10 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                                                                   fullWidth
                                                                   onClick={() => {
                                                                       recording.session_id &&
-                                                                          onOpenRecording({
-                                                                              id: recording.session_id,
-                                                                              matching_events: [
-                                                                                  {
-                                                                                      events: recording.events,
-                                                                                      session_id: recording.session_id,
-                                                                                  },
-                                                                              ],
-                                                                          })
+                                                                          onOpenRecording(
+                                                                              recording.session_id,
+                                                                              recording.events.map((e) => e.uuid)
+                                                                          )
                                                                   }}
                                                               >
                                                                   <div className="flex flex-1 justify-between gap-2 items-center">

@@ -40,7 +40,7 @@ export function renderHogQLX(value: any): JSX.Element {
                 </ErrorBoundary>
             )
         } else if (tag === 'RecordingButton') {
-            const { sessionId, ...props } = rest
+            const { sessionId, eventName, ...props } = rest
             return (
                 <ErrorBoundary>
                     <ViewRecordingButton
@@ -49,7 +49,8 @@ export function renderHogQLX(value: any): JSX.Element {
                         type="primary"
                         size="xsmall"
                         data-attr="hog-ql-view-recording-button"
-                        className="inline-block"
+                        className="inline-block whitespace-nowrap"
+                        matchingEventsMatchType={eventName ? { matchType: 'name', eventNames: [eventName] } : null}
                         {...props}
                         disabledReason={sessionId ? undefined : 'No session id associated with this event'}
                     />

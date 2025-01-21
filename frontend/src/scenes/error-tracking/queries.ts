@@ -75,9 +75,13 @@ export const errorTrackingIssueEventsQuery = ({
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
 }): DataTableNode => {
-    // const select = ['person', 'timestamp', 'recording_button(properties.$session_id)']
-    // row expansion only works when you fetch the entire event with '*'
-    const columns = ['*', 'person', 'timestamp', 'recording_button(properties.$session_id)']
+    // row expansion for 'person' only works when you fetch the entire event with '*'
+    const columns = [
+        '*',
+        'person',
+        'timestamp',
+        "<RecordingButton sessionId={properties.$session_id} eventName='$exception' /> as recording",
+    ]
 
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = group.values as AnyPropertyFilter[]
@@ -107,7 +111,7 @@ export const errorTrackingIssueEventsQuery = ({
         source: eventsQuery,
         showActions: false,
         showTimings: false,
-        columns: columns,
+        columns: ['*', 'person', 'time', 'recording'],
         expandable: true,
     }
 }

@@ -1,5 +1,6 @@
 import { actions, kea, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { SessionRecordingId, SessionRecordingType } from '~/types'
 
@@ -17,19 +18,21 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
     path(['scenes', 'session-recordings', 'sessionPlayerModalLogic']),
     actions({
         openSessionPlayer: (
-            sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>,
-            initialTimestamp: number | null = null
+            sessionRecordingId: SessionRecordingType['id'],
+            initialTimestamp: number | null = null,
+            matchingEventsMatchType: MatchingEventsMatchType | null = null
         ) => ({
-            sessionRecording,
+            sessionRecordingId,
             initialTimestamp,
+            matchingEventsMatchType,
         }),
         closeSessionPlayer: true,
     }),
     reducers({
-        activeSessionRecording: [
-            null as Pick<SessionRecordingType, 'id' | 'matching_events'> | null,
+        activeSessionRecordingId: [
+            null as SessionRecordingType['id'] | null,
             {
-                openSessionPlayer: (_, { sessionRecording }) => sessionRecording,
+                openSessionPlayer: (_, { sessionRecordingId }) => sessionRecordingId,
                 closeSessionPlayer: () => null,
             },
         ],
@@ -37,6 +40,13 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
             null as number | null,
             {
                 openSessionPlayer: (_, { initialTimestamp }) => initialTimestamp,
+                closeSessionPlayer: () => null,
+            },
+        ],
+        matchingEventsMatchType: [
+            null as MatchingEventsMatchType | null,
+            {
+                openSessionPlayer: (_, { matchingEventsMatchType }) => matchingEventsMatchType,
                 closeSessionPlayer: () => null,
             },
         ],
@@ -57,10 +67,10 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
                 ...router.values.searchParams,
             }
 
-            if (!values.activeSessionRecording?.id) {
+            if (!values.activeSessionRecordingId) {
                 delete hashParams.sessionRecordingId
             } else {
-                hashParams.sessionRecordingId = values.activeSessionRecording.id
+                hashParams.sessionRecordingId = values.activeSessionRecordingId
             }
 
             if (!values.initialTimestamp) {
@@ -83,8 +93,8 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
             if (sessionPlayerModalLogic.isMounted()) {
                 const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
                 const initialTimestamp = searchParams.timestamp ?? null
-                if (nulledSessionRecordingId && nulledSessionRecordingId !== values.activeSessionRecording?.id) {
-                    actions.openSessionPlayer({ id: nulledSessionRecordingId }, initialTimestamp)
+                if (nulledSessionRecordingId && nulledSessionRecordingId !== values.activeSessionRecordingId) {
+                    actions.openSessionPlayer(nulledSessionRecordingId, initialTimestamp)
                 }
             }
         }
