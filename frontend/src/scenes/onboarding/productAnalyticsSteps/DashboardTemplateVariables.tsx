@@ -327,7 +327,7 @@ export function DashboardTemplateVariables({
                             iframeRef={iframeRef}
                         />
                     ),
-                    className: 'p-4 bg-white',
+                    className: 'p-4 bg-light',
                     onHeaderClick: () => {
                         setActiveVariableIndex(i)
                         disableElementSelector()
