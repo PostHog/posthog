@@ -1,12 +1,14 @@
-import { Link, TZLabel, urls } from '@posthog/apps-common'
 import { useActions, useValues } from 'kea'
-import { llmObservabilityLogic } from './llmObservabilityLogic'
+import { TZLabel } from 'lib/components/TZLabel'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { LLMTrace } from '~/queries/schema'
 import { QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 
+import { llmObservabilityLogic } from './llmObservabilityLogic'
 import { formatLLMCost, formatLLMUsage } from './utils'
 
 export function LLMObservabilityTraces(): JSX.Element {

@@ -50,10 +50,9 @@ class PostHogConfig(AppConfig):
 
             try:
                 user = User.objects.filter(last_login__isnull=False).order_by("-last_login").first()
+                local_api_key = get_self_capture_api_token(user)
             except:
-                user = None
-
-            local_api_key = get_self_capture_api_token(user)
+                local_api_key = None
 
             if SELF_CAPTURE and local_api_key:
                 posthoganalytics.api_key = local_api_key
