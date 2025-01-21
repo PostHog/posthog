@@ -87,7 +87,7 @@ export interface ActionFilterProps {
         orLabel,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element
     /** Only allow these math types in the selector */
-    allowedMathTypes?: string[]
+    allowedMathTypes?: readonly string[]
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(

@@ -127,7 +127,7 @@ export interface ActionFilterRowProps {
     /** Whether properties shown should be limited to just numerical types */
     showNumericalPropsOnly?: boolean
     /** Only allow these math types in the selector */
-    allowedMathTypes?: string[]
+    allowedMathTypes?: readonly string[]
 }
 
 export function ActionFilterRow({
@@ -647,7 +647,7 @@ interface MathSelectorProps {
     trendsDisplayCategory: ChartDisplayCategory | null
     style?: React.CSSProperties
     /** Only allow these math types in the selector */
-    allowedMathTypes?: string[]
+    allowedMathTypes?: readonly string[]
 }
 
 function isPropertyValueMath(math: string | undefined): math is PropertyMathType {

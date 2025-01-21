@@ -1,0 +1,59 @@
+{
+  "number_of_users": 500,
+  "start_timestamp": "2025-01-10T14:20:58.409621",
+  "end_timestamp": "2025-01-21T14:20:58.409627",
+  "variants": {
+    "control": {
+      "weight": 0.5,
+      "actions": [
+        {
+          "event": "$pageview",
+          "probability": 1.0,
+          "count": 1,
+          "required_for_next": true,
+          "properties": {}
+        },
+        {
+          "event": "signup started",
+          "probability": 1.0,
+          "count": 1,
+          "required_for_next": true,
+          "properties": {}
+        },
+        {
+          "event": "signup completed",
+          "probability": 0.25,
+          "count": 1,
+          "required_for_next": true,
+          "properties": {}
+        }
+      ]
+    },
+    "test": {
+      "weight": 0.5,
+      "actions": [
+        {
+          "event": "$pageview",
+          "probability": 1.0,
+          "count": 1,
+          "required_for_next": true,
+          "properties": {}
+        },
+        {
+          "event": "signup started",
+          "probability": 1.0,
+          "count": 1,
+          "required_for_next": true,
+          "properties": {}
+        },
+        {
+          "event": "signup completed",
+          "probability": 0.35,
+          "count": 1,
+          "required_for_next": true,
+          "properties": {}
+        }
+      ]
+    }
+  }
+}
