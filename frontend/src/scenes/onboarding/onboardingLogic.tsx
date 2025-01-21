@@ -36,6 +36,7 @@ export enum OnboardingStepKey {
     INVITE_TEAMMATES = 'invite_teammates',
     DASHBOARD_TEMPLATE = 'dashboard_template',
     DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
+    SESSION_REPLAY = 'session_replay',
 }
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
@@ -309,6 +310,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 )
             },
         ],
+        allBillingProducts: [(s) => [s.billing], (billing) => billing?.products || []],
         billingProduct: [
             (s) => [s.product, s.productKey, s.billing],
             (_product, productKey, billing) => {

@@ -2,6 +2,7 @@ import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -21,6 +22,7 @@ import { OnboardingProductConfiguration } from './OnboardingProductConfiguration
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingProductIntroduction } from './OnboardingProductIntroduction'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
+import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { OnboardingDashboardTemplateConfigureStep } from './productAnalyticsSteps/DashboardTemplateConfigureStep'
 import { OnboardingDashboardTemplateSelectStep } from './productAnalyticsSteps/DashboardTemplateSelectStep'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
@@ -118,6 +120,10 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         window.innerWidth > 1000 &&
         combinedSnippetAndLiveEventsHosts.length > 0
 
+    posthog.featureFlags.override({ 'onboarding-session-replay-separate-step': 'test' })
+
+    const showSessionReplayStep = featureFlags[FEATURE_FLAGS.ONBOARDING_SESSION_REPLAY_SEPERATE_STEP] === 'test'
+
     const options: ProductConfigOption[] = [
         {
             title: 'Autocapture frontend interactions',
@@ -177,6 +183,10 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         },
     ]
 
+    const filteredOptions = showSessionReplayStep
+        ? options.filter((option) => option.teamProperty !== 'session_recording_opt_in')
+        : options
+
     return (
         <OnboardingWrapper>
             <SDKs
@@ -184,7 +194,14 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
                 stepKey={OnboardingStepKey.INSTALL}
             />
-            <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={options} />
+            <OnboardingProductConfiguration
+                stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
+                options={filteredOptions}
+            />
+
+            {showSessionReplayStep && (
+                <OnboardingSessionReplayConfiguration stepKey={OnboardingStepKey.SESSION_REPLAY} />
+            )}
 
             {/* this is two conditionals because they need to be direct children of the wrapper */}
             {showTemplateSteps ? (
