@@ -1,0 +1,14 @@
+FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS plugin-server-build
+WORKDIR /code/plugin-server
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+RUN apt-get update && \
+  apt-get install -y --no-install-recommends \
+  "make" \
+  "g++" \
+  "gcc" \
+  "python3" \
+  "libssl-dev" \
+  "zlib1g-dev" \
+  && \
+  rm -rf /var/lib/apt/lists/*

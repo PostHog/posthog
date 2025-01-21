@@ -37,6 +37,7 @@ services:
             service: redis
         ports:
             - '6379:6379'
+
     redis7:
         extends:
             file: docker-compose.base.yml
