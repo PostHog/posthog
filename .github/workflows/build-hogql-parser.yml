@@ -93,7 +93,9 @@ jobs:
 
             - name: Install boost
               if: matrix.os == 'macos-13' # Only build the sdist once
-              run: brew install boost
+              run: |
+                  brew install boost
+                  brew link boost --force
 
             - name: Build wheels
               run: cd hogql_parser && python -m cibuildwheel --output-dir dist
