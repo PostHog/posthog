@@ -1,6 +1,6 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonMenuItems, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
@@ -44,7 +44,7 @@ export function ErrorTrackingScene(): JSX.Element {
                 render: CustomGroupTitleColumn,
             },
             occurrences: { align: 'center', render: CountColumn },
-            sessions: { align: 'center', render: CountColumn },
+            sessions: { align: 'center', render: SessionCountColumn },
             users: { align: 'center', render: CountColumn },
             volume: { renderTitle: CustomVolumeColumnHeader },
             assignee: { render: AssigneeColumn },
@@ -161,6 +161,17 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     )
 }
 
+const SessionCountColumn: QueryContextColumnComponent = ({ children, ...props }) => {
+    const count = props.value as number
+    return count === 0 ? (
+        <Tooltip title="No $session_id was set for any event in this issue" delayMs={0}>
+            -
+        </Tooltip>
+    ) : (
+        <CountColumn {...props} />
+    )
+}
+
 const CountColumn: QueryContextColumnComponent = ({ value }) => {
     return <>{humanFriendlyLargeNumber(value as number)}</>
 }
@@ -172,24 +183,13 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
 
     return (
         <div className="flex justify-center">
-            <AssigneeSelect assignee={record.assignee} onChange={(assigneeId) => assignIssue(record.id, assigneeId)} />
+            <AssigneeSelect assignee={record.assignee} onChange={(assignee) => assignIssue(record.id, assignee)} />
         </div>
     )
 }
 
 const Header = (): JSX.Element => {
     const { user } = useValues(userLogic)
-
-    const items: LemonMenuItems = [{ label: 'Manage symbol sets', to: urls.errorTrackingSymbolSets() }]
-
-    if (user?.is_staff) {
-        items.push({
-            label: 'Send an exception',
-            onClick: () => {
-                throw Error('Oh my!')
-            },
-        })
-    }
 
     return (
         <PageHeader
@@ -206,9 +206,6 @@ const Header = (): JSX.Element => {
                     ) : null}
                     <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
                         Documentation
-                    </LemonButton>
-                    <LemonButton to={urls.errorTrackingAlerts()} type="secondary" icon={<IconGear />}>
-                        Configure alerts
                     </LemonButton>
                     <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
                         Configure

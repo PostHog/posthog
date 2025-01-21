@@ -110,7 +110,7 @@ distro==1.9.0
     # via
     #   -c requirements.txt
     #   openai
-django==4.2.15
+django==4.2.18
     # via
     #   -c requirements.txt
     #   django-linear-migrations
@@ -165,10 +165,22 @@ fsspec==2023.10.0
     #   huggingface-hub
 genson==1.2.2
     # via datamodel-code-generator
+gitdb==4.0.11
+    # via
+    #   -c requirements.txt
+    #   gitpython
+gitpython==3.1.40
+    # via
+    #   -c requirements.txt
+    #   tach
 googleapis-common-protos==1.60.0
     # via
     #   -c requirements.txt
     #   opentelemetry-exporter-otlp-proto-grpc
+greenlet==3.1.1
+    # via
+    #   -c requirements.txt
+    #   sqlalchemy
 grpcio==1.63.2
     # via
     #   -c requirements.txt
@@ -211,8 +223,10 @@ inline-snapshot==0.12.1
     # via -r requirements-dev.in
 isort==5.2.2
     # via datamodel-code-generator
-jinja2==3.1.4
-    # via datamodel-code-generator
+jinja2==3.1.5
+    # via
+    #   -c requirements.txt
+    #   datamodel-code-generator
 jiter==0.5.0
     # via
     #   -c requirements.txt
@@ -279,8 +293,10 @@ markdown-it-py==3.0.0
     # via
     #   -c requirements.txt
     #   rich
-markupsafe==2.1.5
-    # via jinja2
+markupsafe==3.0.2
+    # via
+    #   -c requirements.txt
+    #   jinja2
 marshmallow==3.23.1
     # via
     #   -c requirements.txt
@@ -312,6 +328,8 @@ mypy-extensions==1.0.0
     #   typing-inspect
 nest-asyncio==1.6.0
     # via ragas
+networkx==3.4.2
+    # via tach
 numpy==1.23.3
     # via
     #   -c requirements.txt
@@ -389,6 +407,10 @@ pprintpp==0.4.0
     # via pytest-icdiff
 prance==23.6.21.0
     # via -r requirements-dev.in
+prompt-toolkit==3.0.39
+    # via
+    #   -c requirements.txt
+    #   tach
 propcache==0.2.1
     # via
     #   -c requirements.txt
@@ -429,8 +451,14 @@ pydantic-settings==2.7.0
     # via
     #   -c requirements.txt
     #   langchain-community
-pygments==2.18.0
-    # via rich
+pydot==3.0.4
+    # via tach
+pygments==2.19.1
+    # via
+    #   -c requirements.txt
+    #   rich
+pyparsing==3.2.1
+    # via pydot
 pysbd==0.3.4
     # via ragas
 pytest==8.0.2
@@ -496,6 +524,7 @@ pyyaml==6.0.1
     #   langchain-community
     #   langchain-core
     #   responses
+    #   tach
 ragas==0.2.5
     # via deepeval
 redis==4.5.4
@@ -536,10 +565,12 @@ responses==0.23.1
     # via -r requirements-dev.in
 rfc3339-validator==0.1.4
     # via openapi-schema-validator
-rich==13.7.1
+rich==13.9.4
     # via
+    #   -c requirements.txt
     #   deepeval
     #   inline-snapshot
+    #   tach
     #   typer
 rpds-py==0.16.2
     # via
@@ -565,6 +596,10 @@ six==1.16.0
     #   prance
     #   python-dateutil
     #   rfc3339-validator
+smmap==5.0.1
+    # via
+    #   -c requirements.txt
+    #   gitdb
 sniffio==1.3.1
     # via
     #   -c requirements.txt
@@ -587,7 +622,11 @@ sqlparse==0.4.4
 syrupy==4.6.4
     # via -r requirements-dev.in
 tabulate==0.9.0
-    # via deepeval
+    # via
+    #   -c requirements.txt
+    #   deepeval
+tach==0.20.0
+    # via -r requirements-dev.in
 tenacity==8.4.2
     # via
     #   -c requirements.txt
@@ -605,6 +644,12 @@ toml==0.10.2
     # via
     #   coverage
     #   inline-snapshot
+tomli==2.2.1
+    # via
+    #   -c requirements.txt
+    #   tach
+tomli-w==1.1.0
+    # via tach
 tqdm==4.64.1
     # via
     #   -c requirements.txt
@@ -683,10 +728,15 @@ urllib3==1.26.18
     #   requests
     #   responses
     #   sentry-sdk
-watchdog==2.1.8
+watchdog==5.0.3
     # via
+    #   -c requirements.txt
     #   -r requirements-dev.in
     #   pytest-watch
+wcwidth==0.2.6
+    # via
+    #   -c requirements.txt
+    #   prompt-toolkit
 wrapt==1.15.0
     # via
     #   -c requirements.txt

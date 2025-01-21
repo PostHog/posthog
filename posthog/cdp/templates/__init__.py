@@ -1,5 +1,6 @@
 from posthog.cdp.templates.hog_function_template import derive_sub_templates
 from .webhook.template_webhook import template as webhook
+from .webhook.template_webhook_mappings import template as webhook_mappings
 from .slack.template_slack import template as slack
 from .hubspot.template_hubspot import template_event as hubspot_event, template as hubspot, TemplateHubspotMigrator
 from .braze.template_braze import template as braze
@@ -11,6 +12,7 @@ from .june.template_june import template as june
 from .make.template_make import template as make
 from .posthog.template_posthog import template as posthog, TemplatePostHogMigrator
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
+from .twillio.template_twilio import template as twilio
 from .discord.template_discord import template as discord
 from .salesforce.template_salesforce import template_create as salesforce_create, template_update as salesforce_update
 from .mailjet.template_mailjet import (
@@ -58,11 +60,13 @@ HOG_FUNCTION_TEMPLATES = [
     blank_site_app,
     slack,
     webhook,
+    webhook_mappings,
     activecampaign,
     airtable,
     attio,
     avo,
     aws_kinesis,
+    twilio,
     braze,
     brevo,
     clearbit,
@@ -70,7 +74,6 @@ HOG_FUNCTION_TEMPLATES = [
     discord,
     engage,
     gleap,
-    # google_ads,
     google_cloud_storage,
     google_pubsub,
     hubspot,

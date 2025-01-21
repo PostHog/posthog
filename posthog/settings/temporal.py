@@ -40,8 +40,11 @@ BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES: int = get_from_env(
     "BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES", 1024 * 1024 * 300, type_cast=int
 )
 
-BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 50  # 50MB
-BATCH_EXPORT_HTTP_BATCH_SIZE: int = 5000
+BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES: int = get_from_env(
+    "BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES", 1024 * 1024 * 50, type_cast=int
+)
+BATCH_EXPORT_HTTP_BATCH_SIZE: int = get_from_env("BATCH_EXPORT_HTTP_BATCH_SIZE", 5000, type_cast=int)
+
 BATCH_EXPORT_BUFFER_QUEUE_MAX_SIZE_BYTES: int = 1024 * 1024 * 300  # 300MB
 
 BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS: int = get_from_env("BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS", 30, type_cast=int)
@@ -62,3 +65,10 @@ CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
     [map(int, o.split(":")) for o in os.getenv("CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES", "").split(",") if o]  # type: ignore
 )
 CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
+
+# What percentage of teams should use distributed_events_recent for batch exports (should be a value from 0 to 1 and we
+# only support increments of 0.1)
+# TODO - remove this once migration is complete
+BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT: float = get_from_env(
+    "BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT", 0.0, type_cast=float
+)

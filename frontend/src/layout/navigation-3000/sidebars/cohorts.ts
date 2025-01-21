@@ -94,7 +94,7 @@ export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
                 if (searchTerm) {
                     return fuse.search(searchTerm).map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
-                return cohorts.map((cohort) => [cohort, null])
+                return cohorts.results.map((cohort) => [cohort, null])
             },
         ],
     })),

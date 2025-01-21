@@ -923,15 +923,6 @@ export const billingJson: BillingType = {
                             note: null,
                         },
                         {
-                            key: 'recordings_playlists',
-                            name: 'Recording playlists',
-                            description:
-                                'Create playlists of certain session recordings to easily find and watch them again in the future.',
-                            unit: 'playlists',
-                            limit: 5,
-                            note: null,
-                        },
-                        {
                             key: 'session_replay_data_retention',
                             name: 'Data retention',
                             description: 'Keep a historical record of your data.',
@@ -1037,15 +1028,6 @@ export const billingJson: BillingType = {
                             key: 'console_logs',
                             name: 'Console logs',
                             description: "Debug issues faster by browsing the user's console.",
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'recordings_playlists',
-                            name: 'Recording playlists',
-                            description:
-                                'Create playlists of certain session recordings to easily find and watch them again in the future.',
                             unit: null,
                             limit: null,
                             note: null,
@@ -1293,15 +1275,6 @@ export const billingJson: BillingType = {
             contact_support: false,
             inclusion_only: false,
             features: [
-                {
-                    key: 'recordings_playlists',
-                    name: 'Recording playlists',
-                    description:
-                        'Create playlists of certain session recordings to easily find and watch them again in the future.',
-                    images: null,
-                    icon_key: null,
-                    type: null,
-                },
                 {
                     key: 'session_replay_data_retention',
                     name: 'Data retention',

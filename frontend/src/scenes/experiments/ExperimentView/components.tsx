@@ -1,4 +1,4 @@
-import { IconFlask, IconRefresh } from '@posthog/icons'
+import { IconFlask } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -257,16 +257,17 @@ export function PageHeaderCustom(): JSX.Element {
         isSingleVariantShipped,
         featureFlags,
         hasGoalSet,
+        isCreatingExperimentDashboard,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
         endExperiment,
         archiveExperiment,
-        loadMetricResults,
-        loadSecondaryMetricResults,
         createExposureCohort,
         openShipVariantModal,
+        createExperimentDashboard,
     } = useActions(experimentLogic)
+
     const exposureCohortId = experiment?.exposure_cohort
 
     return (
@@ -302,21 +303,18 @@ export function PageHeaderCustom(): JSX.Element {
                                             >
                                                 {exposureCohortId ? 'View' : 'Create'} exposure cohort
                                             </LemonButton>
+                                            <LemonButton
+                                                onClick={() => createExperimentDashboard()}
+                                                fullWidth
+                                                disabled={isCreatingExperimentDashboard}
+                                            >
+                                                Create dashboard
+                                            </LemonButton>
                                         </>
                                     }
                                 />
                                 <LemonDivider vertical />
                             </>
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => {
-                                    loadMetricResults(true)
-                                    loadSecondaryMetricResults(true)
-                                }}
-                                data-attr="refresh-experiment"
-                                icon={<IconRefresh />}
-                                tooltip="Refresh experiment results"
-                            />
                             <ResetButton experimentId={experiment.id} />
                             {!experiment.end_date && (
                                 <LemonButton

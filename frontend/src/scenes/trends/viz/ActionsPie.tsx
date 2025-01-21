@@ -60,7 +60,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                     return formatBreakdownLabel(
                         item.breakdown_value,
                         breakdownFilter,
-                        cohorts,
+                        cohorts.results,
                         formatPropertyValueForDisplay
                     )
                 }),

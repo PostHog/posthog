@@ -1,4 +1,5 @@
 import { IconEllipsis, IconGear } from '@posthog/icons'
+import { IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -7,8 +8,9 @@ import {
     AuthorizedUrlListType,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
@@ -24,19 +26,16 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
-import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
+import { NotebookNodeType, ReplayTabs } from '~/types'
+import { ProductKey } from '~/types'
 
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
-import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
 
 function Header(): JSX.Element {
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
-    const { playlists } = useValues(playlistsLogic)
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
@@ -84,17 +83,11 @@ function Header(): JSX.Element {
                                 data-attr="session-recordings-filters-save-as-playlist"
                                 type="primary"
                                 onClick={(e) =>
-                                    guardAvailableFeature(
-                                        AvailableFeature.RECORDINGS_PLAYLISTS,
-                                        () => {
-                                            // choose the type of playlist handler so that analytics correctly report
-                                            // whether filters have been changed before saving
-                                            totalFiltersCount === 0
-                                                ? newPlaylistHandler.onEvent?.(e)
-                                                : saveFiltersPlaylistHandler.onEvent?.(e)
-                                        },
-                                        { currentUsage: playlists.count }
-                                    )
+                                    // choose the type of playlist handler so that analytics correctly report
+                                    // whether filters have been changed before saving
+                                    totalFiltersCount === 0
+                                        ? newPlaylistHandler.onEvent?.(e)
+                                        : saveFiltersPlaylistHandler.onEvent?.(e)
                                 }
                             >
                                 Save as playlist
@@ -112,13 +105,7 @@ function Header(): JSX.Element {
                     {tab === ReplayTabs.Playlists && (
                         <LemonButton
                             type="primary"
-                            onClick={(e) =>
-                                guardAvailableFeature(
-                                    AvailableFeature.RECORDINGS_PLAYLISTS,
-                                    () => newPlaylistHandler.onEvent?.(e),
-                                    { currentUsage: playlists.count }
-                                )
-                            }
+                            onClick={(e) => newPlaylistHandler.onEvent?.(e)}
                             data-attr="save-recordings-playlist-button"
                             loading={newPlaylistHandler.loading}
                         >
@@ -152,18 +139,70 @@ function Warnings(): JSX.Element {
             <VersionCheckerBanner />
 
             {recordingsDisabled ? (
-                <LemonBanner
-                    type="info"
-                    action={{
-                        type: 'primary',
-                        icon: <IconGear />,
-                        onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
-                        children: 'Configure',
-                    }}
-                >
-                    Session recordings are currently disabled for this {settingLevel}.
+                <LemonBanner type="info" hideIcon={true}>
+                    <div className="flex gap-8 p-8 md:flex-row justify-center flex-wrap">
+                        <div className="flex justify-center items-center w-full md:w-50">
+                            <WarningHog className="w-full h-auto md:h-[200px] md:w-[200px] max-w-50" />
+                        </div>
+                        <div className="flex flex-col gap-2 flex-shrink max-w-180">
+                            <h2 className="text-lg font-semibold">
+                                Session recordings are not yet enabled for this {settingLevel}
+                            </h2>
+                            <p className="font-normal">Enabling session recordings will help you:</p>
+                            <ul className="list-disc list-inside font-normal">
+                                <li>
+                                    <strong>Understand user behavior:</strong> Get a clear view of how people navigate
+                                    and interact with your product.
+                                </li>
+                                <li>
+                                    <strong>Identify UI/UX issues:</strong> Spot friction points and refine your design
+                                    to increase usability.
+                                </li>
+                                <li>
+                                    <strong>Improve customer support:</strong> Quickly diagnose problems and provide
+                                    more accurate solutions.
+                                </li>
+                                <li>
+                                    <strong>Refine product decisions:</strong> Use real insights to prioritize features
+                                    and improvements.
+                                </li>
+                            </ul>
+                            <p className="font-normal">
+                                Enable session recordings to unlock these benefits and create better experiences for
+                                your users.
+                            </p>
+                            <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
+                                <LemonButton
+                                    className="hidden @md:flex"
+                                    type="primary"
+                                    icon={<IconGear />}
+                                    onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
+                                >
+                                    Configure
+                                </LemonButton>
+                                <LemonButton
+                                    type="tertiary"
+                                    sideIcon={<IconOpenSidebar className="w-4 h-4" />}
+                                    to="https://posthog.com/docs/session-replay?utm_medium=in-product&utm_campaign=empty-state-docs-link"
+                                    data-attr="product-introduction-docs-link"
+                                    targetBlank
+                                >
+                                    Learn more
+                                </LemonButton>
+                            </div>
+                        </div>
+                    </div>
                 </LemonBanner>
-            ) : null}
+            ) : (
+                <ProductIntroduction
+                    productName="session replay"
+                    productKey={ProductKey.SESSION_REPLAY}
+                    thingName="playlist"
+                    description="Use session replay playlists to easily group and analyze user sessions. Curate playlists based on events or user segments, spot patterns, diagnose issues, and share insights with your team."
+                    docsURL="https://posthog.com/docs/session-replay/manual"
+                    customHog={FilmCameraHog}
+                />
+            )}
 
             {!recordingsDisabled && mightBeRefusingRecordings ? (
                 <LemonBanner
@@ -189,7 +228,7 @@ function MainPanel(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-4 mt-2">
             <Warnings />
 
             {!tab ? (

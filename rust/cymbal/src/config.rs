@@ -1,8 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
-
-use crate::hack::kafka::{ConsumerConfig, KafkaConfig};
 
 // TODO - I'm just too lazy to pipe this all the way through the resolve call stack
 pub static FRAME_CONTEXT_LINES: AtomicUsize = AtomicUsize::new(15);
@@ -33,13 +32,6 @@ pub struct Config {
     // Rust service connect directly to postgres, not via pgbouncer, so we keep this low
     #[envconfig(default = "4")]
     pub max_pg_connections: u32,
-
-    // These are unused for now, but useful while iterating in prod
-    #[envconfig(default = "true")]
-    pub skip_writes: bool,
-
-    #[envconfig(default = "true")]
-    pub skip_reads: bool,
 
     // cymbal makes HTTP get requests to auto-resolve sourcemaps - and follows redirects. To protect against SSRF, we only allow requests to public URLs by default
     #[envconfig(default = "false")]

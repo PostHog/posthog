@@ -59,7 +59,7 @@ upgrade/
 hogvm/typescript/dist
 hogvm/typescript/.parcel-cache
 .wokeignore
-plugin-transpiler/dist
+common/plugin_transpiler/dist
 *-esbuild-meta.json
 *-esbuild-bundle-visualization.html
 .dlt
@@ -76,3 +76,6 @@ pyrightconfig.json
 temp_test_run_data.json
 .temp-deepeval-cache.json
 .eslintcache
+
+# ignore all dagster tmp directories that may be created
+tmp*/
