@@ -16,7 +16,7 @@ const meta: Meta<typeof Query> = {
         viewMode: 'story',
         testOptions: {
             waitForLoadersToDisappear: true,
-            waitForSelector: '.InsightCard__viz',
+            waitForSelector: '[data-attr=trend-line-graph] > canvas',
         },
     },
     decorators: [
