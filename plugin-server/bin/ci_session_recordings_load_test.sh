@@ -107,7 +107,7 @@ echo "Generating $SESSIONS_COUNT session recording events"
 # being ready to consume messages, so we want to add a sufficient number of
 # messages if we want to make this time insignificant.
 echo "Starting plugin-server, logging to $LOG_FILE"
-PLUGIN_SERVER_MODE=recordings-ingestion "$DIR"/../node_modules/.bin/0x --output-dir=./profile/ dist/src/index.js >"$LOG_FILE" 2>&1 &
+PLUGIN_SERVER_MODE=recordings-ingestion "$DIR"/../node_modules/.bin/0x --output-dir=./profile/ dist/index.js >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
 # On exit, see if the process is still running, and if so, kill it. We also
