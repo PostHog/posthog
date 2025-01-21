@@ -1,6 +1,6 @@
 from inline_snapshot import snapshot
 import pytest
-from hogvm.python.utils import UncaughtHogVMException
+from common.hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.customerio.template_customerio import (
     TemplateCustomerioMigrator,

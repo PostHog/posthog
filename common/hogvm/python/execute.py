@@ -5,14 +5,21 @@ from copy import deepcopy
 from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 
-from hogvm.python.debugger import debugger, color_bytecode
-from hogvm.python.objects import is_hog_error, new_hog_closure, CallFrame, ThrowFrame, new_hog_callable, is_hog_upvalue
-from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0
-from hogvm.python.stl import STL
-from hogvm.python.stl.bytecode import BYTECODE_STL
+from common.hogvm.python.debugger import debugger, color_bytecode
+from common.hogvm.python.objects import (
+    is_hog_error,
+    new_hog_closure,
+    CallFrame,
+    ThrowFrame,
+    new_hog_callable,
+    is_hog_upvalue,
+)
+from common.hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0
+from common.hogvm.python.stl import STL
+from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from dataclasses import dataclass
 
-from hogvm.python.utils import (
+from common.hogvm.python.utils import (
     UncaughtHogVMException,
     HogVMException,
     get_nested_value,
