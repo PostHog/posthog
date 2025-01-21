@@ -320,12 +320,12 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             [
                 BreakdownAttributionType.ALL_EVENTS,
-                # 7 total (one dropped)
+                # 9 total (one duplicated)
                 {
-                    "control_success": 2,
+                    "control_success": 3,
                     "control_failure": 1,
                     "test_success": 3,
-                    "test_failure": 1,
+                    "test_failure": 2,
                 },
             ],
             [
@@ -390,12 +390,14 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "control"}},
                 ],
                 # control success for "first_touch", "last_touch"
-                # dropped for "all_events"
+                # counted twice for for "all_events"
                 # test success for "steps"
                 "user_mixed_4": [
                     {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
-                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
-                    {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "control"}},
+                    {"event": "seen", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                    {"event": "signup", "timestamp": "2020-01-04", "properties": {ff_property: "control"}},
+                    {"event": "signup", "timestamp": "2020-01-05", "properties": {ff_property: "test"}},
+                    {"event": "purchase", "timestamp": "2020-01-06", "properties": {ff_property: "control"}},
                 ],
                 # test success always
                 "user_test_5": [
