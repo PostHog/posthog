@@ -1,3 +1,5 @@
+import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
+import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -323,6 +325,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'User groups',
                 description: 'Allow collections of users to be assigned to issues',
                 component: <UserGroups />,
+            },
+            {
+                id: 'error-tracking-symbol-sets',
+                title: 'Symbol sets',
+                component: <ErrorTrackingSymbolSets />,
+            },
+            {
+                id: 'error-tracking-alerting',
+                title: 'Alerting',
+                flag: 'ERROR_TRACKING_ALERTING',
+                component: <ErrorTrackingAlerting />,
             },
         ],
     },
