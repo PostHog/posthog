@@ -702,11 +702,31 @@ const RenderReplayButton = ({
     breakdownBy: WebStatsBreakdown
     value: string
 }): JSX.Element => {
+    const sharedButtonProps = {
+        icon: <IconRewindPlay />,
+        type: 'secondary' as const,
+        size: 'xsmall' as const,
+        className: 'float-right no-underline',
+        targetBlank: true,
+        onClick: (e: React.MouseEvent) => {
+            e.stopPropagation()
+        },
+    }
+
+    /** If value is null - just open session replay home page */
+    if (value === null) {
+        return (
+            <LemonButton {...sharedButtonProps} to={urls.replay(ReplayTabs.Home, { date_from, date_to })}>
+                View recordings
+            </LemonButton>
+        )
+    }
+
     /** View port is a unique case, so we need to handle it differently */
     if (breakdownBy === WebStatsBreakdown.Viewport) {
         return (
             <LemonButton
-                icon={<IconRewindPlay />}
+                {...sharedButtonProps}
                 to={urls.replay(ReplayTabs.Home, {
                     date_from: date_from,
                     date_to: date_to,
@@ -733,75 +753,103 @@ const RenderReplayButton = ({
                         ],
                     },
                 })}
-                type="secondary"
-                size="xsmall"
-                className="float-right no-underline"
-                targetBlank={true}
-                onClick={(e) => {
-                    e.stopPropagation()
-                }}
             >
                 View recordings
             </LemonButton>
         )
     }
 
-    /** Other breakdowns are handled the same way */
-    let key = ''
-    const type = PropertyFilterType.Person
+    /** UTM source, medium, campaign is a unique case, so we need to handle it differently, as combining them with AND */
+    if (breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign) {
+        const values = value.split(' / ')
+        return (
+            <LemonButton
+                {...sharedButtonProps}
+                to={urls.replay(ReplayTabs.Home, {
+                    date_from: date_from,
+                    date_to: date_to,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        key: '$entry_utm_source',
+                                        type: PropertyFilterType.Session,
+                                        value: [values[0]],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                    {
+                                        key: '$entry_utm_medium',
+                                        type: PropertyFilterType.Session,
+                                        value: [values[1]],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                    {
+                                        key: '$entry_utm_campaign',
+                                        type: PropertyFilterType.Session,
+                                        value: [values[2]],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })}
+            >
+                View recordings
+            </LemonButton>
+        )
+    }
 
-    switch (breakdownBy) {
-        case WebStatsBreakdown.DeviceType:
-            key = '$device_type'
-            break
-        case WebStatsBreakdown.InitialPage:
-            key = '$initial_pathname'
-            break
-        case WebStatsBreakdown.ExitPage:
-            key = '$end_pathname'
-            break
-        case WebStatsBreakdown.Page:
-            key = '$visited_page'
-            break
-        case WebStatsBreakdown.Browser:
-            key = '$browser'
-            break
-        case WebStatsBreakdown.OS:
-            key = '$os'
-            break
-        case WebStatsBreakdown.InitialChannelType:
-            key = '$channel_type'
-            break
-        case WebStatsBreakdown.InitialReferringDomain:
-            key = '$entry_referring_domain'
-            break
-        case WebStatsBreakdown.InitialUTMSource:
-            key = '$entry_utm_source'
-            break
-        case WebStatsBreakdown.InitialUTMCampaign:
-            key = '$entry_utm_campaign'
-            break
-        case WebStatsBreakdown.InitialUTMMedium:
-            key = '$entry_utm_medium'
-            break
-        case WebStatsBreakdown.InitialUTMContent:
-            key = '$entry_utm_content'
-            break
-        case WebStatsBreakdown.InitialUTMTerm:
-            key = '$entry_utm_term'
-            break
-        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
-            key = '$entry_utm_source_medium_campaign'
-            break
-        default:
-            /** If the breakdown is not supported, return an empty element */
-            return <></>
+    /** Map breakdown types to their corresponding property filter type */
+    const typeMap: Partial<
+        Record<WebStatsBreakdown, PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session>
+    > = {
+        [WebStatsBreakdown.DeviceType]: PropertyFilterType.Person,
+        [WebStatsBreakdown.InitialPage]: PropertyFilterType.Session,
+        [WebStatsBreakdown.ExitPage]: PropertyFilterType.Session,
+        [WebStatsBreakdown.Page]: PropertyFilterType.Event,
+        [WebStatsBreakdown.Browser]: PropertyFilterType.Person,
+        [WebStatsBreakdown.OS]: PropertyFilterType.Person,
+        [WebStatsBreakdown.InitialChannelType]: PropertyFilterType.Session,
+        [WebStatsBreakdown.InitialReferringDomain]: PropertyFilterType.Session,
+        [WebStatsBreakdown.InitialUTMSource]: PropertyFilterType.Session,
+        [WebStatsBreakdown.InitialUTMCampaign]: PropertyFilterType.Session,
+        [WebStatsBreakdown.InitialUTMMedium]: PropertyFilterType.Session,
+        [WebStatsBreakdown.InitialUTMContent]: PropertyFilterType.Session,
+        [WebStatsBreakdown.InitialUTMTerm]: PropertyFilterType.Session,
+    }
+    const type = typeMap[breakdownBy] || PropertyFilterType.Person
+
+    /** Map breakdown types to their corresponding property filter key */
+    const breakdownKeyMap: Partial<Record<WebStatsBreakdown, string>> = {
+        [WebStatsBreakdown.DeviceType]: '$device_type',
+        [WebStatsBreakdown.InitialPage]: '$entry_pathname',
+        [WebStatsBreakdown.ExitPage]: '$end_pathname',
+        [WebStatsBreakdown.Page]: '$visited_page',
+        [WebStatsBreakdown.Browser]: '$browser',
+        [WebStatsBreakdown.OS]: '$os',
+        [WebStatsBreakdown.InitialChannelType]: '$channel_type',
+        [WebStatsBreakdown.InitialReferringDomain]: '$entry_referring_domain',
+        [WebStatsBreakdown.InitialUTMSource]: '$entry_utm_source',
+        [WebStatsBreakdown.InitialUTMCampaign]: '$entry_utm_campaign',
+        [WebStatsBreakdown.InitialUTMMedium]: '$entry_utm_medium',
+        [WebStatsBreakdown.InitialUTMContent]: '$entry_utm_content',
+        [WebStatsBreakdown.InitialUTMTerm]: '$entry_utm_term',
+    }
+
+    const key = breakdownKeyMap[breakdownBy]
+    if (!key) {
+        /** If the breakdown is not supported, return an empty element */
+        return <></>
     }
 
     /** Render the button */
     return (
         <LemonButton
-            icon={<IconRewindPlay />}
+            {...sharedButtonProps}
             to={urls.replay(ReplayTabs.Home, {
                 date_from: date_from,
                 date_to: date_to,
@@ -822,13 +870,6 @@ const RenderReplayButton = ({
                     ],
                 },
             })}
-            type="secondary"
-            size="xsmall"
-            className="float-right no-underline"
-            targetBlank={true}
-            onClick={(e) => {
-                e.stopPropagation()
-            }}
         >
             View recordings
         </LemonButton>
