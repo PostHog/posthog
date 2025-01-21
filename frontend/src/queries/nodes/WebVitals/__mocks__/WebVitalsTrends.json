@@ -1,0 +1,166 @@
+{
+    "cache_key": "cache_e5302a42eaf932ef92f81374a652990e",
+    "cache_target_age": "2025-01-20T21:36:36.376082Z",
+    "calculation_trigger": null,
+    "error": "",
+    "hasMore": false,
+    "hogql": "SELECT\n    arrayMap(number -> plus(toStartOfHour(assumeNotNull(toDateTime('2025-01-19 13:00:00'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(toDateTime('2025-01-19 13:00:00'))), toStartOfHour(assumeNotNull(toDateTime('2025-01-20 13:59:59'))))), 1))) AS date,\n    arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total\nFROM\n    (SELECT\n        sum(total) AS count,\n        day_start\n    FROM\n        (SELECT\n            quantile(0.9)(properties.$web_vitals_INP_value) AS total,\n            toStartOfHour(timestamp) AS day_start\n        FROM\n            events AS e SAMPLE 1\n        WHERE\n            and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2025-01-19 13:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-01-20 13:59:59'))), equals(event, '$web_vitals'))\n        GROUP BY\n            day_start)\n    GROUP BY\n        day_start\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000",
+    "is_cached": true,
+    "last_refresh": "2025-01-20T21:21:36.376082Z",
+    "modifiers": {
+        "bounceRateDurationSeconds": null,
+        "bounceRatePageViewMode": "uniq_page_screen_autocaptures",
+        "customChannelTypeRules": [
+            {
+                "channel_type": "AI",
+                "combiner": "AND",
+                "id": "b6332cb7-a32f-4a62-929e-54dc5c37ba1d",
+                "items": [
+                    {
+                        "id": "90f32f03-2a30-4278-9869-c1f99da6dbe9",
+                        "key": "referring_domain",
+                        "op": "exact",
+                        "value": ["www.perplexity.ai", "chat.openai.com"]
+                    }
+                ]
+            },
+            {
+                "channel_type": "Newsletter",
+                "combiner": "OR",
+                "id": "eb1729b9-35a8-4013-bf1b-83bf107feb1f",
+                "items": [
+                    {
+                        "id": "40b11644-51bd-49ac-a99e-82fc8f734eda",
+                        "key": "referring_domain",
+                        "op": "icontains",
+                        "value": ["substack.com"]
+                    },
+                    {
+                        "id": "e048a56a-eba8-4e59-ad20-cda77883594c",
+                        "key": "utm_source",
+                        "op": "exact",
+                        "value": ["substack", "posthog-newsletter"]
+                    }
+                ]
+            }
+        ],
+        "dataWarehouseEventsModifiers": [],
+        "debug": null,
+        "inCohortVia": "auto",
+        "materializationMode": "legacy_null_as_null",
+        "optimizeJoinedFilters": false,
+        "personsArgMaxVersion": "auto",
+        "personsJoinMode": null,
+        "personsOnEventsMode": "person_id_override_properties_on_events",
+        "propertyGroupsMode": "optimized",
+        "s3TableUseInvalidColumns": null,
+        "sessionTableVersion": "auto",
+        "useMaterializedViews": true
+    },
+    "next_allowed_client_refresh": "2025-01-20T21:24:36.376082Z",
+    "query_status": null,
+    "results": [
+        {
+            "data": [360, 392, 392, 384, 384, 400, 376, 352, 392, 384, 416, 440, 448, 440, 432],
+            "labels": [
+                "6-Jan-2025",
+                "7-Jan-2025",
+                "8-Jan-2025",
+                "9-Jan-2025",
+                "10-Jan-2025",
+                "11-Jan-2025",
+                "12-Jan-2025",
+                "13-Jan-2025",
+                "14-Jan-2025",
+                "15-Jan-2025",
+                "16-Jan-2025",
+                "17-Jan-2025",
+                "18-Jan-2025",
+                "19-Jan-2025",
+                "20-Jan-2025"
+            ],
+            "days": [
+                "2025-01-06",
+                "2025-01-07",
+                "2025-01-08",
+                "2025-01-09",
+                "2025-01-10",
+                "2025-01-11",
+                "2025-01-12",
+                "2025-01-13",
+                "2025-01-14",
+                "2025-01-15",
+                "2025-01-16",
+                "2025-01-17",
+                "2025-01-18",
+                "2025-01-19",
+                "2025-01-20"
+            ],
+            "count": 5992,
+            "label": "$web_vitals",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": [],
+                "filter_test_accounts": false,
+                "date_to": "2025-01-20T23:59:59.999999-08:00",
+                "date_from": "2025-01-06T00:00:00-08:00",
+                "entity_type": "events",
+                "interval": "day",
+                "aggregationAxisFormat": "duration_ms",
+                "display": "ActionsLineGraph",
+                "goalLines": [
+                    {
+                        "borderColor": "rgb(45, 200, 100)",
+                        "displayLabel": false,
+                        "label": "Good",
+                        "value": 200
+                    },
+                    {
+                        "borderColor": "rgb(255, 160, 0)",
+                        "displayLabel": false,
+                        "label": "Poor",
+                        "value": 500
+                    }
+                ],
+                "resultCustomizationBy": "value",
+                "showAlertThresholdLines": false,
+                "showLegend": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear"
+            },
+            "action": {
+                "days": [
+                    "2025-01-06T00:00:00-08:00",
+                    "2025-01-07T00:00:00-08:00",
+                    "2025-01-08T00:00:00-08:00",
+                    "2025-01-09T00:00:00-08:00",
+                    "2025-01-10T00:00:00-08:00",
+                    "2025-01-11T00:00:00-08:00",
+                    "2025-01-12T00:00:00-08:00",
+                    "2025-01-13T00:00:00-08:00",
+                    "2025-01-14T00:00:00-08:00",
+                    "2025-01-15T00:00:00-08:00",
+                    "2025-01-16T00:00:00-08:00",
+                    "2025-01-17T00:00:00-08:00",
+                    "2025-01-18T00:00:00-08:00",
+                    "2025-01-19T00:00:00-08:00",
+                    "2025-01-20T00:00:00-08:00"
+                ],
+                "id": "$web_vitals",
+                "type": "events",
+                "order": 0,
+                "name": "$web_vitals",
+                "custom_name": "INP",
+                "math": "p90",
+                "math_property": "$web_vitals_INP_value",
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            }
+        }
+    ],
+    "timezone": "US/Pacific",
+    "timings": []
+}
