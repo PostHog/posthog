@@ -71,7 +71,7 @@ export async function populateTeamDataStep(
     const skipPersonsProcessingForDistinctIds = runner.hub.eventsToSkipPersonsProcessingByToken.get(event.token!)
 
     const forceOptOutPersonProfiles =
-        !!team.person_processing_opt_out || skipPersonsProcessingForDistinctIds?.includes(event.distinct_id)
+        team.person_processing_opt_out || skipPersonsProcessingForDistinctIds?.includes(event.distinct_id)
 
     // We allow teams to set the person processing mode on a per-event basis, but override
     // it with the team-level setting, if it's set to opt-out (since this is billing related,
