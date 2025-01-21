@@ -1,6 +1,7 @@
 import { captureException } from '@sentry/node'
-import { KafkaProducerWrapper } from 'kafka/producer'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
+
+import { KafkaProducerWrapper } from '~/src/kafka/producer'
 
 import { buildIntegerMatcher } from '../../../config/config'
 import { BatchConsumer } from '../../../kafka/batch-consumer'
