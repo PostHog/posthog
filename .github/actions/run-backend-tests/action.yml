@@ -86,10 +86,10 @@ runs:
         # absolute wild tbh https://stackoverflow.com/a/75503402
         - uses: tlambert03/setup-qt-libs@v1
 
-        - name: Install plugin-transpiler
+        - name: Install plugin_transpiler
           shell: bash
           run: |
-              cd plugin-transpiler
+              cd common/plugin_transpiler
               pnpm install
               pnpm run build
 
