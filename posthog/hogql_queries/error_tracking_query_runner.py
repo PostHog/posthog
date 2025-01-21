@@ -1,12 +1,15 @@
 import re
 import structlog
+from datetime import datetime
 from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
+    IntervalType,
     HogQLFilters,
     ErrorTrackingQuery,
     ErrorTrackingQueryResponse,
@@ -252,6 +255,15 @@ class ErrorTrackingQueryRunner(QueryRunner):
             results[issue["id"]] = result
 
         return results
+
+    @cached_property
+    def query_date_range(self):
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=IntervalType.HOUR,
+            now=datetime.now(),
+        )
 
 
 def search_tokenizer(query: str) -> list[str]:
