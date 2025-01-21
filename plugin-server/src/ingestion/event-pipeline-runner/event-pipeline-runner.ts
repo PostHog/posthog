@@ -327,7 +327,6 @@ export class EventPipelineRunnerV2 {
                             topic: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
                             key: this.event.uuid,
                             value: Buffer.from(JSON.stringify(rawEvent)),
-                            waitForAck: true,
                         })
                     })
                 )
@@ -411,7 +410,6 @@ export class EventPipelineRunnerV2 {
                     topic: this.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
                     key: event.uuid,
                     value: Buffer.from(JSON.stringify(event)),
-                    waitForAck: true,
                 })
                 .catch((error) => {
                     status.warn('⚠️', 'Failed to produce exception event for symbolification', {
@@ -431,7 +429,6 @@ export class EventPipelineRunnerV2 {
                     topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                     key: event.uuid,
                     value: Buffer.from(JSON.stringify(event)),
-                    waitForAck: true,
                 })
                 .catch(async (error) => {
                     // Some messages end up significantly larger than the original
