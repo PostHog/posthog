@@ -369,6 +369,7 @@ export async function buildOrWatch(config) {
                 [
                     path.resolve(absWorkingDir, 'src'),
                     path.resolve(absWorkingDir, '../ee/frontend'),
+                    path.resolve(absWorkingDir, '../products'),
                     tailwindConfigJsPath,
                 ],
                 {
@@ -380,7 +381,11 @@ export async function buildOrWatch(config) {
                 if (inputFiles.size === 0) {
                     await buildPromise
                 }
-                if (inputFiles.has(filePath) || filePath === tailwindConfigJsPath) {
+                if (
+                    inputFiles.has(filePath) ||
+                    filePath === tailwindConfigJsPath ||
+                    filePath.includes('manifest.json')
+                ) {
                     if (filePath.match(/\.tsx?$/) || filePath === tailwindConfigJsPath) {
                         // For changed TS/TSX files, we need to initiate a Tailwind JIT rescan
                         // in case any new utility classes are used. `touch`ing `utilities.scss` achieves this.
