@@ -41,6 +41,7 @@
 !test-runner-jest-environment.js
 !patches
 !rust
+!docker/
 rust/.env
 rust/.github
 rust/docker
