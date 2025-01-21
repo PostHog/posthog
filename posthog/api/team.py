@@ -154,6 +154,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     has_group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
+    default_data_theme = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -258,9 +259,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
 
     def get_default_data_theme(self, obj):
-        if not self._organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
-            posthog_global_theme_id = DataColorTheme.objects.filter(is_global=True).values_list("id", flat=True).first()
-            return posthog_global_theme_id
+        if not obj.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
+            return DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
         return obj.default_data_theme
 
     @staticmethod
