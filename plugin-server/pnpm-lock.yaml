@@ -52,6 +52,9 @@ dependencies:
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
+  '@posthog/siphash':
+    specifier: 1.1.1
+    version: 1.1.1
   '@sentry/node':
     specifier: ^7.49.0
     version: 7.49.0
@@ -160,6 +163,9 @@ dependencies:
   tail:
     specifier: ^2.2.6
     version: 2.2.6
+  tldts:
+    specifier: ^6.1.57
+    version: 6.1.57
   uuid:
     specifier: ^9.0.1
     version: 9.0.1
@@ -2979,6 +2985,10 @@ packages:
     resolution: {integrity: sha512-3z1ENm1Ys5lEQil0H7TVOqHvD24+ydiZFk5hggpbHRx1iOxAK+Eu5qFyAROwPUcCo7NOYjmH2xL1C4B1vaHilg==}
     dependencies:
       '@maxmind/geoip2-node': 3.5.0
+    dev: false
+
+  /@posthog/siphash@1.1.1:
+    resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
     dev: false
 
   /@protobufjs/aspromise@1.1.2:
@@ -10494,6 +10504,17 @@ packages:
   /tiny-lru@11.0.1:
     resolution: {integrity: sha512-iNgFugVuQgBKrqeO/mpiTTgmBsTP0WL6yeuLfLs/Ctf0pI/ixGqIRm8sDCwMcXGe9WWvt2sGXI5mNqZbValmJg==}
     engines: {node: '>=12'}
+    dev: false
+
+  /tldts-core@6.1.57:
+    resolution: {integrity: sha512-lXnRhuQpx3zU9EONF9F7HfcRLvN1uRYUBIiKL+C/gehC/77XTU+Jye6ui86GA3rU6FjlJ0triD1Tkjt2F/2lEg==}
+    dev: false
+
+  /tldts@6.1.57:
+    resolution: {integrity: sha512-Oy7yDXK8meJl8vPMOldzA+MtueAJ5BrH4l4HXwZuj2AtfoQbLjmTJmjNWPUcAo+E/ibHn7QlqMS0BOcXJFJyHQ==}
+    hasBin: true
+    dependencies:
+      tldts-core: 6.1.57
     dev: false
 
   /tmp@0.2.1:
