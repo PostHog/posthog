@@ -9,7 +9,7 @@ from dateutil import parser
 from django.db.models import QuerySet
 from django.utils import timezone
 from posthoganalytics.client import Client
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition

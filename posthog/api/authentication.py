@@ -24,7 +24,7 @@ from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 from social_django.views import auth
 from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX

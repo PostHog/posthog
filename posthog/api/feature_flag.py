@@ -17,7 +17,7 @@ from posthog.api.utils import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 from posthog.api.cohort import CohortSerializer
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin

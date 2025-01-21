@@ -5,7 +5,7 @@ import structlog
 from dateutil import parser
 from django.conf import settings
 from posthoganalytics.client import Client
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 
 from posthog.cloud_utils import is_cloud
 from posthog.models.organization import OrganizationMembership

@@ -6,7 +6,7 @@ from typing import Union
 
 import structlog
 
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 
 from posthog import settings
 from posthog.year_in_posthog.calculate_2024 import calculate_year_in_posthog_2024

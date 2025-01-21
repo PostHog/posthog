@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 from django.db.utils import ProgrammingError
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 
 if TYPE_CHECKING:
     from ee.models.license import License

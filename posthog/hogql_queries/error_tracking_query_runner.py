@@ -280,6 +280,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
             results[issue["id"]] = result
 
+        return [{"id": 1234567, "assignee": 12345}]
+
         return results
 
 

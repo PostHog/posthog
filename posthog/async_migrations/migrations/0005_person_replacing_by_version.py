@@ -4,7 +4,7 @@ from functools import cached_property
 import structlog
 from django.conf import settings
 from django.utils.timezone import now
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,

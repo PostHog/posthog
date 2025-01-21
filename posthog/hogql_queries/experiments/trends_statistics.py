@@ -4,7 +4,7 @@ from math import exp, lgamma, log, ceil
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 import scipy.stats as stats
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 
 from ee.clickhouse.queries.experiments import (
     FF_DISTRIBUTION_THRESHOLD,

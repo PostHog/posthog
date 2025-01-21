@@ -5,7 +5,7 @@ from google.oauth2 import service_account
 from google.cloud import bigquery
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.warehouse.types import IncrementalFieldType
-from sentry_sdk.api import capture_exception
+from exceptions import capture_exception
 
 # Actual data ingestion happens via the `sql_database` source. This is more for BigQuery utils
 

@@ -23,7 +23,7 @@ from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from django.db.models import Q
 from .credential import DataWarehouseCredential
 from uuid import UUID
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 from posthog.warehouse.util import database_sync_to_async
 from posthog.warehouse.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type, STR_TO_HOGQL_MAPPING
 from .external_table_definitions import external_tables

@@ -3,7 +3,7 @@ from typing import Optional
 import structlog
 from django.conf import settings
 from django.db import models
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 
 from posthog.models.team import Team
 from posthog.models.user import User

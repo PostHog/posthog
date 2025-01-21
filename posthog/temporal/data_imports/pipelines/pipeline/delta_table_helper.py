@@ -7,7 +7,7 @@ from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 import deltalake as deltalake
 from django.conf import settings
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.warehouse.models import ExternalDataJob

@@ -8,7 +8,7 @@ from celery import shared_task
 from celery.canvas import chain
 from django.db.models import Q
 from prometheus_client import Counter, Gauge
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams

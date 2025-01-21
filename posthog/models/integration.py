@@ -10,7 +10,7 @@ from django.db import models
 import requests
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 from slack_sdk import WebClient
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request as GoogleRequest

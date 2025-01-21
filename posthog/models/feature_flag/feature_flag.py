@@ -7,7 +7,7 @@ from django.core.cache import cache
 from django.db import models
 from django.db.models.signals import post_delete, post_save, pre_delete
 from django.utils import timezone
-from sentry_sdk.api import capture_exception
+from exceptions import capture_exception
 
 from posthog.constants import (
     ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,

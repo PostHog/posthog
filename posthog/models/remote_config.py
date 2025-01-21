@@ -7,7 +7,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 from prometheus_client import Counter
 import requests
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 import structlog
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING

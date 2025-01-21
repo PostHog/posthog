@@ -15,7 +15,7 @@ from django.db.models import Count, Q, Sum
 from posthoganalytics.client import Client
 from psycopg import sql
 from retry import retry
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 
 from posthog import version_requirement
 from posthog.clickhouse.client.connection import Workload

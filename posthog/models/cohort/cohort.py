@@ -8,7 +8,7 @@ from django.db import connection, models
 from django.db.models import Case, Q, When
 from django.db.models.expressions import F
 from django.utils import timezone
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.filter import Filter

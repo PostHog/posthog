@@ -11,7 +11,7 @@ from django.db import transaction
 from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord

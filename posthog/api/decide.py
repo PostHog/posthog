@@ -7,7 +7,7 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from prometheus_client import Counter
 from rest_framework import status
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX

@@ -1,7 +1,7 @@
 from functools import cached_property
 from typing import Optional
 
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 import structlog
 from django.contrib.postgres.fields import ArrayField
 from django.db import models

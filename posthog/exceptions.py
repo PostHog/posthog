@@ -5,7 +5,8 @@ from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 from rest_framework import status
 from rest_framework.exceptions import APIException
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception as sentry_capture_exception
+from posthoganalytics import capture_exception as posthog_capture_exception
 
 from posthog.cloud_utils import is_cloud
 
@@ -87,3 +88,8 @@ def generate_exception_response(
         tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr},
     )
     return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)
+
+
+def capture_exception(e):
+    sentry_capture_exception(e)
+    posthog_capture_exception(e)

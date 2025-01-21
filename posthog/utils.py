@@ -40,7 +40,7 @@ from django.utils.cache import patch_cache_control
 from rest_framework import serializers
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
-from sentry_sdk.api import capture_exception
+from exceptions import capture_exception
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature

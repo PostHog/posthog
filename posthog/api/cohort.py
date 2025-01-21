@@ -30,7 +30,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from sentry_sdk.api import capture_exception
+from exceptions import capture_exception
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.person import get_funnel_actor_class

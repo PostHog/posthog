@@ -11,7 +11,7 @@ from django.http import HttpRequest
 from django.shortcuts import redirect
 from django.urls.base import reverse
 from rest_framework import exceptions, generics, permissions, response, serializers
-from sentry_sdk import capture_exception
+from exceptions import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 

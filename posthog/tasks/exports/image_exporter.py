@@ -152,12 +152,14 @@ def _screenshot_asset(
                     pass
                 capture_exception()
         # For example funnels use a table that can get very wide, so try to get its width
-        width = driver.execute_script("""
+        width = driver.execute_script(
+            """
             tableElement = document.querySelector('table');
             if (tableElement) {
                 return tableElement.offsetWidth * 1.5;
             }
-        """)
+        """
+        )
         height = driver.execute_script("return document.body.scrollHeight")
         if isinstance(width, int):
             width = max(int(screenshot_width), min(1800, width or screenshot_width))

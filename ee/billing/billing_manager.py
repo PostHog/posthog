@@ -11,7 +11,7 @@ from django.utils import timezone
 from sentry_sdk import capture_message
 from requests import JSONDecodeError  # type: ignore[attr-defined]
 from rest_framework.exceptions import NotAuthenticated
-from sentry_sdk import capture_exception
+from posthog.exceptions import capture_exception
 
 from ee.billing.billing_types import BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, sync_org_quota_limits

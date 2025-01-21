@@ -8,7 +8,7 @@ from collections.abc import Callable, Generator
 
 from dateutil.parser import parse
 from prometheus_client import Counter
-from sentry_sdk.api import capture_exception
+from exceptions import capture_exception
 
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.session_recordings.models.metadata import (

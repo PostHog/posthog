@@ -7,7 +7,7 @@ from typing import Optional
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
-from sentry_sdk.api import capture_exception
+from exceptions import capture_exception
 from statshog.defaults.django import statsd
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.metrics import LABEL_PATH, LABEL_TEAM_ID
