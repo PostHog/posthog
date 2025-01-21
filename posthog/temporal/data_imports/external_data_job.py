@@ -49,6 +49,7 @@ from posthog.warehouse.models import (
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.warehouse.models.external_data_schema import update_should_sync
 
+Any_Source_Errors: list[str] = ["Could not establish session to SSH gateway"]
 
 Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
     ExternalDataSource.Type.STRIPE: [
@@ -67,6 +68,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "No primary key defined for table",
         "failed: timeout expired",
         "SSL connection has been closed unexpectedly",
+        "Address not in tenant allow_list",
     ],
     ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
     ExternalDataSource.Type.MYSQL: ["Can't connect to MySQL server on", "No primary key defined for table"],
@@ -114,23 +116,27 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
         source: ExternalDataSource = ExternalDataSource.objects.get(pk=inputs.source_id)
         non_retryable_errors = Non_Retryable_Schema_Errors.get(ExternalDataSource.Type(source.source_type))
 
-        if non_retryable_errors is not None:
-            has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors)
-            if has_non_retryable_error:
-                logger.info("Schema has a non-retryable error - turning off syncing")
-                posthoganalytics.capture(
-                    get_machine_id(),
-                    "schema non-retryable error",
-                    {
-                        "schemaId": inputs.schema_id,
-                        "sourceId": inputs.source_id,
-                        "sourceType": source.source_type,
-                        "jobId": inputs.job_id,
-                        "teamId": inputs.team_id,
-                        "error": inputs.internal_error,
-                    },
-                )
-                update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
+        if non_retryable_errors is None:
+            non_retryable_errors = Any_Source_Errors
+        else:
+            non_retryable_errors.extend(Any_Source_Errors)
+
+        has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors)
+        if has_non_retryable_error:
+            logger.info("Schema has a non-retryable error - turning off syncing")
+            posthoganalytics.capture(
+                get_machine_id(),
+                "schema non-retryable error",
+                {
+                    "schemaId": inputs.schema_id,
+                    "sourceId": inputs.source_id,
+                    "sourceType": source.source_type,
+                    "jobId": inputs.job_id,
+                    "teamId": inputs.team_id,
+                    "error": inputs.internal_error,
+                },
+            )
+            update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
     update_external_job_status(
         job_id=job_id,

@@ -59,7 +59,7 @@ upgrade/
 hogvm/typescript/dist
 hogvm/typescript/.parcel-cache
 .wokeignore
-plugin-transpiler/dist
+common/plugin_transpiler/dist
 *-esbuild-meta.json
 *-esbuild-bundle-visualization.html
 .dlt
