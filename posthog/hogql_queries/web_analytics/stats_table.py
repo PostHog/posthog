@@ -454,23 +454,22 @@ GROUP BY session_id, breakdown_value
                 if response.columns is not None
                 else response.columns
             )
-        
+
         # Add replay URL column if it doesn't exist
         if columns is not None and "context.columns.replay_url" not in columns:
             # Append replay URL column to the list of columns
-            columns = list(columns) + ["context.columns.replay_url"]
-            
-            #We pass the value, date_from, date_to and breakdownBy to the frontend so we can use it to generate the URL to session replay
+            columns = [*list(columns), "context.columns.replay_url"]
+
+            # We pass the value, date_from, date_to and breakdownBy to the frontend
+            # so we can use it to generate the URL to session replay
             results_mapped = [
-                row + [{
+                [*row, {
                     'value': row[0],
                     'dateFrom': self.query.dateRange.date_from,
                     'dateTo': self.query.dateRange.date_to,
                     'breakdownBy': self.query.breakdownBy if hasattr(self.query, 'breakdownBy') else None
                 }] for row in results_mapped
             ]
-
-
 
         return WebStatsTableQueryResponse(
             columns=columns,
