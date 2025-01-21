@@ -3,6 +3,7 @@ from posthog.hogql_queries.experiments.experiment_funnels_query_runner import Ex
 from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (
+    BreakdownAttributionType,
     EventsNode,
     ExperimentFunnelsQuery,
     ExperimentSignificanceCode,
@@ -298,7 +299,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             [
-                "first_touch",
+                BreakdownAttributionType.FIRST_TOUCH,
                 # 8 total
                 {
                     "control_success": 3,
@@ -308,7 +309,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
             [
-                "last_touch",
+                BreakdownAttributionType.LAST_TOUCH,
                 # 8 total
                 {
                     "control_success": 3,
@@ -318,7 +319,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
             [
-                "all_events",
+                BreakdownAttributionType.ALL_EVENTS,
                 # 7 total (one dropped)
                 {
                     "control_success": 2,
@@ -328,7 +329,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
             [
-                "step",
+                BreakdownAttributionType.STEP,
                 # 8 total
                 {
                     "control_success": 2,
@@ -345,7 +346,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment = self.create_experiment(feature_flag=feature_flag)
 
         # use the second step when testing step attribution
-        attribution_value = 1 if attribution_type == "steps" else 0
+        attribution_value = 1 if attribution_type == BreakdownAttributionType.STEP else 0
 
         ff_property = f"$feature/{feature_flag.key}"
         funnels_query = FunnelsQuery(
