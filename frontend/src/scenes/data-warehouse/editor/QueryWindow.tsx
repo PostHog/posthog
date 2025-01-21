@@ -37,6 +37,7 @@ export function QueryWindow(): JSX.Element {
 
     const { allTabs, activeModelUri, queryInput, editingView, sourceQuery } = useValues(logic)
     const {
+        renameTab,
         selectTab,
         deleteTab,
         createTab,
@@ -56,6 +57,7 @@ export function QueryWindow(): JSX.Element {
                     onClick={selectTab}
                     onClear={deleteTab}
                     onAdd={createTab}
+                    onRename={renameTab}
                     activeModelUri={activeModelUri}
                 />
             </div>
