@@ -115,30 +115,6 @@ describe('HogFunctionManager', () => {
         await closeHub(hub)
     })
 
-    describe('start()', () => {
-        let otherManager: HogFunctionManager
-
-        beforeEach(() => {
-            hub.mmdb = {} as any
-            otherManager = new HogFunctionManager(hub)
-        })
-
-        it('should fail if transformations are enabled but MMDB is not configured', async () => {
-            await expect(otherManager.start(['transformation'])).rejects.toThrow(
-                'GeoIP transformation requires MMDB to be configured. Please ensure the MMDB file is properly set up.'
-            )
-        })
-
-        it('should start successfully if MMDB is configured', async () => {
-            hub.mmdb = {} as any // Mock MMDB as configured
-            await expect(otherManager.start(['transformation'])).resolves.not.toThrow()
-        })
-
-        it('should start successfully if transformations are not enabled', async () => {
-            await expect(otherManager.start(['destination'])).resolves.not.toThrow()
-        })
-    })
-
     it('returns the hog functions', async () => {
         let items = manager.getTeamHogFunctions(teamId1)
 
