@@ -91,10 +91,14 @@ jobs:
             - name: Install cibuildwheel
               run: pip install cibuildwheel==2.16.*
 
+            - name: Install boost
+              if: matrix.os == 'macos-13' # Only build the sdist once
+              run: brew install boost
+
             - name: Build wheels
               run: cd hogql_parser && python -m cibuildwheel --output-dir dist
               env:
-                  MACOSX_DEPLOYMENT_TARGET: '12' # A modern target allows us to use C++20
+                  MACOSX_DEPLOYMENT_TARGET: '13' # A modern target allows us to use C++20
 
             - name: Upload wheels artifact
               uses: actions/upload-artifact@v4
@@ -125,10 +129,10 @@ jobs:
                   name: wheels-buildjet-2vcpu-ubuntu-2204-arm
                   path: dist
 
-            - name: Download wheels from macos-12
+            - name: Download wheels from macos-13
               uses: actions/download-artifact@v4
               with:
-                  name: wheels-macos-12
+                  name: wheels-macos-13
                   path: dist
 
             - name: Publish package to PyPI
