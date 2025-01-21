@@ -3959,6 +3959,7 @@ class DashboardFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdown_filter: Optional[BreakdownFilter] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     properties: Optional[

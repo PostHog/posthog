@@ -2049,6 +2049,7 @@ export interface DashboardFilter {
     date_from?: string | null
     date_to?: string | null
     properties?: AnyPropertyFilter[] | null
+    breakdown_filter?: BreakdownFilter | null
 }
 
 export interface InsightsThresholdBounds {
