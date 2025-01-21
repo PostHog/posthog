@@ -362,6 +362,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     query: props.monaco?.editor.getModel(model.uri)?.getValue() || '',
                     path: model.uri.path.split('/').pop(),
                     name: model.name || NEW_QUERY,
+                    view: model.view,
                 }
             })
             localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
