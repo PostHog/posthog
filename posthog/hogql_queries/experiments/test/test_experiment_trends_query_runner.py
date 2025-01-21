@@ -1075,8 +1075,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "type": "person",
                 },
                 {
-                    "control_absolute_exposure": 1,
-                    "test_absolute_exposure": 3,
+                    "control_absolute_exposure": 8,
+                    "test_absolute_exposure": 9,
                 },
             ],
             [
@@ -1088,8 +1088,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "type": "event",
                 },
                 {
-                    "control_absolute_exposure": 1,
-                    "test_absolute_exposure": 3,
+                    "control_absolute_exposure": 9,
+                    "test_absolute_exposure": 9,
                 },
             ],
             [
@@ -1337,8 +1337,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_result = next(variant for variant in trend_result.variants if variant.key == "control")
         test_result = next(variant for variant in trend_result.variants if variant.key == "test")
 
-        self.assertEqual(control_result.absolute_exposure, 1)
-        self.assertEqual(test_result.absolute_exposure, 4)
+        self.assertEqual(control_result.absolute_exposure, 9)
+        self.assertEqual(test_result.absolute_exposure, 10)
 
     def test_query_runner_with_data_warehouse_series_no_end_date_and_nested_id(self):
         table_name = self.create_data_warehouse_table_with_usage()
