@@ -272,7 +272,7 @@ jobs:
               # use artefact here, as I think the output will be too large for display in an action
               uses: actions/upload-artifact@v4
               with:
-                  name: logs--${{ strategy.job-index }}-${{ matrix.chunk }}
+                  name: logs-${{ strategy.job-index }}-${{ matrix.chunk }}
                   path: /tmp/logs
               if: ${{ failure() }}
 
