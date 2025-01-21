@@ -32,10 +32,8 @@ export function Timestamp(): JSX.Element {
                     <span>/</span>
                     <span>{colonDelimitedDuration(endTimeSeconds, fixedUnits)}</span>
                 </div>
-            ) : currentTimestamp ? (
-                <SimpleTimeLabel startTime={currentTimestamp} isUTC={timestampFormat === TimestampFormat.UTC} />
             ) : (
-                '--/--/----, 00:00:00'
+                <SimpleTimeLabel startTime={currentTimestamp} timestampFormat={timestampFormat} />
             )}
         </div>
     )
