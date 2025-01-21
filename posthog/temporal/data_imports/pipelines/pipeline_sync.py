@@ -15,10 +15,8 @@ import dlt.extract.incremental.transform
 import pendulum
 import pyarrow
 
-from structlog.typing import FilteringBoundLogger
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.common.schema.typing import TSchemaTables
-from dlt.sources import DltSource
 from clickhouse_driver.errors import ServerException
 
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
@@ -65,34 +63,6 @@ def update_last_synced_at_sync(job_id: str, schema_id: str, team_id: int) -> Non
     schema.last_synced_at = job.created_at
 
     schema.save()
-
-
-def save_last_incremental_value(schema_id: str, team_id: str, source: DltSource, logger: FilteringBoundLogger) -> None:
-    schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
-
-    incremental_field = schema.sync_type_config.get("incremental_field")
-    resource = next(iter(source.resources.values()))
-
-    incremental: dict | None = resource.state.get("incremental")
-
-    if incremental is None:
-        return
-
-    incremental_object: dict | None = incremental.get(incremental_field)
-    if incremental_object is None:
-        return
-
-    last_value = incremental_object.get("last_value")
-
-    logger.debug(f"Updating incremental_field_last_value with {last_value}")
-
-    if last_value is None:
-        logger.debug(
-            f"Incremental value is None. This could mean the table has zero rows. Full incremental object: {incremental_object}"
-        )
-        return
-
-    schema.update_incremental_field_last_value(last_value)
 
 
 def validate_schema_and_update_table_sync(
