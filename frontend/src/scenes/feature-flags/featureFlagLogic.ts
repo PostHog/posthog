@@ -978,7 +978,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag) =>
                 featureFlag?.is_remote_configuration
-                    ? 'config'
+                    ? 'remote_config'
                     : featureFlag?.filters.multivariate
                     ? 'multivariate'
                     : 'boolean',

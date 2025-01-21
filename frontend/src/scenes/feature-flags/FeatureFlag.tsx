@@ -931,7 +931,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 },
                                 {
                                     label: <span>Remote config (single payload)</span>,
-                                    value: 'config',
+                                    value: 'remote_config',
                                     disabledReason:
                                         featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
                                             ? 'This feature flag is associated with an experiment.'
@@ -939,30 +939,32 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 },
                             ]}
                             onChange={(value) => {
-                                if (['boolean', 'config'].includes(value) && nonEmptyVariants.length) {
+                                if (['boolean', 'remote_config'].includes(value) && nonEmptyVariants.length) {
                                     confirmRevertMultivariateEnabled()
                                 } else {
                                     setMultivariateEnabled(value === 'multivariate')
-                                    setRemoteConfigEnabled(value === 'config')
+                                    setRemoteConfigEnabled(value === 'remote_config')
                                     focusVariantKeyField(0)
                                 }
                             }}
                             value={flagType}
                         />
                     </div>
-                    <div className="text-muted mb-4">
-                        {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
-                        {multivariateEnabled ? (
-                            <>
-                                <strong>a variant key</strong> according to the below distribution
-                            </>
-                        ) : (
-                            <strong>
-                                <code>true</code>
-                            </strong>
-                        )}{' '}
-                        if they match one or more release condition groups.
-                    </div>
+                    {!featureFlag.is_remote_configuration && (
+                        <div className="text-muted mb-4">
+                            {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
+                            {multivariateEnabled ? (
+                                <>
+                                    <strong>a variant key</strong> according to the below distribution
+                                </>
+                            ) : (
+                                <strong>
+                                    <code>true</code>
+                                </strong>
+                            )}{' '}
+                            if they match one or more release condition groups.
+                        </div>
+                    )}
                 </div>
             )}
             {!multivariateEnabled && (
