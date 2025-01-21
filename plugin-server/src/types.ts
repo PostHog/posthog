@@ -269,7 +269,6 @@ export interface PluginsServerConfig extends CdpConfig {
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
-    SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: number
     SESSION_RECORDING_BUFFER_AGE_JITTER: number
@@ -311,6 +310,7 @@ export interface PluginsServerConfig extends CdpConfig {
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
 
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number | undefined
+    SESSION_RECORDING_MAX_BATCH_AGE_MS: number | undefined
 }
 
 export interface Hub extends PluginsServerConfig {

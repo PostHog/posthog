@@ -83,6 +83,7 @@ export class SessionRecordingIngester {
         }, this.topic)
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 0) * 1024,
+            maxBatchAgeMs: config.SESSION_RECORDING_MAX_BATCH_AGE_MS ?? 1000,
             createBatch: () => new BaseSessionBatchRecorder(new BlackholeFlusher()),
             offsetManager,
         })
@@ -291,7 +292,7 @@ export class SessionRecordingIngester {
 
         this.metrics.observeSessionInfo(parsedMessage.metadata.rawSize)
         batch.record(message)
-        await this.sessionBatchManager.flushIfFull()
+        await this.sessionBatchManager.flushIfNeeded()
     }
 
     private async onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {

@@ -4,6 +4,7 @@ import { SessionBatchRecorder } from './session-batch-recorder'
 
 export interface SessionBatchManagerConfig {
     maxBatchSizeBytes: number
+    maxBatchAgeMs: number
     createBatch: () => SessionBatchRecorder
     offsetManager: KafkaOffsetManager
 }
@@ -12,15 +13,19 @@ export class SessionBatchManager {
     private currentBatch: SessionBatchRecorder
     private queue: PromiseQueue<void>
     private readonly maxBatchSizeBytes: number
+    private readonly maxBatchAgeMs: number
     private readonly createBatch: () => SessionBatchRecorder
     private readonly offsetManager: KafkaOffsetManager
+    private lastFlushTime: number
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
+        this.maxBatchAgeMs = config.maxBatchAgeMs
         this.createBatch = config.createBatch
         this.offsetManager = config.offsetManager
         this.currentBatch = this.offsetManager.wrapBatch(this.createBatch())
         this.queue = new PromiseQueue()
+        this.lastFlushTime = Date.now()
     }
 
     public async withBatch(callback: (batch: SessionBatchRecorder) => Promise<void>): Promise<void> {
@@ -33,9 +38,10 @@ export class SessionBatchManager {
         })
     }
 
-    public async flushIfFull(): Promise<void> {
+    public async flushIfNeeded(): Promise<void> {
         return this.queue.add(async () => {
-            if (this.currentBatch.size >= this.maxBatchSizeBytes) {
+            const timeSinceLastFlush = Date.now() - this.lastFlushTime
+            if (this.currentBatch.size >= this.maxBatchSizeBytes || timeSinceLastFlush >= this.maxBatchAgeMs) {
                 await this.rotateBatch()
             }
         })
@@ -45,5 +51,6 @@ export class SessionBatchManager {
         await this.currentBatch.flush()
         await this.offsetManager.commit()
         this.currentBatch = this.offsetManager.wrapBatch(this.createBatch())
+        this.lastFlushTime = Date.now()
     }
 }
