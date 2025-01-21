@@ -10,17 +10,14 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     category=["Advertisement"],
     hog="""
 let body := {
-    'conversion': f'urn:lla:llaPartnerConversion:{conversionRuleId}',
+    'conversion': f'urn:lla:llaPartnerConversion:{inputs.conversionRuleId}',
     'conversionHappenedAt': inputs.conversionDateTime,
-    'conversionValue': {
-        'currencyCode': 'USD',
-        'amount': '500.0'
-    },
+    'conversionValue': {},
     'user': {
         'userIds': [],
         'userInfo': {}
      },
-    'eventId' : event.uuid
+    'eventId' : inputs.eventId
 }
 
 if (not empty(inputs.currencyCode)) {
@@ -80,6 +77,7 @@ if (res.status >= 400) {
             "type": "integration_field",
             "integration_key": "oauth",
             "integration_field": "linkedin_ads_conversion_rule_id",
+            "requires_field": "accountId",
             "label": "Conversion rule",
             "description": "The Conversion rule associated with this conversion.",
             "secret": False,
@@ -113,6 +111,15 @@ if (res.status >= 400) {
             "required": False,
         },
         {
+            "key": "eventId",
+            "type": "string",
+            "label": "Event ID",
+            "description": "ID of the event that triggered the conversion.",
+            "default": "{event.uuid}",
+            "secret": False,
+            "required": True,
+        },
+        {
             "key": "userIds",
             "type": "dictionary",
             "label": "User ids",
@@ -130,8 +137,8 @@ if (res.status >= 400) {
             "label": "User information",
             "description": "A map that contains user information data. See this page for options: https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversions-api?view=li-lms-2024-03&tabs=curl#userinfo",
             "default": {
-                "firstName": "{person.properties.firstname}",
-                "lastName": "{person.properties.lastname}",
+                "firstName": "{person.properties.first_name}",
+                "lastName": "{person.properties.last_name}",
                 "title": "{person.properties.title}",
                 "companyName": "{person.properties.company}",
                 "countryCode": "{person.properties.$geoip_country_code}",

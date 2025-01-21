@@ -141,32 +141,33 @@ class IntegrationViewSet(
         return Response(response_data)
 
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
-    def conversion_rules(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def linkedin_ad_conversion_rules(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         linkedin_ads = LinkedInAdsIntegration(instance)
         account_id = request.query_params.get("accountId")
 
-        conversion_actions = [
+        conversion_rules = [
             {
-                "id": conversionAction["conversionAction"]["id"],
-                "name": conversionAction["conversionAction"]["name"],
-                "resourceName": conversionAction["conversionAction"]["resourceName"],
+                "id": conversionRule["id"],
+                "name": conversionRule["name"],
             }
-            for conversionAction in linkedin_ads.list_linkedin_ads_conversion_rules(account_id)[0]["results"]
+            for conversionRule in linkedin_ads.list_linkedin_ads_conversion_rules(account_id)["elements"]
         ]
 
-        return Response({"conversionActions": conversion_actions})
+        return Response({"conversionRules": conversion_rules})
 
-    @action(methods=["GET"], detail=True, url_path="linkedin_ads_accessible_accounts")
-    def accessible_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    @action(methods=["GET"], detail=True, url_path="linkedin_ads_accounts")
+    def linkedin_ad_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         linkedin_ads = LinkedInAdsIntegration(instance)
 
-        accessible_accounts = [
+        accounts = [
             {
-                "id": accountId,
+                "id": account["id"],
+                "name": account["name"],
+                "reference": account["reference"],
             }
-            for accountId in linkedin_ads.list_linkedin_ads_accessible_accounts()["resourceNames"]
+            for account in linkedin_ads.list_linkedin_ads_accounts()["elements"]
         ]
 
-        return Response({"accessibleAccounts": accessible_accounts})
+        return Response({"adAccounts": accounts})

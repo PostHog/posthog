@@ -68,6 +68,8 @@ import {
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    LinkedInAdsAccountType,
+    LinkedInAdsConversionRuleType,
     ListOrganizationMembersParams,
     LogEntry,
     LogEntryRequestParams,
@@ -819,7 +821,7 @@ class ApiRequest {
     }
 
     public integrationLinkedInAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.integrations(teamId).addPathComponent(id).addPathComponent('linkedin_ads_accessible_accounts')
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('linkedin_ads_accounts')
     }
 
     public integrationLinkedInAdsConversionRules(
@@ -2564,7 +2566,7 @@ const api = {
         ): Promise<{ conversionActions: GoogleAdsConversionActionType[] }> {
             return await new ApiRequest().integrationGoogleAdsConversionActions(id, customerId).get()
         },
-        async linkedInAdsAccounts(id: IntegrationType['id']): Promise<{ accessibleAccounts: { id: string }[] }> {
+        async linkedInAdsAccounts(id: IntegrationType['id']): Promise<{ adAccounts: LinkedInAdsAccountType[] }> {
             return await new ApiRequest().integrationLinkedInAdsAccounts(id).get()
         },
         async linkedInAdsConversionRules(

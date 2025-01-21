@@ -4864,6 +4864,17 @@ export type GoogleAdsConversionActionType = {
     resourceName: string
 }
 
+export type LinkedInAdsConversionRuleType = {
+    id: number
+    name: string
+}
+
+export type LinkedInAdsAccountType = {
+    id: number
+    name: string
+    campaigns: string
+}
+
 export type DataColorThemeModel = {
     id: number
     name: string

@@ -641,10 +641,10 @@ class LinkedInAdsIntegration:
 
         return response.json()
 
-    def list_linkedin_ads_accessible_accounts(self) -> dict:
+    def list_linkedin_ads_accounts(self) -> dict:
         response = requests.request(
             "GET",
-            "https://api.linkedin.com/rest/adAccountUsers?q=authenticatedUser&fields=role%2Caccount%2Cuser",
+            "https://api.linkedin.com/v2/adAccountsV2?q=search",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",

@@ -1,23 +1,23 @@
 import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
-import { IntegrationType, LinkedInAdsConversionRuleType } from '~/types'
+import { IntegrationType, LinkedInAdsAccountType, LinkedInAdsConversionRuleType } from '~/types'
 
 import { linkedInAdsIntegrationLogic } from './linkedInAdsIntegrationLogic'
 
 const getLinkedInAdsAccountOptions = (
-    linkedInAdsAccounts?: { id: string }[] | null
+    linkedInAdsAccounts?: LinkedInAdsAccountType[] | null
 ): LemonInputSelectOption[] | null => {
     return linkedInAdsAccounts
-        ? linkedInAdsAccounts.map((customerId) => ({
-              key: customerId.id.split('/')[1],
+        ? linkedInAdsAccounts.map((account) => ({
+              key: account.id.toString(),
               labelComponent: (
                   <span className="flex items-center">
-                      {customerId.id.split('/')[1].replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}
+                      {account.name} ({account.id.toString()})
                   </span>
               ),
-              label: `${customerId.id.split('/')[1].replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}`,
+              label: `${account.name}`,
           }))
         : null
 }
@@ -27,9 +27,13 @@ const getLinkedInAdsConversionRuleOptions = (
 ): LemonInputSelectOption[] | null => {
     return linkedInAdsConversionRules
         ? linkedInAdsConversionRules.map(({ id, name }) => ({
-              key: id,
-              labelComponent: <span className="flex items-center">{name}</span>,
-              label: name,
+              key: id.toString(),
+              labelComponent: (
+                  <span className="flex items-center">
+                      {name} ({id})
+                  </span>
+              ),
+              label: `${name} (${id})`,
           }))
         : null
 }
@@ -58,6 +62,12 @@ export function LinkedInAdsConversionRulePicker({
         () => getLinkedInAdsConversionRuleOptions(linkedInAdsConversionRules),
         [linkedInAdsConversionRules]
     )
+
+    useEffect(() => {
+        if (requiresFieldValue) {
+            loadLinkedInAdsConversionRules(requiresFieldValue)
+        }
+    }, [loadLinkedInAdsConversionRules, requiresFieldValue])
 
     return (
         <>
@@ -97,30 +107,32 @@ export function LinkedInAdsAccountIdPicker({
     integration,
     disabled,
 }: LinkedInAdsPickerProps): JSX.Element {
-    const { linkedInAdsAccessibleAccounts, linkedInAdsAccessibleAccountsLoading } = useValues(
+    const { linkedInAdsAccounts, linkedInAdsAccountsLoading } = useValues(
         linkedInAdsIntegrationLogic({ id: integration.id })
     )
-    const { loadLinkedInAdsAccessibleAccounts } = useActions(linkedInAdsIntegrationLogic({ id: integration.id }))
+    const { loadLinkedInAdsAccounts } = useActions(linkedInAdsIntegrationLogic({ id: integration.id }))
 
     const linkedInAdsAccountOptions = useMemo(
-        () => getLinkedInAdsAccountOptions(linkedInAdsAccessibleAccounts),
-        [linkedInAdsAccessibleAccounts]
+        () => getLinkedInAdsAccountOptions(linkedInAdsAccounts),
+        [linkedInAdsAccounts]
     )
+
+    useEffect(() => {
+        if (!disabled) {
+            loadLinkedInAdsAccounts()
+        }
+    }, [loadLinkedInAdsAccounts])
 
     return (
         <>
             <LemonInputSelect
                 onChange={(val) => onChange?.(val[0] ?? null)}
                 value={value ? [value] : []}
-                onFocus={() =>
-                    !linkedInAdsAccessibleAccounts &&
-                    !linkedInAdsAccessibleAccountsLoading &&
-                    loadLinkedInAdsAccessibleAccounts()
-                }
+                onFocus={() => !linkedInAdsAccounts && !linkedInAdsAccountsLoading && loadLinkedInAdsAccounts()}
                 disabled={disabled}
                 mode="single"
                 data-attr="select-linkedin-ads-customer-id-channel"
-                placeholder="Select a Customer ID..."
+                placeholder="Select a Account ID..."
                 options={
                     linkedInAdsAccountOptions ??
                     (value
@@ -132,7 +144,7 @@ export function LinkedInAdsAccountIdPicker({
                           ]
                         : [])
                 }
-                loading={linkedInAdsAccessibleAccountsLoading}
+                loading={linkedInAdsAccountsLoading}
             />
         </>
     )

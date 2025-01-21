@@ -2,7 +2,7 @@ import { actions, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { LinkedInAdsConversionActionType } from '~/types'
+import { LinkedInAdsAccountType, LinkedInAdsConversionRuleType } from '~/types'
 
 import type { linkedInAdsIntegrationLogicType } from './linkedInAdsIntegrationLogicType'
 
@@ -11,26 +11,25 @@ export const linkedInAdsIntegrationLogic = kea<linkedInAdsIntegrationLogicType>(
     key((props) => props.id),
     path((key) => ['lib', 'integrations', 'linkedInAdsIntegrationLogic', key]),
     actions({
-        loadLinkedInAdsConversionActions: (customerId: string) => customerId,
-        loadLinkedInAdsAccessibleAccounts: true,
+        loadLinkedInAdsConversionRules: (accountId: string) => accountId,
+        loadLinkedInAdsAccounts: true,
     }),
-
     loaders(({ props }) => ({
-        linkedInAdsConversionActions: [
-            null as LinkedInAdsConversionActionType[] | null,
+        linkedInAdsConversionRules: [
+            null as LinkedInAdsConversionRuleType[] | null,
             {
-                loadLinkedInAdsConversionActions: async (customerId: string) => {
-                    const res = await api.integrations.linkedInAdsConversionActions(props.id, customerId)
-                    return res.conversionActions
+                loadLinkedInAdsConversionRules: async (customerId: string) => {
+                    const res = await api.integrations.linkedInAdsConversionRules(props.id, customerId)
+                    return res.conversionRules
                 },
             },
         ],
-        linkedInAdsAccessibleAccounts: [
-            null as { id: string }[] | null,
+        linkedInAdsAccounts: [
+            null as LinkedInAdsAccountType[] | null,
             {
-                loadLinkedInAdsAccessibleAccounts: async () => {
+                loadLinkedInAdsAccounts: async () => {
                     const res = await api.integrations.linkedInAdsAccounts(props.id)
-                    return res.accessibleAccounts
+                    return res.adAccounts
                 },
             },
         ],
