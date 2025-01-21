@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterator, Sequence
-from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from concurrent.futures import (
+    ALL_COMPLETED,
+    FIRST_EXCEPTION,
+    Future,
+    ThreadPoolExecutor,
+    as_completed,
+)
+from copy import copy
 from typing import Literal, NamedTuple, TypeVar
 
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 from django.conf import settings
 
-from posthog.clickhouse.client.connection import make_ch_pool
-
-
-logger = logging.getLogger(__name__)
+from posthog.clickhouse.client.connection import _make_ch_pool, default_client
+from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 
 
 K = TypeVar("K")
@@ -26,6 +31,9 @@ class FuturesMap(dict[K, Future[V]]):
 
         for f in as_completed(self.values(), timeout=timeout):
             yield reverse_map[f], f
+
+    def merge(self, other: FuturesMap[K, V]) -> FuturesMap[K, V]:
+        return FuturesMap(self | other)
 
     def result(
         self,
@@ -53,8 +61,8 @@ class FuturesMap(dict[K, Future[V]]):
 class ConnectionInfo(NamedTuple):
     address: str
 
-    def make_pool(self) -> ChPool:
-        return make_ch_pool(host=self.address)
+    def make_pool(self, client_settings: Mapping[str, str] | None = None) -> ChPool:
+        return _make_ch_pool(host=self.address, settings=client_settings)
 
 
 class HostInfo(NamedTuple):
@@ -67,7 +75,16 @@ T = TypeVar("T")
 
 
 class ClickhouseCluster:
-    def __init__(self, bootstrap_client: Client, extra_hosts: Sequence[ConnectionInfo] | None = None) -> None:
+    def __init__(
+        self,
+        bootstrap_client: Client,
+        extra_hosts: Sequence[ConnectionInfo] | None = None,
+        logger: logging.Logger | None = None,
+        client_settings: Mapping[str, str] | None = None,
+    ) -> None:
+        if logger is None:
+            logger = logging.getLogger(__name__)
+
         self.__hosts = [
             HostInfo(ConnectionInfo(host_address), shard_num, replica_num)
             for (host_address, shard_num, replica_num) in bootstrap_client.execute(
@@ -85,25 +102,32 @@ class ClickhouseCluster:
                 [HostInfo(connection_info, shard_num=None, replica_num=None) for connection_info in extra_hosts]
             )
         self.__pools: dict[HostInfo, ChPool] = {}
+        self.__logger = logger
+        self.__client_settings = client_settings
 
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
         if pool is None:
-            pool = self.__pools[host] = host.connection_info.make_pool()
+            pool = self.__pools[host] = host.connection_info.make_pool(self.__client_settings)
 
         def task():
             with pool.get_client() as client:
-                logger.debug("Executing %r on %r...", fn, host)
+                self.__logger.debug("Executing %r on %r...", fn, host)
                 try:
                     result = fn(client)
                 except Exception:
-                    logger.exception("Failed to execute %r on %r!", fn, host)
+                    self.__logger.debug("Failed to execute %r on %r!", fn, host, exc_info=True)
                     raise
                 else:
-                    logger.debug("Successfully executed %r on %r.", fn, host)
+                    self.__logger.debug("Successfully executed %r on %r.", fn, host)
                 return result
 
         return task
+
+    def any_host(self, fn: Callable[[Client], T]) -> Future[T]:
+        with ThreadPoolExecutor() as executor:
+            host = self.__hosts[0]
+            return executor.submit(self.__get_task_function(host, fn))
 
     def map_all_hosts(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
         """
@@ -111,6 +135,16 @@ class ClickhouseCluster:
         """
         with ThreadPoolExecutor() as executor:
             return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in self.__hosts})
+
+    def map_all_hosts_in_shard(self, shard_num: int, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
+        with ThreadPoolExecutor() as executor:
+            return FuturesMap(
+                {
+                    host: executor.submit(self.__get_task_function(host, fn))
+                    for host in self.__hosts
+                    if host.shard_num == shard_num
+                }
+            )
 
     def map_one_host_per_shard(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
         """
@@ -125,3 +159,13 @@ class ClickhouseCluster:
             return FuturesMap(
                 {host: executor.submit(self.__get_task_function(host, fn)) for host in shard_hosts.values()}
             )
+
+
+def get_cluster(
+    logger: logging.Logger | None = None, client_settings: Mapping[str, str] | None = None
+) -> ClickhouseCluster:
+    extra_hosts = []
+    for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
+        extra_hosts.append(ConnectionInfo(host_config.pop("host")))
+        assert len(host_config) == 0, f"unexpected values: {host_config!r}"
+    return ClickhouseCluster(default_client(), extra_hosts=extra_hosts, logger=logger, client_settings=client_settings)

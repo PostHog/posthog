@@ -84,7 +84,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
     def recreate_database(self):
         sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
-        create_clickhouse_tables(0)
+        create_clickhouse_tables()
 
     def test_get_columns_default(self):
         self.assertCountEqual(
