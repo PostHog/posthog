@@ -26,6 +26,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import calculate_product_activation
@@ -255,6 +256,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return ProductIntent.objects.filter(team=obj).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
+
+    def get_default_data_theme(self, obj):
+        if not self._organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
+            posthog_global_theme_id = DataColorTheme.objects.filter(is_global=True).values_list("id", flat=True).first()
+            return posthog_global_theme_id
+        return obj.default_data_theme
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
