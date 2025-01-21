@@ -5,12 +5,15 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { dateMapping } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
+
+const errorTrackingDateOptions = dateMapping.filter((dm) => dm.key != 'Yesterday')
 
 export const FilterGroup = ({ children }: { children?: React.ReactNode }): JSX.Element => {
     const { filterGroup, filterTestAccounts } = useValues(errorTrackingLogic)
@@ -93,6 +96,7 @@ export const Options = (): JSX.Element => {
                     <DateFilter
                         dateFrom={dateRange.date_from}
                         dateTo={dateRange.date_to}
+                        dateOptions={errorTrackingDateOptions}
                         onChange={(changedDateFrom, changedDateTo) => {
                             setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
                         }}

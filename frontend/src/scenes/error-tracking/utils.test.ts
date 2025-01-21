@@ -16,20 +16,8 @@ describe('mergeIssues', () => {
             status: 'active',
             users: 50,
             earliest: '',
-            volume: [
-                '__hx_tag',
-                'Sparkline',
-                'data',
-                [10, 5, 10, 20, 50],
-                'labels',
-                [
-                    '25 Jun, 2024 00:00 (UTC)',
-                    '26 Jun, 2024 00:00 (UTC)',
-                    '27 Jun, 2024 00:00 (UTC)',
-                    '28 Jun, 2024 00:00 (UTC)',
-                    '29 Jun, 2024 00:00 (UTC)',
-                ],
-            ],
+            volumeDay: [10, 5, 10, 20, 50],
+            volumeMonth: [0, 0, 10, 25, 95],
         }
 
         const mergingIssues: ErrorTrackingIssue[] = [
@@ -45,20 +33,8 @@ describe('mergeIssues', () => {
                 status: 'active',
                 users: 1,
                 earliest: '',
-                volume: [
-                    '__hx_tag',
-                    'Sparkline',
-                    'data',
-                    [1, 1, 2, 1, 2],
-                    'labels',
-                    [
-                        '25 Jun, 2024 00:00 (UTC)',
-                        '26 Jun, 2024 00:00 (UTC)',
-                        '27 Jun, 2024 00:00 (UTC)',
-                        '28 Jun, 2024 00:00 (UTC)',
-                        '29 Jun, 2024 00:00 (UTC)',
-                    ],
-                ],
+                volumeDay: [1, 1, 2, 1, 2],
+                volumeMonth: [2, 7, 2, 6, 7],
             },
             {
                 id: 'thirdId',
@@ -72,20 +48,8 @@ describe('mergeIssues', () => {
                 status: 'active',
                 users: 1,
                 earliest: '',
-                volume: [
-                    '__hx_tag',
-                    'Sparkline',
-                    'data',
-                    [5, 10, 2, 3, 5],
-                    'labels',
-                    [
-                        '25 Jun, 2024 00:00 (UTC)',
-                        '26 Jun, 2024 00:00 (UTC)',
-                        '27 Jun, 2024 00:00 (UTC)',
-                        '28 Jun, 2024 00:00 (UTC)',
-                        '29 Jun, 2024 00:00 (UTC)',
-                    ],
-                ],
+                volumeDay: [5, 10, 2, 3, 5],
+                volumeMonth: [16, 4, 2, 16, 25],
             },
             {
                 id: 'fourthId',
@@ -99,20 +63,8 @@ describe('mergeIssues', () => {
                 status: 'active',
                 users: 50,
                 earliest: '',
-                volume: [
-                    '__hx_tag',
-                    'Sparkline',
-                    'data',
-                    [10, 100, 200, 300, 700],
-                    'labels',
-                    [
-                        '25 Jun, 2024 00:00 (UTC)',
-                        '26 Jun, 2024 00:00 (UTC)',
-                        '27 Jun, 2024 00:00 (UTC)',
-                        '28 Jun, 2024 00:00 (UTC)',
-                        '29 Jun, 2024 00:00 (UTC)',
-                    ],
-                ],
+                volumeDay: [10, 100, 200, 300, 700],
+                volumeMonth: [0, 500, 1500, 1000, 1310],
             },
         ]
 
@@ -135,20 +87,8 @@ describe('mergeIssues', () => {
             sessions: 606,
             users: 102,
             // sums volumes
-            volume: [
-                '__hx_tag',
-                'Sparkline',
-                'data',
-                [26, 116, 214, 324, 757],
-                'labels',
-                [
-                    '25 Jun, 2024 00:00 (UTC)',
-                    '26 Jun, 2024 00:00 (UTC)',
-                    '27 Jun, 2024 00:00 (UTC)',
-                    '28 Jun, 2024 00:00 (UTC)',
-                    '29 Jun, 2024 00:00 (UTC)',
-                ],
-            ],
+            volumeDay: [26, 116, 214, 324, 757],
+            volumeMonth: [18, 511, 1514, 1047, 1437],
         })
     })
 })

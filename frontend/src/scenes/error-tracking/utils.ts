@@ -1,7 +1,12 @@
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
+import { range } from 'lib/utils'
 
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue, ErrorTrackingSparklineConfig } from '~/queries/schema'
+
+const volumePeriods: ('customVolume' | 'volumeDay' | 'volumeMonth')[] = ['customVolume', 'volumeDay', 'volumeMonth']
+const sumVolumes = (...arrays: number[][]): number[] =>
+    arrays[0].map((_, i) => arrays.reduce((sum, arr) => sum + arr[i], 0))
 
 export const mergeIssues = (
     primaryIssue: ErrorTrackingIssue,
@@ -20,16 +25,13 @@ export const mergeIssues = (
         [dayjs(primaryIssue.first_seen), dayjs(primaryIssue.last_seen)]
     )
 
-    const volume = primaryIssue.volume
-
-    if (volume) {
-        const dataIndex = 3
-        const data = mergingIssues.reduce(
-            (sum: number[], g) => g.volume[dataIndex].map((num: number, idx: number) => num + sum[idx]),
-            primaryIssue.volume[dataIndex]
-        )
-        volume.splice(dataIndex, 1, data)
-    }
+    volumePeriods.forEach((period) => {
+        const volume = primaryIssue[period]
+        if (volume) {
+            const mergingVolumes = mergingIssues.map((issue) => issue[period]).filter((v) => !!v) as number[][]
+            primaryIssue[period] = sumVolumes(...mergingVolumes, volume)
+        }
+    })
 
     return {
         ...primaryIssue,
@@ -38,7 +40,6 @@ export const mergeIssues = (
         users: sum('users'),
         first_seen: firstSeen.toISOString(),
         last_seen: lastSeen.toISOString(),
-        volume: volume,
     }
 }
 
@@ -107,4 +108,13 @@ export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean 
 
 export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
     return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
+}
+
+export const sparklineLabelsDay = sparklineLabels({ value: 24, interval: 'hour' })
+export const sparklineLabelsMonth = sparklineLabels({ value: 31, interval: 'day' })
+
+export function sparklineLabels({ value, interval }: ErrorTrackingSparklineConfig): string[] {
+    const now = dayjs().startOf(interval)
+    const dates = range(value).map((idx) => now.subtract(value - (idx + 1), interval))
+    return dates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
 }
