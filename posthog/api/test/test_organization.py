@@ -269,12 +269,12 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         self.assertEqual(response.json()["status"], True)
 
         self.assertEqual(FeatureFlagRoleAccess.objects.count(), 1)
-        self.assertEqual(FeatureFlagRoleAccess.objects.first().role, self.admin_role)
-        self.assertEqual(FeatureFlagRoleAccess.objects.first().feature_flag, feature_flag)
+        self.assertEqual(FeatureFlagRoleAccess.objects.first().role.id, self.admin_role.id)
+        self.assertEqual(FeatureFlagRoleAccess.objects.first().feature_flag.id, feature_flag.id)
 
         self.assertEqual(AccessControl.objects.count(), 1)
         self.assertEqual(AccessControl.objects.first().access_level, "editor")
-        self.assertEqual(AccessControl.objects.first().role, self.admin_role)
+        self.assertEqual(AccessControl.objects.first().role.id, self.admin_role.id)
         self.assertEqual(AccessControl.objects.first().resource, "feature_flag")
         self.assertEqual(AccessControl.objects.first().resource_id, str(feature_flag.id))
 

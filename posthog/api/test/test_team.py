@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
@@ -1391,17 +1391,17 @@ class TestTeamRbacMigrations(APIBaseTest):  # type: ignore
 
         ExplicitTeamMembership.objects.create(
             team=team_with_access_control,
-            parent_membership=self.admin_user.organization_memberships.first(),
+            parent_membership=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
             level=ExplicitTeamMembership.Level.ADMIN,
         )
         ExplicitTeamMembership.objects.create(
             team=team_with_access_control,
-            parent_membership=self.member_user_1.organization_memberships.first(),
+            parent_membership=cast(OrganizationMembership, self.member_user_1.organization_memberships.first()),
             level=ExplicitTeamMembership.Level.ADMIN,  # Org member as team admin
         )
         ExplicitTeamMembership.objects.create(
             team=team_with_access_control,
-            parent_membership=self.member_user_2.organization_memberships.first(),
+            parent_membership=cast(OrganizationMembership, self.member_user_2.organization_memberships.first()),
             level=ExplicitTeamMembership.Level.MEMBER,
         )
 
@@ -1417,7 +1417,8 @@ class TestTeamRbacMigrations(APIBaseTest):  # type: ignore
 
         # Verify admin access control was created
         admin_access = AccessControl.objects.get(
-            team=team_with_access_control, organization_member=self.admin_user.organization_memberships.first()
+            team=team_with_access_control,
+            organization_member=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
         )
         self.assertEqual(admin_access.access_level, "admin")
         self.assertEqual(admin_access.resource, "project")
@@ -1425,7 +1426,8 @@ class TestTeamRbacMigrations(APIBaseTest):  # type: ignore
 
         # Verify member access control was created
         member_access = AccessControl.objects.get(
-            team=team_with_access_control, organization_member=self.member_user_1.organization_memberships.first()
+            team=team_with_access_control,
+            organization_member=cast(OrganizationMembership, self.member_user_1.organization_memberships.first()),
         )
         self.assertEqual(member_access.access_level, "admin")
         self.assertEqual(member_access.resource, "project")
@@ -1433,7 +1435,8 @@ class TestTeamRbacMigrations(APIBaseTest):  # type: ignore
 
         # Verify member access control was created
         member_access = AccessControl.objects.get(
-            team=team_with_access_control, organization_member=self.member_user_2.organization_memberships.first()
+            team=team_with_access_control,
+            organization_member=cast(OrganizationMembership, self.member_user_2.organization_memberships.first()),
         )
         self.assertEqual(member_access.access_level, "member")
         self.assertEqual(member_access.resource, "project")
