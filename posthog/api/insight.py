@@ -211,7 +211,7 @@ class DashboardTileBasicSerializer(serializers.ModelSerializer):
         fields = ["id", "dashboard_id", "deleted"]
 
 
-class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
     """
@@ -267,7 +267,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
+class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
@@ -792,6 +792,10 @@ class InsightViewSet(
             ),
         )
 
+        # Add access level filtering for list actions if not sharing access token
+        if not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            queryset = self._filter_queryset_by_access_level(queryset)
+
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
@@ -1060,8 +1064,10 @@ When set, the specified dashboard's filters and date range override will be appl
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert isinstance(result, schema.CachedTrendsQueryResponse) or isinstance(
-            result, schema.CachedStickinessQueryResponse
+        assert (
+            isinstance(result, schema.CachedTrendsQueryResponse)
+            or isinstance(result, schema.CachedStickinessQueryResponse)
+            or isinstance(result, schema.CachedLifecycleQueryResponse)
         )
 
         return {"result": result.results, "timezone": team.timezone}
@@ -1149,7 +1155,7 @@ When set, the specified dashboard's filters and date range override will be appl
     # /projects/:id/insights/:short_id/viewed
     # Creates or updates an InsightViewed object for the user/insight combo
     # ******************************************
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         InsightViewed.objects.update_or_create(
             team=self.team,

@@ -19,10 +19,10 @@ import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import { KafkaProducerWrapper } from './kafka/producer'
 import { ObjectStorage } from './main/services/object_storage'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
-import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from './utils/db/postgres'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
@@ -83,6 +83,8 @@ export enum PluginServerMode {
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
+    recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
+    recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
@@ -124,10 +126,10 @@ export type CdpConfig = {
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
+    CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
 }
 
 export interface PluginsServerConfig extends CdpConfig {
-    WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
@@ -150,8 +152,6 @@ export interface PluginsServerConfig extends CdpConfig {
     CLICKHOUSE_PASSWORD: string | null
     CLICKHOUSE_CA: string | null // ClickHouse CA certs
     CLICKHOUSE_SECURE: boolean // whether to secure ClickHouse connection
-    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean // whether to disallow external schemas like protobuf for clickhouse kafka engine
-    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events for clickhouse ingestion
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data for clickhouse ingestion
     EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
@@ -167,15 +167,23 @@ export interface PluginsServerConfig extends CdpConfig {
     // Common redis params
     REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
     REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
+    // Kafka params - identical for client and producer
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
+    KAFKA_PRODUCER_HOSTS?: string // If specified - different hosts to produce to (useful for migrating between kafka clusters)
+    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
+    KAFKA_PRODUCER_SECURITY_PROTOCOL?: KafkaSecurityProtocol // If specified - different security protocol to produce to (useful for migrating between kafka clusters)
+    KAFKA_CLIENT_ID: string | undefined
+    KAFKA_PRODUCER_CLIENT_ID?: string // If specified - different client ID to produce to (useful for migrating between kafka clusters)
+
+    // Other methods that are generally only used by self-hosted users
     KAFKA_CLIENT_CERT_B64: string | undefined
     KAFKA_CLIENT_CERT_KEY_B64: string | undefined
     KAFKA_TRUSTED_CERT_B64: string | undefined
-    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     KAFKA_SASL_MECHANISM: KafkaSaslMechanism | undefined
     KAFKA_SASL_USER: string | undefined
     KAFKA_SASL_PASSWORD: string | undefined
-    KAFKA_CLIENT_ID: string | undefined
+
+    // Consumer specific settings
     KAFKA_CLIENT_RACK: string | undefined
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
@@ -233,7 +241,6 @@ export interface PluginsServerConfig extends CdpConfig {
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
-    APP_METRICS_GATHERED_FOR_ALL: boolean // whether to gather app metrics for all teams
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
@@ -358,6 +365,8 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
+    sessionRecordingBlobIngestionV2?: boolean
+    sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
     cdpInternalEvents?: boolean
     cdpFunctionCallbacks?: boolean
@@ -1269,4 +1278,59 @@ export type AppMetric2Type = {
         | 'inputs_failed'
         | 'fetch'
     count: number
+}
+
+interface TextOperator {
+    operator: 'equals' | 'startsWith' | 'includes'
+    value: string
+}
+
+export interface ModelDetails {
+    matches: string[]
+    searchTerms: string[]
+    info: {
+        releaseDate: string
+        maxTokens?: number
+        description: string
+        tradeOffs: string[]
+        benchmarks: {
+            [key: string]: number
+        }
+        capabilities: string[]
+        strengths: string[]
+        weaknesses: string[]
+        recommendations: string[]
+    }
+}
+
+export type ModelDetailsMap = {
+    [key: string]: ModelDetails
+}
+
+export interface ModelRow {
+    model: TextOperator
+    cost: {
+        prompt_token: number
+        completion_token: number
+    }
+    showInPlayground?: boolean
+    targetUrl?: string
+    dateRange?: {
+        start: string
+        end: string
+    }
+}
+
+export interface ModelRow {
+    model: TextOperator
+    cost: {
+        prompt_token: number
+        completion_token: number
+    }
+    showInPlayground?: boolean
+    targetUrl?: string
+    dateRange?: {
+        start: string
+        end: string
+    }
 }

@@ -372,13 +372,19 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             LemonDialog.openForm({
                 title: 'Save as view',
                 initialValues: { viewName: '' },
+                description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
                 content: (
                     <LemonField name="viewName">
                         <LemonInput placeholder="Please enter the name of the view" autoFocus />
                     </LemonField>
                 ),
                 errors: {
-                    viewName: (name) => (!name ? 'You must enter a name' : undefined),
+                    viewName: (name) =>
+                        !name
+                            ? 'You must enter a name'
+                            : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
+                            ? 'Name must be valid'
+                            : undefined,
                 },
                 onSubmit: async ({ viewName }) => {
                     await asyncActions.saveAsViewSubmit(viewName)

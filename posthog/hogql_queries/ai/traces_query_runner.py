@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 import orjson
@@ -9,14 +9,15 @@ import structlog
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     CachedTracesQueryResponse,
     IntervalType,
-    LLMGeneration,
     LLMTrace,
+    LLMTraceEvent,
     LLMTracePerson,
     NodeKind,
     TracesQuery,
@@ -89,24 +90,19 @@ class TracesQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
+    def get_cache_payload(self):
+        return {
+            **super().get_cache_payload(),
+            # When the response schema changes, increment this version to invalidate the cache.
+            "schema_version": 1,
+        }
+
     @cached_property
     def _date_range(self):
         # Minute-level precision for 10m capture range
         return TracesQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
 
     def _map_results(self, columns: list[str], query_results: list):
-        TRACE_FIELDS_MAPPING = {
-            "id": "id",
-            "created_at": "createdAt",
-            "person": "person",
-            "total_latency": "totalLatency",
-            "input_tokens": "inputTokens",
-            "output_tokens": "outputTokens",
-            "input_cost": "inputCost",
-            "output_cost": "outputCost",
-            "total_cost": "totalCost",
-            "events": "events",
-        }
         mapped_results = [dict(zip(columns, value)) for value in query_results]
         traces = []
 
@@ -119,63 +115,57 @@ class TracesQueryRunner(QueryRunner):
             ):
                 continue
 
-            generations = []
-            for uuid, timestamp, properties in result["events"]:
-                generations.append(self._map_generation(uuid, timestamp, properties))
-
-            trace_dict = {
-                **result,
-                "created_at": timestamp_dt.isoformat(),
-                "person": self._map_person(result["person"]),
-                "events": generations,
-            }
-            # Remap keys from snake case to camel case
-            trace = LLMTrace.model_validate(
-                {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
-            )
-            traces.append(trace)
+            traces.append(self._map_trace(result, timestamp_dt))
 
         return traces
 
-    def _map_generation(self, event_uuid: UUID, event_timestamp: datetime, event_properties: str) -> LLMGeneration:
-        properties: dict = orjson.loads(event_properties)
-
-        GENERATION_MAPPING = {
-            "$ai_input": "input",
-            "$ai_latency": "latency",
-            "$ai_output": "output",
-            "$ai_provider": "provider",
-            "$ai_model": "model",
-            "$ai_input_tokens": "inputTokens",
-            "$ai_output_tokens": "outputTokens",
-            "$ai_input_cost_usd": "inputCost",
-            "$ai_output_cost_usd": "outputCost",
-            "$ai_total_cost_usd": "totalCost",
-            "$ai_http_status": "httpStatus",
-            "$ai_base_url": "baseUrl",
+    def _map_trace(self, result: dict[str, Any], created_at: datetime) -> LLMTrace:
+        TRACE_FIELDS_MAPPING = {
+            "id": "id",
+            "created_at": "createdAt",
+            "person": "person",
+            "total_latency": "totalLatency",
+            "input_tokens": "inputTokens",
+            "output_tokens": "outputTokens",
+            "input_cost": "inputCost",
+            "output_cost": "outputCost",
+            "total_cost": "totalCost",
+            "events": "events",
         }
-        GENERATION_JSON_FIELDS = {"$ai_input", "$ai_output"}
 
-        generation = {
+        generations = []
+        for uuid, event_name, timestamp, properties in result["events"]:
+            generations.append(self._map_event(uuid, event_name, timestamp, properties))
+
+        trace_dict = {
+            **result,
+            "created_at": created_at.isoformat(),
+            "person": self._map_person(result["first_person"]),
+            "events": generations,
+        }
+        # Remap keys from snake case to camel case
+        trace = LLMTrace.model_validate(
+            {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
+        )
+        return trace
+
+    def _map_event(
+        self, event_uuid: UUID, event_name: str, event_timestamp: datetime, event_properties: str
+    ) -> LLMTraceEvent:
+        generation: dict[str, Any] = {
             "id": str(event_uuid),
+            "event": event_name,
             "createdAt": event_timestamp.isoformat(),
+            "properties": orjson.loads(event_properties),
         }
-
-        for event_prop, model_prop in GENERATION_MAPPING.items():
-            if event_prop in properties:
-                if event_prop in GENERATION_JSON_FIELDS:
-                    generation[model_prop] = orjson.loads(properties[event_prop])
-                else:
-                    generation[model_prop] = properties[event_prop]
-
-        return LLMGeneration.model_validate(generation)
+        return LLMTraceEvent.model_validate(generation)
 
     def _map_person(self, person: tuple[UUID, UUID, datetime, str]) -> LLMTracePerson:
         uuid, distinct_id, created_at, properties = person
         return LLMTracePerson(
             uuid=str(uuid),
-            distinctId=str(distinct_id),
-            createdAt=created_at.isoformat(),
+            distinct_id=str(distinct_id),
+            created_at=created_at.isoformat(),
             properties=orjson.loads(properties) if properties else {},
         )
 
@@ -185,14 +175,14 @@ class TracesQueryRunner(QueryRunner):
                 SELECT
                     properties.$ai_trace_id as id,
                     min(timestamp) as trace_timestamp,
-                    tuple(max(person.id), max(distinct_id), max(person.created_at), max(person.properties)) as person,
-                    sum(properties.$ai_latency) as total_latency,
+                    tuple(max(person.id), max(distinct_id), max(person.created_at), max(person.properties)) as first_person,
+                    round(toFloat(sum(properties.$ai_latency)), 2) as total_latency,
                     sum(properties.$ai_input_tokens) as input_tokens,
                     sum(properties.$ai_output_tokens) as output_tokens,
-                    sum(properties.$ai_input_cost_usd) as input_cost,
-                    sum(properties.$ai_output_cost_usd) as output_cost,
-                    sum(properties.$ai_total_cost_usd) as total_cost,
-                    arraySort(x -> x.2, groupArray(tuple(uuid, timestamp, properties))) as events
+                    round(toFloat(sum(properties.$ai_input_cost_usd)), 4) as input_cost,
+                    round(toFloat(sum(properties.$ai_output_cost_usd)), 4) as output_cost,
+                    round(toFloat(sum(properties.$ai_total_cost_usd)), 4) as total_cost,
+                    arraySort(x -> x.3, groupArray(tuple(uuid, event, timestamp, properties))) as events
                 FROM
                     events
                 GROUP BY
@@ -206,7 +196,7 @@ class TracesQueryRunner(QueryRunner):
     def _get_where_clause(self):
         timestamp_field = ast.Field(chain=["events", "timestamp"])
 
-        exprs: list[ast.Expr] = [
+        where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 left=ast.Field(chain=["event"]),
                 op=ast.CompareOperationOp.Eq,
@@ -224,8 +214,17 @@ class TracesQueryRunner(QueryRunner):
             ),
         ]
 
+        if self.query.properties:
+            with self.timings.measure("property_filters"):
+                where_exprs.extend(property_to_expr(property, self.team) for property in self.query.properties)
+
+        if self.query.filterTestAccounts:
+            with self.timings.measure("test_account_filters"):
+                for prop in self.team.test_account_filters or []:
+                    where_exprs.append(property_to_expr(prop, self.team))
+
         if self.query.traceId is not None:
-            exprs.append(
+            where_exprs.append(
                 ast.CompareOperation(
                     left=ast.Field(chain=["id"]),
                     op=ast.CompareOperationOp.Eq,
@@ -233,7 +232,7 @@ class TracesQueryRunner(QueryRunner):
                 ),
             )
 
-        return ast.And(exprs=exprs)
+        return ast.And(exprs=where_exprs)
 
     def _get_order_by_clause(self):
         return [ast.OrderExpr(expr=ast.Field(chain=["trace_timestamp"]), order="DESC")]

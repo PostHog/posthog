@@ -24,6 +24,7 @@ from posthog.test.base import (
     QueryMatchingTest,
     snapshot_postgres_queries,
 )
+from ee.models.rbac.access_control import AccessControl
 
 valid_template: dict = {
     "template_name": "Sign up conversion template with variables",
@@ -1444,3 +1445,37 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert value["code_name"] == variable.code_name
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "some override value"
+
+    def test_dashboard_access_control_filtering(self) -> None:
+        """Test that dashboards are properly filtered based on access control."""
+
+        user2 = User.objects.create_and_join(self.organization, "test2@posthog.com", None)
+
+        visible_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Public Dashboard",
+            created_by=self.user,
+        )
+        hidden_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Hidden Dashboard",
+            created_by=self.user,
+        )
+        AccessControl.objects.create(
+            resource="dashboard", resource_id=hidden_dashboard.id, team=self.team, access_level="none"
+        )
+
+        # Verify we can access visible dashboards
+        self.client.force_login(user2)
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboards/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dashboard_ids = [dashboard["id"] for dashboard in response.json()["results"]]
+        self.assertIn(visible_dashboard.id, dashboard_ids)
+        self.assertNotIn(hidden_dashboard.id, dashboard_ids)
+
+        # Verify we can access all dashboards as creator
+        self.client.force_login(self.user)
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboards/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(visible_dashboard.id, [dashboard["id"] for dashboard in response.json()["results"]])
+        self.assertIn(hidden_dashboard.id, [dashboard["id"] for dashboard in response.json()["results"]])

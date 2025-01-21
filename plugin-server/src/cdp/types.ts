@@ -15,8 +15,8 @@ export type HogBytecode = any[]
 // subset of EntityFilter
 export interface HogFunctionFilterBase {
     id: string
-    name: string | null
-    order: number
+    name?: string | null
+    order?: number
     properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
 }
 
@@ -33,7 +33,7 @@ export interface HogFunctionFilterAction extends HogFunctionFilterBase {
 
 export type HogFunctionFilter = HogFunctionFilterEvent | HogFunctionFilterAction
 
-export type HogFunctionFiltersMasking = {
+export type HogFunctionMasking = {
     ttl: number | null
     hash: string
     bytecode: HogBytecode
@@ -233,6 +233,7 @@ export type HogFunctionInvocationResult = {
     // asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
     logs: LogEntry[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
+    execResult?: unknown
 }
 
 export type HogFunctionInvocationAsyncRequest = {
@@ -271,7 +272,8 @@ export type HogFunctionInputSchemaType = {
     description?: string
     integration?: string
     integration_key?: string
-    integration_field?: 'slack_channel'
+    requires_field?: string
+    integration_field?: string
     requiredScopes?: string
 }
 
@@ -305,7 +307,7 @@ export type HogFunctionType = {
     encrypted_inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
-    masking?: HogFunctionFiltersMasking | null
+    masking?: HogFunctionMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
 }
 
