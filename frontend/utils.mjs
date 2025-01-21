@@ -543,7 +543,7 @@ export function gatherProductUrls(products) {
 }
 
 export function gatherProductManifests() {
-    const products = fse.readdirSync('products').filter((p) => p !== '__pycache__')
+    const products = fse.readdirSync('products').filter((p) => !['__pycache__', 'README.md'].includes(p))
     const allScenes = {}
     const allRoutes = {}
     const allRedirects = {}
