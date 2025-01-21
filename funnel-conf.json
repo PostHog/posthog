@@ -1,0 +1,64 @@
+{
+    "number_of_users": 4500,
+    "start_timestamp": "2025-01-13T13:35:52.551535",
+    "end_timestamp": "2025-01-20T13:35:52.551543",
+    "variants": {
+        "control": {
+            "weight": 0.33,
+            "actions": [
+                {
+                    "event": "signup started 2",
+                    "probability": 1.0,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                },
+                {
+                    "event": "signup completed 2",
+                    "probability": 0.27,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                }
+            ]
+        },
+        "test-1": {
+            "weight": 0.33,
+            "actions": [
+                {
+                    "event": "signup started 2",
+                    "probability": 1.0,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                },
+                {
+                    "event": "signup completed 2",
+                    "probability": 0.24,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                }
+            ]
+        },
+        "test-2": {
+            "weight": 0.34,
+            "actions": [
+                {
+                    "event": "signup started 2",
+                    "probability": 1.0,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                },
+                {
+                    "event": "signup completed 2",
+                    "probability": 0.34,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                }
+            ]
+        }
+    }
+}

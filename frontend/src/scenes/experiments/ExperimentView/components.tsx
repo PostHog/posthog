@@ -281,7 +281,9 @@ export function PageHeaderCustom(): JSX.Element {
                                 data-attr="launch-experiment"
                                 onClick={() => launchExperiment()}
                                 disabledReason={
-                                    !hasGoalSet ? 'Add the main goal before launching the experiment' : undefined
+                                    !hasGoalSet
+                                        ? 'Add at least one primary metric before launching the experiment'
+                                        : undefined
                                 }
                             >
                                 Launch
