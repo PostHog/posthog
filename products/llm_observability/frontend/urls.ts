@@ -1,5 +1,6 @@
 // import { LLMObservabilityTab } from "scenes/urls";
 // TODO: get the enum back
+// TODO: use kea-router to combine the url and params and process the timestamp.
 
 export const urls = {
     llmObservability: (tab?: 'dashboard' | 'traces' | 'generations'): string =>

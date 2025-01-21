@@ -14,7 +14,7 @@ import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationM
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { getDataNodeLogicProps, llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
-import { formatLLMCost, formatLLMLatency, formatLLMUsage } from './utils'
+import { formatLLMCost, formatLLMLatency, formatLLMUsage, removeMilliseconds } from './utils'
 
 export const scene: SceneExport = {
     component: LLMObservabilityTraceScene,
@@ -108,7 +108,7 @@ function TraceSidebar({ trace, eventId }: { trace: LLMTrace; eventId?: string | 
                             <Link
                                 to={urls.llmObservabilityTrace(trace.id, {
                                     event: event.id,
-                                    timestamp: trace.createdAt,
+                                    timestamp: removeMilliseconds(trace.createdAt),
                                 })}
                                 className={classNames(
                                     'flex flex-col gap-1 p-2 text-xs hover:bg-primary-highlight',

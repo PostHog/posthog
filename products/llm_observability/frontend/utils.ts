@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema'
 
 import {
@@ -219,4 +221,8 @@ export function normalizeMessages(output: unknown, defaultRole?: string): Compat
     }
 
     return null
+}
+
+export function removeMilliseconds(timestamp: string): string {
+    return dayjs(timestamp).utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
 }
