@@ -2,7 +2,7 @@ import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
@@ -37,15 +37,7 @@ export function SharedMetricModal({
     } = useActions(experimentLogic({ experimentId }))
 
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
-    const [selectedMetricId, setSelectedMetricId] = useState<SharedMetric['id'] | null>(null)
-    const [mode, setMode] = useState<'create' | 'edit'>('create')
-
-    useEffect(() => {
-        if (editingSharedMetricId) {
-            setSelectedMetricId(editingSharedMetricId)
-            setMode('edit')
-        }
-    }, [editingSharedMetricId])
+    const mode = editingSharedMetricId ? 'edit' : 'create'
 
     if (!sharedMetrics) {
         return <></>
@@ -196,10 +188,10 @@ export function SharedMetricModal({
                 </div>
             )}
 
-            {selectedMetricId && (
+            {editingSharedMetricId && (
                 <div>
                     {(() => {
-                        const metric = sharedMetrics.find((m: SharedMetric) => m.id === selectedMetricId)
+                        const metric = sharedMetrics.find((m: SharedMetric) => m.id === editingSharedMetricId)
                         if (!metric) {
                             return <></>
                         }

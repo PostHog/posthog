@@ -534,8 +534,6 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openPrimarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
                 openSecondarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
-                closePrimarySharedMetricModal: () => null,
-                closeSecondarySharedMetricModal: () => null,
                 updateExperimentGoal: () => null,
             },
         ],
