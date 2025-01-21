@@ -109,7 +109,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     return []
                 }
 
-                const relevantJoins = joins.filter((join) => join.source_table_name === table.name)
+                const relevantJoins = joins.filter((join) => join.source_table_name === table!.name)
                 const joinsByFieldName = relevantJoins.reduce((acc, join) => {
                     if (join.field_name) {
                         acc[join.field_name] = join
