@@ -429,6 +429,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
+            created_by=request.user,
             team=self.team,
             status="Running",
             source_type=source_type,
@@ -451,6 +452,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
+            created_by=request.user,
             team=self.team,
             status="Running",
             source_type=source_type,
@@ -472,6 +474,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user,
             status="Running",
             source_type=source_type,
             job_inputs={"api_key": api_key, "site_name": site_name},
@@ -494,6 +497,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user,
             status="Running",
             source_type=source_type,
             job_inputs={
@@ -518,6 +522,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user,
             status="Running",
             source_type=source_type,
             job_inputs={
@@ -543,6 +548,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user,
             status="Running",
             source_type=source_type,
             job_inputs={
@@ -589,6 +595,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user,
             status="Running",
             source_type=source_type,
             job_inputs={
@@ -661,6 +668,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user,
             status="Running",
             source_type=source_type,
             job_inputs={
@@ -717,6 +725,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user,
             status="Running",
             source_type=source_type,
             job_inputs={
