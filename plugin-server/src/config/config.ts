@@ -205,6 +205,7 @@ export function getDefaultConfig(): PluginsServerConfig {
             : '',
 
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
+        HOG_TRANSFORMATIONS_ALPHA: true,
     }
 }
 

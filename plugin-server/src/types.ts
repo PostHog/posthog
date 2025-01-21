@@ -300,6 +300,9 @@ export interface PluginsServerConfig extends CdpConfig {
 
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
+
+    // HOG Transformations (Alpha feature)
+    HOG_TRANSFORMATIONS_ALPHA: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
