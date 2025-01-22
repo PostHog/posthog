@@ -1,8 +1,8 @@
-import { Hub } from '../types'
-import { now } from '../utils/now'
-import { UUIDT } from '../utils/utils'
-import { CdpRedis } from './redis'
-import { HogFunctionInvocationResult, HogFunctionType } from './types'
+import { Hub } from '../../types'
+import { now } from '../../utils/now'
+import { UUIDT } from '../../utils/utils'
+import { CdpRedis } from '../redis'
+import { HogFunctionInvocationResult, HogFunctionType } from '../types'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher' : '@posthog/hog-watcher'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
@@ -26,7 +26,7 @@ export type HogWatcherFunctionState = {
 // Having it as a celery task ID based on a file path is brittle and hard to test.
 export const CELERY_TASK_ID = 'posthog.tasks.plugin_server.hog_function_state_transition'
 
-export class HogWatcher {
+export class HogWatcherService {
     constructor(private hub: Hub, private redis: CdpRedis) {}
 
     private async onStateChange(id: HogFunctionType['id'], state: HogWatcherState) {

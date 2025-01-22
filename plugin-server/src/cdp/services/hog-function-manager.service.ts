@@ -1,11 +1,11 @@
 import { captureException } from '@sentry/node'
 import * as schedule from 'node-schedule'
 
-import { Hub, Team } from '../types'
-import { PostgresUse } from '../utils/db/postgres'
-import { PubSub } from '../utils/pubsub'
-import { status } from '../utils/status'
-import { HogFunctionType, HogFunctionTypeType, IntegrationType } from './types'
+import { Hub, Team } from '../../types'
+import { PostgresUse } from '../../utils/db/postgres'
+import { PubSub } from '../../utils/pubsub'
+import { status } from '../../utils/status'
+import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../types'
 
 type HogFunctionCache = {
     functions: Record<HogFunctionType['id'], HogFunctionType | undefined>
@@ -27,7 +27,7 @@ const HOG_FUNCTION_FIELDS = [
     'type',
 ]
 
-export class HogFunctionManager {
+export class HogFunctionManagerService {
     private started: boolean
     private ready: boolean
     private cache: HogFunctionCache
@@ -71,7 +71,7 @@ export class HogFunctionManager {
         await this.pubSub.start()
         await this.reloadAllHogFunctions()
 
-        // every 5 minutes all HogFunctionManager caches are reloaded for eventual consistency
+        // every 5 minutes all HogFunctionManagerService caches are reloaded for eventual consistency
         this.refreshJob = schedule.scheduleJob('*/5 * * * *', async () => {
             await this.reloadAllHogFunctions().catch((error) => {
                 status.error('🍿', 'Error reloading hog functions:', error)
@@ -90,7 +90,7 @@ export class HogFunctionManager {
 
     public getTeamHogFunctions(teamId: Team['id']): HogFunctionType[] {
         if (!this.ready) {
-            throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
+            throw new Error('HogFunctionManagerService is not ready! Run HogFunctionManagerService.start() before this')
         }
 
         return Object.values(this.cache.teams[teamId] || [])
@@ -100,7 +100,7 @@ export class HogFunctionManager {
 
     public getHogFunction(id: HogFunctionType['id']): HogFunctionType | undefined {
         if (!this.ready) {
-            throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
+            throw new Error('HogFunctionManagerService is not ready! Run HogFunctionManagerService.start() before this')
         }
 
         return this.cache.functions[id]
@@ -108,7 +108,7 @@ export class HogFunctionManager {
 
     public getTeamHogFunction(teamId: Team['id'], hogFunctionId: HogFunctionType['id']): HogFunctionType | undefined {
         if (!this.ready) {
-            throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
+            throw new Error('HogFunctionManagerService is not ready! Run HogFunctionManagerService.start() before this')
         }
 
         const fn = this.cache.functions[hogFunctionId]
