@@ -1,6 +1,7 @@
 import { CyclotronManager } from '@posthog/cyclotron'
 import { Message } from 'node-rdkafka'
-import { Hub, RawClickHouseEvent, ValueMatcher } from 'types'
+
+import { Hub, RawClickHouseEvent, ValueMatcher } from '~/src/types'
 
 import {
     convertToHogFunctionInvocationGlobals,
