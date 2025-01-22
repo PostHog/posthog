@@ -11,6 +11,7 @@ from posthog.hogql.ast import (
     DateTimeType,
     DateType,
     FloatType,
+    IntervalType,
     StringType,
     TupleType,
     IntegerType,
@@ -57,6 +58,7 @@ AnyConstantType = (
     | UnknownType
     | IntegerType
     | FloatType
+    | IntervalType
 )
 
 
@@ -124,6 +126,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ),
             ((DateTimeType(), IntegerType()), DateTimeType()),
             ((IntegerType(), DateTimeType()), DateTimeType()),
+            ((DateTimeType(), IntervalType()), DateTimeType()),
+            ((IntervalType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "minus": HogQLFunctionMeta(
@@ -143,6 +147,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ),
             ((DateTimeType(), IntegerType()), DateTimeType()),
             ((IntegerType(), DateTimeType()), DateTimeType()),
+            ((DateTimeType(), IntervalType()), DateTimeType()),
+            ((IntervalType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "multiply": HogQLFunctionMeta(
@@ -340,6 +346,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "arraySplit": HogQLFunctionMeta("arraySplit", 2, None),
     "arrayReverseFill": HogQLFunctionMeta("arrayReverseFill", 2, None),
     "arrayReverseSplit": HogQLFunctionMeta("arrayReverseSplit", 2, None),
+    "arrayRotateLeft": HogQLFunctionMeta("arrayRotateLeft", 2, 2),
     "arrayRotateRight": HogQLFunctionMeta("arrayRotateRight", 2, 2),
     "arrayExists": HogQLFunctionMeta("arrayExists", 1, None),
     "arrayAll": HogQLFunctionMeta("arrayAll", 1, None),
@@ -391,7 +398,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "_toUInt64": HogQLFunctionMeta("toUInt64", 1, 1, signatures=[((UnknownType(),), IntegerType())]),
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
-    "toDecimal": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Decimal64")]),
+    "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 2, 2),
     "toDate": HogQLFunctionMeta(
         "toDateOrNull",
         1,
@@ -414,15 +421,18 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toString": HogQLFunctionMeta(
         "toString",
         1,
-        1,
+        2,
         signatures=[
             ((IntegerType(),), StringType()),
             ((StringType(),), StringType()),
             ((FloatType(),), StringType()),
             ((DateType(),), StringType()),
+            ((DateType(), StringType()), StringType()),
             ((DateTimeType(),), StringType()),
+            ((DateTimeType(), StringType()), StringType()),
         ],
     ),
+    "toBool": HogQLFunctionMeta("toBool", 1, 1),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
     "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True),
@@ -564,14 +574,70 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "toModifiedJulianDay": HogQLFunctionMeta("toModifiedJulianDayOrNull", 1, 1),
     "fromModifiedJulianDay": HogQLFunctionMeta("fromModifiedJulianDayOrNull", 1, 1),
-    "toIntervalSecond": HogQLFunctionMeta("toIntervalSecond", 1, 1),
-    "toIntervalMinute": HogQLFunctionMeta("toIntervalMinute", 1, 1),
-    "toIntervalHour": HogQLFunctionMeta("toIntervalHour", 1, 1),
-    "toIntervalDay": HogQLFunctionMeta("toIntervalDay", 1, 1),
-    "toIntervalWeek": HogQLFunctionMeta("toIntervalWeek", 1, 1),
-    "toIntervalMonth": HogQLFunctionMeta("toIntervalMonth", 1, 1),
-    "toIntervalQuarter": HogQLFunctionMeta("toIntervalQuarter", 1, 1),
-    "toIntervalYear": HogQLFunctionMeta("toIntervalYear", 1, 1),
+    "toIntervalSecond": HogQLFunctionMeta(
+        "toIntervalSecond",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalMinute": HogQLFunctionMeta(
+        "toIntervalMinute",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalHour": HogQLFunctionMeta(
+        "toIntervalHour",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalDay": HogQLFunctionMeta(
+        "toIntervalDay",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalWeek": HogQLFunctionMeta(
+        "toIntervalWeek",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalMonth": HogQLFunctionMeta(
+        "toIntervalMonth",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalQuarter": HogQLFunctionMeta(
+        "toIntervalQuarter",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalYear": HogQLFunctionMeta(
+        "toIntervalYear",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
     # strings
     "left": HogQLFunctionMeta("left", 2, 2),
     "right": HogQLFunctionMeta("right", 2, 2),
@@ -811,6 +877,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "JSONExtractArrayRaw": HogQLFunctionMeta("JSONExtractArrayRaw", 1, None),
     "JSONExtractKeysAndValues": HogQLFunctionMeta("JSONExtractKeysAndValues", 1, 3),
     "JSONExtractKeysAndValuesRaw": HogQLFunctionMeta("JSONExtractKeysAndValuesRaw", 1, None),
+    "JSON_VALUE": HogQLFunctionMeta("JSON_VALUE", 2, None),
     # in
     "in": HogQLFunctionMeta("in", 2, 2),
     "notIn": HogQLFunctionMeta("notIn", 2, 2),
@@ -829,7 +896,14 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "coalesce": HogQLFunctionMeta("coalesce", 1, None, case_sensitive=False),
     "ifnull": HogQLFunctionMeta("ifNull", 2, 2, case_sensitive=False),
     "nullif": HogQLFunctionMeta("nullIf", 2, 2, case_sensitive=False),
-    "assumeNotNull": HogQLFunctionMeta("assumeNotNull", 1, 1),
+    "assumeNotNull": HogQLFunctionMeta(
+        "assumeNotNull",
+        1,
+        1,
+        signatures=[
+            ((DateTimeType(),), DateTimeType()),
+        ],
+    ),
     "toNullable": HogQLFunctionMeta("toNullable", 1, 1),
     # tuples
     "tuple": HogQLFunctionMeta("tuple", 0, None),
@@ -934,6 +1008,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "argMaxMerge": HogQLFunctionMeta("argMaxMerge", 1, 1, aggregate=True),
     "avgState": HogQLFunctionMeta("avgState", 1, 1, aggregate=True),
     "avgMerge": HogQLFunctionMeta("avgMerge", 1, 1, aggregate=True),
+    "avgMergeIf": HogQLFunctionMeta("avgMergeIf", 2, 2, aggregate=True),
     "avgWeighted": HogQLFunctionMeta("avgWeighted", 2, 2, aggregate=True),
     "avgWeightedIf": HogQLFunctionMeta("avgWeightedIf", 3, 3, aggregate=True),
     "avgArray": HogQLFunctionMeta("avgArrayOrNull", 1, 1, aggregate=True),

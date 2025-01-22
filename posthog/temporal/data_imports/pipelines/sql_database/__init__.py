@@ -21,6 +21,9 @@ from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from sqlalchemy.sql import text
 
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+
 from .helpers import (
     table_rows,
     engine_from_credentials,
@@ -48,6 +51,8 @@ def sql_source_for_type(
     sslmode: str,
     schema: str,
     table_names: list[str],
+    db_incremental_field_last_value: Optional[Any],
+    using_ssl: Optional[bool] = True,
     team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
@@ -65,17 +70,28 @@ def sql_source_for_type(
     else:
         incremental = None
 
+    connect_args = []
+
     if source_type == ExternalDataSource.Type.POSTGRES:
         credentials = ConnectionStringCredentials(
             f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
         )
     elif source_type == ExternalDataSource.Type.MYSQL:
-        # We have to get DEBUG in temporal workers cos we're not loading Django in the same way as the app
-        is_debug = get_from_env("DEBUG", False, type_cast=str_to_bool)
-        ssl_ca = "/etc/ssl/cert.pem" if is_debug else "/etc/ssl/certs/ca-certificates.crt"
+        query_params = ""
+
+        if using_ssl:
+            # We have to get DEBUG in temporal workers cos we're not loading Django in the same way as the app
+            is_debug = get_from_env("DEBUG", False, type_cast=str_to_bool)
+            ssl_ca = "/etc/ssl/cert.pem" if is_debug else "/etc/ssl/certs/ca-certificates.crt"
+            query_params = f"ssl_ca={ssl_ca}&ssl_verify_cert=false"
+
         credentials = ConnectionStringCredentials(
-            f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?ssl_ca={ssl_ca}&ssl_verify_cert=false"
+            f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?{query_params}"
         )
+
+        # PlanetScale needs this to be set
+        if host.endswith("psdb.cloud"):
+            connect_args = ["SET workload = 'OLAP';"]
     elif source_type == ExternalDataSource.Type.MSSQL:
         credentials = ConnectionStringCredentials(
             f"mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
@@ -84,7 +100,13 @@ def sql_source_for_type(
         raise Exception("Unsupported source_type")
 
     db_source = sql_database(
-        credentials, schema=schema, table_names=table_names, incremental=incremental, team_id=team_id
+        credentials=credentials,
+        schema=schema,
+        table_names=table_names,
+        incremental=incremental,
+        team_id=team_id,
+        connect_args=connect_args,
+        db_incremental_field_last_value=db_incremental_field_last_value,
     )
 
     return db_source
@@ -92,23 +114,20 @@ def sql_source_for_type(
 
 def snowflake_source(
     account_id: str,
-    user: str,
-    password: str,
+    user: Optional[str],
+    password: Optional[str],
+    passphrase: Optional[str],
+    private_key: Optional[str],
+    auth_type: str,
     database: str,
     warehouse: str,
     schema: str,
     table_names: list[str],
+    db_incremental_field_last_value: Optional[Any],
     role: Optional[str] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> DltSource:
-    account_id = quote(account_id)
-    user = quote(user)
-    password = quote(password)
-    database = quote(database)
-    warehouse = quote(warehouse)
-    role = quote(role) if role else None
-
     if incremental_field is not None and incremental_field_type is not None:
         incremental: dlt.sources.incremental | None = dlt.sources.incremental(
             cursor_path=incremental_field, initial_value=incremental_type_to_initial_value(incremental_field_type)
@@ -116,10 +135,53 @@ def snowflake_source(
     else:
         incremental = None
 
-    credentials = ConnectionStringCredentials(
-        f"snowflake://{user}:{password}@{account_id}/{database}/{schema}?warehouse={warehouse}{f'&role={role}' if role else ''}"
+    if auth_type == "password" and user is not None and password is not None:
+        account_id = quote(account_id)
+        user = quote(user)
+        password = quote(password)
+        database = quote(database)
+        warehouse = quote(warehouse)
+        role = quote(role) if role else None
+
+        credentials = create_engine(
+            f"snowflake://{user}:{password}@{account_id}/{database}/{schema}?warehouse={warehouse}{f'&role={role}' if role else ''}"
+        )
+    else:
+        assert private_key is not None
+        assert user is not None
+
+        account_id = quote(account_id)
+        user = quote(user)
+        database = quote(database)
+        warehouse = quote(warehouse)
+        role = quote(role) if role else None
+
+        p_key = serialization.load_pem_private_key(
+            private_key.encode("utf-8"),
+            password=passphrase.encode() if passphrase is not None else None,
+            backend=default_backend(),
+        )
+
+        pkb = p_key.private_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+
+        credentials = create_engine(
+            f"snowflake://{user}@{account_id}/{database}/{schema}?warehouse={warehouse}{f'&role={role}' if role else ''}",
+            connect_args={
+                "private_key": pkb,
+            },
+        )
+
+    db_source = sql_database(
+        credentials=credentials,
+        schema=schema,
+        table_names=table_names,
+        incremental=incremental,
+        db_incremental_field_last_value=db_incremental_field_last_value,
     )
-    db_source = sql_database(credentials, schema=schema, table_names=table_names, incremental=incremental)
 
     return db_source
 
@@ -132,6 +194,8 @@ def bigquery_source(
     client_email: str,
     token_uri: str,
     table_name: str,
+    bq_destination_table_id: str,
+    db_incremental_field_last_value: Optional[Any],
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> DltSource:
@@ -151,9 +215,18 @@ def bigquery_source(
         "token_uri": token_uri,
     }
 
-    engine = create_engine(f"bigquery://{project_id}/{dataset_id}", credentials_info=credentials_info)
+    engine = create_engine(
+        f"bigquery://{project_id}/{dataset_id}?create_disposition=CREATE_IF_NEEDED&allowLargeResults=true&destination={bq_destination_table_id}",
+        credentials_info=credentials_info,
+    )
 
-    return sql_database(engine, schema=None, table_names=[table_name], incremental=incremental)
+    return sql_database(
+        credentials=engine,
+        schema=None,
+        table_names=[table_name],
+        incremental=incremental,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
 
 
 # Temp while DLT doesn't support `interval` columns
@@ -174,12 +247,14 @@ def remove_columns(columns_to_drop: list[str], team_id: Optional[int]):
 
 @dlt.source(max_table_nesting=0)
 def sql_database(
+    db_incremental_field_last_value: Optional[Any],
     credentials: Union[ConnectionStringCredentials, Engine, str] = dlt.secrets.value,
     schema: Optional[str] = dlt.config.value,
     metadata: Optional[MetaData] = None,
     table_names: Optional[List[str]] = dlt.config.value,  # noqa: UP006
     incremental: Optional[dlt.sources.incremental] = None,
     team_id: Optional[int] = None,
+    connect_args: Optional[list[str]] = None,
 ) -> Iterable[DltResource]:
     """
     A DLT source which loads data from an SQL database using SQLAlchemy.
@@ -231,6 +306,8 @@ def sql_database(
                 engine=engine,
                 table=table,
                 incremental=incremental,
+                connect_args=connect_args,
+                db_incremental_field_last_value=db_incremental_field_last_value,
             )
         )
 

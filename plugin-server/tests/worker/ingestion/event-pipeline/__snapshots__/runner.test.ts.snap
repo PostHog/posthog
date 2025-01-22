@@ -1,16 +1,16 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`EventPipelineRunner runEventPipeline() runs steps starting from populateTeamDataStep 1`] = `
-Array [
-  Array [
+[
+  [
     "populateTeamDataStep",
-    Array [
-      Object {
+    [
+      {
         "distinct_id": "my_id",
         "event": "default event",
         "ip": "127.0.0.1",
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {},
+        "properties": {},
         "site_url": "http://localhost",
         "team_id": null,
         "timestamp": "2020-02-23T02:15:00.000Z",
@@ -19,15 +19,15 @@ Array [
       },
     ],
   ],
-  Array [
+  [
     "pluginsProcessEventStep",
-    Array [
-      Object {
+    [
+      {
         "distinct_id": "my_id",
         "event": "default event",
         "ip": "127.0.0.1",
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {},
+        "properties": {},
         "site_url": "http://localhost",
         "team_id": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
@@ -35,21 +35,21 @@ Array [
       },
     ],
   ],
-  Array [
+  [
     "normalizeEventStep",
-    Array [
+    [
       true,
     ],
   ],
-  Array [
+  [
     "processPersonsStep",
-    Array [
-      Object {
+    [
+      {
         "distinct_id": "my_id",
         "event": "default event",
         "ip": null,
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {
+        "properties": {
           "$ip": "127.0.0.1",
         },
         "site_url": "http://localhost",
@@ -61,15 +61,15 @@ Array [
       true,
     ],
   ],
-  Array [
+  [
     "prepareEventStep",
-    Array [
-      Object {
+    [
+      {
         "distinct_id": "my_id",
         "event": "default event",
         "ip": null,
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {
+        "properties": {
           "$ip": "127.0.0.1",
         },
         "site_url": "http://localhost",
@@ -80,65 +80,71 @@ Array [
       true,
     ],
   ],
-  Array [
+  [
     "extractHeatmapDataStep",
-    Array [
-      Object {
+    [
+      {
         "distinctId": "my_id",
-        "elementsList": Array [],
+        "elementsList": [],
         "event": "$pageview",
         "eventUuid": "uuid1",
         "ip": "127.0.0.1",
-        "properties": Object {},
+        "projectId": 1,
+        "properties": {},
         "teamId": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
       },
     ],
   ],
-  Array [
-    "enrichExceptionEventStep",
-    Array [
-      Object {
-        "distinctId": "my_id",
-        "elementsList": Array [],
-        "event": "$pageview",
-        "eventUuid": "uuid1",
-        "ip": "127.0.0.1",
-        "properties": Object {},
-        "teamId": 2,
-        "timestamp": "2020-02-23T02:15:00.000Z",
-      },
-    ],
-  ],
-  Array [
+  [
     "createEventStep",
-    Array [
-      Object {
+    [
+      {
         "distinctId": "my_id",
-        "elementsList": Array [],
+        "elementsList": [],
         "event": "$pageview",
         "eventUuid": "uuid1",
         "ip": "127.0.0.1",
-        "properties": Object {},
+        "projectId": 1,
+        "properties": {},
         "teamId": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
       },
-      Object {
-        "person": Object {
+      {
+        "person": {
           "created_at": "2020-02-23T02:15:00.000Z",
           "id": 123,
           "is_identified": true,
           "is_user_id": 0,
-          "properties": Object {},
-          "properties_last_operation": Object {},
-          "properties_last_updated_at": Object {},
+          "properties": {},
+          "properties_last_operation": {},
+          "properties_last_updated_at": {},
           "team_id": 2,
           "uuid": "uuid",
           "version": 0,
         },
-        "personUpdateProperties": Object {},
+        "personUpdateProperties": {},
       },
       true,
+    ],
+  ],
+  [
+    "emitEventStep",
+    [
+      {
+        "created_at": "2024-11-18 14:54:33.606",
+        "distinct_id": "my_id",
+        "elements_chain": "",
+        "event": "$pageview",
+        "person_created_at": "2024-11-18 14:54:33",
+        "person_mode": "full",
+        "person_properties": "{}",
+        "project_id": 1,
+        "properties": "{}",
+        "team_id": 2,
+        "timestamp": "2020-02-23 02:15:00.000",
+        "uuid": "uuid1",
+      },
     ],
   ],
 ]

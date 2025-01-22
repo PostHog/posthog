@@ -15,7 +15,7 @@ import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { MAX_SELECT_RETURNED_ROWS, startDownload } from '~/queries/nodes/DataTable/DataTableExport'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { ExporterFormat } from '~/types'
 
 import { retentionLogic } from './retentionLogic'
@@ -148,7 +148,7 @@ export function RetentionModal(): JSX.Element | null {
                                                     <LemonButton
                                                         size="small"
                                                         to={urls.personByDistinctId(
-                                                            personAppearances.person.distinct_ids[0]
+                                                            personAppearances.person.distinct_ids?.[0]
                                                         )}
                                                         data-attr="retention-person-link"
                                                     >

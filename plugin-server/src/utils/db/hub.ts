@@ -12,13 +12,11 @@ import { EncryptedFields } from '../../cdp/encryption-utils'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../kafka/config'
-import { createKafkaProducer } from '../../kafka/producer'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
 import {
     EnqueuedPluginJob,
     Hub,
-    KafkaSaslMechanism,
     KafkaSecurityProtocol,
     PluginServerCapabilities,
     PluginsServerConfig,
@@ -37,7 +35,6 @@ import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-k
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { Celery } from './celery'
 import { DB } from './db'
-import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresRouter } from './postgres'
 import { createRedisPool } from './redis'
 
@@ -53,13 +50,6 @@ pgTypes.setTypeParser(1114 /* types.TypeId.TIMESTAMP */, (timeStr) =>
 pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
     timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
 )
-
-export async function createKafkaProducerWrapper(serverConfig: PluginsServerConfig): Promise<KafkaProducerWrapper> {
-    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
-    const producerConfig = createRdProducerConfigFromEnvVars(serverConfig)
-    const producer = await createKafkaProducer(kafkaConnectionConfig, producerConfig)
-    return new KafkaProducerWrapper(producer)
-}
 
 export function createEventsToDropByToken(eventsToDropByTokenStr?: string): Map<string, string[]> {
     const eventsToDropByToken: Map<string, string[]> = new Map()
@@ -113,7 +103,7 @@ export async function createHub(
     status.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
-    const kafkaProducer = await createKafkaProducerWrapper(serverConfig)
+    const kafkaProducer = await KafkaProducerWrapper.create(serverConfig)
     status.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)
@@ -158,17 +148,14 @@ export async function createHub(
         // an acknowledgement as for instance there are some jobs that are
         // chained, and if we do not manage to produce then the chain will be
         // broken.
-        await kafkaProducer.queueMessage({
-            kafkaMessage: {
-                topic: KAFKA_JOBS,
-                messages: [
-                    {
-                        value: Buffer.from(JSON.stringify(job)),
-                        key: Buffer.from(job.pluginConfigTeam.toString()),
-                    },
-                ],
-            },
-            waitForAck: true,
+        await kafkaProducer.queueMessages({
+            topic: KAFKA_JOBS,
+            messages: [
+                {
+                    value: Buffer.from(JSON.stringify(job)),
+                    key: Buffer.from(job.pluginConfigTeam.toString()),
+                },
+            ],
         })
     }
 
@@ -202,6 +189,9 @@ export async function createHub(
         actionManager,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
+        eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
+            process.env.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID
+        ),
         appMetrics: new AppMetrics(
             kafkaProducer,
             serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
@@ -229,19 +219,23 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     }
 }
 
-export type KafkaConfig = {
-    KAFKA_HOSTS: string
-    KAFKAJS_LOG_LEVEL: keyof typeof KAFKAJS_LOG_LEVEL_MAPPING
-    KAFKA_SECURITY_PROTOCOL: 'PLAINTEXT' | 'SSL' | 'SASL_PLAINTEXT' | 'SASL_SSL' | undefined
-    KAFKA_CLIENT_CERT_B64?: string
-    KAFKA_CLIENT_CERT_KEY_B64?: string
-    KAFKA_TRUSTED_CERT_B64?: string
-    KAFKA_SASL_MECHANISM?: KafkaSaslMechanism
-    KAFKA_SASL_USER?: string
-    KAFKA_SASL_PASSWORD?: string
-    KAFKA_CLIENT_RACK?: string
-    KAFKA_CLIENT_ID?: string
-}
+export type KafkaConfig = Pick<
+    PluginsServerConfig,
+    | 'KAFKA_HOSTS'
+    | 'KAFKA_PRODUCER_HOSTS'
+    | 'KAFKA_SECURITY_PROTOCOL'
+    | 'KAFKA_PRODUCER_SECURITY_PROTOCOL'
+    | 'KAFKA_CLIENT_ID'
+    | 'KAFKA_PRODUCER_CLIENT_ID'
+    | 'KAFKA_CLIENT_RACK'
+    | 'KAFKAJS_LOG_LEVEL'
+    | 'KAFKA_CLIENT_CERT_B64'
+    | 'KAFKA_CLIENT_CERT_KEY_B64'
+    | 'KAFKA_TRUSTED_CERT_B64'
+    | 'KAFKA_SASL_MECHANISM'
+    | 'KAFKA_SASL_USER'
+    | 'KAFKA_SASL_PASSWORD'
+>
 
 export function createKafkaClient({
     KAFKA_HOSTS,

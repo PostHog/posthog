@@ -6,11 +6,13 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { isEventFilter } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { GroupDashboard } from 'scenes/groups/GroupDashboard'
 import { groupLogic, GroupLogicProps } from 'scenes/groups/groupLogic'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
@@ -86,10 +88,13 @@ export function Group(): JSX.Element {
     const { groupKey, groupTypeIndex } = logicProps
     const { setGroupEventsQuery } = useActions(groupLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!groupData || !groupType) {
         return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
     }
+
+    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <>
@@ -145,8 +150,8 @@ export function Group(): JSX.Element {
                                 {!currentTeam?.session_recording_opt_in ? (
                                     <div className="mb-4">
                                         <LemonBanner type="info">
-                                            Session recordings are currently disabled for this project. To use this
-                                            feature, please go to your{' '}
+                                            Session recordings are currently disabled for this {settingLevel}. To use
+                                            this feature, please go to your{' '}
                                             <Link to={`${urls.settings('project')}#recordings`}>project settings</Link>{' '}
                                             and enable it.
                                         </LemonBanner>
@@ -221,8 +226,13 @@ export function Group(): JSX.Element {
                     {
                         key: PersonsTabType.FEATURE_FLAGS,
                         label: <span data-attr="groups-related-flags-tab">Feature flags</span>,
+                        tooltip: `Only shows feature flags with targeting conditions based on ${groupTypeName} properties.`,
                         content: (
-                            <RelatedFeatureFlags distinctId={groupData.group_key} groups={{ [groupType]: groupKey }} />
+                            <RelatedFeatureFlags
+                                distinctId={groupData.group_key}
+                                groupTypeIndex={groupTypeIndex}
+                                groups={{ [groupType]: groupKey }}
+                            />
                         ),
                     },
                     showCustomerSuccessDashboards

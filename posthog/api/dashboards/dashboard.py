@@ -3,7 +3,6 @@ from typing import Any, Optional, cast
 
 import structlog
 from django.db.models import Prefetch
-from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -15,6 +14,8 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from posthog.api.dashboards.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.monitoring import Feature, monitor
@@ -30,7 +31,7 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.utils import filters_override_requested_by_client
+from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
 
 logger = structlog.get_logger(__name__)
 
@@ -87,6 +88,7 @@ class DashboardBasicSerializer(
     TaggedItemSerializerMixin,
     serializers.ModelSerializer,
     UserPermissionsSerializerMixin,
+    UserAccessControlSerializerMixin,
 ):
     created_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
@@ -109,6 +111,7 @@ class DashboardBasicSerializer(
             "restriction_level",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
         ]
         read_only_fields = fields
 
@@ -126,6 +129,7 @@ class DashboardBasicSerializer(
 class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
     filters = serializers.SerializerMethodField()
+    variables = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
@@ -150,17 +154,25 @@ class DashboardSerializer(DashboardBasicSerializer):
             "use_dashboard",
             "delete_insights",
             "filters",
+            "variables",
             "tags",
             "tiles",
             "restriction_level",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
         ]
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared"]
+        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
     def validate_filters(self, value) -> dict:
         if not isinstance(value, dict):
             raise serializers.ValidationError("Filters must be a dictionary")
+
+        return value
+
+    def validate_variables(self, value) -> dict:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Variables must be a dictionary")
 
         return value
 
@@ -201,7 +213,9 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         elif use_dashboard:
             try:
-                existing_dashboard = Dashboard.objects.get(id=use_dashboard, team_id=team_id)
+                existing_dashboard = Dashboard.objects.get(
+                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
+                )
                 existing_tiles = (
                     DashboardTile.objects.filter(dashboard=existing_dashboard)
                     .exclude(deleted=True)
@@ -300,6 +314,12 @@ class DashboardSerializer(DashboardBasicSerializer):
             if not isinstance(request_filters, dict):
                 raise serializers.ValidationError("Filters must be a dictionary")
             instance.filters = request_filters
+
+        request_variables = initial_data.get("variables")
+        if request_variables:
+            if not isinstance(request_variables, dict):
+                raise serializers.ValidationError("Filters must be a dictionary")
+            instance.variables = request_variables
 
         instance = super().update(instance, validated_data)
 
@@ -410,6 +430,16 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         return dashboard.filters
 
+    def get_variables(self, dashboard: Dashboard) -> dict:
+        request = self.context.get("request")
+        if request:
+            variables_override = variables_override_requested_by_client(request)
+
+            if variables_override is not None:
+                return variables_override
+
+        return dashboard.variables
+
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
             raise serializers.ValidationError("`use_dashboard` and `use_template` cannot be used together")
@@ -426,6 +456,7 @@ class DashboardSerializer(DashboardBasicSerializer):
 
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
@@ -484,13 +515,14 @@ class DashboardsViewSet(
                 ),
             )
 
+        # Add access level filtering for list actions
+        queryset = self._filter_queryset_by_access_level(queryset)
+
         return queryset
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        pk = kwargs["pk"]
-        queryset = self.get_queryset()
-        dashboard = get_object_or_404(queryset, pk=pk)
+        dashboard = self.get_object()
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())

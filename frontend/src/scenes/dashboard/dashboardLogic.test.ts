@@ -306,7 +306,7 @@ describe('dashboardLogic', () => {
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.updateFiltersAndLayouts()
+                logic.actions.updateFiltersAndLayoutsAndVariables()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
@@ -328,7 +328,9 @@ describe('dashboardLogic', () => {
                     date_from: null,
                     date_to: null,
                     properties: [],
+                    breakdown_filter: null,
                 },
+                variables: {},
             })
         })
     })
@@ -341,7 +343,9 @@ describe('dashboardLogic', () => {
             await expectLogic(logic)
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['setDates'])
-                .toMatchValues({ filters: { date_from: '-24h', date_to: null, properties: [] } })
+                .toMatchValues({
+                    filters: { date_from: '-24h', date_to: null, properties: [], breakdown_filter: null },
+                })
         })
     })
 

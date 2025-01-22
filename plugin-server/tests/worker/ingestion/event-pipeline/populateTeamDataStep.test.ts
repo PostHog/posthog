@@ -1,4 +1,5 @@
 import { PipelineEvent, Team } from '../../../../src/types'
+import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
 import { getMetricValues, resetMetrics } from '../../../helpers/metrics'
@@ -34,9 +35,20 @@ beforeEach(() => {
     resetMetrics()
     runner = {
         hub: {
+            eventsToSkipPersonsProcessingByToken: createEventsToDropByToken('2:distinct_id_to_drop'),
             teamManager: {
                 getTeamByToken: jest.fn((token) => {
                     return token === teamTwoToken ? teamTwo : null
+                }),
+
+                fetchTeam: jest.fn((teamId) => {
+                    if (teamId === 2) {
+                        return teamTwo
+                    }
+                    if (teamId === 3) {
+                        return { ...teamTwo, person_processing_opt_out: true }
+                    }
+                    return null
                 }),
             },
         },
@@ -90,10 +102,21 @@ describe('populateTeamDataStep()', () => {
     })
 
     it('event with a team_id value is returned unchanged', async () => {
-        jest.mocked(runner.hub.teamManager.getTeamByToken).mockRejectedValueOnce(new Error('should not be called'))
-        const input = { ...pipelineEvent, team_id: 43 }
+        const input = { ...pipelineEvent, team_id: 2 }
         const response = await populateTeamDataStep(runner, input)
         expect(response).toEqual(input)
+    })
+
+    it('event with a team_id whose team is opted-out from person processing', async () => {
+        const input = { ...pipelineEvent, team_id: 3 }
+        const response = await populateTeamDataStep(runner, input)
+        expect(response?.properties?.$process_person_profile).toBe(false)
+    })
+
+    it('event that is in the skip list', async () => {
+        const input = { ...pipelineEvent, team_id: 2, distinct_id: 'distinct_id_to_drop' }
+        const response = await populateTeamDataStep(runner, input)
+        expect(response?.properties?.$process_person_profile).toBe(false)
     })
 
     it('PG errors are propagated up to trigger retries', async () => {

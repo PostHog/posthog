@@ -2,6 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PipelineEvent } from '../../../types'
+import { sanitizeString } from '../../../utils/db/utils'
 import { UUID } from '../../../utils/utils'
 import { captureIngestionWarning } from '../utils'
 import { tokenOrTeamPresentCounter } from './metrics'
@@ -29,21 +30,9 @@ export async function populateTeamDataStep(
         })
         .inc()
 
-    // If a team_id is present (event captured from an app), trust it and return the event as is.
-    if (event.team_id) {
-        // Check for an invalid UUID, which should be blocked by capture, when team_id is present
-        if (!UUID.validateString(event.uuid, false)) {
-            await captureIngestionWarning(db.kafkaProducer, event.team_id, 'skipping_event_invalid_uuid', {
-                eventUuid: JSON.stringify(event.uuid),
-            })
-            throw new Error(`Not a valid UUID: "${event.uuid}"`)
-        }
-
-        return event as PluginEvent
-    }
-
+    let team = null
     // Events with no token or team_id are dropped, they should be blocked by capture
-    if (!event.token) {
+    if (!event.token && !event.team_id) {
         eventDroppedCounter
             .labels({
                 event_type: 'analytics',
@@ -51,13 +40,16 @@ export async function populateTeamDataStep(
             })
             .inc()
         return null
+    } else if (event.team_id) {
+        team = await runner.hub.teamManager.fetchTeam(event.team_id)
+    } else if (event.token) {
+        // HACK: we've had null bytes end up in the token in the ingest pipeline before, for some reason. We should try to
+        // prevent this generally, but if it happens, we should at least simply fail to lookup the team, rather than crashing
+        event.token = sanitizeString(event.token)
+        team = await runner.hub.teamManager.getTeamByToken(event.token)
     }
 
-    // Team lookup is cached, but will fail if PG is unavailable and the key expired.
-    // We should retry processing this event.
-    const team = await runner.hub.teamManager.getTeamByToken(event.token)
-
-    // If the token does not resolve to an existing team, drop the events.
+    // If the token or team_id does not resolve to an existing team, drop the events.
     if (!team) {
         eventDroppedCounter
             .labels({
@@ -74,6 +66,23 @@ export async function populateTeamDataStep(
             eventUuid: JSON.stringify(event.uuid),
         })
         throw new Error(`Not a valid UUID: "${event.uuid}"`)
+    }
+
+    const skipPersonsProcessingForDistinctIds = runner.hub.eventsToSkipPersonsProcessingByToken.get(event.token!)
+
+    const forceOptOutPersonProfiles =
+        team.person_processing_opt_out || skipPersonsProcessingForDistinctIds?.includes(event.distinct_id)
+
+    // We allow teams to set the person processing mode on a per-event basis, but override
+    // it with the team-level setting, if it's set to opt-out (since this is billing related,
+    // we go with preferring not to do the processing even if the event says to do it, if the
+    // setting says not to).
+    if (forceOptOutPersonProfiles) {
+        if (event.properties) {
+            event.properties.$process_person_profile = false
+        } else {
+            event.properties = { $process_person_profile: false }
+        }
     }
 
     event = {

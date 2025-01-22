@@ -48,17 +48,19 @@ export function Navigation({
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>
             <main>
-                <TopBar />
+                {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
                 <div
                     className={clsx(
                         'Navigation3000__scene',
                         // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
                         sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw',
-                        sceneConfig?.layout === 'app-canvas' && 'Navigation3000__scene--canvas'
+                        sceneConfig?.layout === 'app-raw-no-header' && 'Navigation3000__scene--raw-no-header'
                     )}
                 >
-                    {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
-                    {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
+                    <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
+                        {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
+                        {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
+                    </div>
                     {children}
                 </div>
             </main>

@@ -1,9 +1,12 @@
 from inline_snapshot import snapshot
 
-from hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
-from posthog.management.commands.migrate_action_webhooks import migrate_action_webhooks
-from posthog.models import Action
+from posthog.management.commands.migrate_action_webhooks import (
+    migrate_action_webhooks,
+    migrate_all_teams_action_webhooks,
+)
+from posthog.models import Action, Team
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import BaseTest
 
@@ -162,3 +165,52 @@ Groups: {groups.organization.url}  {groups.organization.properties.foo.bar}
 Action: [Test Action]({project.url}/data-management/actions/1) {project.url}/data-management/actions/1\
 """.replace("1", str(self.action.id))
         }
+
+    def test_migrate_large_number_of_actions_across_teams(self):
+        organization = self.organization
+        number_of_teams = 3
+        number_of_actions_per_team = 150
+
+        # Create 3 teams
+        teams = [
+            Team.objects.create(
+                name=f"Team {i}", slack_incoming_webhook="https://slack.com/webhook", organization=organization
+            )
+            for i in range(number_of_teams)
+        ]
+
+        # Create 150 actions for each team (450 total)
+        actions = []
+        for team in teams:
+            for i in range(number_of_actions_per_team):
+                actions.append(
+                    Action.objects.create(
+                        team=team,
+                        name=f"Action {i} for team {team.id}",
+                        post_to_slack=True,
+                        deleted=False,
+                        steps_json=[{"event": None}],
+                    )
+                )
+
+        # Run the migration
+        migrate_all_teams_action_webhooks()
+
+        # Count resulting HogFunctions
+        hog_function_count = HogFunction.objects.filter(team_id__in=[team.id for team in teams]).count()
+        self.assertEqual(
+            hog_function_count,
+            number_of_teams * number_of_actions_per_team,
+            f"Expected {number_of_teams * number_of_actions_per_team} HogFunctions, but got {hog_function_count}",
+        )
+
+        # Verify all actions for test teams have been properly migrated (meaning post_to_slack is False and deleted is False)
+        actions_to_migrate = Action.objects.filter(
+            team_id__in=[team.id for team in teams], post_to_slack=True, deleted=False
+        )
+        self.assertEqual(
+            actions_to_migrate.count(),
+            0,
+            f"Expected 0 actions left to migrate, but found {actions_to_migrate.count()}. "
+            + f"Actions still needing migration: {list(actions_to_migrate.values_list('id', 'team_id'))}",
+        )

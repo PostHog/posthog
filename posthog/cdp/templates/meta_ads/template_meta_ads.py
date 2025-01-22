@@ -1,29 +1,45 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
+    type="destination",
     id="template-meta-ads",
     name="Meta Ads Conversions",
     description="Send conversion events to Meta Ads",
     icon_url="/static/services/meta-ads.png",
     category=["Advertisement"],
     hog="""
+let body := {
+    'data': [
+        {
+            'event_name': inputs.eventName,
+            'event_time': inputs.eventTime,
+            'action_source': inputs.actionSource,
+            'user_data': {},
+            'custom_data': {}
+        }
+    ],
+    'access_token': inputs.accessToken
+}
+
+for (let key, value in inputs.userData) {
+    if (not empty(value)) {
+        body.data.1.user_data[key] := value
+    }
+}
+
+for (let key, value in inputs.customData) {
+    if (not empty(value)) {
+        body.data.1.custom_data[key] := value
+    }
+}
+
 let res := fetch(f'https://graph.facebook.com/v21.0/{inputs.pixelId}/events', {
     'method': 'POST',
     'headers': {
         'Content-Type': 'application/json',
     },
-    'body': {
-        'data': [
-            {
-                'event_name': inputs.eventName,
-                'event_time': inputs.eventTime,
-                'action_source': inputs.actionSource,
-                'user_data': inputs.userData
-            }
-        ],
-        'access_token': inputs.accessToken
-    }
+    'body': body
 })
 if (res.status >= 400) {
     throw Error(f'Error from graph.facebook.com (status {res.status}): {res.body}')
@@ -121,6 +137,15 @@ if (res.status >= 400) {
                 "fn": "{sha256Hex(person.properties.first_name)}",
                 "ln": "{sha256Hex(person.properties.last_name)}",
             },
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "customData",
+            "type": "dictionary",
+            "label": "Custom data",
+            "description": "A map that contains custom data. See this page for options: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/custom-data",
+            "default": {"currency": "USD", "price": "{event.properties.price}"},
             "secret": False,
             "required": True,
         },

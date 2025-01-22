@@ -3,8 +3,10 @@ import { DateTime } from 'luxon'
 
 import { Group, GroupTypeIndex, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
+import { MessageSizeTooLarge } from '../../utils/db/error'
 import { PostgresUse } from '../../utils/db/postgres'
 import { RaceConditionError } from '../../utils/utils'
+import { captureIngestionWarning } from './utils'
 
 interface PropertiesUpdate {
     updated: boolean
@@ -14,6 +16,7 @@ interface PropertiesUpdate {
 export async function upsertGroup(
     db: DB,
     teamId: TeamId,
+    projectId: TeamId,
     groupTypeIndex: GroupTypeIndex,
     groupKey: string,
     properties: Properties,
@@ -70,21 +73,27 @@ export async function upsertGroup(
         )
 
         if (propertiesUpdate.updated) {
-            await Promise.all([
-                db.upsertGroupClickhouse(
-                    teamId,
-                    groupTypeIndex,
-                    groupKey,
-                    propertiesUpdate.properties,
-                    createdAt,
-                    version
-                ),
-            ])
+            await db.upsertGroupClickhouse(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                propertiesUpdate.properties,
+                createdAt,
+                version
+            )
         }
     } catch (error) {
+        if (error instanceof MessageSizeTooLarge) {
+            // Message is too large, for kafka - this is unrecoverable so we capture an ingestion warning instead
+            await captureIngestionWarning(db.kafkaProducer, teamId, 'group_upsert_message_size_too_large', {
+                groupTypeIndex,
+                groupKey,
+            })
+            return
+        }
         if (error instanceof RaceConditionError) {
             // Try again - lock the row and insert!
-            return upsertGroup(db, teamId, groupTypeIndex, groupKey, properties, timestamp)
+            return upsertGroup(db, teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
         }
         throw error
     }

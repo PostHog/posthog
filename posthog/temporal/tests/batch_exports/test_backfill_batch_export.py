@@ -16,6 +16,7 @@ import temporalio.worker
 from asgiref.sync import sync_to_async
 from django.conf import settings
 
+from posthog import constants
 from posthog.models import Team
 from posthog.temporal.batch_exports.backfill_batch_export import (
     BackfillBatchExportInputs,
@@ -166,11 +167,49 @@ async def temporal_schedule(temporal_client, team):
                 ),
             ],
         ),
+        (
+            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+            None,
+            dt.timedelta(days=1),
+            [
+                (
+                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
+                ),
+                (
+                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.UTC),
+                ),
+                (
+                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.UTC),
+                ),
+                (
+                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
+                ),
+            ],
+        ),
+        (
+            None,
+            dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
+            dt.timedelta(days=1),
+            [
+                (
+                    None,
+                    dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
+                ),
+            ],
+        ),
     ],
 )
 def test_backfill_range(start_at, end_at, step, expected):
     """Test the backfill_range function yields expected ranges of dates."""
-    result = list(backfill_range(start_at, end_at, step))
+    generator = backfill_range(start_at, end_at, step)
+    result = []
+    for _ in range(len(expected)):
+        result.append(next(generator))
+
     assert result == expected
 
 
@@ -260,7 +299,7 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
         BackfillBatchExportWorkflow.run,
         inputs,
         id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
         execution_timeout=dt.timedelta(minutes=1),
         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
     )
@@ -341,7 +380,7 @@ async def test_backfill_batch_export_workflow_no_end_at(
         BackfillBatchExportWorkflow.run,
         inputs,
         id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
         execution_timeout=dt.timedelta(minutes=1),
         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
     )
@@ -417,7 +456,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
         BackfillBatchExportWorkflow.run,
         inputs,
         id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
         execution_timeout=dt.timedelta(seconds=20),
         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
     )
@@ -459,7 +498,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
         BackfillBatchExportWorkflow.run,
         inputs,
         id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
         execution_timeout=dt.timedelta(seconds=20),
         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
     )
@@ -545,7 +584,7 @@ async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
         BackfillBatchExportWorkflow.run,
         inputs,
         id=backfill_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
         execution_timeout=dt.timedelta(minutes=2),
         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
     )
@@ -615,7 +654,7 @@ async def test_backfill_utc_batch_export_workflow_with_timezone_aware_bounds(
         BackfillBatchExportWorkflow.run,
         inputs,
         id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
         execution_timeout=dt.timedelta(minutes=1),
         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
     )
@@ -710,7 +749,7 @@ async def test_backfill_aware_batch_export_workflow_with_timezone_aware_bounds(
         BackfillBatchExportWorkflow.run,
         inputs,
         id=workflow_id,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
         execution_timeout=dt.timedelta(minutes=1),
         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
     )
@@ -751,6 +790,77 @@ async def test_backfill_aware_batch_export_workflow_with_timezone_aware_bounds(
 
     assert all(end_time == end_at for end_time in adjusted_end_times)
     assert all(scheduled_start_time == end_at for scheduled_start_time in adjusted_scheduled_start_times)
+
+    backfills = await afetch_batch_export_backfills(batch_export_id=desc.id)
+
+    assert len(backfills) == 1, "Expected one backfill to have been created"
+
+    backfill = backfills.pop()
+    assert backfill.status == "Completed"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_backfill_batch_export_workflow_no_start_at(temporal_worker, temporal_schedule, temporal_client, team):
+    """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
+    start_at = None
+    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
+
+    desc = await temporal_schedule.describe()
+
+    workflow_id = str(uuid.uuid4())
+    inputs = BackfillBatchExportInputs(
+        team_id=team.pk,
+        batch_export_id=desc.id,
+        start_at=start_at,
+        end_at=end_at.isoformat(),
+        start_delay=1.0,
+    )
+
+    handle = await temporal_client.start_workflow(
+        BackfillBatchExportWorkflow.run,
+        inputs,
+        id=workflow_id,
+        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+        execution_timeout=dt.timedelta(minutes=1),
+        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+    )
+    await handle.result()
+
+    query = f'TemporalScheduledById="{desc.id}"'
+    workflows: list[temporalio.client.WorkflowExecution] = []
+
+    timeout = 20
+    waited = 0
+    expected = 1
+    while len(workflows) < expected:
+        # It can take a few seconds for workflows to be query-able
+        waited += 1
+        if waited > timeout:
+            raise TimeoutError("Timed-out waiting for workflows to be query-able")
+
+        await asyncio.sleep(1)
+
+        workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
+
+    assert len(workflows) == expected
+
+    for workflow in workflows:
+        handle = temporal_client.get_workflow_handle(workflow.id)
+        history = await handle.fetch_history()
+
+        for event in history.events:
+            if event.event_type == 1:
+                # 1 is EVENT_TYPE_WORKFLOW_EXECUTION_STARTED
+                args = await workflow.data_converter.decode(
+                    event.workflow_execution_started_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
+            elif event.event_type == 10:
+                # 10 is EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+                args = await workflow.data_converter.decode(
+                    event.activity_task_scheduled_event_attributes.input.payloads
+                )
+                assert args[0]["is_backfill"] is True
 
     backfills = await afetch_batch_export_backfills(batch_export_id=desc.id)
 

@@ -26,6 +26,7 @@ from posthog.schema import (
     ActionsNode,
     ChartDisplayType,
     DataWarehouseNode,
+    DataWarehousePropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
     TrendsQuery,
@@ -60,7 +61,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         self.modifiers = modifiers
         self.limit_context = limit_context
 
-    def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         breakdown = self.breakdown
         events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
 
@@ -73,7 +74,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _get_wrapper_query(
         self, events_query: ast.SelectQuery, breakdown: Breakdown
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         if not breakdown.enabled:
             return events_query
 
@@ -293,14 +294,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             return wrapper
         # Just complex series aggregation
-        elif (
-            self._aggregation_operation.requires_query_orchestration()
-            and self._aggregation_operation.is_first_time_ever_math()
+        elif self._aggregation_operation.requires_query_orchestration() and (
+            self._aggregation_operation.is_first_time_ever_math()
+            or self._aggregation_operation.is_first_matching_event()
         ):
             return self._aggregation_operation.get_first_time_math_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
                 event_name_filter=self._event_or_action_where_expr(),
+                is_first_matching_event=self._aggregation_operation.is_first_matching_event(),
             ).build()
         elif self._aggregation_operation.requires_query_orchestration():
             return self._aggregation_operation.get_actors_query_orchestrator(
@@ -312,7 +314,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _outer_select_query(
         self, breakdown: Breakdown, inner_query: ast.SelectQuery
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         total_array = parse_expr(
             """
             arrayMap(
@@ -453,7 +455,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ) or get_breakdown_limit_for_context(self.limit_context)
 
     def _inner_select_query(
-        self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectUnionQuery
+        self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectSetQuery
     ) -> ast.SelectQuery:
         query = cast(
             ast.SelectQuery,
@@ -696,11 +698,28 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                filters.append(property_to_expr(property, self.team))
+                if is_data_warehouse_series:
+                    property_clone = property.copy()
+                    if property_clone["type"] in ("event", "person"):
+                        if property_clone["type"] == "event":
+                            property_clone["key"] = f"events.properties.{property_clone['key']}"
+                        elif property_clone["type"] == "person":
+                            property_clone["key"] = f"events.person.properties.{property_clone['key']}"
+                        property_clone["type"] = "data_warehouse"
+                    filters.append(property_to_expr(property_clone, self.team))
+                else:
+                    filters.append(property_to_expr(property, self.team))
 
         # Properties
-        if self.query.properties is not None and self.query.properties != [] and not is_data_warehouse_series:
-            filters.append(property_to_expr(self.query.properties, self.team))
+        if self.query.properties is not None and self.query.properties != []:
+            if is_data_warehouse_series:
+                data_warehouse_properties = [
+                    p for p in self.query.properties if isinstance(p, DataWarehousePropertyFilter)
+                ]
+                if data_warehouse_properties:
+                    filters.append(property_to_expr(data_warehouse_properties, self.team))
+            else:
+                filters.append(property_to_expr(self.query.properties, self.team))
 
         # Series Filters
         if series.properties is not None and series.properties != []:
@@ -738,7 +757,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         # Actions
         if isinstance(self.series, ActionsNode):
-            assert self.team.project_id is not None
             try:
                 action = Action.objects.get(pk=int(self.series.id), team__project_id=self.team.project_id)
                 return action_to_expr(action)

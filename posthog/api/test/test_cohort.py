@@ -95,9 +95,6 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                     ],
                 },
                 "name_length": 8,
-                "groups_count": 1,
-                "action_groups_count": 0,
-                "properties_groups_count": 1,
                 "deleted": False,
             },
         )
@@ -136,9 +133,6 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                     ],
                 },
                 "name_length": 9,
-                "groups_count": 1,
-                "action_groups_count": 0,
-                "properties_groups_count": 1,
                 "deleted": False,
                 "updated_by_creator": True,
             },
@@ -241,7 +235,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -256,7 +250,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
@@ -375,21 +369,32 @@ email@example.org,
         self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_calculate_cohort.call_count, 1)
 
-    def test_cohort_list(self):
+    def test_cohort_list_with_search(self):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
+
         Person.objects.create(team=self.team, properties={"prop": 5})
         Person.objects.create(team=self.team, properties={"prop": 6})
 
         self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "whatever", "groups": [{"properties": {"prop": 5}}]},
+            data={"name": "cohort1", "groups": [{"properties": {"prop": 5}}]},
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "cohort2", "groups": [{"properties": {"prop": 6}}]},
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
+        self.assertEqual(len(response["results"]), 2)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=cohort1").json()
         self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["name"], "whatever")
-        self.assertEqual(response["results"][0]["created_by"]["id"], self.user.id)
+        self.assertEqual(response["results"][0]["name"], "cohort1")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=nomatch").json()
+        self.assertEqual(len(response["results"]), 0)
 
     def test_cohort_activity_log(self):
         self.team.app_urls = ["http://somewebsite.com"]
@@ -1111,7 +1116,7 @@ email@example.org,
         self.assertEqual(1, _calc("select 1 from events"))
 
         # raises on all other cases
-        response = self.client.post(
+        query_post_response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={
                 "name": "cohort A",
@@ -1122,7 +1127,15 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 500, response.content)
+        query_get_response = self.client.get(
+            f"/api/projects/{self.team.id}/cohorts/{query_post_response.json()['id']}/"
+        )
+
+        self.assertEqual(query_post_response.status_code, 201)
+        self.assertEqual(query_get_response.status_code, 200)
+        self.assertEqual(
+            query_get_response.json()["errors_calculating"], 1
+        )  # Should be because selecting from groups is not allowed
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_with_is_set_filter_missing_value(self, patch_capture):

@@ -1,5 +1,4 @@
 import { connect, kea, path, selectors } from 'kea'
-import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -9,6 +8,7 @@ import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activ
 import { AvailableFeature, SidePanelTab } from '~/types'
 
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
+import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
 import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -40,19 +40,18 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['status'],
             userLogic,
             ['hasAvailableFeature'],
-            router,
-            ['currentLocation'],
+            sidePanelContextLogic,
+            ['sceneSidePanelContext'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
 
     selectors({
         enabledTabs: [
-            (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks, s.featureFlags],
-            (isCloudOrDev, isReady, hasCompletedAllTasks, featureflags) => {
+            (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks, s.featureFlags, s.sceneSidePanelContext],
+            (isCloudOrDev, isReady, hasCompletedAllTasks, featureflags, sceneSidePanelContext) => {
                 const tabs: SidePanelTab[] = []
 
-                tabs.push(SidePanelTab.ExperimentFeatureFlag)
                 tabs.push(SidePanelTab.Notebooks)
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
@@ -64,6 +63,13 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 }
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
+                }
+                if (
+                    featureflags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL] &&
+                    sceneSidePanelContext.access_control_resource &&
+                    sceneSidePanelContext.access_control_resource_id
+                ) {
+                    tabs.push(SidePanelTab.AccessControl)
                 }
                 tabs.push(SidePanelTab.Exports)
                 tabs.push(SidePanelTab.FeaturePreviews)
@@ -78,24 +84,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [
-                s.enabledTabs,
-                s.selectedTab,
-                s.sidePanelOpen,
-                s.unreadCount,
-                s.status,
-                s.hasAvailableFeature,
-                s.currentLocation,
-            ],
-            (
-                enabledTabs,
-                selectedTab,
-                sidePanelOpen,
-                unreadCount,
-                status,
-                hasAvailableFeature,
-                currentLocation
-            ): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.unreadCount, s.status, s.hasAvailableFeature],
+            (enabledTabs, selectedTab, sidePanelOpen, unreadCount, status, hasAvailableFeature): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
                         return true
@@ -116,10 +106,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     // Hide certain tabs unless they are selected
                     if (ALWAYS_EXTRA_TABS.includes(tab)) {
                         return false
-                    }
-
-                    if (tab === SidePanelTab.ExperimentFeatureFlag) {
-                        return /^\/project\/[0-9]+\/experiments\/[0-9]+/.test(currentLocation.pathname)
                     }
 
                     return true

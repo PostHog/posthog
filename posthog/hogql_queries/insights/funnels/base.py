@@ -5,7 +5,7 @@ from typing import Any, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.clickhouse.materialized_columns.column import ColumnName
+from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.hogql import ast
 from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
@@ -36,6 +36,8 @@ from posthog.schema import (
     FunnelMathType,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
+
+JOIN_ALGOS = "auto"
 
 
 class FunnelBase(ABC):
@@ -89,14 +91,35 @@ class FunnelBase(ABC):
     def get_step_counts_without_aggregation_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
+    # This is a simple heuristic to reduce the number of events we look at in UDF funnels (thus are serialized and sent over)
+    # We remove an event if it matches one or zero steps and there was already the same type of event before and after it (that don't have the same timestamp)
+    # arrayRotateRight turns [1,2,3] into [3,1,2]
+    # arrayRotateLeft turns [1,2,3] into [2,3,1]
+    # For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
+    def _udf_event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
+        return f"""arrayFilter(
+                    (x, x_before, x_after) -> not (
+                        length(x.{steps_index}) <= 1
+                        and x.{steps_index} == x_before.{steps_index}
+                        and x.{steps_index} == x_after.{steps_index}
+                        and x.{prop_val_index} == x_before.{prop_val_index}
+                        and x.{prop_val_index} == x_after.{prop_val_index}
+                        and x.{timestamp_index} > x_before.{timestamp_index}
+                        and x.{timestamp_index} < x_after.{timestamp_index}),
+                    events_array,
+                    arrayRotateRight(events_array, 1),
+                    arrayRotateLeft(events_array, 1))"""
+
     @cached_property
     def breakdown_cohorts(self) -> list[Cohort]:
         team, breakdown = self.context.team, self.context.breakdown
 
         if isinstance(breakdown, list):
-            cohorts = Cohort.objects.filter(team_id=team.pk, pk__in=[b for b in breakdown if b != "all"])
+            cohorts = Cohort.objects.filter(
+                team__project_id=team.project_id, pk__in=[b for b in breakdown if b != "all"]
+            )
         else:
-            cohorts = Cohort.objects.filter(team_id=team.pk, pk=breakdown)
+            cohorts = Cohort.objects.filter(team__project_id=team.project_id, pk=breakdown)
 
         return list(cohorts)
 
@@ -304,7 +327,6 @@ class FunnelBase(ABC):
                 "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
             )
         else:
-            assert self.context.team.project_id is not None
             action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
             name = action.name
             action_id = step.id
@@ -514,7 +536,7 @@ class FunnelBase(ABC):
 
         return ast.JoinExpr(
             join_type="INNER JOIN",
-            table=ast.SelectUnionQuery(select_queries=cohort_queries),
+            table=ast.SelectSetQuery.create_from_queries(cohort_queries, "UNION ALL"),
             alias="cohort_join",
             constraint=ast.JoinConstraint(
                 expr=ast.CompareOperation(
@@ -616,6 +638,7 @@ class FunnelBase(ABC):
             ],
             select_from=ast.JoinExpr(table=select_query),
             group_by=[ast.Field(chain=["final_prop"])],
+            limit=ast.Constant(value=self.get_breakdown_limit() + 1),
         )
 
     def _get_steps_conditions(self, length: int) -> ast.Expr:
@@ -677,7 +700,6 @@ class FunnelBase(ABC):
 
         if isinstance(entity, ActionsNode) or isinstance(entity, FunnelExclusionActionsNode):
             # action
-            assert self.context.team.project_id is not None
             action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):
@@ -704,7 +726,9 @@ class FunnelBase(ABC):
             first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
             return ast.And(exprs=[*filters, first_time_filter])
         elif entity.math == FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS:
-            subquery = FirstTimeForUserAggregationQuery(self.context, ast.Constant(value=1), filter_expr).to_query()
+            subquery = FirstTimeForUserAggregationQuery(
+                self.context, ast.Constant(value=1), ast.And(exprs=filters)
+            ).to_query()
             first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
             return ast.And(exprs=[*filters, first_time_filter])
         elif len(filters) > 1:

@@ -115,7 +115,7 @@ export function LemonInputSelect({
         // Show the input value if custom values are allowed and it's not in the list
         if (inputValue && !values.includes(inputValue)) {
             if (allowCustomValues) {
-                const unescapedInputValue = inputValue.replace('\\,', ',') // Transform escaped commas to plain commas
+                const unescapedInputValue = inputValue.replaceAll('\\,', ',') // Transform escaped commas to plain commas
                 ret.push({ key: unescapedInputValue, label: unescapedInputValue, __isInput: true })
             }
         } else if (mode === 'single' && values.length > 0) {
@@ -164,7 +164,7 @@ export function LemonInputSelect({
 
             // We split on commas EXCEPT if they're escaped (to allow for commas in values)
             newValue.split(NON_ESCAPED_COMMA_REGEX).forEach((value) => {
-                const trimmedValue = value.replace('\\,', ',').trim() // Transform escaped commas to plain commas
+                const trimmedValue = value.replaceAll('\\,', ',').trim() // Transform escaped commas to plain commas
                 if (trimmedValue && !values.includes(trimmedValue)) {
                     newValues.push(trimmedValue)
                 }
@@ -249,22 +249,25 @@ export function LemonInputSelect({
     }
 
     const _onBlur = (): void => {
-        // We need to add a delay as a click could be in the popover or the input wrapper which refocuses
-        setTimeout(() => {
-            if (popoverFocusRef.current) {
-                popoverFocusRef.current = false
-                inputRef.current?.focus()
-                _onFocus()
-                return
-            }
-            if (allowCustomValues && inputValue.trim() && !values.includes(inputValue)) {
+        const hasSelectedAutofilledValue = selectedIndex > 0
+        const hasCustomValue =
+            !hasSelectedAutofilledValue && allowCustomValues && inputValue.trim() && !values.includes(inputValue)
+        if (popoverFocusRef.current) {
+            popoverFocusRef.current = false
+            inputRef.current?.focus()
+            _onFocus()
+            if (hasCustomValue) {
                 _onActionItem(inputValue.trim(), null)
-            } else {
-                setInputValue('')
             }
-            setShowPopover(false)
-            onBlur?.()
-        }, 100)
+            return
+        }
+        if (hasCustomValue) {
+            _onActionItem(inputValue.trim(), null)
+        } else {
+            setInputValue('')
+        }
+        setShowPopover(false)
+        onBlur?.()
     }
 
     const _onFocus = (): void => {

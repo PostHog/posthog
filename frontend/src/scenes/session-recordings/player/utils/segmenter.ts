@@ -152,7 +152,7 @@ export const createSegments = (
         const list = [...acc]
 
         if (previousSegment && segment.startTimestamp !== previousSegment.endTimestamp) {
-            // If the segments do not immediately follow each other then we add a "gap" segment
+            // If the segments do not immediately follow each other, then we add a "gap" segment
             const startTimestamp = previousSegment.endTimestamp
             const endTimestamp = segment.startTimestamp
             // Offset the window ID check so we look for a subsequent segment
@@ -183,6 +183,17 @@ export const createSegments = (
                 kind: 'buffer',
                 startTimestamp: latestTimestamp ? latestTimestamp + 1 : start.valueOf(),
                 endTimestamp: endTimestamp,
+                isActive: false,
+            } as RecordingSegment)
+        }
+
+        // if the first segment starts after the start of the session, add a gap segment at the beginning
+        const firstTimestamp = segments[0]?.startTimestamp
+        if (firstTimestamp && firstTimestamp > start.valueOf()) {
+            segments.unshift({
+                kind: 'gap',
+                startTimestamp: start.valueOf(),
+                endTimestamp: firstTimestamp,
                 isActive: false,
             } as RecordingSegment)
         }

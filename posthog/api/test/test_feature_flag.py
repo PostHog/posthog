@@ -8,7 +8,7 @@ from django.db import connection
 from django.db.utils import OperationalError
 from django.test import TransactionTestCase
 from django.test.client import RequestFactory
-from django.utils import timezone
+from django.utils.timezone import now
 from freezegun.api import freeze_time
 from rest_framework import status
 
@@ -16,10 +16,10 @@ from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.constants import AvailableFeature
-from posthog.models import FeatureFlag, GroupTypeMapping, User
+from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
-from posthog.models.early_access_feature import EarlyAccessFeature
+from products.early_access_features.backend.models import EarlyAccessFeature
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
     get_all_feature_flags,
@@ -32,6 +32,9 @@ from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
+from posthog.models.feature_flag.flag_status import (
+    FeatureFlagStatus,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -300,6 +303,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": instance.created_at,
                 "aggregating_by_groups": True,
                 "payload_count": 0,
+                "creation_context": "feature_flags",
             },
         )
 
@@ -334,6 +338,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "creation_context": "feature_flags",
             },
         )
 
@@ -385,6 +390,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "creation_context": "feature_flags",
             },
         )
 
@@ -438,6 +444,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "creation_context": "feature_flags",
             },
         )
 
@@ -783,6 +790,447 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                 },
             ],
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_key(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            # Assert that the insights were created properly.
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+            insights = feature_flag.usage_dashboard.insights
+            total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+            self.assertEqual(
+                total_volume_insight.description,
+                "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+            self.assertEqual(
+                unique_users_insight.description,
+                "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+
+            # Update the feature flag key
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "key": "a-new-feature-flag-key",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 65,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "@posthog.com",
+                                        "operator": "icontains",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(response.json()["key"], "a-new-feature-flag-key")
+        self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 65)
+
+        # Assert analytics are sent
+        mock_capture.assert_called_with(
+            self.user,
+            "feature flag updated",
+            {
+                "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
+                "has_rollout_percentage": True,
+                "has_filters": True,
+                "filter_count": 1,
+                "created_at": datetime.datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
+                "aggregating_by_groups": False,
+                "payload_count": 0,
+            },
+        )
+
+        self.assert_feature_flag_activity(
+            flag_id,
+            [
+                {
+                    "user": {
+                        "first_name": self.user.first_name,
+                        "email": self.user.email,
+                    },
+                    "activity": "updated",
+                    "created_at": "2021-08-25T22:19:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "FeatureFlag",
+                                "action": "changed",
+                                "field": "key",
+                                "before": "a-feature-flag-that-is-updated",
+                                "after": "a-new-feature-flag-key",
+                            },
+                            {
+                                "type": "FeatureFlag",
+                                "action": "created",
+                                "field": "filters",
+                                "before": None,
+                                "after": {
+                                    "groups": [
+                                        {
+                                            "properties": [
+                                                {
+                                                    "key": "email",
+                                                    "type": "person",
+                                                    "value": "@posthog.com",
+                                                    "operator": "icontains",
+                                                }
+                                            ],
+                                            "rollout_percentage": 65,
+                                        }
+                                    ]
+                                },
+                            },
+                        ],
+                        "trigger": None,
+                        "type": None,
+                        "name": "a-new-feature-flag-key",
+                        "short_id": None,
+                    },
+                },
+                {
+                    "user": {
+                        "first_name": self.user.first_name,
+                        "email": self.user.email,
+                    },
+                    "activity": "created",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "type": None,
+                        "name": "a-feature-flag-that-is-updated",
+                        "short_id": None,
+                    },
+                },
+            ],
+        )
+
+        feature_flag = FeatureFlag.objects.get(id=flag_id)
+        assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+        insights = feature_flag.usage_dashboard.insights
+        total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+        self.assertEqual(
+            total_volume_insight.description,
+            "Shows the number of total calls made on feature flag with key: a-new-feature-flag-key",
+        )
+        self.assertEqual(
+            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-new-feature-flag-key",
+        )
+        unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+        self.assertEqual(
+            unique_users_insight.description,
+            "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
+        )
+        self.assertEqual(
+            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-new-feature-flag-key",
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_key_does_not_update_insight_with_changed_description(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            # Assert that the insights were created properly.
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+            insights = feature_flag.usage_dashboard.insights
+            total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+            self.assertEqual(
+                total_volume_insight.description,
+                "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+            self.assertEqual(
+                unique_users_insight.description,
+                "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            total_volume_insight.name = "This is a changed description"
+            total_volume_insight.save()
+
+            # Update the feature flag key
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "key": "a-new-feature-flag-key",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 65,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "@posthog.com",
+                                        "operator": "icontains",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Total volume insight should not be updated because we changed its description
+        # unique users insight should still be updated
+        feature_flag = FeatureFlag.objects.get(id=flag_id)
+        assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+        insights = feature_flag.usage_dashboard.insights
+        self.assertIsNone(insights.filter(name="Feature Flag Called Total Volume").first())
+        total_volume_insight = insights.get(name="This is a changed description")
+        self.assertEqual(
+            total_volume_insight.description,
+            "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+        )
+        self.assertEqual(
+            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-feature-flag-that-is-updated",
+        )
+        unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+        self.assertEqual(
+            unique_users_insight.description,
+            "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
+        )
+        self.assertEqual(
+            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-new-feature-flag-key",
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_key_does_not_update_insight_with_changed_filter(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            # Assert that the insights were created properly.
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+            insights = feature_flag.usage_dashboard.insights
+            total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+            self.assertEqual(
+                total_volume_insight.description,
+                "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+            self.assertEqual(
+                unique_users_insight.description,
+                "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] = (
+                "something_unexpected"
+            )
+            total_volume_insight.save()
+
+            # Update the feature flag key
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "key": "a-new-feature-flag-key",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 65,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "@posthog.com",
+                                        "operator": "icontains",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Total volume insight should not be updated because we changed its description
+        # unique users insight should still be updated
+        feature_flag = FeatureFlag.objects.get(id=flag_id)
+        assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+        insights = feature_flag.usage_dashboard.insights
+        total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+        self.assertEqual(
+            total_volume_insight.description,
+            "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+        )
+        self.assertEqual(
+            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "something_unexpected",
+        )
+        unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+        self.assertEqual(
+            unique_users_insight.description,
+            "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
+        )
+        self.assertEqual(
+            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-new-feature-flag-key",
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_key_does_not_update_insight_with_removed_filter(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            # Assert that the insights were created properly.
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+            insights = feature_flag.usage_dashboard.insights
+            total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+            self.assertEqual(
+                total_volume_insight.description,
+                "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+            self.assertEqual(
+                unique_users_insight.description,
+                "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
+            )
+            self.assertEqual(
+                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                "a-feature-flag-that-is-updated",
+            )
+            # clear the values from total_volume_insight.query["source"]["properties"]["values"]
+            total_volume_insight.query["source"]["properties"]["values"] = []
+            total_volume_insight.save()
+
+            # Update the feature flag key
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "key": "a-new-feature-flag-key",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 65,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "@posthog.com",
+                                        "operator": "icontains",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Total volume insight should not be updated because we changed its description
+        # unique users insight should still be updated
+        feature_flag = FeatureFlag.objects.get(id=flag_id)
+        assert feature_flag.usage_dashboard is not None, "Usage dashboard was not created"
+        insights = feature_flag.usage_dashboard.insights
+        total_volume_insight = insights.get(name="Feature Flag Called Total Volume")
+        self.assertEqual(
+            total_volume_insight.description,
+            "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
+        )
+        self.assertEqual(
+            total_volume_insight.query["source"]["properties"]["values"],
+            [],
+        )
+        unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
+        self.assertEqual(
+            unique_users_insight.description,
+            "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
+        )
+        self.assertEqual(
+            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            "a-new-feature-flag-key",
         )
 
     def test_hard_deleting_feature_flag_is_forbidden(self):
@@ -1240,7 +1688,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(5, 6)):
+        with self.assertNumQueries(FuzzyInt(8, 9)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1255,7 +1703,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(5, 6)):
+        with self.assertNumQueries(FuzzyInt(8, 9)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1270,7 +1718,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(11, 12)):
+        with self.assertNumQueries(FuzzyInt(14, 15)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1285,7 +1733,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(11, 12)):
+        with self.assertNumQueries(FuzzyInt(14, 15)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1309,7 +1757,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(11, 12)):
+        with self.assertNumQueries(FuzzyInt(14, 15)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -1407,7 +1855,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
 
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1448,77 +1898,97 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             dashboard.description,
             "This dashboard was generated by the feature flag with key (alpha-feature)",
         )
+        assert dashboard is not None, "Usage dashboard was not created"
+        self.assertEqual(dashboard.creation_mode, Dashboard.CreationMode.TEMPLATE)
         self.assertEqual(dashboard.filters, {"date_from": "-30d"})
         self.assertEqual(len(tiles), 2)
         self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
         self.assertEqual(
-            tiles[0].insight.filters,
+            tiles[0].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_flag_called",
-                        "name": "$feature_flag_called",
-                        "type": "events",
-                    }
-                ],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$feature_flag_response",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
-                        }
-                    ],
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "name": "$feature_flag_called", "event": "$feature_flag_called"}],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "breakdown_type": "event",
-                "filter_test_accounts": False,
             },
         )
         self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
         self.assertEqual(
-            tiles[1].insight.filters,
+            tiles[1].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_flag_called",
-                        "math": "dau",
-                        "name": "$feature_flag_called",
-                        "type": "events",
-                    }
-                ],
-                "display": "ActionsTable",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$feature_flag_response",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
                         {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "$feature_flag_called",
+                            "event": "$feature_flag_called",
                         }
                     ],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsTable",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "breakdown_type": "event",
-                "filter_test_accounts": False,
             },
         )
 
@@ -1546,153 +2016,191 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(tiles), 4)
         self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
         self.assertEqual(
-            tiles[0].insight.filters,
+            tiles[0].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_flag_called",
-                        "name": "$feature_flag_called",
-                        "type": "events",
-                    }
-                ],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$feature_flag_response",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
-                        }
-                    ],
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "name": "$feature_flag_called", "event": "$feature_flag_called"}],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "breakdown_type": "event",
-                "filter_test_accounts": False,
             },
         )
         self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
         self.assertEqual(
-            tiles[1].insight.filters,
+            tiles[1].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_flag_called",
-                        "math": "dau",
-                        "name": "$feature_flag_called",
-                        "type": "events",
-                    }
-                ],
-                "display": "ActionsTable",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$feature_flag_response",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
                         {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "$feature_flag_called",
+                            "event": "$feature_flag_called",
                         }
                     ],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsTable",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "breakdown_type": "event",
-                "filter_test_accounts": False,
             },
         )
 
         # enriched insights
         self.assertEqual(tiles[2].insight.name, "Feature Interaction Total Volume")
         self.assertEqual(
-            tiles[2].insight.filters,
+            tiles[2].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_interaction",
-                        "name": "Feature Interaction - Total",
-                        "type": "events",
-                    },
-                    {
-                        "id": "$feature_interaction",
-                        "math": "dau",
-                        "name": "Feature Interaction - Unique users",
-                        "type": "events",
-                    },
-                ],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "name": "Feature Interaction - Total", "event": "$feature_interaction"},
                         {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
-                        }
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "Feature Interaction - Unique users",
+                            "event": "$feature_interaction",
+                        },
                     ],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "filter_test_accounts": False,
             },
         )
         self.assertEqual(tiles[3].insight.name, "Feature Viewed Total Volume")
         self.assertEqual(
-            tiles[3].insight.filters,
+            tiles[3].insight.query,
             {
-                "events": [
-                    {
-                        "id": "$feature_view",
-                        "name": "Feature View - Total",
-                        "type": "events",
-                    },
-                    {
-                        "id": "$feature_view",
-                        "math": "dau",
-                        "name": "Feature View - Unique users",
-                        "type": "events",
-                    },
-                ],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "date_from": "-30d",
-                "properties": {
-                    "type": "AND",
-                    "values": [
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "name": "Feature View - Total", "event": "$feature_view"},
                         {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "feature_flag",
-                                    "type": "event",
-                                    "value": "alpha-feature",
-                                }
-                            ],
-                        }
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "Feature View - Unique users",
+                            "event": "$feature_view",
+                        },
                     ],
+                    "interval": "day",
+                    "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "feature_flag",
+                                        "type": "event",
+                                        "value": "alpha-feature",
+                                        "operator": "exact",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": False,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": False,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": False,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": False,
+                    },
+                    "breakdownFilter": {"breakdown_type": "event"},
+                    "filterTestAccounts": False,
                 },
-                "filter_test_accounts": False,
             },
         )
 
@@ -1766,8 +2274,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.api.feature_flag.report_user_action")
     def test_local_evaluation(self, mock_capture):
         FeatureFlag.objects.all().delete()
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -2219,19 +2731,25 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(12):
-            # E   1. SAVEPOINT
-            # E   2. SELECT "posthog_personalapikey"."id"
-            # E   3. RELEASE SAVEPOINT
-            # E   4. UPDATE "posthog_personalapikey" SET "last_used_at" = '2024-01-31T13:01:37.394080+00:00'
-            # E   5. SELECT "posthog_team"."id", "posthog_team"."uuid"
-            # E   6. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id"
-            # E   7. SELECT "posthog_cohort"."id"  -- all cohorts
-            # E   8. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", -- all flags
-            # E   9. SELECT "posthog_cohort". id = 99999
-            # E  10. SELECT "posthog_cohort". id = deleted cohort
-            # E  11. SELECT "posthog_cohort". id = cohort from other team
-            # E  12. SELECT "posthog_grouptypemapping"."id", -- group type mapping
+        with self.assertNumQueries(18):
+            # 1. SAVEPOINT
+            # 2. SELECT "posthog_personalapikey"."id",
+            # 3. RELEASE SAVEPOINT
+            # 4. UPDATE "posthog_personalapikey" SET "last_used_at"
+            # 5. SELECT "posthog_team"."id", "posthog_team"."uuid",
+            # 6. SELECT "posthog_team"."id", "posthog_team"."uuid",
+            # 7. SELECT "posthog_project"."id", "posthog_project"."organization_id",
+            # 8. SELECT "posthog_organizationmembership"."id",
+            # 9. SELECT "ee_accesscontrol"."id",
+            # 10. SELECT "posthog_organizationmembership"."id",
+            # 11. SELECT "posthog_cohort"."id"  -- all cohorts
+            # 12. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", -- all flags
+            # 13. SELECT "posthog_team"."id", "posthog_team"."uuid",
+            # 14. SELECT "posthog_cohort". id = 99999
+            # 15. SELECT "posthog_team"."id", "posthog_team"."uuid",
+            # 16. SELECT "posthog_cohort". id = deleted cohort
+            # 17. SELECT "posthog_cohort". id = cohort from other team
+            # 18. SELECT "posthog_grouptypemapping"."id", -- group type mapping
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
@@ -2888,8 +3406,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.api.feature_flag.report_user_action")
     def test_evaluation_reasons(self, mock_capture):
         FeatureFlag.objects.all().delete()
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
         Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["1", "2"],
@@ -3763,6 +4285,54 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] is not survey.json()["targeting_flag"]["id"]
 
+    def test_get_flags_with_active_and_created_by_id_filters(self):
+        another_user = User.objects.create(email="foo@bar.com")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="blue_button")
+        FeatureFlag.objects.create(team=self.team, created_by=another_user, key="orange_button", active=False)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="green_button", active=False)
+
+        filtered_flags_list = self.client.get(
+            f"/api/projects/@current/feature_flags?created_by_id={self.user.id}&active=false"
+        )
+        response = filtered_flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "green_button"
+
+    def test_get_flags_with_type_filters(self):
+        Experiment.objects.create(
+            team=self.team, created_by=self.user, name="Experiment 1", feature_flag_id=self.feature_flag.id
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="purple_button",
+            filters={"multivariate": {"variants": [{"foo": "bar"}]}},
+        )
+
+        filtered_flags_list_boolean = self.client.get(f"/api/projects/@current/feature_flags?type=boolean")
+        response = filtered_flags_list_boolean.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == self.feature_flag.key
+
+        filtered_flags_list_multivariant = self.client.get(f"/api/projects/@current/feature_flags?type=multivariant")
+        response = filtered_flags_list_multivariant.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "purple_button"
+
+        filtered_flags_list_experiment = self.client.get(f"/api/projects/@current/feature_flags?type=experiment")
+        response = filtered_flags_list_experiment.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == self.feature_flag.key
+
+    def test_get_flags_with_search(self):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="blue_search_term_button")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="green_search_term_button", active=False)
+
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=true&search=search_term")
+        response = filtered_flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "blue_search_term_button"
+
     def test_flag_is_cached_on_create_and_update(self):
         # Ensure empty feature flag list
         FeatureFlag.objects.all().delete()
@@ -4082,8 +4652,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
     def test_cant_create_flag_with_group_data_that_fails_to_query(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="xyz", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="xyz", group_type_index=1
+        )
 
         for i in range(5):
             create_group(
@@ -4160,7 +4734,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
 
         cohort.refresh_from_db()
@@ -4198,7 +4772,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -4237,7 +4811,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature3", self.team.pk)
 
         cohort.refresh_from_db()
@@ -4269,7 +4843,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -4287,7 +4861,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -4624,7 +5198,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
-                properties={"group": f"{i}", "created_at": f"2023-0{i+1}-04"},
+                properties={"group": f"{i}", "created_at": f"2023-0{i + 1}-04"},
             )
 
         response = self.client.post(
@@ -4864,7 +5438,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 properties={"group": f"{i}"},
             )
 
-        cohort1 = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now())
+        cohort1 = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=now())
         cohort1.insert_users_by_list(["person0", "person1", "person2"])
 
         cohort2 = Cohort.objects.create(
@@ -4932,7 +5506,9 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
 
         for i in range(10):
             create_group(
@@ -4967,7 +5543,9 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"users_affected": 4, "total_users": 10}, response_json)
 
     def test_user_blast_radius_with_groups_zero_selected(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
 
         for i in range(5):
             create_group(
@@ -5002,8 +5580,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"users_affected": 0, "total_users": 5}, response_json)
 
     def test_user_blast_radius_with_groups_all_selected(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         for i in range(5):
             create_group(
@@ -5031,8 +5613,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_groups_multiple_queries(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         for i in range(10):
             create_group(
@@ -5074,8 +5660,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"users_affected": 3, "total_users": 10}, response_json)
 
     def test_user_blast_radius_with_groups_incorrect_group_type(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         for i in range(10):
             create_group(
@@ -5156,7 +5746,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
         create_request.user = self.user
 
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
 
         create_group(
             team_id=self.team.pk,
@@ -5670,7 +6262,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
         create_request.user = self.user
 
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
 
         create_group(
             team_id=self.team.pk,
@@ -5946,3 +6540,466 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(all_flags["property-flag"])
         self.assertTrue(all_flags["default-flag"])
         self.assertFalse(errors)
+
+
+class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
+    def setUp(self):
+        cache.clear()
+
+        # delete all keys in redis
+        r = redis.get_client()
+        for key in r.scan_iter("*"):
+            r.delete(key)
+        return super().setUp()
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+
+    def assert_expected_response(
+        self, feature_flag_id: int, expected_status: FeatureFlagStatus, expected_reason: Optional[str] = None
+    ):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}/status",
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND if expected_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK,
+        )
+        response_data = response.json()
+        self.assertEqual(response_data.get("status"), expected_status)
+        if expected_reason is not None:
+            self.assertEqual(response_data.get("reason"), expected_reason)
+
+    def test_flag_status_reasons(self):
+        FeatureFlag.objects.all().delete()
+
+        # Request status for non-existent flag
+        self.assert_expected_response(1, FeatureFlagStatus.UNKNOWN, "Flag could not be found")
+
+        # Request status for flag that has been soft deleted
+        deleted_flag = FeatureFlag.objects.create(
+            name="Deleted feature flag",
+            key="deleted-feature-flag",
+            team=self.team,
+            deleted=True,
+            active=True,
+        )
+        self.assert_expected_response(deleted_flag.id, FeatureFlagStatus.DELETED, "Flag has been deleted")
+
+        # Request status for flag that is disabled, but recently called
+        disabled_flag = FeatureFlag.objects.create(
+            name="Disabled feature flag",
+            key="disabled-feature-flag",
+            team=self.team,
+            active=False,
+        )
+
+        self.assert_expected_response(disabled_flag.id, FeatureFlagStatus.ACTIVE)
+
+        # Request status for flag that has super group rolled out to <100%
+        fifty_percent_super_group_flag = FeatureFlag.objects.create(
+            name="50 percent super group flag",
+            key="50-percent-super-group-flag",
+            team=self.team,
+            active=True,
+            filters={"super_groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        self.assert_expected_response(fifty_percent_super_group_flag.id, FeatureFlagStatus.ACTIVE)
+
+        # Request status for flag that has super group rolled out to 100% and specific properties
+        fully_rolled_out_super_group_flag_with_properties = FeatureFlag.objects.create(
+            name="100 percent super group with properties flag",
+            key="100-percent-super-group-with-properties-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "super_groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$feature_enrollment/cool-new-feature",
+                                "type": "person",
+                                "value": ["true"],
+                                "operator": "exact",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        self.assert_expected_response(fully_rolled_out_super_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
+
+        # Request status for flag that has super group rolled out to 100% and has no specific properties
+        fully_rolled_out_super_group_flag = FeatureFlag.objects.create(
+            name="100 percent super group flag",
+            key="100-percent-super-group-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "super_groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        self.assert_expected_response(
+            fully_rolled_out_super_group_flag.id, FeatureFlagStatus.STALE, "Super group is rolled out to 100%"
+        )
+
+        # Request status for flag that has holdout group rolled out to <100%
+        fifty_percent_holdout_group_flag = FeatureFlag.objects.create(
+            name="50 percent holdout group flag",
+            key="50-percent-holdout-group-flag",
+            team=self.team,
+            active=True,
+            filters={"holdout_groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        self.assert_expected_response(fifty_percent_holdout_group_flag.id, FeatureFlagStatus.ACTIVE)
+
+        # Request status for flag that has holdout group rolled out to 100% and specific properties
+        fully_rolled_out_holdout_group_flag_with_properties = FeatureFlag.objects.create(
+            name="100 percent holdout group with properties flag",
+            key="100-percent-holdout-group-with-properties-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "holdout_groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "type": "person",
+                                "value": ["Smith"],
+                                "operator": "contains",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        self.assert_expected_response(fully_rolled_out_holdout_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
+
+        # Request status for flag that has holdout group rolled out to 100% and has no specific properties
+        fully_rolled_out_holdout_group_flag = FeatureFlag.objects.create(
+            name="100 percent holdout group flag",
+            key="100-percent-holdout-group-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "holdout_groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        self.assert_expected_response(
+            fully_rolled_out_holdout_group_flag.id, FeatureFlagStatus.STALE, "Holdout group is rolled out to 100%"
+        )
+
+        # Request status for multivariate flag with no variants set to 100%
+        multivariate_flag_no_rolled_out_variants = FeatureFlag.objects.create(
+            name="Multivariate flag with no variants set to 100%",
+            key="multivariate-no-rolled-out-variants-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "var1key", "name": "test", "rollout_percentage": 50},
+                        {"key": "var2key", "name": "control", "rollout_percentage": 50},
+                    ],
+                }
+            },
+        )
+
+        self.assert_expected_response(multivariate_flag_no_rolled_out_variants.id, FeatureFlagStatus.ACTIVE)
+
+        # Request status for multivariate flag with no variants set to 100%
+        multivariate_flag_rolled_out_variant = FeatureFlag.objects.create(
+            name="Multivariate flag with variant set to 100%",
+            key="multivariate-rolled-out-variant-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "test", "rollout_percentage": 100},
+                        {"key": "control", "rollout_percentage": 0},
+                    ],
+                },
+                "groups": [{"variant": None, "properties": [], "rollout_percentage": 100}],
+            },
+        )
+        self.assert_expected_response(
+            multivariate_flag_rolled_out_variant.id,
+            FeatureFlagStatus.STALE,
+            'This flag will always use the variant "test"',
+        )
+
+        # Request status for multivariate flag with a variant set to 100% but no release condition set to 100%
+        multivariate_flag_rolled_out_variant_no_rolled_out_release = FeatureFlag.objects.create(
+            name="Multivariate flag with variant set to 100%, no release condition set to 100%",
+            key="multivariate-rolled-out-variant-no-release-rolled-out-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "var1key", "name": "test", "rollout_percentage": 100},
+                        {"key": "var2key", "name": "control", "rollout_percentage": 0},
+                    ],
+                },
+                "groups": [
+                    {"variant": None, "properties": [], "rollout_percentage": 20},
+                    {"variant": None, "properties": [], "rollout_percentage": 30},
+                ],
+            },
+        )
+
+        self.assert_expected_response(
+            multivariate_flag_rolled_out_variant_no_rolled_out_release.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
+        # Request status for multivariate flag with a variant set to 100% but no release condition set to 100%
+        multivariate_flag_rolled_out_release_condition_half_variant = FeatureFlag.objects.create(
+            name="Multivariate flag with release condition set to 100%, but variants still 50%",
+            key="multivariate-rolled-out-release-half-variant-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "var1key", "name": "test", "rollout_percentage": 50},
+                        {"key": "var2key", "name": "control", "rollout_percentage": 50},
+                    ],
+                },
+                "groups": [
+                    {"variant": None, "properties": [], "rollout_percentage": 100},
+                ],
+            },
+        )
+
+        self.assert_expected_response(
+            multivariate_flag_rolled_out_release_condition_half_variant.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
+        # Request status for multivariate flag with variants set to 100% and a filtered release condition
+        multivariate_flag_rolled_out_variant_rolled_out_filtered_release = FeatureFlag.objects.create(
+            name="Multivariate flag with variant and release condition set to 100%",
+            key="multivariate-rolled-out-variant-and-release-condition-with-properties-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "var1key", "name": "test", "rollout_percentage": 100},
+                        {"key": "var2key", "name": "control", "rollout_percentage": 0},
+                    ],
+                },
+                "groups": [
+                    {
+                        "variant": None,
+                        "properties": [
+                            {
+                                "key": "name",
+                                "type": "person",
+                                "value": ["Smith"],
+                                "operator": "contains",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ],
+            },
+        )
+
+        self.assert_expected_response(
+            multivariate_flag_rolled_out_variant_rolled_out_filtered_release.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
+        # Request status for multivariate flag with no variants set to 100%, but a filtered and fully rolled out release condition has variant override
+        multivariate_flag_filtered_rolled_out_release_with_override = FeatureFlag.objects.create(
+            name="Multivariate flag with release condition set to 100% and override",
+            key="multivariate-rolled-out-filtered-release-condition-and-override-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "var1key", "name": "test", "rollout_percentage": 60},
+                        {"key": "var2key", "name": "control", "rollout_percentage": 40},
+                    ],
+                },
+                "groups": [
+                    {
+                        "variant": "var1key",
+                        "properties": [
+                            {
+                                "key": "name",
+                                "type": "person",
+                                "value": ["Smith"],
+                                "operator": "contains",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ],
+            },
+        )
+
+        self.assert_expected_response(
+            multivariate_flag_filtered_rolled_out_release_with_override.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
+        # Request status for multivariate flag with no variants set to 100%, but fully rolled out release condition has variant override
+        multivariate_flag_rolled_out_release_with_override = FeatureFlag.objects.create(
+            name="Multivariate flag with release condition set to 100% and override",
+            key="multivariate-rolled-out-release-condition-and-override-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "test", "rollout_percentage": 60},
+                        {"key": "control", "rollout_percentage": 40},
+                    ],
+                },
+                "groups": [
+                    {
+                        "variant": "test",
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    }
+                ],
+            },
+        )
+        self.assert_expected_response(
+            multivariate_flag_rolled_out_release_with_override.id,
+            FeatureFlagStatus.STALE,
+            'This flag will always use the variant "test"',
+        )
+
+        # Request status for boolean flag with empty filters
+        boolean_flag_empty_filters = FeatureFlag.objects.create(
+            name="Boolean flag with empty filters",
+            key="boolean-empty-filters-flag",
+            team=self.team,
+            active=True,
+            filters={},
+        )
+        self.assert_expected_response(
+            boolean_flag_empty_filters.id,
+            FeatureFlagStatus.STALE,
+            'This boolean flag will always evaluate to "true"',
+        )
+
+        # Request status for boolean flag with no fully rolled out release conditions
+        boolean_flag_no_rolled_out_release_conditions = FeatureFlag.objects.create(
+            name="Boolean flag with no release condition set to 100%",
+            key="boolean-no-rolled-out-release-conditions-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 99,
+                    },
+                    {
+                        "properties": [],
+                        "rollout_percentage": 99,
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "type": "person",
+                                "value": ["Smith"],
+                                "operator": "contains",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                ],
+            },
+        )
+
+        self.assert_expected_response(
+            boolean_flag_no_rolled_out_release_conditions.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
+        # Request status for boolean flag with a fully rolled out release condition
+        boolean_flag_rolled_out_release_condition = FeatureFlag.objects.create(
+            name="Boolean flag with a release condition set to 100%",
+            key="boolean-rolled-out-release-condition-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "type": "person",
+                                "value": ["Smith"],
+                                "operator": "contains",
+                            }
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    },
+                ],
+            },
+        )
+        self.assert_expected_response(
+            boolean_flag_rolled_out_release_condition.id,
+            FeatureFlagStatus.STALE,
+            'This boolean flag will always evaluate to "true"',
+        )
+
+        # Request status for a boolean flag with no rolled out release conditions and has
+        # been called recently
+        boolean_flag_no_rolled_out_release_condition_recently_evaluated = FeatureFlag.objects.create(
+            name="Boolean flag with a release condition set to 100%",
+            key="boolean-recently-evaluated-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "type": "person",
+                                "value": ["Smith"],
+                                "operator": "contains",
+                            }
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                ],
+            },
+        )
+
+        self.assert_expected_response(
+            boolean_flag_no_rolled_out_release_condition_recently_evaluated.id, FeatureFlagStatus.ACTIVE
+        )

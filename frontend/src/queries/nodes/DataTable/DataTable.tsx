@@ -50,6 +50,7 @@ import {
     HogQLQuery,
     PersonsNode,
     SessionAttributionExplorerQuery,
+    TracesQuery,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import {
@@ -68,7 +69,7 @@ import { DataTableOpenEditor } from './DataTableOpenEditor'
 interface DataTableProps {
     uniqueKey?: string | number
     query: DataTableNode
-    setQuery?: (query: DataTableNode) => void
+    setQuery: (query: DataTableNode) => void
     /** Custom table columns */
     context?: QueryContext<DataTableNode>
     /* Cached Results are provided when shared or exported,
@@ -76,6 +77,7 @@ interface DataTableProps {
     cachedResults?: AnyResponseType
     // Override the data logic node key if needed
     dataNodeLogicKey?: string
+    readOnly?: boolean
 }
 
 const eventGroupTypes = [
@@ -88,7 +90,14 @@ const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFil
 
 let uniqueNode = 0
 
-export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
+export function DataTable({
+    uniqueKey,
+    query,
+    setQuery,
+    context,
+    cachedResults,
+    readOnly,
+}: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
     const insightProps: InsightLogicProps<DataTableNode> = context?.insightProps || {
@@ -148,7 +157,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         showTimings,
     } = queryWithDefaults
 
-    const isReadOnly = setQuery === undefined
+    const isReadOnly = !!readOnly
 
     const eventActionsColumnShown =
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
@@ -380,8 +389,16 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | HogQLQuery | SessionAttributionExplorerQuery) =>
-            setQuery?.({ ...query, source }),
+        (
+            source:
+                | EventsNode
+                | EventsQuery
+                | PersonsNode
+                | ActorsQuery
+                | HogQLQuery
+                | SessionAttributionExplorerQuery
+                | TracesQuery
+        ) => setQuery?.({ ...query, source }),
         [setQuery, query]
     )
 
@@ -402,7 +419,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
             <DateRange
                 key="date-range"
-                query={query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery}
+                query={query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery | TracesQuery}
                 setQuery={setQuerySource}
             />
         ) : null,
@@ -415,7 +432,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
             <EventPropertyFilters
                 key="event-property"
-                query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery}
+                query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery}
                 setQuery={setQuerySource}
                 taxonomicGroupTypes={Array.isArray(showPropertyFilter) ? showPropertyFilter : undefined}
             />
@@ -482,7 +499,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
                     {showFirstRow && (
-                        <div className="flex gap-4 items-center flex-wrap">
+                        <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
                             {firstRowLeft}
                             {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {firstRowRight}
@@ -556,12 +573,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                           },
                                           rowExpandable: ({ result }) => !!result,
                                           noIndent: true,
-                                          expandedRowClassName: ({ result }) => {
-                                              const record = Array.isArray(result) ? result[0] : result
-                                              return record && record['event'] === '$exception'
-                                                  ? 'border border-x-danger-dark bg-danger-highlight'
-                                                  : null
-                                          },
                                       }
                                     : undefined
                             }
@@ -570,7 +581,10 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                     'DataTable__row--highlight_once': result && highlightedRows.has(result),
                                     'DataTable__row--category_row': !!label,
                                     'border border-x-danger-dark bg-danger-highlight':
-                                        result && result[0] && result[0]['event'] === '$exception',
+                                        sourceFeatures.has(QueryFeature.highlightExceptionEventRows) &&
+                                        result &&
+                                        result[0] &&
+                                        result[0]['event'] === '$exception',
                                 })
                             }
                             footer={

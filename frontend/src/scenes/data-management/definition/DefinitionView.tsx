@@ -1,4 +1,3 @@
-import { TZLabel } from '@posthog/apps-common'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -6,12 +5,14 @@ import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { getFilterLabel } from 'lib/taxonomy'
+import { useMemo } from 'react'
 import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
@@ -20,7 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyDefinition, ReplayTabs } from '~/types'
 
 export const scene: SceneExport = {
@@ -36,6 +37,20 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const { definition, definitionLoading, definitionMissing, hasTaxonomyFeatures, singular, isEvent, isProperty } =
         useValues(logic)
     const { deleteDefinition } = useActions(logic)
+
+    const memoizedQuery = useMemo(
+        () => ({
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.EventsQuery,
+                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                event: definition.name,
+            },
+            full: true,
+            showEventFilter: false,
+        }),
+        [definition.name]
+    )
 
     if (definitionLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -203,6 +218,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <p>Get notified via Slack, webhooks or more whenever this event is captured.</p>
 
                     <LinkedHogFunctions
+                        type="destination"
                         filters={{
                             events: [
                                 {
@@ -215,18 +231,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <LemonDivider className="my-6" />
                     <h3>Matching events</h3>
                     <p>This is the list of recent events that match this definition.</p>
-                    <Query
-                        query={{
-                            kind: NodeKind.DataTableNode,
-                            source: {
-                                kind: NodeKind.EventsQuery,
-                                select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                event: definition.name,
-                            },
-                            full: true,
-                            showEventFilter: false,
-                        }}
-                    />
+                    <Query query={memoizedQuery} />
                 </>
             )}
         </>

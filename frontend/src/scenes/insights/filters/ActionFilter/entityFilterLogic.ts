@@ -86,6 +86,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             type: filter.type as EntityType,
             math: filter.math,
             math_property: filter.math_property,
+            math_property_type: filter.math_property_type,
             math_hogql: filter.math_hogql,
             index: filter.index,
             math_group_type_index: filter.math_group_type_index,

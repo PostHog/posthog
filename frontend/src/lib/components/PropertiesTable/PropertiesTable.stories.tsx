@@ -1,4 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
+import { useActions } from 'kea'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
+import { useEffect } from 'react'
 
 import { PropertyDefinitionType } from '~/types'
 
@@ -46,7 +49,7 @@ export const DollarPropertiesOnEvent: StoryFn = () => {
     return <PropertiesTableComponent type={PropertyDefinitionType.Event} properties={properties} />
 }
 
-export const DollarPropertiesOnPerson: StoryFn = () => {
+export const DollarPropertiesOnPersonSearchable: StoryFn = () => {
     const properties = {
         pineapple_enjoyment_score: 3,
         $browser: 'Chrome',
@@ -56,5 +59,24 @@ export const DollarPropertiesOnPerson: StoryFn = () => {
         $initial_utm_campaign: 'summer_sale',
         $initial_geoip_country_code: 'US',
     }
-    return <PropertiesTableComponent type={PropertyDefinitionType.Person} properties={properties} />
+    return <PropertiesTableComponent type={PropertyDefinitionType.Person} properties={properties} searchable />
+}
+
+export const DollarPropertiesOnPersonHidden: StoryFn = () => {
+    const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
+
+    useEffect(() => setHidePostHogPropertiesInTable(true), [])
+
+    const properties = {
+        pineapple_enjoyment_score: 3,
+        $browser: 'Chrome',
+        utm_campaign: 'summer_sale',
+        $geoip_country_code: 'US',
+        $initial_browser: 'Chrome',
+        $initial_utm_campaign: 'summer_sale',
+        $initial_geoip_country_code: 'US',
+    }
+    return (
+        <PropertiesTableComponent type={PropertyDefinitionType.Person} properties={properties} searchable filterable />
+    )
 }

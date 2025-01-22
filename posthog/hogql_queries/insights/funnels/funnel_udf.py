@@ -1,31 +1,78 @@
-from typing import cast, Optional
+from typing import cast, Optional, runtime_checkable
 
 from posthog.hogql import ast
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
 from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql_queries.insights.funnels.base import FunnelBase
-from posthog.schema import BreakdownType, BreakdownAttributionType, StepOrderValue
+from posthog.hogql_queries.insights.funnels.base import FunnelBase, JOIN_ALGOS
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP
+
+from typing import Protocol
+
+
+@runtime_checkable
+class FunnelProtocol(Protocol):
+    context: FunnelQueryContext
+
+    def _query_has_array_breakdown(self) -> bool: ...
+
+    def _default_breakdown_selector(self) -> str: ...
+
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
-# This is used to reduce the number of events we look at in strict funnels
-# We remove a non-matching event if there was already one before it (that don't have the same timestamp)
-# arrayRotateRight turns [1,2,3] into [3,1,2]
-# For some reason, this uses much less memory than using indexing in clickhouse to check the previous element
-def udf_event_array_filter(funnelOrderType: StepOrderValue | None):
-    if funnelOrderType == "strict":
-        return f"""
-                arrayFilter(
-                    (x, x2) -> not (empty(x.4) and empty(x2.4) and x.3 == x2.3 and x.1 > x2.1),
-                    events_array,
-                    arrayRotateRight(events_array, 1))
-            """
-    return "events_array"
+class FunnelUDFMixin:
+    def _add_breakdown_attribution_subquery(self: FunnelProtocol, inner_query: ast.SelectQuery) -> ast.SelectQuery:
+        breakdown, breakdownAttributionType = (
+            self.context.breakdown,
+            self.context.breakdownAttributionType,
+        )
+
+        if breakdownAttributionType in [
+            BreakdownAttributionType.FIRST_TOUCH,
+            BreakdownAttributionType.LAST_TOUCH,
+        ]:
+            # When breaking down by first/last touch, each person can only have one prop value
+            # so just select that. Except for the empty case, where we select the default.
+
+            if self._query_has_array_breakdown():
+                assert isinstance(breakdown, list)
+                default_breakdown_value = f"""[{','.join(["''" for _ in range(len(breakdown or []))])}]"""
+                # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
+                breakdown_selector = parse_expr(
+                    f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
+                )
+            else:
+                breakdown_selector = ast.Field(chain=["prop_vals"])
+
+            return ast.SelectQuery(
+                select=[ast.Field(chain=["*"]), ast.Alias(alias="prop", expr=breakdown_selector)],
+                select_from=ast.JoinExpr(table=inner_query),
+            )
+
+        return inner_query
+
+    def _prop_vals(self: FunnelProtocol):
+        prop_vals = f"[{self._default_breakdown_selector()}]"
+        if self.context.breakdown:
+            if self.context.breakdownAttributionType == BreakdownAttributionType.STEP:
+                prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
+            else:
+                prop = "prop"
+            if self._query_has_array_breakdown():
+                prop_vals = f"groupUniqArrayIf({prop}, {prop} != [])"
+            else:
+                prop_vals = f"groupUniqArray({prop})"
+        return prop_vals
+
+    def _default_breakdown_selector(self: FunnelProtocol) -> str:
+        return "[]" if self._query_has_array_breakdown() else "''"
 
 
-class FunnelUDF(FunnelBase):
+class FunnelUDF(FunnelUDFMixin, FunnelBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # In base, these fields only get added if you're running an actors query
@@ -35,22 +82,24 @@ class FunnelUDF(FunnelBase):
             if property not in self._extra_event_properties:
                 self._extra_event_properties.append(property)
 
-    # I think I can delete this
-    def get_step_counts_query(self):
-        max_steps = self.context.max_steps
-        return self._get_step_counts_query(
-            outer_select=[
-                *self._get_matching_event_arrays(max_steps),
-            ],
-            inner_select=[
-                *self._get_matching_events(max_steps),
-            ],
-        )
-
     def conversion_window_limit(self) -> int:
         return int(
             self.context.funnelWindowInterval * DATERANGE_MAP[self.context.funnelWindowIntervalUnit].total_seconds()
         )
+
+    def matched_event_arrays_selects(self):
+        # We use matched events to get timestamps for the funnel as well as recordings
+        if self._include_matched_events() or self.context.includePrecedingTimestamp or self.context.includeTimestamp:
+            return """
+            af_tuple.4 as matched_event_uuids_array_array,
+            groupArray(tuple(timestamp, uuid, $session_id, $window_id)) as user_events,
+            mapFromArrays(arrayMap(x -> x.2, user_events), user_events) as user_events_map,
+            arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) as matched_events_array,
+            """
+        return ""
+
+    def udf_event_array_filter(self):
+        return self._udf_event_array_filter(1, 3, 4)
 
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
@@ -61,8 +110,6 @@ class FunnelUDF(FunnelBase):
             )
         else:
             inner_event_query = self._get_inner_event_query_for_udf(entity_name="events")
-
-        default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "''"
 
         # stores the steps as an array of integers from 1 to max_steps
         # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]
@@ -85,43 +132,34 @@ class FunnelUDF(FunnelBase):
             fn = "aggregate_funnel"
             breakdown_prop = ""
 
-        prop_selector = "prop" if self.context.breakdown else default_breakdown_selector
-        prop_vals = "groupUniqArray(prop)" if self.context.breakdown else f"[{default_breakdown_selector}]"
+        prop_selector = "prop" if self.context.breakdown else self._default_breakdown_selector()
+
+        prop_vals = self._prop_vals()
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
-
-        def matched_event_arrays_selects():
-            # We use matched events to get timestamps for the funnel as well as recordings
-            if (
-                self._include_matched_events()
-                or self.context.includePrecedingTimestamp
-                or self.context.includeTimestamp
-            ):
-                return """
-                af_tuple.4 as matched_event_uuids_array_array,
-                groupArray(tuple(timestamp, uuid, $session_id, $window_id)) as user_events,
-                mapFromArrays(arrayMap(x -> x.2, user_events), user_events) as user_events_map,
-                arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) as matched_events_array,
-                """
-            return ""
 
         inner_select = parse_select(
             f"""
             SELECT
-                arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), uuid, {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}])))) as events_array,
+                arraySort(t -> t.1, groupArray(tuple(
+                    toFloat(timestamp),
+                    uuid,
+                    {prop_selector},
+                    arrayFilter((x) -> x != 0, [{steps}{exclusions}])
+                ))) as events_array,
                 arrayJoin({fn}(
                     {self.context.max_steps},
                     {self.conversion_window_limit()},
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_vals},
-                    {udf_event_array_filter(self.context.funnelsFilter.funnelOrderType)}
+                    {self.udf_event_array_filter()}
                 )) as af_tuple,
                 af_tuple.1 as step_reached,
                 af_tuple.1 + 1 as steps, -- Backward compatibility
                 af_tuple.2 as breakdown,
                 af_tuple.3 as timings,
-                {matched_event_arrays_selects()}
+                {self.matched_event_arrays_selects()}
                 aggregation_target
             FROM {{inner_event_query}}
             GROUP BY aggregation_target{breakdown_prop}
@@ -167,7 +205,7 @@ class FunnelUDF(FunnelBase):
             SELECT
                 {step_results},
                 {conversion_time_arrays},
-                rowNumberInBlock() as row_number,
+                rowNumberInAllBlocks() as row_number,
                 {final_prop} as final_prop
             FROM
                 {{inner_select}}
@@ -191,8 +229,10 @@ class FunnelUDF(FunnelBase):
         )
 
         # Weird: unless you reference row_number in this outer block, it doesn't work correctly
-        s = parse_select(
-            f"""
+        s = cast(
+            ast.SelectQuery,
+            parse_select(
+                f"""
             SELECT
                 {step_results2},
                 {mean_conversion_times},
@@ -202,11 +242,13 @@ class FunnelUDF(FunnelBase):
             FROM
                 {{s}}
             GROUP BY final_prop
+            LIMIT {self.get_breakdown_limit() + 1 if use_breakdown_limit else DEFAULT_RETURNED_ROWS}
         """,
-            {"s": s},
+                {"s": s},
+            ),
         )
-
-        return cast(ast.SelectQuery, s)
+        s.settings = HogQLQuerySettings(join_algorithm=JOIN_ALGOS)
+        return s
 
     def _get_funnel_person_step_condition(self) -> ast.Expr:
         actorsQuery, breakdownType = (
@@ -234,8 +276,8 @@ class FunnelUDF(FunnelBase):
             raise ValueError("Missing both funnelStep and funnelCustomSteps")
 
         if funnelStepBreakdown is not None:
-            if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
-                funnelStepBreakdown = str(funnelStepBreakdown)
+            if isinstance(funnelStepBreakdown, int | float) and breakdownType != "cohort":
+                funnelStepBreakdown = str(int(funnelStepBreakdown))
 
             conditions.append(
                 parse_expr(
@@ -315,4 +357,5 @@ class FunnelUDF(FunnelBase):
             select_from=select_from,
             order_by=order_by,
             where=where,
+            settings=HogQLQuerySettings(join_algorithm=JOIN_ALGOS),
         )

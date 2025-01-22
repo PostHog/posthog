@@ -12,11 +12,14 @@ export type HogFunctionInputIntegrationProps = IntegrationConfigureProps & {
 export function HogFunctionInputIntegration({ schema, ...props }: HogFunctionInputIntegrationProps): JSX.Element {
     const { persistForUnload } = useActions(hogFunctionConfigurationLogic)
     return (
-        <IntegrationChoice
-            {...props}
-            integration={schema.integration}
-            redirectUrl={`${window.location.pathname}?integration_target=${schema.key}`}
-            beforeRedirect={() => persistForUnload()}
-        />
+        <>
+            <IntegrationChoice
+                {...props}
+                schema={schema}
+                integration={schema.integration}
+                redirectUrl={`${window.location.pathname}?integration_target=${schema.key}`}
+                beforeRedirect={() => persistForUnload()}
+            />
+        </>
     )
 }

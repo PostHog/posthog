@@ -15,5 +15,6 @@ class InsightVariable(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     code_name = models.CharField(max_length=400, null=True, blank=True)
     type = models.CharField(max_length=128, choices=Type.choices)
     default_value = models.JSONField(null=True, blank=True)
+    values = models.JSONField(null=True, blank=True)
 
     __repr__ = sane_repr("id")

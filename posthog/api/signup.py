@@ -111,6 +111,7 @@ class SignupSerializer(serializers.Serializer):
                 create_team=self.create_team,
                 is_staff=is_instance_first_user,
                 is_email_verified=self.is_email_auto_verified(),
+                role_at_organization=role_at_organization,
                 **validated_data,
             )
         except IntegrityError:
@@ -221,6 +222,17 @@ class InviteSignupSerializer(serializers.Serializer):
         except OrganizationInvite.DoesNotExist:
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
+        # Only check SSO enforcement if we're not already logged in
+        if (
+            not user
+            and invite.target_email
+            and OrganizationDomain.objects.get_sso_enforcement_for_email_address(invite.target_email)
+        ):
+            raise serializers.ValidationError(
+                "Sign up with a password is disabled because SSO login is enforced for this domain. Please log in with your SSO credentials.",
+                code="sso_enforced",
+            )
+
         with transaction.atomic():
             if not user:
                 is_new_user = True
@@ -230,6 +242,7 @@ class InviteSignupSerializer(serializers.Serializer):
                         validated_data.pop("password"),
                         validated_data.pop("first_name"),
                         is_email_verified=False,
+                        role_at_organization=role_at_organization,
                         **validated_data,
                     )
                 except IntegrityError:
@@ -378,7 +391,20 @@ class CompanyNameForm(forms.Form):
     emailOptIn = forms.BooleanField(required=False)
 
 
-def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email: str, full_name: str) -> User:
+def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[OrganizationInvite]:
+    organization_domain = OrganizationDomain.objects.get(id=organization_domain_id)
+    if not organization_domain:
+        return None
+    return (
+        OrganizationInvite.objects.filter(target_email=email, organization=organization_domain.organization)
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def process_social_invite_signup(
+    strategy: DjangoStrategy, invite_id: str, email: str, full_name: str, user: Optional[User] = None
+) -> User:
     try:
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
             "organization"
@@ -393,18 +419,22 @@ def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email
                 params={"source": "social_create_user"},
             )
 
-    invite.validate(user=None, email=email)
+    if user:
+        invite.validate(user=user, email=email)
+        invite.use(user, prevalidated=True)
+        return user
+    else:
+        invite.validate(user=None, email=email)
 
-    try:
-        user = strategy.create_user(email=email, first_name=full_name, password=None, is_email_verified=True)
-    except Exception as e:
-        capture_exception(e)
-        message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
-        raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
+        try:
+            _user = strategy.create_user(email=email, first_name=full_name, password=None, is_email_verified=True)
+            invite.use(_user, prevalidated=True)
+        except Exception as e:
+            capture_exception(e)
+            message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
+            raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
 
-    invite.use(user, prevalidated=True)
-
-    return user
+        return _user
 
 
 def process_social_domain_jit_provisioning_signup(
@@ -483,16 +513,7 @@ def social_create_user(
     *args,
     **kwargs,
 ):
-    if user:
-        logger.info(f"social_create_user_is_not_new")
-        if not user.is_email_verified and user.password is not None:
-            logger.info(f"social_create_user_is_not_new_unverified_has_password")
-            user.set_unusable_password()
-            user.is_email_verified = True
-            user.save()
-        process_social_domain_jit_provisioning_signup(strategy, user.email, user.first_name, user)
-        return {"is_new": False}
-
+    invite_id = strategy.session_get("invite_id")
     backend_processor = "social_create_user"
     email = details["email"][0] if isinstance(details["email"], list | tuple) else details["email"]
     full_name = (
@@ -500,10 +521,34 @@ def social_create_user(
         or f"{details.get('first_name') or ''} {details.get('last_name') or ''}".strip()
         or details.get("username")
     )
+
+    # Handle SAML invites (organization_domain_id is the relay_state)
+    organization_domain_id = kwargs.get("response", {}).get("idp_name")
+    if not invite_id and organization_domain_id:
+        invite = lookup_invite_for_saml(email, organization_domain_id)
+        invite_id = invite.id if invite else None
+
+    if user:
+        # If the user is already authenticated, we're looking for outstanding invites for them
+        # on the organization domain or if JIT provisioning is enabled, we'll provision them.
+        logger.info(f"social_create_user_is_not_new")
+
+        if not user.is_email_verified and user.password is not None:
+            logger.info(f"social_create_user_is_not_new_unverified_has_password")
+            user.set_unusable_password()
+            user.is_email_verified = True
+            user.save()
+
+        if invite_id:
+            process_social_invite_signup(strategy, invite_id, user.email, user.first_name, user)
+        else:
+            process_social_domain_jit_provisioning_signup(strategy, user.email, user.first_name, user)
+
+        return {"is_new": False}
+
     strategy.session_set("user_name", full_name)
     strategy.session_set("backend", backend.name)
     from_invite = False
-    invite_id = strategy.session_get("invite_id")
 
     if not email or not full_name:
         missing_attr = "email" if not email else "name"
@@ -512,6 +557,9 @@ def social_create_user(
             code="required",
         )
 
+    # If we get here then it's a new user. We'll check for outstanding invites for them
+    # on the organization domain or if JIT provisioning is enabled, we'll provision them.
+    # And fallback to a form where they can create an organization.
     logger.info(f"social_create_user", full_name_len=len(full_name), email_len=len(email))
 
     if invite_id:

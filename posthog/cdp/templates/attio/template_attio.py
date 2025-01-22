@@ -2,9 +2,10 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-attio",
     name="Attio",
-    description="Update contacts in Attio",
+    description="Create and update contacts in Attio",
     icon_url="/static/services/attio.png",
     category=["Advertisement"],
     hog="""
@@ -42,9 +43,9 @@ if (res.status >= 400) {
         {
             "key": "apiKey",
             "type": "string",
-            "label": "Attio API Key",
-            "description": "Check out this page on how to get your API key: https://attio.com/help/reference/integrations-automations/generating-an-api-key",
-            "secret": False,
+            "label": "Access token",
+            "description": "Check out this page to get your API key: https://attio.com/help/reference/integrations-automations/generating-an-api-key",
+            "secret": True,
             "required": True,
         },
         {

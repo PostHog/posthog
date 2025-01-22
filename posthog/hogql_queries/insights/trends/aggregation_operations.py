@@ -73,6 +73,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 return self._math_func("max", None)
             elif self.series.math == "median":
                 return self._math_quantile(0.5, None)
+            elif self.series.math == "p75":
+                return self._math_quantile(0.75, None)
             elif self.series.math == "p90":
                 return self._math_quantile(0.9, None)
             elif self.series.math == "p95":
@@ -92,6 +94,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             "weekly_active",
             "monthly_active",
             "first_time_for_user",
+            "first_matching_event_for_user",
         ]
 
         return self.is_count_per_actor_variant() or self.series.math in math_to_return_true
@@ -105,6 +108,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             "min_count_per_actor",
             "max_count_per_actor",
             "median_count_per_actor",
+            "p75_count_per_actor",
             "p90_count_per_actor",
             "p95_count_per_actor",
             "p99_count_per_actor",
@@ -115,6 +119,9 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def is_first_time_ever_math(self):
         return self.series.math == "first_time_for_user"
+
+    def is_first_matching_event(self):
+        return self.series.math == "first_matching_event_for_user"
 
     def _math_func(self, method: str, override_chain: Optional[list[str | int]]) -> ast.Call:
         if override_chain is not None:
@@ -135,10 +142,23 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             chain = ["session_duration"]
         elif isinstance(self.series, DataWarehouseNode) and self.series.math_property:
             chain = [self.series.math_property]
+        elif self.series.math_property_type == "data_warehouse_person_properties" and self.series.math_property:
+            chain = ["person", *self.series.math_property.split(".")]
         else:
             chain = ["properties", self.series.math_property]
 
-        return ast.Call(name=method, args=[ast.Field(chain=chain)])
+        return ast.Call(
+            # Two caveats here:
+            # 1. We always parse/convert the value to a Float64, to make sure it's a number. This truncates precision
+            # of very large integers, but it's a tradeoff preventing queries failing with "Illegal type String"
+            # 2. We fall back to 0 when there's no data, which is not quite kosher for math functions other than sum
+            # (null would actually be more meaningful for e.g. min or max), but formulas aren't equipped to handle nulls
+            name="ifNull",
+            args=[
+                ast.Call(name=method, args=[ast.Call(name="toFloat", args=[ast.Field(chain=chain)])]),
+                ast.Constant(value=0),
+            ],
+        )
 
     def _math_quantile(self, percentile: float, override_chain: Optional[list[str | int]]) -> ast.Call:
         if self.series.math_property == "$session_duration":
@@ -174,8 +194,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return f"toStartOf{self.query_date_range.interval_name.title()}"
 
     def _actors_parent_select_query(
-        self, inner_query: ast.SelectQuery | ast.SelectUnionQuery
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        self, inner_query: ast.SelectQuery | ast.SelectSetQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.is_count_per_actor_variant():
             query = parse_select(
                 "SELECT total FROM {inner_query}",
@@ -219,8 +239,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return query
 
     def _actors_inner_select_query(
-        self, cross_join_select_query: ast.SelectQuery | ast.SelectUnionQuery
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        self, cross_join_select_query: ast.SelectQuery | ast.SelectSetQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.is_count_per_actor_variant():
             if self.series.math == "avg_count_per_actor":
                 math_func = self._math_func("avg", ["total"])
@@ -230,6 +250,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 math_func = self._math_func("max", ["total"])
             elif self.series.math == "median_count_per_actor":
                 math_func = self._math_quantile(0.5, ["total"])
+            elif self.series.math == "p75_count_per_actor":
+                math_func = self._math_quantile(0.75, ["total"])
             elif self.series.math == "p90_count_per_actor":
                 math_func = self._math_quantile(0.9, ["total"])
             elif self.series.math == "p95_count_per_actor":
@@ -295,7 +317,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def _actors_events_query(
         self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         date_from_with_lookback = "{date_from} - {inclusive_lookback}"
         if self.chart_display_type in NON_TIME_SERIES_DISPLAY_TYPES and self.series.math in (
             BaseMathType.WEEKLY_ACTIVE,
@@ -439,7 +461,11 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return query
 
     def get_first_time_math_query_orchestrator(
-        self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr, event_name_filter: ast.Expr | None = None
+        self,
+        events_where_clause: ast.Expr,
+        sample_value: ast.RatioExpr,
+        event_name_filter: ast.Expr | None = None,
+        is_first_matching_event: bool = False,
     ):
         date_placeholders = self.query_date_range.to_placeholders()
         date_from = parse_expr(
@@ -466,6 +492,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     filters=events_where_clause,
                     event_or_action_filter=event_name_filter,
                     ratio=sample_value,
+                    is_first_matching_event=is_first_matching_event,
                 )
                 self.parent_query_builder = QueryAlternator(parent_select)
 

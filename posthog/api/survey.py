@@ -1,19 +1,25 @@
+import os
 from contextlib import contextmanager
+from datetime import datetime, timedelta, UTC
 from typing import Any, cast
 from urllib.parse import urlparse
 
 import nh3
+import posthoganalytics
+from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Min
 from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 from loginas.utils import is_impersonated_session
 from nanoid import generate
-from rest_framework import request, serializers, status, viewsets
+from rest_framework import request, serializers, status, viewsets, exceptions
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.action import ActionSerializer
+from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
+from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
@@ -23,6 +29,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
 from posthog.client import sync_execute
+from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
@@ -36,7 +43,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.feedback.survey import Survey
+from posthog.models.feedback.survey import Survey, MAX_ITERATION_COUNT
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
@@ -52,6 +59,25 @@ class SurveySerializer(serializers.ModelSerializer):
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions", read_only=True)
+    feature_flag_keys = serializers.SerializerMethodField()
+    # NB this is enforced in the UI too
+    iteration_count = serializers.IntegerField(
+        required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
+    )
+
+    def get_feature_flag_keys(self, survey: Survey) -> list:
+        return [
+            {"key": "linked_flag_key", "value": survey.linked_flag.key if survey.linked_flag else None},
+            {"key": "targeting_flag_key", "value": survey.targeting_flag.key if survey.targeting_flag else None},
+            {
+                "key": "internal_targeting_flag_key",
+                "value": survey.internal_targeting_flag.key if survey.internal_targeting_flag else None,
+            },
+            {
+                "key": "internal_response_sampling_flag_key",
+                "value": survey.internal_response_sampling_flag.key if survey.internal_response_sampling_flag else None,
+            },
+        ]
 
     class Meta:
         model = Survey
@@ -73,11 +99,17 @@ class SurveySerializer(serializers.ModelSerializer):
             "end_date",
             "archived",
             "responses_limit",
+            "feature_flag_keys",
             "iteration_count",
             "iteration_frequency_days",
             "iteration_start_dates",
             "current_iteration",
             "current_iteration_start_date",
+            "response_sampling_start_date",
+            "response_sampling_interval_type",
+            "response_sampling_interval",
+            "response_sampling_limit",
+            "response_sampling_daily_limits",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -100,6 +132,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
+    # NB this is enforced in the UI too
+    iteration_count = serializers.IntegerField(
+        required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
+    )
 
     class Meta:
         model = Survey
@@ -129,6 +165,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "iteration_start_dates",
             "current_iteration",
             "current_iteration_start_date",
+            "response_sampling_start_date",
+            "response_sampling_interval_type",
+            "response_sampling_interval",
+            "response_sampling_limit",
+            "response_sampling_daily_limits",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -179,7 +220,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             return value
 
         action_ids = (value.get("id") for value in values)
-        project_actions = Action.objects.filter(team_id=self.context["team_id"], id__in=action_ids)
+        project_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
 
         for project_action in project_actions:
             for step in project_action.steps:
@@ -258,7 +299,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if (
             self.context["request"].method == "POST"
-            and Survey.objects.filter(name=data.get("name"), team_id=self.context["team_id"]).exists()
+            and Survey.objects.filter(name=data.get("name"), team__project_id=self.context["project_id"]).exists()
         ):
             raise serializers.ValidationError("There is already a survey with this name.", code="unique")
 
@@ -267,7 +308,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if (
             existing_survey
             and existing_survey.name != data.get("name")
-            and Survey.objects.filter(name=data.get("name"), team_id=self.context["team_id"])
+            and Survey.objects.filter(name=data.get("name"), team__project_id=self.context["project_id"])
             .exclude(id=existing_survey.id)
             .exists()
         ):
@@ -285,6 +326,36 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     "Invalid operation: User targeting rolls out to everyone. If you want to roll out to everyone, delete this targeting",
                     code="invalid",
                 )
+
+        response_sampling_start_date = data.get("response_sampling_start_date")
+        if response_sampling_start_date is not None:
+            today_utc = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+            if response_sampling_start_date < today_utc:
+                raise serializers.ValidationError(
+                    {
+                        "response_sampling_start_date": f"Response sampling start date must be today or a future date in UTC. Got {response_sampling_start_date} when current time is {today_utc}"
+                    }
+                )
+
+        response_sampling_interval = data.get("response_sampling_interval")
+        if response_sampling_interval is not None and response_sampling_interval <= 0:
+            raise serializers.ValidationError(
+                {"response_sampling_interval": "Response sampling interval must be greater than 0."}
+            )
+
+        response_sampling_limit = data.get("response_sampling_limit", 0)
+        if (
+            response_sampling_limit is not None
+            and response_sampling_limit > 0
+            and response_sampling_interval > 0
+            and response_sampling_start_date is None
+        ):
+            raise serializers.ValidationError(
+                {
+                    "response_sampling_start_date": "Response sampling start date should be set if response_sampling_start_date is not zero."
+                }
+            )
+
         return data
 
     def create(self, validated_data):
@@ -306,6 +377,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         instance = super().create(validated_data)
         self._add_user_survey_interacted_filters(instance)
         self._associate_actions(instance, validated_data.get("conditions"))
+        self._add_internal_response_sampling_filters(instance)
 
         team = Team.objects.get(id=self.context["team_id"])
         log_activity(
@@ -386,7 +458,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 instance.targeting_flag.active = False
             instance.targeting_flag.save()
 
-        iteration_count = validated_data.get("iteration_count")
+        iteration_count = validated_data.get("iteration_count", None)
         if (
             instance.current_iteration is not None
             and iteration_count is not None
@@ -396,8 +468,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
             )
 
-        instance.iteration_count = iteration_count
-        instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
+        if iteration_count is not None:
+            instance.iteration_count = iteration_count
+            instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
 
         instance = super().update(instance, validated_data)
 
@@ -456,7 +529,29 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         self._add_user_survey_interacted_filters(instance, end_date)
         self._associate_actions(instance, validated_data.get("conditions"))
+        self._add_internal_response_sampling_filters(instance)
         return instance
+
+    def _add_internal_response_sampling_filters(self, instance: Survey):
+        if instance.response_sampling_daily_limits is None:
+            return
+        if instance.internal_response_sampling_flag is not None:
+            return
+
+        sampling_filters = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [],
+                }
+            ]
+        }
+
+        instance.internal_response_sampling_flag = self._create_or_update_targeting_flag(
+            None, sampling_filters, instance.name, bool(instance.start_date), flag_name_suffix="-sampling"
+        )
+        instance.save()
 
     def _associate_actions(self, instance: Survey, conditions):
         if conditions is None:
@@ -475,7 +570,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         action_ids = (value.get("id") for value in values)
 
-        instance.actions.set(Action.objects.filter(team_id=self.context["team_id"], id__in=action_ids))
+        instance.actions.set(Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids))
         instance.save()
 
     def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):
@@ -553,6 +648,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         "name": f"Targeting flag for survey {name}",
                         "filters": filters,
                         "active": active,
+                        "creation_context": "surveys",
                     },
                     context=self.context,
                 )
@@ -596,11 +692,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return super().destroy(request, *args, **kwargs)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
     def responses_count(self, request: request.Request, **kwargs):
-        earliest_survey_start_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("start_date"))[
-            "start_date__min"
-        ]
+        earliest_survey_start_date = Survey.objects.filter(team__project_id=self.project_id).aggregate(
+            Min("start_date")
+        )["start_date__min"]
         data = sync_execute(
             f"""
             SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
@@ -633,7 +729,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         item_id = kwargs["pk"]
 
-        if not Survey.objects.filter(id=item_id, team_id=self.team_id).exists():
+        if not Survey.objects.filter(id=item_id, team__project_id=self.project_id).exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
@@ -645,11 +741,85 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return activity_page_response(activity_page, limit, page, request)
 
+    @action(methods=["POST"], detail=True, required_scopes=["survey:read"])
+    def summarize_responses(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        user = cast(User, request.user)
+
+        survey_id = kwargs["pk"]
+
+        if not Survey.objects.filter(id=survey_id, team__project_id=self.project_id).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        survey = self.get_object()
+
+        cache_key = f'summarize_survey_responses_{self.team.pk}_{self.kwargs["pk"]}'
+        # Check if the response is cached
+        cached_response = cache.get(cache_key)
+        if cached_response is not None:
+            return Response(cached_response)
+
+        environment_is_allowed = settings.DEBUG or is_cloud()
+        has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
+        if not environment_is_allowed or not has_openai_api_key:
+            raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
+
+        if not posthoganalytics.feature_enabled("ai-survey-response-summary", str(user.distinct_id)):
+            raise exceptions.ValidationError("survey response summary is not enabled for this user")
+
+        end_date: datetime = (survey.end_date or datetime.now()).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ) + timedelta(days=1)
+
+        try:
+            question_index_param = request.query_params.get("question_index", None)
+            question_index = int(question_index_param) if question_index_param else None
+        except (ValueError, TypeError):
+            question_index = None
+
+        summary = summarize_survey_responses(
+            survey_id=survey_id,
+            question_index=question_index,
+            survey_start=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
+            survey_end=end_date,
+            team=self.team,
+            user=user,
+        )
+        timings = summary.pop("timings", None)
+        cache.set(cache_key, summary, timeout=30)
+
+        posthoganalytics.capture(
+            event="survey response summarized", distinct_id=str(user.distinct_id), properties=summary
+        )
+
+        # let the browser cache for half the time we cache on the server
+        r = Response(summary, headers={"Cache-Control": "max-age=15"})
+        if timings:
+            r.headers["Server-Timing"] = ", ".join(
+                f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
+            )
+        return r
+
 
 class SurveyConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = Team
         fields = ["survey_config"]
+
+
+class SurveyAPIActionSerializer(serializers.ModelSerializer):
+    steps = ActionStepJSONSerializer(many=True, required=False)
+
+    class Meta:
+        model = Action
+        fields = [
+            "id",
+            "name",
+            "steps",
+        ]
+        read_only_fields = fields
 
 
 class SurveyAPISerializer(serializers.ModelSerializer):
@@ -695,8 +865,27 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             if survey.conditions is None:
                 survey.conditions = {}
 
-            survey.conditions["actions"] = {"values": ActionSerializer(actions, many=True).data}
+            survey.conditions["actions"] = {"values": SurveyAPIActionSerializer(actions, many=True).data}
         return survey.conditions
+
+
+def get_surveys_response(team: Team):
+    surveys = SurveyAPISerializer(
+        Survey.objects.filter(team_id=team.id)
+        .exclude(archived=True)
+        .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
+        .prefetch_related("actions"),
+        many=True,
+    ).data
+
+    serialized_survey_config: dict[str, Any] = {}
+    if team.survey_config is not None:
+        serialized_survey_config = SurveyConfigSerializer(team).data
+
+    return {
+        "surveys": surveys,
+        "survey_config": serialized_survey_config.get("survey_config", None),
+    }
 
 
 @csrf_exempt
@@ -730,27 +919,7 @@ def surveys(request: Request):
             ),
         )
 
-    surveys = SurveyAPISerializer(
-        Survey.objects.filter(team_id=team.id)
-        .exclude(archived=True)
-        .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
-        .prefetch_related("actions"),
-        many=True,
-    ).data
-
-    serialized_survey_config: dict[str, Any] = {}
-    if team.survey_config is not None:
-        serialized_survey_config = SurveyConfigSerializer(team).data
-
-    return cors_response(
-        request,
-        JsonResponse(
-            {
-                "surveys": surveys,
-                "survey_config": serialized_survey_config.get("survey_config", None),
-            }
-        ),
-    )
+    return cors_response(request, JsonResponse(get_surveys_response(team)))
 
 
 @contextmanager

@@ -249,6 +249,8 @@ export const startBatchConsumer = async ({
         let batchesProcessed = 0
         const statusLogInterval = setInterval(() => {
             status.info('🔁', 'main_loop', {
+                groupId,
+                topic,
                 messagesPerSecond: messagesProcessed / (STATUS_LOG_INTERVAL_MS / 1000),
                 batchesProcessed: batchesProcessed,
                 lastHeartbeatTime: new Date(lastHeartbeatTime).toISOString(),

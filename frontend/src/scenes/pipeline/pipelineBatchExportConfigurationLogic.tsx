@@ -9,8 +9,8 @@ import { urls } from 'scenes/urls'
 import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { BatchExportConfigurationForm } from './batch-exports/types'
 import { humanizeBatchExportName } from './batch-exports/utils'
+import { DESTINATION_TYPES } from './destinations/constants'
 import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
@@ -31,9 +31,9 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
     }
 }
 
-function getDefaultConfiguration(service: BatchExportService['type']): Record<string, any> {
+export function getDefaultConfiguration(service: string): Record<string, any> {
     return {
-        name: humanizeBatchExportName(service),
+        name: humanizeBatchExportName(service as BatchExportService['type']),
         destination: service,
         model: 'events',
         paused: true,
@@ -189,6 +189,12 @@ const personsTable: DatabaseSchemaBatchExportTable = {
             type: 'integer',
             schema_valid: true,
         },
+        created_at: {
+            name: 'created_at',
+            hogql_value: 'created_at',
+            type: 'datetime',
+            schema_valid: true,
+        },
     },
 }
 
@@ -209,7 +215,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, actions }) => ({
         batchExportConfig: [
             null as BatchExportConfiguration | null,
             {
@@ -220,13 +226,6 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     return null
                 },
                 updateBatchExportConfig: async (formdata) => {
-                    if (
-                        (!values.batchExportConfig || (values.batchExportConfig.paused && formdata.paused !== true)) &&
-                        !values.canEnableNewDestinations
-                    ) {
-                        lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
-                        return null
-                    }
                     const { name, destination, interval, paused, created_at, start_at, end_at, model, ...config } =
                         formdata
                     const destinationObj = {
@@ -248,6 +247,8 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         return res
                     }
                     const res = await api.batchExports.create(data)
+                    actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
+
                     router.actions.replace(
                         urls.pipelineNode(PipelineStage.Destination, res.id, PipelineNodeTab.Configuration)
                     )
@@ -296,7 +297,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             },
         ],
         configuration: [
-            props.service ? getDefaultConfiguration(props.service) : ({} as BatchExportConfigurationForm),
+            props.service ? getDefaultConfiguration(props.service) : ({} as Record<string, any>),
             {
                 loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
                     if (!batchExportConfig) {
@@ -309,6 +310,26 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     if (!batchExportConfig) {
                         return state
                     }
+
+                    return getConfigurationFromBatchExportConfig(batchExportConfig)
+                },
+            },
+        ],
+        savedConfiguration: [
+            {} as Record<string, any>,
+            {
+                loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
+                    if (!batchExportConfig) {
+                        return state
+                    }
+
+                    return getConfigurationFromBatchExportConfig(batchExportConfig)
+                },
+                updateBatchExportConfigSuccess: (state, { batchExportConfig }) => {
+                    if (!batchExportConfig) {
+                        return state
+                    }
+
                     return getConfigurationFromBatchExportConfig(batchExportConfig)
                 },
             },
@@ -316,21 +337,6 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     })),
     selectors(() => ({
         service: [(s, p) => [s.batchExportConfig, p.service], (config, service) => config?.destination.type || service],
-        savedConfiguration: [
-            (s, p) => [s.batchExportConfig, p.service],
-            (batchExportConfig, service) => {
-                if (!batchExportConfig || !service) {
-                    return {}
-                }
-                if (batchExportConfig) {
-                    return getConfigurationFromBatchExportConfig(batchExportConfig)
-                }
-                if (service) {
-                    return getDefaultConfiguration(service)
-                }
-                return {} as Record<string, any>
-            },
-        ],
         isNew: [(_, p) => [p.id], (id): boolean => !id],
         requiredFields: [
             (s) => [s.service, s.isNew],
@@ -393,7 +399,14 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             if (!batchExportConfig) {
                 return
             }
-            pipelineDestinationsLogic.findMounted()?.actions.updateBatchExportConfig(batchExportConfig)
+            lemonToast.success('Batch export configuration updated successfully')
+
+            // Reset so that form doesn't think there are unsaved changes.
+            actions.resetConfiguration(getConfigurationFromBatchExportConfig(batchExportConfig))
+
+            pipelineDestinationsLogic
+                .findMounted({ types: DESTINATION_TYPES })
+                ?.actions.updateBatchExportConfig(batchExportConfig)
         },
         setConfigurationValue: async ({ name, value }) => {
             if (name[0] === 'json_config_file' && value) {
@@ -440,7 +453,11 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         enabled: () => values.configurationChanged,
         message: 'Leave action?\nChanges you made will be discarded.',
         onConfirm: () => {
-            actions.resetConfiguration()
+            values.batchExportConfig
+                ? actions.resetConfiguration(getConfigurationFromBatchExportConfig(values.batchExportConfig))
+                : values.service
+                ? actions.resetConfiguration(getDefaultConfiguration(values.service))
+                : actions.resetConfiguration()
         },
     })),
 

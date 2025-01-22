@@ -10,6 +10,7 @@ from django.db import models
 import requests
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
+from sentry_sdk import capture_exception
 from slack_sdk import WebClient
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request as GoogleRequest
@@ -28,6 +29,8 @@ logger = structlog.get_logger(__name__)
 
 
 def dot_get(d: Any, path: str, default: Any = None) -> Any:
+    if path in d and d[path] is not None:
+        return d[path]
     for key in path.split("."):
         if not isinstance(d, dict):
             return default
@@ -46,6 +49,7 @@ class Integration(models.Model):
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_ADS = "google-ads"
+        SNAPCHAT = "snapchat"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -112,7 +116,7 @@ class OauthConfig:
 
 
 class OauthIntegration:
-    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads"]
+    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat"]
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
@@ -163,15 +167,19 @@ class OauthIntegration:
                 authorize_url="https://app.hubspot.com/oauth/authorize",
                 token_url="https://api.hubapi.com/oauth/v1/token",
                 token_info_url="https://api.hubapi.com/oauth/v1/access-tokens/:access_token",
-                token_info_config_fields=["hub_id", "hub_domain", "user", "user_id"],
+                token_info_config_fields=["hub_id", "hub_domain", "user", "user_id", "scopes"],
                 client_id=settings.HUBSPOT_APP_CLIENT_ID,
                 client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
-                scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read",
+                scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
+                additional_authorize_params={
+                    # NOTE: these scopes are only available on certain hubspot plans and as such are optional
+                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write"
+                },
                 id_path="hub_id",
                 name_path="hub_domain",
             )
         elif kind == "google-ads":
-            if not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY or not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
+            if not settings.GOOGLE_ADS_APP_CLIENT_ID or not settings.GOOGLE_ADS_APP_CLIENT_SECRET:
                 raise NotImplementedError("Google Ads app not configured")
 
             return OauthConfig(
@@ -181,11 +189,26 @@ class OauthIntegration:
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
-                client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
-                client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
-                scope="https://www.googleapis.com/auth/adwords email",
+                client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
+                client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
+                scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
+            )
+        elif kind == "snapchat":
+            if not settings.SNAPCHAT_APP_CLIENT_ID or not settings.SNAPCHAT_APP_CLIENT_SECRET:
+                raise NotImplementedError("Snapchat app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.snapchat.com/accounts/oauth2/auth",
+                token_url="https://accounts.snapchat.com/accounts/oauth2/token",
+                token_info_url="https://adsapi.snapchat.com/v1/me",
+                token_info_config_fields=["me.id", "me.email"],
+                client_id=settings.SNAPCHAT_APP_CLIENT_ID,
+                client_secret=settings.SNAPCHAT_APP_CLIENT_SECRET,
+                scope="snapchat-offline-conversions-api snapchat-marketing-api",
+                id_path="me.id",
+                name_path="me.email",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
@@ -412,6 +435,88 @@ class SlackIntegration:
         )
 
         return config
+
+
+class GoogleAdsIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "google-ads":
+            raise Exception("GoogleAdsIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    @property
+    def client(self) -> WebClient:
+        return WebClient(self.integration.sensitive_config["access_token"])
+
+    def list_google_ads_conversion_actions(self, customer_id) -> list[dict]:
+        response = requests.request(
+            "POST",
+            f"https://googleads.googleapis.com/v18/customers/{customer_id}/googleAds:searchStream",
+            json={"query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(
+                Exception(f"GoogleAdsIntegration: Failed to list ads conversion actions: {response.text}")
+            )
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
+        response = requests.request(
+            "GET",
+            f"https://googleads.googleapis.com/v18/customers:listAccessibleCustomers",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"GoogleAdsIntegration: Failed to list accessible accounts: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        accounts = response.json()
+        accounts_with_name = []
+
+        for account in accounts["resourceNames"]:
+            response = requests.request(
+                "POST",
+                f"https://googleads.googleapis.com/v18/customers/{account.split('/')[1]}/googleAds:searchStream",
+                json={
+                    "query": "SELECT customer_client.descriptive_name, customer_client.client_customer FROM customer_client WHERE customer_client.level <= 1"
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                    "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                },
+            )
+
+            if response.status_code != 200:
+                capture_exception(
+                    Exception(f"GoogleAdsIntegration: Failed to retrieve account details: {response.text}")
+                )
+                raise Exception(f"There was an internal error")
+
+            data = response.json()
+            accounts_with_name.append(
+                {
+                    "id": account.split("/")[1],
+                    "name": data[0]["results"][0]["customerClient"].get("descriptiveName", "Google Ads account"),
+                }
+            )
+
+        return accounts_with_name
 
 
 class GoogleCloudIntegration:

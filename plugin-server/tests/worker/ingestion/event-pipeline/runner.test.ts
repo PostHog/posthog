@@ -1,9 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent } from '../../../../src/types'
+import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
+import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent, RawKafkaEvent } from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
+import { emitEventStep } from '../../../../src/worker/ingestion/event-pipeline/emitEventStep'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
 import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
 import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
@@ -18,6 +20,7 @@ jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventSt
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/emitEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
 
 class TestEventPipelineRunner extends EventPipelineRunner {
@@ -67,10 +70,26 @@ const preIngestionEvent: PreIngestionEvent = {
     distinctId: 'my_id',
     ip: '127.0.0.1',
     teamId: 2,
+    projectId: 1,
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
     elementsList: [],
+}
+
+const createdEvent: RawKafkaEvent = {
+    created_at: '2024-11-18 14:54:33.606',
+    distinct_id: 'my_id',
+    elements_chain: '',
+    event: '$pageview',
+    person_created_at: '2024-11-18 14:54:33',
+    person_mode: 'full',
+    person_properties: '{}',
+    project_id: 1,
+    properties: '{}',
+    team_id: 2,
+    timestamp: '2020-02-23 02:15:00.000',
+    uuid: 'uuid1',
 }
 
 const person: Person = {
@@ -90,14 +109,20 @@ describe('EventPipelineRunner', () => {
     let runner: TestEventPipelineRunner
     let hub: any
 
+    const mockProducer: jest.Mocked<KafkaProducerWrapper> = {
+        queueMessages: jest.fn() as any,
+    } as any
+
     beforeEach(() => {
+        jest.mocked(mockProducer.queueMessages).mockImplementation(() => Promise.resolve())
+
         hub = {
-            kafkaProducer: { queueMessage: jest.fn() },
+            kafkaProducer: mockProducer,
             teamManager: {
                 fetchTeam: jest.fn(() => {}),
             },
             db: {
-                kafkaProducer: { queueMessage: jest.fn() },
+                kafkaProducer: mockProducer,
                 fetchPerson: jest.fn(),
             },
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
@@ -111,7 +136,8 @@ describe('EventPipelineRunner', () => {
             { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
         ])
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
-        jest.mocked(createEventStep).mockResolvedValue([null, Promise.resolve()])
+        jest.mocked(createEventStep).mockResolvedValue(createdEvent)
+        jest.mocked(emitEventStep).mockResolvedValue([Promise.resolve()])
         jest.mocked(processOnEventStep).mockResolvedValue(null)
     })
 
@@ -126,8 +152,8 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'extractHeatmapDataStep',
-                'enrichExceptionEventStep',
                 'createEventStep',
+                'emitEventStep',
             ])
             expect(runner.stepsWithArgs).toMatchSnapshot()
         })
@@ -155,8 +181,8 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'extractHeatmapDataStep',
-                'enrichExceptionEventStep',
                 'createEventStep',
+                'emitEventStep',
             ])
         })
 
@@ -181,8 +207,8 @@ describe('EventPipelineRunner', () => {
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(8)
             expect(pipelineLastStepCounterSpy).toHaveBeenCalledTimes(1)
             expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('createEventStep')
-            expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('createEventStep')
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('emitEventStep')
+            expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('emitEventStep')
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
@@ -235,10 +261,10 @@ describe('EventPipelineRunner', () => {
 
                 await runner.runEventPipeline(pipelineEvent)
 
-                expect(hub.db.kafkaProducer.queueMessage).toHaveBeenCalledTimes(1)
-                expect(
-                    JSON.parse(hub.db.kafkaProducer.queueMessage.mock.calls[0][0].kafkaMessage.messages[0].value)
-                ).toMatchObject({
+                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+
+                expect(mockProducer.queueMessages.mock.calls[0][0].topic).toEqual('events_dead_letter_queue_test')
+                expect(JSON.parse(mockProducer.queueMessages.mock.calls[0][0].messages[0].value)).toMatchObject({
                     team_id: 2,
                     distinct_id: 'my_id',
                     error: 'Event ingestion failed. Error: testError',
@@ -251,9 +277,10 @@ describe('EventPipelineRunner', () => {
                 const pipelineStepDLQCounterSpy = jest.spyOn(metrics.pipelineStepDLQCounter, 'labels')
                 jest.mocked(processOnEventStep).mockRejectedValue(error)
 
+                expect(mockProducer.queueMessages).not.toHaveBeenCalled()
                 await runner.runEventPipeline(pipelineEvent)
 
-                expect(hub.db.kafkaProducer.queueMessage).not.toHaveBeenCalled()
+                expect(mockProducer.queueMessages).not.toHaveBeenCalled()
                 expect(pipelineStepDLQCounterSpy).not.toHaveBeenCalled()
             })
         })
@@ -267,20 +294,12 @@ describe('EventPipelineRunner', () => {
                     team_id: 9,
                 }
 
-                const hub: any = {
-                    db: {
-                        kafkaProducer: { queueMessage: jest.fn() },
-                    },
-                }
-                const runner = new TestEventPipelineRunner(hub, event, new EventsProcessor(hub))
                 jest.mocked(populateTeamDataStep).mockResolvedValue(event)
 
                 await runner.runEventPipeline(event)
                 expect(runner.steps).toEqual(['populateTeamDataStep'])
-                expect(hub.db.kafkaProducer.queueMessage).toHaveBeenCalledTimes(1)
-                expect(
-                    JSON.parse(hub.db.kafkaProducer.queueMessage.mock.calls[0][0].kafkaMessage.messages[0].value)
-                ).toMatchObject({
+                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+                expect(JSON.parse(mockProducer.queueMessages.mock.calls[0][0].messages[0].value)).toMatchObject({
                     team_id: 9,
                     type: 'client_ingestion_warning',
                     details: JSON.stringify({
@@ -377,43 +396,34 @@ describe('EventPipelineRunner', () => {
                     'processPersonsStep',
                     'prepareEventStep',
                     'extractHeatmapDataStep',
-                    'enrichExceptionEventStep',
                     'createEventStep',
                     'produceExceptionSymbolificationEventStep',
                 ])
             })
         })
     })
-})
 
-describe('EventPipelineRunner $process_person_profile=false', () => {
-    it('drops events that are not allowed when $process_person_profile=false', async () => {
-        for (const eventName of ['$identify', '$create_alias', '$merge_dangerously', '$groupidentify']) {
-            const event = {
-                ...pipelineEvent,
-                properties: { $process_person_profile: false },
-                event: eventName,
-                team_id: 9,
+    describe('EventPipelineRunner $process_person_profile=false', () => {
+        it.each(['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])(
+            'drops event %s that are not allowed when $process_person_profile=false',
+            async (eventName) => {
+                const event = {
+                    ...pipelineEvent,
+                    properties: { $process_person_profile: false },
+                    event: eventName,
+                    team_id: 9,
+                }
+                jest.mocked(populateTeamDataStep).mockResolvedValue(event)
+
+                await runner.runEventPipeline(event)
+                expect(runner.steps).toEqual(['populateTeamDataStep'])
+                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+                expect(JSON.parse(mockProducer.queueMessages.mock.calls[0][0].messages[0].value)).toMatchObject({
+                    team_id: 9,
+                    type: 'invalid_event_when_process_person_profile_is_false',
+                    details: JSON.stringify({ eventUuid: 'uuid1', event: eventName, distinctId: 'my_id' }),
+                })
             }
-
-            const hub: any = {
-                db: {
-                    kafkaProducer: { queueMessage: jest.fn() },
-                },
-            }
-            const runner = new TestEventPipelineRunner(hub, event, new EventsProcessor(hub))
-            jest.mocked(populateTeamDataStep).mockResolvedValue(event)
-
-            await runner.runEventPipeline(event)
-            expect(runner.steps).toEqual(['populateTeamDataStep'])
-            expect(hub.db.kafkaProducer.queueMessage).toHaveBeenCalledTimes(1)
-            expect(
-                JSON.parse(hub.db.kafkaProducer.queueMessage.mock.calls[0][0].kafkaMessage.messages[0].value)
-            ).toMatchObject({
-                team_id: 9,
-                type: 'invalid_event_when_process_person_profile_is_false',
-                details: JSON.stringify({ eventUuid: 'uuid1', event: eventName, distinctId: 'my_id' }),
-            })
-        }
+        )
     })
 })

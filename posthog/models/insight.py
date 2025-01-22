@@ -196,9 +196,17 @@ class Insight(models.Model):
             return self.filters
 
     def get_effective_query(
-        self, *, dashboard: Optional[Dashboard], dashboard_filters_override: Optional[dict] = None
+        self,
+        *,
+        dashboard: Optional[Dashboard],
+        dashboard_filters_override: Optional[dict] = None,
+        dashboard_variables_override: Optional[dict[str, dict]] = None,
     ) -> Optional[dict]:
         from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
+        from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_variables_to_dict
+
+        if self.query and dashboard_variables_override:
+            self.query = apply_dashboard_variables_to_dict(self.query, dashboard_variables_override or {}, self.team)
 
         if not (dashboard or dashboard_filters_override) or not self.query:
             return self.query

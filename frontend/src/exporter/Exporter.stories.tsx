@@ -49,17 +49,20 @@ TrendsLineInsightLegend.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
     legend: true,
 }
+TrendsLineInsightLegend.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const TrendsLineInsightDetailed: Story = Template.bind({})
 TrendsLineInsightDetailed.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
     detailed: true,
 }
+TrendsLineInsightDetailed.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 /** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
 export const TrendsLineInsightNoResults: Story = Template.bind({})
 // @ts-expect-error
 TrendsLineInsightNoResults.args = { insight: { ...TrendsLineInsight.args.insight, result: null } }
+TrendsLineInsightNoResults.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const TrendsLineMultiInsight: Story = Template.bind({})
 TrendsLineMultiInsight.args = {

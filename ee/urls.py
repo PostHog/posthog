@@ -10,28 +10,29 @@ from ee.api import integration
 from .api import (
     authentication,
     billing,
+    conversation,
     dashboard_collaborator,
     explicit_team_member,
     feature_flag_role_access,
     hooks,
     license,
-    organization_resource_access,
-    role,
     sentry_stats,
     subscription,
 )
+from .api.rbac import organization_resource_access, role
 from .session_recordings import session_recording_playlist
 
 
 def extend_api_router() -> None:
     from posthog.api import (
-        router as root_router,
-        register_grandfathered_environment_nested_viewset,
-        projects_router,
+        environment_dashboards_router,
+        environments_router,
+        legacy_project_dashboards_router,
         organizations_router,
         project_feature_flags_router,
-        environment_dashboards_router,
-        legacy_project_dashboards_router,
+        projects_router,
+        register_grandfathered_environment_nested_viewset,
+        router as root_router,
     )
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
@@ -49,6 +50,7 @@ def extend_api_router() -> None:
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
+    # Start: routes to be deprecated
     project_feature_flags_router.register(
         r"role_access",
         feature_flag_role_access.FeatureFlagRoleAccessViewSet,
@@ -61,6 +63,7 @@ def extend_api_router() -> None:
         "organization_resource_access",
         ["organization_id"],
     )
+    # End: routes to be deprecated
     register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
     register_grandfathered_environment_nested_viewset(
         r"explicit_members",
@@ -90,6 +93,10 @@ def extend_api_router() -> None:
         session_recording_playlist.SessionRecordingPlaylistViewSet,
         "project_session_recording_playlists",
         ["project_id"],
+    )
+
+    environments_router.register(
+        r"conversations", conversation.ConversationViewSet, "environment_conversations", ["team_id"]
     )
 
 

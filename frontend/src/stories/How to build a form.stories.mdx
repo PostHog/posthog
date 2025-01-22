@@ -24,7 +24,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
         featureFlag: [
             { ...NEW_FLAG } as FeatureFlagModel,
             {
-                loadFeatureFlag: () => api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`),
+                loadFeatureFlag: () => api.get(`api/projects/${values.currentProjectId}/feature_flags/${props.id}`),
             },
         ],
     }),
@@ -44,8 +44,8 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { created_at, id, ...flag } = featureFlag
                 const newFeatureFlag = updatedFlag.id
-                    ? await api.update(`api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`, flag)
-                    : await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
+                    ? await api.update(`api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`, flag)
+                    : await api.create(`api/projects/${values.currentProjectId}/feature_flags`, flag)
                 breakpoint()
                 actions.setFeatureFlagValues(newFeatureFlag)
                 lemonToast.success('Feature flag saved')

@@ -1,12 +1,17 @@
-import { lemonToast } from '@posthog/lemon-ui'
+import equal from 'fast-deep-equal'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import api from 'lib/api'
+import { objectsEqual } from 'lib/utils'
+import { Params } from 'scenes/sceneTypes'
 
 import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema'
 
-import { errorTrackingLogic } from './errorTrackingLogic'
+import {
+    DEFAULT_ERROR_TRACKING_DATE_RANGE,
+    DEFAULT_ERROR_TRACKING_FILTER_GROUP,
+    errorTrackingLogic,
+} from './errorTrackingLogic'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 import { errorTrackingQuery } from './queries'
 
@@ -16,99 +21,123 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     connect({
         values: [
             errorTrackingLogic,
-            [
-                'dateRange',
-                'assignee',
-                'filterTestAccounts',
-                'filterGroup',
-                'sparklineSelectedPeriod',
-                'searchQuery',
-                'hasGroupActions',
-            ],
+            ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'customSparklineConfig', 'searchQuery'],
+        ],
+        actions: [
+            errorTrackingLogic,
+            ['setAssignee', 'setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
         ],
     }),
 
     actions({
-        setOrder: (order: ErrorTrackingQuery['order']) => ({ order }),
-        setIsConfigurationModalOpen: (open: boolean) => ({ open }),
-        setSelectedRowIndexes: (ids: number[]) => ({ ids }),
+        setOrderBy: (orderBy: ErrorTrackingQuery['orderBy']) => ({ orderBy }),
+        setSelectedIssueIds: (ids: string[]) => ({ ids }),
     }),
+
     reducers({
-        order: [
-            'last_seen' as ErrorTrackingQuery['order'],
+        orderBy: [
+            'last_seen' as ErrorTrackingQuery['orderBy'],
             { persist: true },
             {
-                setOrder: (_, { order }) => order,
+                setOrderBy: (_, { orderBy }) => orderBy,
             },
         ],
-        isConfigurationModalOpen: [
-            false as boolean,
+        selectedIssueIds: [
+            [] as string[],
             {
-                setIsConfigurationModalOpen: (_, { open }) => open,
-            },
-        ],
-        selectedRowIndexes: [
-            [] as number[],
-            {
-                setSelectedRowIndexes: (_, { ids }) => ids,
+                setSelectedIssueIds: (_, { ids }) => ids,
             },
         ],
     }),
 
-    selectors({
+    selectors(({ values }) => ({
         query: [
-            (s) => [
-                s.order,
-                s.dateRange,
-                s.assignee,
-                s.filterTestAccounts,
-                s.filterGroup,
-                s.sparklineSelectedPeriod,
-                s.searchQuery,
-                s.hasGroupActions,
-            ],
-            (
-                order,
-                dateRange,
-                assignee,
-                filterTestAccounts,
-                filterGroup,
-                sparklineSelectedPeriod,
-                searchQuery,
-                hasGroupActions
-            ): DataTableNode =>
+            (s) => [s.orderBy, s.dateRange, s.assignee, s.filterTestAccounts, s.filterGroup, s.searchQuery],
+            (orderBy, dateRange, assignee, filterTestAccounts, filterGroup, searchQuery): DataTableNode =>
                 errorTrackingQuery({
-                    order,
+                    orderBy,
                     dateRange,
                     assignee,
                     filterTestAccounts,
                     filterGroup,
-                    sparklineSelectedPeriod,
+                    // we do not want to recompute the query when then sparkline selection changes
+                    // because we have already fetched the alternative option (1d, 1m, custom)
+                    customVolume: values.customSparklineConfig,
                     searchQuery,
-                    columns: hasGroupActions
-                        ? ['error', 'occurrences', 'sessions', 'users', 'assignee']
-                        : ['error', 'occurrences', 'sessions', 'users'],
+                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users', 'assignee'],
                 }),
         ],
-    }),
+    })),
 
     subscriptions(({ actions }) => ({
-        query: () => actions.setSelectedRowIndexes([]),
+        query: () => actions.setSelectedIssueIds([]),
     })),
 
-    forms(({ actions }) => ({
-        uploadSourceMap: {
-            defaults: { files: [] } as { files: File[] },
-            submit: async ({ files }) => {
-                if (files.length > 0) {
-                    const formData = new FormData()
-                    const file = files[0]
-                    formData.append('source_map', file)
-                    await api.errorTracking.uploadSourceMaps(formData)
-                    actions.setIsConfigurationModalOpen(false)
-                    lemonToast.success('Source map uploaded')
-                }
-            },
-        },
-    })),
+    actionToUrl(({ values }) => {
+        const buildURL = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            }
+        ] => {
+            const searchParams: Params = {
+                orderBy: values.orderBy,
+                filterTestAccounts: values.filterTestAccounts,
+            }
+
+            if (values.searchQuery) {
+                searchParams.searchQuery = values.searchQuery
+            }
+            if (!objectsEqual(values.filterGroup, DEFAULT_ERROR_TRACKING_FILTER_GROUP)) {
+                searchParams.filterGroup = values.filterGroup
+            }
+            if (!objectsEqual(values.dateRange, DEFAULT_ERROR_TRACKING_DATE_RANGE)) {
+                searchParams.dateRange = values.dateRange
+            }
+
+            if (!objectsEqual(searchParams, router.values.searchParams)) {
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            }
+
+            return [
+                router.values.location.pathname,
+                router.values.searchParams,
+                router.values.hashParams,
+                { replace: false },
+            ]
+        }
+
+        return {
+            setOrderBy: () => buildURL(),
+            setDateRange: () => buildURL(),
+            setFilterGroup: () => buildURL(),
+            setSearchQuery: () => buildURL(),
+            setFilterTestAccounts: () => buildURL(),
+        }
+    }),
+
+    urlToAction(({ actions, values }) => {
+        const urlToAction = (_: any, params: Params): void => {
+            if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
+                actions.setOrderBy(params.orderBy)
+            }
+            if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
+                actions.setDateRange(params.dateRange)
+            }
+            if (params.filterGroup && !equal(params.filterGroup, values.filterGroup)) {
+                actions.setFilterGroup(params.filterGroup)
+            }
+            if (params.filterTestAccounts && !equal(params.filterTestAccounts, values.filterTestAccounts)) {
+                actions.setFilterTestAccounts(params.filterTestAccounts)
+            }
+            if (params.searchQuery && !equal(params.searchQuery, values.searchQuery)) {
+                actions.setSearchQuery(params.searchQuery)
+            }
+        }
+        return {
+            '*': urlToAction,
+        }
+    }),
 ])

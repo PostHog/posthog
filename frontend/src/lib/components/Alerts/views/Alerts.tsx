@@ -1,10 +1,10 @@
-import { TZLabel } from '@posthog/apps-common'
-import { IconCheck } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
 
-import { AlertState } from '../../../../queries/schema'
+import { AlertState } from '../../../../queries/schema/schema-general'
 import { alertLogic } from '../alertLogic'
 import { alertsLogic } from '../alertsLogic'
 import { AlertType } from '../types'
@@ -48,13 +48,19 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                             className={alert.enabled ? '' : 'text-muted'}
                             title={
                                 <div className="flex flex-row gap-3 items-center">
-                                    {alert.enabled ? <AlertStateIndicator alert={alert} /> : null}
                                     <div>{name}</div>
                                 </div>
                             }
                         />
                     </>
                 )
+            },
+        },
+        {
+            title: 'Status',
+            dataIndex: 'state',
+            render: function renderStateIndicator(_, alert: AlertType) {
+                return alert.enabled ? <AlertStateIndicator alert={alert} /> : null
             },
         },
         {
@@ -97,13 +103,16 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             title: 'Enabled',
             dataIndex: 'enabled',
             key: 'enabled',
-            render: (enabled: any) => (enabled ? <IconCheck /> : null),
+            render: (enabled: any) =>
+                enabled ? <LemonTag type="success">ENABLED</LemonTag> : <LemonTag type="danger">DISABLED</LemonTag>,
         },
     ]
 
     // TODO: add info here to sign up for alerts early access
     return (
         <>
+            <FeedbackNotice text="Alerts are in closed alpha. Thanks for taking part! We'd love to hear what you think." />
+
             {alertsSortedByState.length === 0 && !alertsLoading && (
                 <ProductIntroduction
                     productName="Alerts"

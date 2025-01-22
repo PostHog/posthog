@@ -62,7 +62,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         plan_keys = request.query_params.get("plan_keys", None)
         billing_manager = self.get_billing_manager()
-        response = billing_manager.get_billing(org, plan_keys)
+        query = {}
+        if "include_forecasting" in request.query_params:
+            query["include_forecasting"] = request.query_params.get("include_forecasting")
+        response = billing_manager.get_billing(org, plan_keys, query)
 
         return Response(response)
 
@@ -273,6 +276,20 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         billing_manager = self.get_billing_manager()
         res = billing_manager.purchase_credits(organization, request.data)
+        return Response(res, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False, url_path="trials/activate")
+    def activate_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.activate_trial(organization, request.data)
+        return Response(res, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False, url_path="trials/cancel")
+    def cancel_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.cancel_trial(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=False, url_path="activate/authorize")

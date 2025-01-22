@@ -2,12 +2,14 @@ import datetime as dt
 import logging
 import secrets
 from time import monotonic
+from typing import Optional
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
+from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
 
@@ -61,28 +63,39 @@ class Command(BaseCommand):
             default="12345678",
             help="Password of the demo user (default: 12345678)",
         )
+        parser.add_argument(
+            "--product",
+            type=str,
+            default="hedgebox",
+            help="Product to simulate (default: hedgebox, alternatives: spikegpt)",
+        )
 
     def handle(self, *args, **options):
         timer = monotonic()
         seed = options.get("seed") or secrets.token_hex(16)
         now = options.get("now") or dt.datetime.now(dt.UTC)
         existing_team_id = options.get("team_id")
-        if (
-            existing_team_id is not None
-            and existing_team_id != 0
-            and not Team.objects.filter(pk=existing_team_id).exists()
-        ):
-            print(f"Team with ID {options['team_id']} does not exist!")
-            return
+        existing_team: Optional[Team] = None
+        if existing_team_id is not None and existing_team_id != 0:
+            try:
+                existing_team = Team.objects.get(pk=existing_team_id)
+            except Team.DoesNotExist:
+                print(f"Team with ID {options['team_id']} does not exist!")
+                return
         print("Instantiating the Matrix...")
-        matrix = HedgeboxMatrix(
+        try:
+            RelevantMatrix = {"hedgebox": HedgeboxMatrix, "spikegpt": SpikeGPTMatrix}[options["product"]]
+        except KeyError:
+            print(f"Error: Product {options['product']} is not supported!")
+            return
+        matrix = RelevantMatrix(
             seed,
             now=now,
             days_past=options["days_past"],
             days_future=options["days_future"],
             n_clusters=options["n_clusters"],
-            group_type_index_offset=GroupTypeMapping.objects.filter(team_id=existing_team_id).count()
-            if existing_team_id
+            group_type_index_offset=GroupTypeMapping.objects.filter(project_id=existing_team.project_id).count()
+            if existing_team
             else 0,
         )
         print("Running simulation...")

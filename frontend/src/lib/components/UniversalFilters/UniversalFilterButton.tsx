@@ -1,6 +1,6 @@
 import './UniversalFilterButton.scss'
 
-import { IconFilter, IconX } from '@posthog/icons'
+import { IconFilter, IconLogomark, IconX } from '@posthog/icons'
 import { LemonButton, PopoverReferenceContext } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
@@ -11,12 +11,11 @@ import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ActionFilter, AnyPropertyFilter } from '~/types'
+import { ActionFilter, AnyPropertyFilter, FeaturePropertyFilter, UniversalFilterValue } from '~/types'
 
 import { EntityFilterInfo } from '../EntityFilterInfo'
 import { formatPropertyLabel } from '../PropertyFilters/utils'
-import { UniversalFilterValue } from './UniversalFilters'
-import { isActionFilter, isEditableFilter, isEventFilter } from './utils'
+import { isActionFilter, isEditableFilter, isEventFilter, isFeatureFlagFilter } from './utils'
 
 export interface UniversalFilterButtonProps {
     onClick?: () => void
@@ -33,24 +32,28 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
         const isEditable = isEditableFilter(filter)
         const isAction = isActionFilter(filter)
         const isEvent = isEventFilter(filter)
-
+        const isFeatureFlag = isFeatureFlagFilter(filter)
         const button = (
             <div
                 ref={ref as any}
                 onClick={isEditable ? onClick : undefined}
-                className={clsx('UniversalFilterButton', {
+                className={clsx('UniversalFilterButton inline-flex items-center', {
                     'UniversalFilterButton--clickable': isEditable,
                     'UniversalFilterButton--closeable': closable,
                     'ph-no-capture': true,
                 })}
             >
-                {isEvent ? (
-                    <EventLabel filter={filter} onClick={onClick} />
-                ) : isAction ? (
-                    <EntityFilterInfo filter={filter} />
-                ) : (
-                    <PropertyLabel filter={filter} />
-                )}
+                <div className="flex flex-1 truncate">
+                    {isEvent ? (
+                        <EventLabel filter={filter} onClick={onClick} />
+                    ) : isAction ? (
+                        <EntityFilterInfo filter={filter} />
+                    ) : isFeatureFlag ? (
+                        <FeatureFlagLabel filter={filter} />
+                    ) : (
+                        <PropertyLabel filter={filter} />
+                    )}
+                </div>
 
                 {closable && (
                     // The context below prevents close button from going into active status when filter popover is open
@@ -77,16 +80,20 @@ const PropertyLabel = ({ filter }: { filter: AnyPropertyFilter }): JSX.Element =
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const label = formatPropertyLabel(
+    let label = formatPropertyLabel(
         filter,
         cohortsById,
         (s) => formatPropertyValueForDisplay(filter.key, s)?.toString() || '?'
     )
+    const isEventFeature = label.startsWith('$feature/')
+    if (isEventFeature) {
+        label = label.replace('$feature/', 'Feature: ')
+    }
 
     return (
         <>
-            <PropertyFilterIcon type={filter.type} />
-            <span className="UniversalFilterButton-content" title={label}>
+            {isEventFeature ? <IconLogomark /> : <PropertyFilterIcon type={filter.type} />}
+            <span className="UniversalFilterButton-content flex flex-1 items-center truncate" title={label}>
                 {typeof label === 'string' ? midEllipsis(label, 32) : label}
             </span>
         </>
@@ -101,7 +108,7 @@ const EventLabel = ({
     onClick: UniversalFilterButtonProps['onClick']
 }): JSX.Element => {
     return (
-        <div className="flex items-center space-x-1">
+        <div className="flex truncate  items-center space-x-1">
             <EntityFilterInfo filter={filter} />
             <LemonButton
                 size="xsmall"
@@ -115,4 +122,8 @@ const EventLabel = ({
             />
         </div>
     )
+}
+
+const FeatureFlagLabel = ({ filter }: { filter: FeaturePropertyFilter }): JSX.Element => {
+    return <div className="flex items-center truncate">{filter.key}</div>
 }

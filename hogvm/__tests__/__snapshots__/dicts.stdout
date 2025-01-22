@@ -1,9 +1,0 @@
-{}
-{'key': 'value'}
-{'key': 'value', 'other': 'thing'}
-{'key': {'otherKey': 'value'}}
-{3: 'value'}
-value
-value
-value
-value

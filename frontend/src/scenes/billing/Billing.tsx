@@ -5,13 +5,15 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { humanFriendlyCurrency } from 'lib/utils'
+import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -21,6 +23,7 @@ import { BillingCTAHero } from './BillingCTAHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
 import { CreditCTAHero } from './CreditCTAHero'
+import { PaymentEntryModal } from './PaymentEntryModal'
 import { UnsubscribeCard } from './UnsubscribeCard'
 
 export const scene: SceneExport = {
@@ -34,6 +37,11 @@ export function Billing(): JSX.Element {
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
 
     if (preflight && !isCloudOrDev) {
         router.actions.push(urls.default())
@@ -55,6 +63,20 @@ export function Billing(): JSX.Element {
             <>
                 <SpinnerOverlay sceneLevel />
             </>
+        )
+    }
+
+    if (restrictionReason) {
+        return (
+            <div className="space-y-4">
+                <h1>Billing</h1>
+                <LemonBanner type="warning">{restrictionReason}</LemonBanner>
+                <div className="flex">
+                    <LemonButton type="primary" to={urls.default()}>
+                        Go back home
+                    </LemonButton>
+                </div>
+            </div>
         )
     }
 
@@ -82,6 +104,8 @@ export function Billing(): JSX.Element {
     const platformAndSupportProduct = products?.find((product) => product.type === 'platform_and_support')
     return (
         <div ref={ref}>
+            <PaymentEntryModal />
+
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
@@ -108,9 +132,13 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {billing?.free_trial_until ? (
-                <LemonBanner type="success" className="mb-2">
-                    You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
+            {billing?.trial ? (
+                <LemonBanner type="info" className="mb-2">
+                    You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)} plan</b> until{' '}
+                    <b>{dayjs(billing.trial.expires_at).format('LL')}</b>. At the end of the trial{' '}
+                    {billing.trial.type === 'autosubscribe'
+                        ? 'you will be automatically subscribed to the plan.'
+                        : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
                 </LemonBanner>
             ) : null}
 

@@ -87,7 +87,6 @@ class RetentionQueryRunner(QueryRunner):
 
     def _get_events_for_entity(self, entity: RetentionEntity) -> list[str | None]:
         if entity.type == EntityType.ACTIONS and entity.id:
-            assert self.team.project_id is not None
             action = Action.objects.get(pk=int(entity.id), team__project_id=self.team.project_id)
             return action.get_step_events()
         return [entity.id] if isinstance(entity.id, str) else [None]
@@ -317,7 +316,7 @@ class RetentionQueryRunner(QueryRunner):
 
         return inner_query
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
             if self.query.retentionFilter.cumulative:
                 actor_query = parse_select(

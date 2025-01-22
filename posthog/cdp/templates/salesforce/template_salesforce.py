@@ -15,13 +15,15 @@ common_inputs = {
         "type": "integration",
         "integration": "salesforce",
         "label": "Salesforce account",
+        "requiredScopes": "refresh_token full",
         "secret": False,
         "required": True,
     }
 }
 
 template_create: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
+    type="destination",
     id="template-salesforce-create",
     name="Salesforce",
     description="Create objects in Salesforce",
@@ -107,7 +109,8 @@ if (res.status >= 400) {
 )
 
 template_update: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
+    type="destination",
     id="template-salesforce-update",
     name="Salesforce",
     description="Update objects in Salesforce",

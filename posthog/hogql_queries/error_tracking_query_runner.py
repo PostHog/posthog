@@ -1,4 +1,7 @@
 import re
+import structlog
+from typing import Any
+
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -6,12 +9,23 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     HogQLFilters,
     ErrorTrackingQuery,
+    ErrorTrackingSparklineConfig,
     ErrorTrackingQueryResponse,
     CachedErrorTrackingQueryResponse,
 )
 from posthog.hogql.parser import parse_expr
-from posthog.models.error_tracking import ErrorTrackingGroup
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.error_tracking import ErrorTrackingIssue
+
+logger = structlog.get_logger(__name__)
+
+INTERVAL_FUNCTIONS = {
+    "minute": "toStartOfMinute",
+    "hour": "toStartOfHour",
+    "day": "toStartOfDay",
+    "week": "toStartOfWeek",
+    "month": "toStartOfMonth",
+}
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -25,6 +39,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
             limit=self.query.limit if self.query.limit else None,
+            offset=self.query.offset,
         )
 
     def to_query(self) -> ast.SelectQuery:
@@ -33,73 +48,53 @@ class ErrorTrackingQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=self.where(),
             order_by=self.order_by,
-            group_by=self.group_by(),
+            group_by=[ast.Field(chain=["issue_id"])],
         )
 
     def select(self):
         exprs: list[ast.Expr] = [
+            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
             ast.Alias(
                 alias="occurrences", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])])
             ),
             ast.Alias(
-                alias="sessions", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["$session_id"])])
+                alias="sessions",
+                expr=ast.Call(
+                    name="count",
+                    distinct=True,
+                    # the $session_id property can be blank if not set
+                    # we do not want that case counted so cast it to `null` which is excluded by default
+                    args=[
+                        ast.Call(
+                            name="nullIf",
+                            args=[ast.Field(chain=["$session_id"]), ast.Constant(value="")],
+                        )
+                    ],
+                ),
             ),
             ast.Alias(
                 alias="users", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])])
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(
-                alias="description",
-                expr=ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_message"])]),
-            ),
-            ast.Alias(
-                alias="exception_type",
-                expr=ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_type"])]),
-            ),
+            ast.Alias(alias="volumeDay", expr=self.volume(ErrorTrackingSparklineConfig(interval="hour", value=24))),
+            ast.Alias(alias="volumeMonth", expr=self.volume(ErrorTrackingSparklineConfig(interval="day", value=31))),
         ]
 
-        if not self.query.fingerprint:
-            exprs.append(self.fingerprint_grouping_expr)
+        if self.query.customVolume:
+            exprs.append(ast.Alias(alias="customVolume", expr=self.volume(self.query.customVolume)))
 
-        if self.query.select:
-            exprs.extend([parse_expr(x) for x in self.query.select])
-
-        return exprs
-
-    @property
-    def fingerprint_grouping_expr(self):
-        groups = self.error_tracking_groups.values()
-
-        expr: ast.Expr = self.extracted_fingerprint_property()
-
-        if groups:
-            args: list[ast.Expr] = []
-            for group in groups:
-                # set the "fingerprint" of an exception to match that of the groups primary fingerprint
-                # replaces exceptions in "merged_fingerprints" with the group fingerprint
-                args.extend(
-                    [
-                        ast.Call(
-                            name="has",
-                            args=[
-                                self.group_fingerprints([group]),
-                                self.extracted_fingerprint_property(),
-                            ],
-                        ),
-                        ast.Constant(value=group["fingerprint"]),
-                    ]
+        if self.query.issueId:
+            exprs.append(
+                ast.Alias(
+                    alias="earliest",
+                    expr=ast.Call(
+                        name="argMin", args=[ast.Field(chain=["properties"]), ast.Field(chain=["timestamp"])]
+                    ),
                 )
-
-            # default to $exception_fingerprint property for exception events that don't match a group
-            args.append(self.extracted_fingerprint_property())
-
-            expr = ast.Call(
-                name="multiIf",
-                args=args,
             )
 
-        return ast.Alias(alias="fingerprint", expr=expr)
+        return exprs
 
     def where(self):
         exprs: list[ast.Expr] = [
@@ -108,25 +103,20 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 left=ast.Field(chain=["event"]),
                 right=ast.Constant(value="$exception"),
             ),
+            ast.Call(
+                name="isNotNull",
+                args=[ast.Field(chain=["issue_id"])],
+            ),
             ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
 
-        groups = []
-
-        if self.query.fingerprint:
-            groups.append(self.group_or_default(self.query.fingerprint))
-        elif self.query.assignee:
-            groups.extend(self.error_tracking_groups.values())
-
-        if groups:
+        if self.query.issueId:
             exprs.append(
-                ast.Call(
-                    name="has",
-                    args=[
-                        self.group_fingerprints(groups),
-                        self.extracted_fingerprint_property(),
-                    ],
-                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["issue_id"]),
+                    right=ast.Constant(value=self.query.issueId),
+                )
             )
 
         if self.query.searchQuery:
@@ -147,6 +137,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     continue
 
                 or_exprs: list[ast.Expr] = []
+
                 props_to_search = [
                     "$exception_list",
                     "$exception_type",
@@ -176,23 +167,21 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         return ast.And(exprs=exprs)
 
-    def group_by(self):
-        return None if self.query.fingerprint else [ast.Field(chain=["fingerprint"])]
-
     def calculate(self):
-        query_result = self.paginator.execute_hogql_query(
-            query=self.to_query(),
-            team=self.team,
-            query_type="ErrorTrackingQuery",
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
-            filters=HogQLFilters(
-                dateRange=self.query.dateRange,
-                filterTestAccounts=self.query.filterTestAccounts,
-                properties=self.properties,
-            ),
-        )
+        with self.timings.measure("error_tracking_query_hogql_execute"):
+            query_result = self.paginator.execute_hogql_query(
+                query=self.to_query(),
+                team=self.team,
+                query_type="ErrorTrackingQuery",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                filters=HogQLFilters(
+                    dateRange=self.query.dateRange,
+                    filterTestAccounts=self.query.filterTestAccounts,
+                    properties=self.properties,
+                ),
+            )
 
         columns: list[str] = query_result.columns or []
         results = self.results(columns, query_result.results)
@@ -207,25 +196,44 @@ class ErrorTrackingQueryRunner(QueryRunner):
         )
 
     def results(self, columns: list[str], query_results: list):
-        mapped_results = [dict(zip(columns, value)) for value in query_results]
         results = []
-        for result_dict in mapped_results:
-            fingerprint = self.query.fingerprint if self.query.fingerprint else result_dict["fingerprint"]
-            group = self.group_or_default(fingerprint)
-            results.append(result_dict | group)
+        mapped_results = [dict(zip(columns, value)) for value in query_results]
+
+        issue_ids = [result["id"] for result in mapped_results]
+
+        with self.timings.measure("issue_fetching_execute"):
+            issues = self.error_tracking_issues(issue_ids)
+
+        with self.timings.measure("issue_resolution"):
+            for result_dict in mapped_results:
+                issue = issues.get(result_dict["id"])
+                if issue:
+                    results.append(result_dict | issue)
+                else:
+                    logger.error(
+                        "error tracking issue not found",
+                        issue_id=result_dict["id"],
+                        exc_info=True,
+                    )
 
         return results
+
+    def volume(self, config: ErrorTrackingSparklineConfig):
+        toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
+        return parse_expr(
+            f"reverse(arrayMap(x -> countEqual(groupArray(dateDiff('{config.interval}', {toStartOfInterval}(timestamp), {toStartOfInterval}(now()))), x), range({config.value})))"
+        )
 
     @property
     def order_by(self):
         return (
             [
                 ast.OrderExpr(
-                    expr=ast.Field(chain=[self.query.order]),
-                    order="ASC" if self.query.order == "first_seen" else "DESC",
+                    expr=ast.Field(chain=[self.query.orderBy]),
+                    order="ASC" if self.query.orderBy == "first_seen" else "DESC",
                 )
             ]
-            if self.query.order
+            if self.query.orderBy
             else None
         )
 
@@ -233,54 +241,46 @@ class ErrorTrackingQueryRunner(QueryRunner):
     def properties(self):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else None
 
-    def group_or_default(self, fingerprint):
-        return self.error_tracking_groups.get(
-            str(fingerprint),
-            {
-                "fingerprint": fingerprint,
-                "assignee": None,
-                "merged_fingerprints": [],
-                "status": str(ErrorTrackingGroup.Status.ACTIVE),
-            },
-        )
-
-    def group_fingerprints(self, groups):
-        exprs: list[ast.Expr] = []
-        for group in groups:
-            exprs.append(ast.Constant(value=group["fingerprint"]))
-            for fp in group["merged_fingerprints"]:
-                exprs.append(ast.Constant(value=fp))
-        return ast.Array(exprs=exprs)
-
-    def extracted_fingerprint_property(self):
-        return ast.Call(
-            name="JSONExtract",
-            args=[
-                ast.Call(
-                    name="ifNull",
-                    args=[
-                        ast.Field(chain=["properties", "$exception_fingerprint"]),
-                        ast.Constant(value="[]"),
-                    ],
-                ),
-                ast.Constant(value="Array(String)"),
-            ],
-        )
-
-    @cached_property
-    def error_tracking_groups(self):
-        queryset = ErrorTrackingGroup.objects.filter(team=self.team)
-        # :TRICKY: Ideally we'd have no null characters in the fingerprint, but if something made it into the pipeline with null characters
-        # (because rest of the system supports it), try cleaning it up here. Make sure this cleaning is consistent with the rest of the system.
-        cleaned_fingerprint = [part.replace("\x00", "\ufffd") for part in self.query.fingerprint or []]
+    def error_tracking_issues(self, ids):
+        queryset = ErrorTrackingIssue.objects.select_related("assignment").filter(team=self.team, id__in=ids)
         queryset = (
-            queryset.filter(fingerprint=cleaned_fingerprint)
-            if self.query.fingerprint
-            else queryset.filter(status__in=[ErrorTrackingGroup.Status.ACTIVE])
+            queryset.filter(id=self.query.issueId)
+            if self.query.issueId
+            else queryset.filter(status__in=[ErrorTrackingIssue.Status.ACTIVE])
         )
-        queryset = queryset.filter(assignee=self.query.assignee) if self.query.assignee else queryset
-        groups = queryset.values("fingerprint", "merged_fingerprints", "status", "assignee")
-        return {str(item["fingerprint"]): item for item in groups}
+        if self.query.assignee:
+            queryset = (
+                queryset.filter(assignment__user_id=self.query.assignee.id)
+                if self.query.assignee.type == "user"
+                else queryset.filter(assignment__user_group_id=self.query.assignee.id)
+            )
+
+        issues = queryset.values(
+            "id", "status", "name", "description", "assignment__user_id", "assignment__user_group_id"
+        )
+
+        results = {}
+        for issue in issues:
+            result: dict[str, Any] = {
+                "id": str(issue["id"]),
+                "name": issue["name"],
+                "status": issue["status"],
+                "description": issue["description"],
+                "assignee": None,
+            }
+
+            assignment_user_id = issue.get("assignment__user_id")
+            assignment_user_group_id = issue.get("assignment__user_group_id")
+
+            if assignment_user_id or assignment_user_group_id:
+                result["assignee"] = {
+                    "id": assignment_user_id or str(assignment_user_group_id),
+                    "type": "user" if assignment_user_id else "user_group",
+                }
+
+            results[issue["id"]] = result
+
+        return results
 
 
 def search_tokenizer(query: str) -> list[str]:

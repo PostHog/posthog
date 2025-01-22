@@ -15,17 +15,21 @@ import { teamLogic } from 'scenes/teamLogic'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
-import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, Node } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
 import { ActivityScope, Breadcrumb, DashboardType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { summarizeInsight } from './summarizeInsight'
+import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
+
+const NEW_INSIGHT = 'new' as const
+export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
@@ -33,7 +37,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         logic: [eventUsageLogic],
         values: [
             teamLogic,
-            ['currentTeam'],
+            ['currentTeam', 'currentTeamId'],
             sceneLogic,
             ['activeScene'],
             preflightLogic,
@@ -50,9 +54,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             insightMode: ItemMode,
             itemId: string | undefined,
             alertId: AlertType['id'] | undefined,
+            filtersOverride: DashboardFilter | undefined,
+            variablesOverride: Record<string, HogQLVariable> | undefined,
             dashboardId: DashboardType['id'] | undefined,
-            dashboardName: DashboardType['name'] | undefined,
-            filtersOverride: DashboardFilter | undefined
+            dashboardName: DashboardType['name'] | undefined
         ) => ({
             insightId,
             insightMode,
@@ -61,6 +66,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             dashboardId,
             dashboardName,
             filtersOverride,
+            variablesOverride,
         }),
         setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
             logic,
@@ -71,10 +77,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             unmount,
         }),
         setOpenedWithQuery: (query: Node | null) => ({ query }),
+        setFreshQuery: (freshQuery: boolean) => ({ freshQuery }),
     }),
     reducers({
         insightId: [
-            null as null | 'new' | InsightShortId,
+            null as null | InsightId,
             {
                 setSceneState: (_, { insightId }) => insightId,
             },
@@ -122,6 +129,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setSceneState: (_, { filtersOverride }) => (filtersOverride !== undefined ? filtersOverride : null),
             },
         ],
+        variablesOverride: [
+            null as null | Record<string, HogQLVariable>,
+            {
+                setSceneState: (_, { variablesOverride }) =>
+                    variablesOverride !== undefined ? variablesOverride : null,
+            },
+        ],
         insightLogicRef: [
             null as null | {
                 logic: BuiltLogic<insightLogicType>
@@ -141,6 +155,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         openedWithQuery: [null as Node | null, { setOpenedWithQuery: (_, { query }) => query }],
+        freshQuery: [false, { setFreshQuery: (_, { freshQuery }) => freshQuery }],
     }),
     selectors(() => ({
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
@@ -201,13 +216,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 ]
             },
         ],
-        activityFilters: [
+        [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.insight],
-            (insight): ActivityFilters | null => {
-                return insight
+            (insight): SidePanelSceneContext | null => {
+                return insight?.id
                     ? {
-                          scope: ActivityScope.INSIGHT,
-                          item_id: `${insight.id}`,
+                          activity_scope: ActivityScope.INSIGHT,
+                          activity_item_id: `${insight.id}`,
+                          access_control_resource: 'insight',
+                          access_control_resource_id: `${insight.id}`,
                       }
                     : null
             },
@@ -222,7 +239,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 const oldRef = values.insightLogicRef // free old logic after mounting new one
                 const oldRef2 = values.insightDataLogicRef // free old logic after mounting new one
                 if (insightId) {
-                    const insightProps = { dashboardItemId: insightId, filtersOverride: values.filtersOverride }
+                    const insightProps = {
+                        dashboardItemId: insightId,
+                        filtersOverride: values.filtersOverride,
+                        variablesOverride: values.variablesOverride,
+                    }
 
                     const logic = insightLogic.build(insightProps)
                     const unmount = logic.mount()
@@ -242,7 +263,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     oldRef2.unmount()
                 }
             } else if (insightId) {
-                values.insightLogicRef?.logic.actions.loadInsight(insightId as InsightShortId, values.filtersOverride)
+                values.insightLogicRef?.logic.actions.loadInsight(
+                    insightId as InsightShortId,
+                    values.filtersOverride,
+                    values.variablesOverride
+                )
             }
         },
     })),
@@ -294,41 +319,39 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 insightMode !== values.insightMode ||
                 itemId !== values.itemId ||
                 alert_id !== values.alertId ||
+                !objectsEqual(searchParams['variables_override'], values.variablesOverride) ||
+                !objectsEqual(filtersOverride, values.filtersOverride) ||
                 dashboard !== values.dashboardId ||
-                dashboardName !== values.dashboardName ||
-                !objectsEqual(filtersOverride, values.filtersOverride)
+                dashboardName !== values.dashboardName
             ) {
                 actions.setSceneState(
                     insightId,
                     insightMode,
                     itemId,
                     alert_id,
+                    filtersOverride,
+                    searchParams['variables_override'],
                     dashboard,
-                    dashboardName,
-                    filtersOverride
+                    dashboardName
                 )
             }
 
             let queryFromUrl: Node | null = null
             if (q) {
-                queryFromUrl = JSON.parse(q)
+                const validQuery = parseDraftQueryFromURL(q)
+                if (validQuery) {
+                    queryFromUrl = validQuery
+                } else {
+                    console.error('Invalid query', q)
+                }
             } else if (insightType && Object.values(InsightType).includes(insightType)) {
                 queryFromUrl = getDefaultQuery(insightType, values.filterTestAccountsDefault)
             }
 
-            // Redirect to a simple URL if we had a query in the URL
-            if (q || insightType) {
-                router.actions.replace(
-                    insightId === 'new'
-                        ? urls.insightNew(undefined, dashboard)
-                        : insightMode === ItemMode.Edit
-                        ? urls.insightEdit(insightId)
-                        : urls.insightView(insightId)
-                )
-            }
+            actions.setFreshQuery(false)
 
             // reset the insight's state if we have to
-            if (initial || method === 'PUSH' || queryFromUrl) {
+            if (initial || queryFromUrl || method === 'PUSH') {
                 if (insightId === 'new') {
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
                     values.insightLogicRef?.logic.actions.setInsight(
@@ -342,6 +365,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             overrideQuery: true,
                         }
                     )
+
+                    if (!queryFromUrl) {
+                        actions.setFreshQuery(true)
+                    }
 
                     actions.setOpenedWithQuery(query)
 
@@ -395,6 +422,22 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             const metadataChanged = !!values.insightLogicRef?.logic.values.insightChanged
             const queryChanged = !!values.insightDataLogicRef?.logic.values.queryChanged
+            const draftQueryFromLocalStorage = localStorage.getItem(`draft-query-${values.currentTeamId}`)
+            let draftQuery: { query: Node; timestamp: number } | null = null
+            if (draftQueryFromLocalStorage) {
+                const parsedQuery = parseDraftQueryFromLocalStorage(draftQueryFromLocalStorage)
+                if (parsedQuery) {
+                    draftQuery = parsedQuery
+                } else {
+                    // If the draft query is invalid, remove it
+                    localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                }
+            }
+            const query = values.insightDataLogicRef?.logic.values.query
+
+            if (draftQuery && query && objectsEqual(draftQuery.query, query)) {
+                return false
+            }
 
             return metadataChanged || queryChanged
         },

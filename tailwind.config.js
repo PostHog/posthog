@@ -1,7 +1,15 @@
 /** @type {import('tailwindcss').Config} */
 const config = {
-    content: ['./frontend/src/**/*.{ts,tsx}', './ee/frontend/**/*.{ts,tsx}', './frontend/src/index.html'],
+    content: [
+        './frontend/src/**/*.{ts,tsx}',
+        './ee/frontend/**/*.{ts,tsx}',
+        './frontend/src/index.html',
+        './products/**/frontend/**/*.{ts,tsx}',
+        './common/**/src/**/*.{ts,tsx}',
+        './common/**/frontend/**/*.{ts,tsx}',
+    ],
     important: true, // Basically this: https://sebastiandedeyne.com/why-we-use-important-with-tailwind
+    darkMode: ['selector', '[theme="dark"]'],
     theme: {
         colors: {
             // TODO: Move all colors over to Tailwind
@@ -52,9 +60,9 @@ const config = {
         },
         borderRadius: {
             none: '0',
-            sm: '0.25rem', // Originally 0.125rem, but we're rounder
-            DEFAULT: '0.375rem', // Originally 0.25rem, but we're rounder - aligned with var(--radius)
-            lg: '0.5rem',
+            sm: 'var(--radius-sm)',
+            DEFAULT: 'var(--radius)',
+            lg: 'var(--radius-lg)',
             full: '9999px',
         },
         extend: {
@@ -82,6 +90,7 @@ const config = {
                 // All whole number values divisible by 20 up to 200 ensured above
                 248: '62rem',
                 300: '75rem',
+                'scene-padding': 'var(--scene-padding)',
             },
             rotate: {
                 270: '270deg',

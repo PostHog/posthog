@@ -73,6 +73,7 @@ export type ExperimentDraftType = Omit<Experiment, 'id' | 'created_at' | 'create
 
 export interface ExperimentForm extends ExperimentDraftType {
     variants?: Record<string, WebExperimentVariant>
+    undo_transforms?: WebExperimentTransform[]
 }
 
 export interface ActionStepForm extends ActionStepType {
@@ -117,5 +118,5 @@ export interface WebExperimentTransform {
     text?: string
     html?: string
     imgUrl?: string
-    css?: string
+    css?: string | null
 }

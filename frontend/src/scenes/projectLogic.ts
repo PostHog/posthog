@@ -8,6 +8,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import { ProjectType } from '~/types'
 
+import { organizationLogic } from './organizationLogic'
 import type { projectLogicType } from './projectLogicType'
 import { userLogic } from './userLogic'
 
@@ -19,7 +20,7 @@ export const projectLogic = kea<projectLogicType>([
         deleteProjectFailure: true,
     }),
     connect(() => ({
-        actions: [userLogic, ['loadUser']],
+        actions: [userLogic, ['loadUser', 'switchTeam'], organizationLogic, ['loadCurrentOrganization']],
     })),
     reducers({
         projectBeingDeleted: [
@@ -51,12 +52,14 @@ export const projectLogic = kea<projectLogicType>([
                         throw new Error('Current project has not been loaded yet, so it cannot be updated!')
                     }
 
-                    const patchedProject = (await api.update(
+                    const patchedProject = await api.update<ProjectType>(
                         `api/projects/${values.currentProject.id}`,
                         payload
-                    )) as ProjectType
+                    )
                     breakpoint()
 
+                    // We need to reload current org (which lists its projects) in organizationLogic AND in userLogic
+                    actions.loadCurrentOrganization()
                     actions.loadUser()
 
                     Object.keys(payload).map((property) => {
@@ -75,7 +78,12 @@ export const projectLogic = kea<projectLogicType>([
                     return patchedProject
                 },
                 createProject: async ({ name }: { name: string }) => {
-                    return await api.create('api/projects/', { name })
+                    try {
+                        return await api.create('api/projects/', { name })
+                    } catch (error: any) {
+                        lemonToast.error('Failed to create project')
+                        return values.currentProject
+                    }
                 },
             },
         ],
@@ -100,6 +108,11 @@ export const projectLogic = kea<projectLogicType>([
         },
         deleteProjectSuccess: () => {
             lemonToast.success('Project has been deleted')
+        },
+        createProjectSuccess: ({ currentProject }) => {
+            if (currentProject) {
+                actions.switchTeam(currentProject.id)
+            }
         },
     })),
     afterMount(({ actions }) => {

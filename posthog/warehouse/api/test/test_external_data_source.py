@@ -374,12 +374,24 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        with self.assertNumQueries(17):
+        with self.assertNumQueries(19):
             response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(payload["results"]), 2)
+
+    def test_dont_expose_job_inputs(self):
+        self._create_external_data_source()
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
+        payload = response.json()
+        results = payload["results"]
+
+        assert len(results) == 1
+
+        result = results[0]
+        assert result.get("job_inputs") is None
 
     def test_get_external_data_source_with_schema(self):
         source = self._create_external_data_source()
@@ -692,6 +704,7 @@ class TestExternalDataSource(APIBaseTest):
             status=ExternalDataJob.Status.COMPLETED,
             rows_synced=100,
             workflow_run_id="test_run_id",
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
         )
 
         response = self.client.get(
@@ -708,6 +721,29 @@ class TestExternalDataSource(APIBaseTest):
         assert data[0]["schema"]["id"] == str(schema.pk)
         assert data[0]["workflow_run_id"] is not None
 
+    def test_source_jobs_billable_job(self):
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=100,
+            workflow_run_id="test_run_id",
+            pipeline_version=ExternalDataJob.PipelineVersion.V2,
+            billable=False,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs",
+        )
+
+        data = response.json()
+
+        assert response.status_code, status.HTTP_200_OK
+        assert len(data) == 0
+
     def test_source_jobs_pagination(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
@@ -719,6 +755,7 @@ class TestExternalDataSource(APIBaseTest):
                 status=ExternalDataJob.Status.COMPLETED,
                 rows_synced=100,
                 workflow_run_id="test_run_id",
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
             )
 
             response = self.client.get(
@@ -740,6 +777,7 @@ class TestExternalDataSource(APIBaseTest):
                 status=ExternalDataJob.Status.COMPLETED,
                 rows_synced=100,
                 workflow_run_id="test_run_id",
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
             )
 
             response = self.client.get(
@@ -761,6 +799,7 @@ class TestExternalDataSource(APIBaseTest):
                 status=ExternalDataJob.Status.COMPLETED,
                 rows_synced=100,
                 workflow_run_id="test_run_id",
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
             )
 
             response = self.client.get(
@@ -772,3 +811,27 @@ class TestExternalDataSource(APIBaseTest):
             assert response.status_code, status.HTTP_200_OK
             assert len(data) == 1
             assert data[0]["id"] == str(job3.pk)
+
+    def test_trimming_payload(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "client_secret": "  sk_test_123   ",
+                    "account_id": "  blah   ",
+                    "schemas": [
+                        {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        payload = response.json()
+
+        assert response.status_code == 201
+
+        source = ExternalDataSource.objects.get(id=payload["id"])
+        assert source.job_inputs is not None
+
+        assert source.job_inputs["stripe_secret_key"] == "sk_test_123"
+        assert source.job_inputs["stripe_account_id"] == "blah"

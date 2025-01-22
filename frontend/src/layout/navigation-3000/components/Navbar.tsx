@@ -27,7 +27,7 @@ export function Navbar(): JSX.Element {
     const { isAccountPopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { isNavShown, isSidebarShown, activeNavbarItemId, navbarItems, mobileLayout } = useValues(navigation3000Logic)
-    const { showSidebar, hideSidebar, toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
+    const { toggleNavCollapsed, hideNavOnMobile, showSidebar, hideSidebar } = useActions(navigation3000Logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
 
@@ -59,7 +59,7 @@ export function Navbar(): JSX.Element {
                                                     ? () => {
                                                           if (
                                                               activeNavbarItemId === item.identifier &&
-                                                              isSidebarShown
+                                                              !isSidebarShown
                                                           ) {
                                                               hideSidebar()
                                                           } else {
@@ -112,7 +112,7 @@ export function Navbar(): JSX.Element {
                             {!systemStatusHealthy ? (
                                 <NavbarButton
                                     icon={<IconWarning />}
-                                    identifier={Scene.Settings}
+                                    identifier={Scene.SystemStatus}
                                     title="System issue!"
                                     to={urls.instanceStatus()}
                                 />

@@ -6,7 +6,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from django.test import override_settings
-from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import (
@@ -1083,40 +1082,6 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(result), 0)
 
-    def test_retention_people_paginated(self):
-        for i in range(150):
-            person_id = "person{}".format(i)
-            _create_person(team_id=self.team.pk, distinct_ids=[person_id])
-            _create_events(
-                self.team,
-                [
-                    (person_id, _date(0)),
-                    (person_id, _date(1)),
-                    (person_id, _date(2)),
-                    (person_id, _date(5)),
-                ],
-            )
-
-        # even if set to hour 6 it should default to beginning of day and include all pageviews above
-        result = self.client.get(
-            "/api/person/retention",
-            data={"date_to": _date(10, hour=6), "selected_interval": 2},
-        ).json()
-
-        self.assertEqual(len(result["result"]), 100)
-
-        second_result = self.client.get(result["next"]).json()
-        self.assertEqual(len(second_result["result"]), 50)
-
-    def test_retention_invalid_properties(self):
-        response = self.client.get("/api/person/retention", data={"properties": "invalid_json"})
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertDictEqual(
-            response.json(),
-            self.validation_error_response("Properties are unparsable!", "invalid_input"),
-        )
-
     def test_retention_people_in_period(self):
         person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
         person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
@@ -2027,8 +1992,12 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         return runner.calculate().model_dump()["results"]
 
     def _create_groups_and_events(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         create_group(
             team_id=self.team.pk,

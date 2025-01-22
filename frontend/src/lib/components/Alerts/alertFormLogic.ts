@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { AlertCalculationInterval } from '~/queries/schema'
+import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
@@ -11,11 +11,29 @@ import { AlertType, AlertTypeWrite } from './types'
 
 export type AlertFormType = Pick<
     AlertType,
-    'name' | 'enabled' | 'created_at' | 'threshold' | 'subscribed_users' | 'checks' | 'config'
+    | 'name'
+    | 'enabled'
+    | 'created_at'
+    | 'calculation_interval'
+    | 'threshold'
+    | 'condition'
+    | 'subscribed_users'
+    | 'checks'
+    | 'config'
+    | 'skip_weekend'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
     insight?: QueryBasedInsightModel['id']
+}
+
+export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): boolean {
+    return (
+        (alert?.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
+            alert?.condition.type === AlertConditionType.RELATIVE_INCREASE) &&
+        alert?.threshold.configuration.bounds?.upper != null &&
+        !isNaN(alert?.threshold.configuration.bounds.upper)
+    )
 }
 
 export interface AlertFormLogicProps {
@@ -31,6 +49,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
     actions({
         deleteAlert: true,
+        snoozeAlert: (snoozeUntil: string) => ({ snoozeUntil }),
+        clearSnooze: true,
     }),
 
     forms(({ props }) => ({
@@ -46,25 +66,41 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     config: {
                         type: 'TrendsAlertConfig',
                         series_index: 0,
+                        check_ongoing_interval: false,
                     },
-                    threshold: {
-                        configuration: {
-                            absoluteThreshold: {},
-                        },
+                    threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: {} } },
+                    condition: {
+                        type: AlertConditionType.ABSOLUTE_VALUE,
                     },
                     subscribed_users: [],
                     checks: [],
                     calculation_interval: AlertCalculationInterval.DAILY,
+                    skip_weekend: false,
                     insight: props.insightId,
                 } as AlertFormType),
             errors: ({ name }) => ({
                 name: !name ? 'You need to give your alert a name' : undefined,
             }),
             submit: async (alert) => {
-                const payload: Partial<AlertTypeWrite> = {
+                const payload: AlertTypeWrite = {
                     ...alert,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
+                    // can only skip weekends for hourly/daily alerts
+                    skip_weekend:
+                        (alert.calculation_interval === AlertCalculationInterval.DAILY ||
+                            alert.calculation_interval === AlertCalculationInterval.HOURLY) &&
+                        alert.skip_weekend,
+                    // can only check ongoing interval for absolute value/increase alerts with upper threshold
+                    config: {
+                        ...alert.config,
+                        check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
+                    },
+                }
+
+                // absolute value alert can only have absolute threshold
+                if (payload.condition.type === AlertConditionType.ABSOLUTE_VALUE) {
+                    payload.threshold.configuration.type = InsightThresholdType.ABSOLUTE
                 }
 
                 try {
@@ -99,6 +135,22 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 throw new Error("Cannot delete alert that doesn't exist")
             }
             await api.alerts.delete(values.alertForm.id)
+            props.onEditSuccess()
+        },
+        snoozeAlert: async ({ snoozeUntil }) => {
+            // resolution only allowed on created alert (which will have alertId)
+            if (!values.alertForm.id) {
+                throw new Error("Cannot resolve alert that doesn't exist")
+            }
+            await api.alerts.update(values.alertForm.id, { snoozed_until: snoozeUntil })
+            props.onEditSuccess()
+        },
+        clearSnooze: async () => {
+            // resolution only allowed on created alert (which will have alertId)
+            if (!values.alertForm.id) {
+                throw new Error("Cannot resolve alert that doesn't exist")
+            }
+            await api.alerts.update(values.alertForm.id, { snoozed_until: null })
             props.onEditSuccess()
         },
     })),

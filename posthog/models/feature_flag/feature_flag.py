@@ -88,6 +88,11 @@ class FeatureFlag(models.Model):
         return self.get_filters().get("super_groups", []) or []
 
     @property
+    def holdout_conditions(self):
+        "Each feature flag can have multiple holdout conditions to match, they are OR-ed together."
+        return self.get_filters().get("holdout_groups", []) or []
+
+    @property
     def _payloads(self):
         return self.get_filters().get("payloads", {}) or {}
 
@@ -182,7 +187,7 @@ class FeatureFlag(models.Model):
                                     return self.conditions
                             else:
                                 cohort = Cohort.objects.db_manager(using_database).get(
-                                    pk=cohort_id, team_id=self.team_id, deleted=False
+                                    pk=cohort_id, team__project_id=self.team.project_id, deleted=False
                                 )
                                 seen_cohorts_cache[cohort_id] = cohort
                         except Cohort.DoesNotExist:
@@ -286,7 +291,7 @@ class FeatureFlag(models.Model):
                                 continue
                         else:
                             cohort = Cohort.objects.db_manager(using_database).get(
-                                pk=cohort_id, team_id=self.team_id, deleted=False
+                                pk=cohort_id, team__project_id=self.team.project_id, deleted=False
                             )
                             seen_cohorts_cache[cohort_id] = cohort
 

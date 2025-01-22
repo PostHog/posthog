@@ -144,6 +144,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         onFiltersChange={setFilters}
                         onPinnedChange={onPinnedChange}
                         pinnedRecordings={pinnedRecordings ?? []}
+                        updateSearchParams={true}
                     />
                 </div>
             ) : null}

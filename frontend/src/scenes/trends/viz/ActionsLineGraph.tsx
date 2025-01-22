@@ -41,6 +41,7 @@ export function ActionsLineGraph({
         hiddenLegendIndexes,
         querySource,
         yAxisScaleType,
+        goalLines,
     } = useValues(trendsDataLogic(insightProps))
 
     const { alertThresholdLines } = useValues(
@@ -50,7 +51,7 @@ export function ActionsLineGraph({
     const labels =
         (indexedResults.length === 2 &&
             indexedResults.every((x) => x.compare) &&
-            indexedResults.find((x) => x.compare_label === 'current')?.days) ||
+            indexedResults.find((x) => x.compare_label === 'current')?.labels) ||
         (indexedResults[0] && indexedResults[0].labels) ||
         []
 
@@ -112,7 +113,7 @@ export function ActionsLineGraph({
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             legend={legend}
-            alertLines={alertThresholdLines}
+            goalLines={[...alertThresholdLines, ...(goalLines || [])]}
             onClick={
                 !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
                     ? undefined
