@@ -176,7 +176,6 @@ describe('plugins', () => {
             'config',
             'geoip',
             'global',
-            'jobs',
             'storage',
             'utils',
         ])
