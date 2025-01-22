@@ -301,7 +301,7 @@ export async function startPluginsServer(
 
         if (serverInstance.hub) {
             const hub = serverInstance.hub
-            // TODO: Fix this
+            // Some pubsub actions for reloading things when django changes them
             pubSub = new PubSub(hub, {
                 [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
                     status.info('⚡', 'Reloading plugins!')
@@ -313,7 +313,7 @@ export async function startPluginsServer(
                 },
             })
 
-            // await pubSub.start()
+            await pubSub.start()
 
             if (capabilities.preflightSchedules) {
                 startPreflightSchedules(hub)
