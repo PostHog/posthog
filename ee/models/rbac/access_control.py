@@ -12,11 +12,22 @@ class AccessControl(UUIDModel):
             )
         ]
 
+    # Optional - only required for resources scoped to a team (environment)
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         related_name="access_controls",
         related_query_name="access_controls",
+        null=True,
+    )
+
+    # Required for all access controls
+    project = models.ForeignKey(
+        "posthog.Project",
+        on_delete=models.CASCADE,
+        related_name="access_controls",
+        related_query_name="access_controls",
+        null=True,  # TODO: drop after initial migration and filling in null values
     )
 
     # Configuration of what we are accessing
