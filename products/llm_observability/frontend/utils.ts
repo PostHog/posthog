@@ -1,5 +1,4 @@
 import { dayjs } from 'lib/dayjs'
-import { identifierToHuman } from 'lib/utils'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema'
 
@@ -226,21 +225,4 @@ export function normalizeMessages(output: unknown, defaultRole?: string): Compat
 
 export function removeMilliseconds(timestamp: string): string {
     return dayjs(timestamp).utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
-}
-
-export function isMetricValueLong(eventProperties: Record<string, any>): boolean {
-    const { $ai_score_value: metricValue } = eventProperties
-    return String(metricValue).length > 10
-}
-
-export function formatMetricTitle(eventProperties: Record<string, any>): string {
-    const { $ai_score_name: metricName, $ai_score_value: metricValue } = eventProperties
-    const name = metricName ? identifierToHuman(metricName) : 'Metric'
-    const value = isMetricValueLong(eventProperties) ? `${String(metricValue).slice(0, 10)}...` : metricValue
-    return `${name}: ${value}`
-}
-
-export function formatMetricDescription(eventProperties: Record<string, any>): string {
-    const { $ai_score_name: metricName, $ai_score_value: metricValue } = eventProperties
-    return `${metricName ? `Metric: ${metricName}` : ''}\n\n${metricValue}`
 }
