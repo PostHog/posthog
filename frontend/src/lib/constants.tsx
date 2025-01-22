@@ -200,7 +200,6 @@ export const FEATURE_FLAGS = {
     FIRST_TIME_FOR_USER_MATH: 'first-time-for-user-math', // owner: @skoob13 #team-product-analytics
     MULTITAB_EDITOR: 'multitab-editor', // owner: @EDsCODE #team-data-warehouse
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
-    EXPERIMENT_MAKE_DECISION: 'experiment-make-decision', // owner: @jurajmajerik #team-feature-success
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
     INSIGHT_VARIABLES: 'insight_variables', // owner: @Gilbert09 #team-data-warehouse

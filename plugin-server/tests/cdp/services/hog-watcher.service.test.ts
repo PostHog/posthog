@@ -1,18 +1,23 @@
-jest.mock('../../src/utils/now', () => {
+jest.mock('../../../src/utils/now', () => {
     return {
         now: jest.fn(() => Date.now()),
     }
 })
-import { BASE_REDIS_KEY, CELERY_TASK_ID, HogWatcher, HogWatcherState } from '../../src/cdp/hog-watcher'
-import { CdpRedis, createCdpRedisPool } from '../../src/cdp/redis'
-import { HogFunctionInvocationResult } from '../../src/cdp/types'
-import { Hub } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { delay } from '../../src/utils/utils'
-import { createInvocation } from './fixtures'
-import { deleteKeysWithPrefix } from './helpers/redis'
+import { CdpRedis, createCdpRedisPool } from '../../../src/cdp/redis'
+import {
+    BASE_REDIS_KEY,
+    CELERY_TASK_ID,
+    HogWatcherService,
+    HogWatcherState,
+} from '../../../src/cdp/services/hog-watcher.service'
+import { HogFunctionInvocationResult } from '../../../src/cdp/types'
+import { Hub } from '../../../src/types'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { delay } from '../../../src/utils/utils'
+import { createInvocation } from '../fixtures'
+import { deleteKeysWithPrefix } from '../helpers/redis'
 
-const mockNow: jest.Mock = require('../../src/utils/now').now as any
+const mockNow: jest.Mock = require('../../../src/utils/now').now as any
 
 const createResult = (options: {
     id: string
@@ -42,7 +47,7 @@ describe('HogWatcher', () => {
     describe('integration', () => {
         let now: number
         let hub: Hub
-        let watcher: HogWatcher
+        let watcher: HogWatcherService
         let mockCeleryApplyAsync: jest.Mock
         let redis: CdpRedis
 
@@ -56,7 +61,7 @@ describe('HogWatcher', () => {
             redis = createCdpRedisPool(hub)
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
 
-            watcher = new HogWatcher(hub, redis)
+            watcher = new HogWatcherService(hub, redis)
         })
 
         const advanceTime = (ms: number) => {
