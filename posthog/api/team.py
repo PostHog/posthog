@@ -154,7 +154,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     has_group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
-    default_data_theme = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -238,6 +237,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "user_access_level",
         )
 
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
+        if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
+            representation["default_data_theme"] = (
+                DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
+            )
+        return representation
+
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
@@ -257,11 +265,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return ProductIntent.objects.filter(team=obj).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
-
-    def get_default_data_theme(self, obj):
-        if not obj.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
-            return DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
-        return obj.default_data_theme
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
