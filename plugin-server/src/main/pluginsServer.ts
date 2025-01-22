@@ -115,7 +115,6 @@ export async function startPluginsServer(
             posthog.shutdownAsync(),
         ])
 
-        console.log('serverInstance.hub', serverInstance.hub)
         if (serverInstance.hub) {
             // Wait 2 seconds to flush the last queues and caches
             await Promise.all([serverInstance.hub.kafkaProducer.flush(), delay(2000)])
