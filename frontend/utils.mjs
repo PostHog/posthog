@@ -380,7 +380,6 @@ export async function buildOrWatch(config) {
                 }
             )
             .on('all', async (event, filePath) => {
-                console.log(filePath)
                 if (inputFiles.size === 0) {
                     await buildPromise
                 }
