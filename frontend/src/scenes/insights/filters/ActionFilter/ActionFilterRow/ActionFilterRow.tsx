@@ -710,10 +710,10 @@ function useMathSelectorOptions({
                 return !TRAILING_MATH_TYPES.has(key)
             }
 
-            // The unique group keys are of the type 'unique_group::0', so need to strip the ::0
-            // when comparing with the GroupMathType.UniqueGroup which has the value 'unique_group'
-            const strippedKey = key.split('::')[0]
             if (allowedMathTypes) {
+                // The unique group keys are of the type 'unique_group::0', so need to strip the ::0
+                // when comparing with the GroupMathType.UniqueGroup which has the value 'unique_group'
+                const strippedKey = key.split('::')[0]
                 return allowedMathTypes.includes(strippedKey)
             }
 
