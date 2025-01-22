@@ -280,7 +280,7 @@ export function LineGraph_({
     hideYAxis,
     yAxisScaleType,
     legend = { display: false },
-    goalLines = [],
+    goalLines: _goalLines,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -405,6 +405,7 @@ export function LineGraph_({
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const precision = seriesNonZeroMax < 5 ? 1 : seriesNonZeroMax < 2 ? 2 : 0
+        const goalLines = _goalLines || []
         const goalLinesY = goalLines.map((a) => a.value)
         const goalLinesWithColor = goalLines.filter((goalLine) => Boolean(goalLine.borderColor))
 
@@ -854,7 +855,7 @@ export function LineGraph_({
         formula,
         showValuesOnSeries,
         showPercentStackView,
-        goalLines,
+        _goalLines,
         theme,
     ])
 

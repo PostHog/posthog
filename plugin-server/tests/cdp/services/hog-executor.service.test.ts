@@ -1,16 +1,16 @@
 import { DateTime } from 'luxon'
 
-import { HogExecutor } from '../../src/cdp/hog-executor'
-import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
-import { HogFunctionInvocation, HogFunctionType } from '../../src/cdp/types'
-import { Hub } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
-import { status } from '../../src/utils/status'
-import { truth } from '../helpers/truth'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
-import { createHogExecutionGlobals, createHogFunction, createInvocation } from './fixtures'
+import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
+import { HogFunctionManagerService } from '../../../src/cdp/services/hog-function-manager.service'
+import { HogFunctionInvocation, HogFunctionType } from '../../../src/cdp/types'
+import { Hub } from '../../../src/types'
+import { createHub } from '../../../src/utils/db/hub'
+import { status } from '../../../src/utils/status'
+import { truth } from '../../helpers/truth'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../examples'
+import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../fixtures'
 
-jest.mock('../../src/utils/status', () => ({
+jest.mock('../../../src/utils/status', () => ({
     status: {
         error: jest.fn(),
         info: jest.fn(),
@@ -43,7 +43,7 @@ const setupFetchResponse = (
 
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
-    let executor: HogExecutor
+    let executor: HogExecutorService
     let hub: Hub
 
     const mockFunctionManager = {
@@ -56,7 +56,7 @@ describe('Hog Executor', () => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
         hub = await createHub()
-        executor = new HogExecutor(hub, mockFunctionManager as any as HogFunctionManager)
+        executor = new HogExecutorService(hub, mockFunctionManager as any as HogFunctionManagerService)
     })
 
     describe('general event processing', () => {
@@ -369,7 +369,7 @@ describe('Hog Executor', () => {
 
         it('logs telemetry', async () => {
             hub = await createHub({ CDP_HOG_FILTERS_TELEMETRY_TEAMS: '*' })
-            executor = new HogExecutor(hub, mockFunctionManager as any as HogFunctionManager)
+            executor = new HogExecutorService(hub, mockFunctionManager as any as HogFunctionManagerService)
 
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
