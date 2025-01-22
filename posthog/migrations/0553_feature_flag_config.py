@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0551_batchimport"),
+        ("posthog", "0552_turn_off_all_action_webhooks"),
     ]
 
     operations = [
