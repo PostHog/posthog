@@ -1,4 +1,4 @@
-import { BaseMathType, GroupMathType, PropertyMathType } from '~/types'
+import { BaseMathType, GroupMathType, HogQLMathType, PropertyMathType } from '~/types'
 
 export enum MetricInsightId {
     Trends = 'new-experiment-trends-metric',
@@ -17,4 +17,5 @@ export const EXPERIMENT_ALLOWED_MATH_TYPES = [
     BaseMathType.FirstTimeForUser,
     GroupMathType.UniqueGroup,
     PropertyMathType.Sum,
+    HogQLMathType.HogQL,
 ] as const
