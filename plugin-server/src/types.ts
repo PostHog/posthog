@@ -519,7 +519,6 @@ export interface PluginLogEntry {
 
 export type PluginMethods = {
     setupPlugin?: () => Promise<void>
-    teardownPlugin?: () => Promise<void>
     getSettings?: () => PluginSettings
     onEvent?: (event: ProcessedPluginEvent) => Promise<void>
     composeWebhook?: (event: PostHogEvent) => Webhook | null

@@ -4,7 +4,6 @@ import { Summary } from 'prom-client'
 import { VM } from 'vm2'
 
 import { Hub, PluginConfig, PluginConfigVMResponse } from '../../types'
-import { createCache } from './extensions/cache'
 import { createConsole } from './extensions/console'
 import { createGeoIp } from './extensions/geoip'
 import { createPosthog } from './extensions/posthog'
@@ -92,7 +91,6 @@ export function createPluginConfigVM(
 
     vm.freeze(
         {
-            cache: createCache(hub, pluginConfig.plugin_id, pluginConfig.team_id),
             config: pluginConfig.config,
             attachments: pluginConfig.attachments,
             storage: createStorage(hub, pluginConfig),

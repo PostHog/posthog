@@ -55,7 +55,6 @@ export interface PluginInstance {
     initialize?: (indexJs: string, logInfo: string) => Promise<void>
     failInitialization?: () => void
 
-    getTeardown: () => Promise<PluginMethods['teardownPlugin'] | null>
     getPluginMethod: <T extends keyof PluginMethods>(method_name: T) => Promise<PluginMethods[T] | null>
     clearRetryTimeoutIfExists: () => void
     setupPluginIfNeeded: () => Promise<boolean>
@@ -89,14 +88,6 @@ export class LazyPluginVM implements PluginInstance {
         this.hub = hub
         this.inErroredState = false
         this.initVm()
-    }
-
-    public async getTeardown(): Promise<PluginConfigVMResponse['methods']['teardownPlugin'] | null> {
-        // if we never ran `setupPlugin`, there's no reason to run `teardownPlugin` - it's essentially "tore down" already
-        if (!this.ready) {
-            return null
-        }
-        return (await this.resolveInternalVm)?.methods['teardownPlugin'] || null
     }
 
     public async getPluginMethod<T extends keyof PluginMethods>(method_name: T): Promise<PluginMethods[T] | null> {

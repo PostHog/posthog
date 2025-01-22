@@ -84,7 +84,6 @@ describe('plugins', () => {
         expect(instance.getPluginMethod('onEvent')).toBeDefined()
         expect(instance.getPluginMethod('processEvent')).toBeDefined()
         expect(instance.getPluginMethod('setupPlugin')).toBeDefined()
-        expect(instance.getPluginMethod('teardownPlugin')).toBeDefined()
 
         // async loading of capabilities
         expect(setPluginCapabilities).toHaveBeenCalled()

@@ -104,6 +104,8 @@ export async function startPluginsServer(
         ])
 
         if (serverInstance.hub) {
+            // Wait 2 seconds to flush the last queues and caches
+            await Promise.all([serverInstance.hub.kafkaProducer.flush(), delay(2000)])
             await closeHub(serverInstance.hub)
         }
     }

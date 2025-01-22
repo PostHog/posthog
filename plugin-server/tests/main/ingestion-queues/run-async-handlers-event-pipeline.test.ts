@@ -27,7 +27,6 @@ import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
 import { processOnEventStep } from '../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
-import { teardownPlugins } from '../../../src/worker/plugins/teardown'
 import {
     createOrganization,
     createPlugin,
@@ -60,7 +59,6 @@ describe('runAppsOnEventPipeline()', () => {
 
     afterEach(async () => {
         await hub.redisPool.release(redis)
-        await teardownPlugins(hub)
         await closeHub(hub)
         jest.clearAllTimers()
         jest.useRealTimers()

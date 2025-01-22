@@ -207,54 +207,6 @@ test.concurrent(
     }
 )
 
-test.concurrent(`plugin method tests: teardown is called on stateful plugin reload if they are updated`, async () => {
-    const plugin = await createPlugin({
-        organization_id: organizationId,
-        name: 'test plugin',
-        plugin_type: 'source',
-        is_global: false,
-        is_stateless: false,
-        source__index_ts: `
-            async function processEvent (event, meta) {
-                console.log({ method: "processEvent" })
-                return event
-            }
-
-            async function teardownPlugin(meta) {
-                await meta.cache.lpush("teardown", "x")
-            }
-        `,
-    })
-
-    const teamId = await createTeam(organizationId)
-    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
-
-    const distinctId = new UUIDT().toString()
-    const uuid = new UUIDT().toString()
-
-    const event = {
-        event: 'custom event',
-        properties: { name: 'haha' },
-    }
-
-    await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
-
-    await waitForExpect(async () => {
-        const events = await fetchEvents(teamId)
-        expect(events.length).toBe(1)
-    })
-
-    const pluginConfigAgain = await getPluginConfig(teamId, pluginConfig.id)
-    expect(pluginConfigAgain.error).toBeNull()
-
-    // We need to first change the plugin config to trigger a reload of the plugin.
-    await updatePluginConfig(teamId, pluginConfig.id, { updated_at: new Date().toISOString() })
-    await reloadPlugins()
-
-    const signalKey = getCacheKey(plugin.id, teamId, 'teardown')
-    expect(await redis.blpop(signalKey, 10)).toEqual([signalKey, 'x'])
-})
-
 test.concurrent(`plugin method tests: can update distinct_id via processEvent`, async () => {
     // Prior to introducing
     // https://github.com/PostHog/product-internal/pull/405/files this was

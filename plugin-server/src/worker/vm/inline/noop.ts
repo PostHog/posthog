@@ -25,10 +25,6 @@ export class NoopInlinePlugin implements PluginInstance {
         }
     }
 
-    public getTeardown(): Promise<PluginMethods['teardownPlugin'] | null> {
-        return Promise.resolve(null)
-    }
-
     public getPluginMethod<T extends keyof PluginMethods>(method_name: T): Promise<PluginMethods[T] | null> {
         return Promise.resolve(this.methods[method_name] as PluginMethods[T])
     }
