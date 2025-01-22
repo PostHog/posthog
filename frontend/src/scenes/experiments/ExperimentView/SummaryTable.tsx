@@ -38,7 +38,7 @@ export function SummaryTable({
         metricResults,
         secondaryMetricResults,
         tabularExperimentResults,
-        _getMetricType,
+        getMetricType,
         exposureCountDataForVariant,
         conversionRateForVariant,
         experimentMathAggregationForTrends,
@@ -46,7 +46,7 @@ export function SummaryTable({
         getHighestProbabilityVariant,
         credibleIntervalForVariant,
     } = useValues(experimentLogic)
-    const metricType = _getMetricType(metric)
+    const metricType = getMetricType(metric)
     const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
     if (!result) {
         return <></>
