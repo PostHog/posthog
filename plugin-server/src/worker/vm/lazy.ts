@@ -140,16 +140,6 @@ export class LazyPluginVM implements PluginInstance {
                         return
                     }
 
-                    const shouldSetupNow =
-                        (!this.ready && // harmless check used to skip setup in tests
-                            vm.tasks?.schedule &&
-                            Object.values(vm.tasks?.schedule).length > 0) ||
-                        (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
-
-                    if (shouldSetupNow) {
-                        await this._setupPlugin(vm.vm)
-                        this.ready = true
-                    }
                     status.debug('🔌', `Loaded ${logInfo}.`)
                     await this.createLogEntry(
                         `Plugin loaded (instance ID ${this.hub.instanceId}).`,
@@ -296,7 +286,7 @@ export class LazyPluginVM implements PluginInstance {
     }
 
     private async updatePluginCapabilitiesIfNeeded(vm: PluginConfigVMResponse): Promise<void> {
-        const capabilities = getVMPluginCapabilities(vm.methods, vm.tasks)
+        const capabilities = getVMPluginCapabilities(vm.methods)
 
         const prevCapabilities = this.pluginConfig.plugin!.capabilities
         if (!equal(prevCapabilities, capabilities)) {
@@ -318,7 +308,7 @@ export async function populatePluginCapabilities(hub: Hub, pluginId: number): Pr
         return
     }
 
-    const { methods, tasks } = createPluginConfigVM(
+    const { methods } = createPluginConfigVM(
         hub,
         {
             id: 0,
@@ -332,7 +322,7 @@ export async function populatePluginCapabilities(hub: Hub, pluginId: number): Pr
         },
         plugin.source__index_ts || ''
     )
-    const capabilities = getVMPluginCapabilities(methods, tasks)
+    const capabilities = getVMPluginCapabilities(methods)
 
     const prevCapabilities = plugin.capabilities
     if (!equal(prevCapabilities, capabilities)) {

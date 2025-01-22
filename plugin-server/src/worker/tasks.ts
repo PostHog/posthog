@@ -20,12 +20,12 @@ let RELOAD_PLUGINS_PROMISE: Promise<void> | undefined
 let RELOAD_PLUGINS_PROMISE_STARTED = false
 
 export const workerTasks: Record<string, TaskRunner> = {
-    runEveryHour: (hub, args: { pluginConfigId: number }) => {
-        return runPluginTask(hub, 'runEveryHour', PluginTaskType.Schedule, args.pluginConfigId)
-    },
-    runEveryDay: (hub, args: { pluginConfigId: number }) => {
-        return runPluginTask(hub, 'runEveryDay', PluginTaskType.Schedule, args.pluginConfigId)
-    },
+    // runEveryHour: (hub, args: { pluginConfigId: number }) => {
+    //     return runPluginTask(hub, 'runEveryHour', PluginTaskType.Schedule, args.pluginConfigId)
+    // },
+    // runEveryDay: (hub, args: { pluginConfigId: number }) => {
+    //     return runPluginTask(hub, 'runEveryDay', PluginTaskType.Schedule, args.pluginConfigId)
+    // },
     getPluginSchedule: (hub) => {
         return hub.pluginSchedule
     },
