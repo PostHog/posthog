@@ -15,7 +15,7 @@ import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { experimentLogic } from './experimentLogic'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, groupTypes, aggregationLabel } = useValues(experimentLogic)
+    const { experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet } = useValues(experimentLogic)
     const { addVariant, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
         useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
@@ -24,7 +24,7 @@ const ExperimentFormFields = (): JSX.Element => {
 
     return (
         <div>
-            {experiment.metrics.filter((metric) => Boolean(metric)).length > 0 && (
+            {hasPrimaryMetricSet && (
                 <LemonBanner type="info" className="my-4">
                     Fill out the details below to create your experiment based off of the insight.
                 </LemonBanner>
