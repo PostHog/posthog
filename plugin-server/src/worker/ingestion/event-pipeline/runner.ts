@@ -143,6 +143,7 @@ export class EventPipelineRunner {
         const kafkaAcks: Promise<void>[] = []
 
         let processPerson = true // The default.
+
         // Set either at capture time, or in the populateTeamData step, if team-level opt-out is enabled.
         if (event.properties && '$process_person_profile' in event.properties) {
             const propValue = event.properties.$process_person_profile
@@ -259,7 +260,7 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        if (event.event === '$exception' && !event.properties?.hasOwnProperty('$sentry_event_id')) {
+        if (event.event === '$exception') {
             const [exceptionAck] = await this.runStep(
                 produceExceptionSymbolificationEventStep,
                 [this, rawEvent],

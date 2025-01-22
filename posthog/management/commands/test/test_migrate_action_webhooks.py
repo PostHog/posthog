@@ -1,6 +1,6 @@
 from inline_snapshot import snapshot
 
-from hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.management.commands.migrate_action_webhooks import (
     migrate_action_webhooks,

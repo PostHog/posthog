@@ -4,16 +4,16 @@ from enum import StrEnum
 from typing import Any, Optional, cast, TYPE_CHECKING
 from collections.abc import Callable
 
-from hogvm.python.execute import execute_bytecode, BytecodeResult
-from hogvm.python.stl import STL
-from hogvm.python.stl.bytecode import BYTECODE_STL
+from common.hogvm.python.execute import execute_bytecode, BytecodeResult
+from common.hogvm.python.stl import STL
+from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_program
 from posthog.hogql.visitor import Visitor
-from hogvm.python.operation import (
+from common.hogvm.python.operation import (
     Operation,
     HOGQL_BYTECODE_IDENTIFIER,
     HOGQL_BYTECODE_VERSION,

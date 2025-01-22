@@ -645,6 +645,14 @@ class OrderBy(StrEnum):
     SESSIONS = "sessions"
 
 
+class Interval(StrEnum):
+    MINUTE = "minute"
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
 class EventDefinition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2059,6 +2067,14 @@ class ErrorTrackingIssueAssignee(BaseModel):
     )
     id: Union[str, int]
     type: Type1
+
+
+class ErrorTrackingSparklineConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    interval: Interval
+    value: int
 
 
 class EventOddsRatioSerialized(BaseModel):
@@ -3948,6 +3964,7 @@ class DashboardFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdown_filter: Optional[BreakdownFilter] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     properties: Optional[
@@ -4311,6 +4328,7 @@ class ErrorTrackingIssue(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
+    customVolume: Optional[list[float]] = None
     description: Optional[str] = None
     earliest: Optional[str] = None
     first_seen: AwareDatetime
@@ -4321,7 +4339,8 @@ class ErrorTrackingIssue(BaseModel):
     sessions: float
     status: Status
     users: float
-    volume: Optional[Any] = None
+    volumeDay: list[float]
+    volumeMonth: list[float]
 
 
 class ErrorTrackingQueryResponse(BaseModel):
@@ -6518,6 +6537,7 @@ class ErrorTrackingQuery(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
+    customVolume: Optional[ErrorTrackingSparklineConfig] = None
     dateRange: DateRange
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
@@ -6531,7 +6551,6 @@ class ErrorTrackingQuery(BaseModel):
     orderBy: Optional[OrderBy] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
-    select: Optional[list[str]] = None
 
 
 class EventsQuery(BaseModel):
