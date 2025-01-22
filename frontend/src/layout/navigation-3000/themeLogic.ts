@@ -72,11 +72,10 @@ export const themeLogic = kea<themeLogicType>([
             (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig, s.theme],
             (themeMode, darkModeSystemPreference, sceneConfig, theme) => {
                 if (
-                    (typeof window !== 'undefined' &&
-                        window.document &&
-                        document.body.classList.contains('storybook-test-runner') &&
-                        document.body.getAttribute('theme') == 'dark') ||
-                    document.body.classList.contains('theme-dark')
+                    typeof window !== 'undefined' &&
+                    window.document &&
+                    document.body.classList.contains('storybook-test-runner') &&
+                    document.body.getAttribute('theme') == 'dark'
                 ) {
                     return true
                 }
