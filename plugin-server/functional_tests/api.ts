@@ -5,15 +5,7 @@ import { PoolClient } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../src/config/kafka-topics'
-import {
-    Hook,
-    Plugin,
-    PluginConfig,
-    PluginLogEntry,
-    RawAction,
-    RawClickHouseEvent,
-    RawSessionReplayEvent,
-} from '../src/types'
+import { Hook, Plugin, PluginConfig, PluginLogEntry, RawClickHouseEvent, RawSessionReplayEvent } from '../src/types'
 import { PostgresRouter, PostgresUse } from '../src/utils/db/postgres'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
@@ -475,11 +467,6 @@ export const createTeam = async (
         slack_incoming_webhook,
     })
     return id
-}
-
-export const createAction = async (action: Omit<RawAction, 'id'>) => {
-    const actionRow = await insertRow(postgres, 'posthog_action', action)
-    return actionRow
 }
 
 export const createUser = async (teamId: number, email: string) => {

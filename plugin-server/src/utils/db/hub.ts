@@ -14,8 +14,6 @@ import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
 import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
-import { ActionManager } from '../../worker/ingestion/action-manager'
-import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
@@ -130,8 +128,6 @@ export async function createHub(
     const rootAccessManager = new RootAccessManager(db)
     const rustyHook = new RustyHook(serverConfig)
 
-    const actionManager = new ActionManager(postgres, serverConfig)
-    const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
     const hub: Hub = {
@@ -158,8 +154,6 @@ export async function createHub(
         pluginsApiKeyManager,
         rootAccessManager,
         rustyHook,
-        actionMatcher,
-        actionManager,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
         eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(

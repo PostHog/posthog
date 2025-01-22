@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
-import { Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
+import { Hub, Person, PropertyUpdateOperation, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { DependencyUnavailableError } from '../../src/utils/db/error'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -35,229 +35,6 @@ describe('DB', () => {
     })
 
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-
-    function runPGQuery(queryString: string, values: any[] = null) {
-        return db.postgres.query(PostgresUse.COMMON_WRITE, queryString, values, 'testQuery')
-    }
-
-    describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
-        const insertAction = async (action: Partial<RawAction> = {}) => {
-            await insertRow(hub.db.postgres, 'posthog_action', {
-                id: 69,
-                team_id: 2,
-                name: 'Test Action',
-                description: '',
-                created_at: new Date().toISOString(),
-                created_by_id: 1001,
-                deleted: false,
-                post_to_slack: true,
-                slack_message_format: '',
-                is_calculating: false,
-                updated_at: new Date().toISOString(),
-                last_calculated_at: new Date().toISOString(),
-                ...action,
-            })
-        }
-
-        beforeEach(async () => {
-            await insertAction()
-        })
-
-        it('returns actions with `post_to_slack', async () => {
-            const result = await db.fetchAllActionsGroupedByTeam()
-
-            expect(result).toMatchObject({
-                2: {
-                    69: {
-                        id: 69,
-                        team_id: 2,
-                        name: 'Test Action',
-                        deleted: false,
-                        post_to_slack: true,
-                        slack_message_format: '',
-                        is_calculating: false,
-                        steps: [],
-                        hooks: [],
-                    },
-                },
-            })
-        })
-
-        it('returns actions with steps', async () => {
-            await insertAction({
-                id: 70,
-                steps_json: [
-                    {
-                        tag_name: null,
-                        text: null,
-                        text_matching: null,
-                        href: null,
-                        href_matching: null,
-                        selector: null,
-                        url: null,
-                        url_matching: null,
-                        event: null,
-                        properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
-                    },
-                ],
-            })
-
-            const result = await db.fetchAllActionsGroupedByTeam()
-
-            expect(result[2][70]).toMatchObject({
-                id: 70,
-                team_id: 2,
-                name: 'Test Action',
-                deleted: false,
-                post_to_slack: true,
-                slack_message_format: '',
-                is_calculating: false,
-                steps: [
-                    {
-                        tag_name: null,
-                        text: null,
-                        text_matching: null,
-                        href: null,
-                        href_matching: null,
-                        selector: null,
-                        url: null,
-                        url_matching: null,
-                        event: null,
-                        properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
-                    },
-                ],
-                hooks: [],
-            })
-
-            const action = await db.fetchAction(70)
-            expect(action!.steps).toEqual([
-                {
-                    tag_name: null,
-                    text: null,
-                    text_matching: null,
-                    href: null,
-                    href_matching: null,
-                    selector: null,
-                    url: null,
-                    url_matching: null,
-                    event: null,
-                    properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
-                },
-            ])
-        })
-
-        it('returns actions with correct `ee_hook`', async () => {
-            await runPGQuery('UPDATE posthog_action SET post_to_slack = false')
-            await insertRow(hub.db.postgres, 'ee_hook', {
-                id: 'abc',
-                team_id: 2,
-                user_id: 1001,
-                resource_id: 69,
-                event: 'action_performed',
-                target: 'https://example.com/',
-                created: new Date().toISOString(),
-                updated: new Date().toISOString(),
-            })
-            const result = await db.fetchAllActionsGroupedByTeam()
-
-            expect(result).toMatchObject({
-                2: {
-                    69: {
-                        id: 69,
-                        team_id: 2,
-                        name: 'Test Action',
-                        deleted: false,
-                        post_to_slack: false,
-                        slack_message_format: '',
-                        is_calculating: false,
-                        steps: [],
-                        hooks: [
-                            {
-                                id: 'abc',
-                                team_id: 2,
-                                resource_id: 69,
-                                event: 'action_performed',
-                                target: 'https://example.com/',
-                            },
-                        ],
-                        bytecode: null,
-                        bytecode_error: null,
-                    },
-                },
-            })
-
-            expect(await db.fetchAction(69)).toEqual({
-                ...result[2][69],
-                steps_json: null, // Temporary diff whilst we migrate to this new field
-                pinned_at: null,
-            })
-        })
-
-        it('does not return actions that dont match conditions', async () => {
-            await runPGQuery('UPDATE posthog_action SET post_to_slack = false')
-
-            const result = await db.fetchAllActionsGroupedByTeam()
-            expect(result).toEqual({})
-
-            expect(await db.fetchAction(69)).toEqual(null)
-        })
-
-        it('does not return actions which are deleted', async () => {
-            await runPGQuery('UPDATE posthog_action SET deleted = true')
-
-            const result = await db.fetchAllActionsGroupedByTeam()
-            expect(result).toEqual({})
-
-            expect(await db.fetchAction(69)).toEqual(null)
-        })
-
-        it('does not return actions with incorrect ee_hook', async () => {
-            await runPGQuery('UPDATE posthog_action SET post_to_slack = false')
-            await insertRow(hub.db.postgres, 'ee_hook', {
-                id: 'abc',
-                team_id: 2,
-                user_id: 1001,
-                resource_id: 69,
-                event: 'event_performed',
-                target: 'https://example.com/',
-                created: new Date().toISOString(),
-                updated: new Date().toISOString(),
-            })
-            await insertRow(hub.db.postgres, 'ee_hook', {
-                id: 'efg',
-                team_id: 2,
-                user_id: 1001,
-                resource_id: 70,
-                event: 'event_performed',
-                target: 'https://example.com/',
-                created: new Date().toISOString(),
-                updated: new Date().toISOString(),
-            })
-
-            const result = await db.fetchAllActionsGroupedByTeam()
-            expect(result).toEqual({})
-
-            expect(await db.fetchAction(69)).toEqual(null)
-        })
-
-        describe('FOSS', () => {
-            beforeEach(async () => {
-                await runPGQuery('ALTER TABLE ee_hook RENAME TO ee_hook_backup')
-            })
-
-            afterEach(async () => {
-                await runPGQuery('ALTER TABLE ee_hook_backup RENAME TO ee_hook')
-            })
-
-            it('does not blow up', async () => {
-                await runPGQuery('UPDATE posthog_action SET post_to_slack = false')
-
-                const result = await db.fetchAllActionsGroupedByTeam()
-                expect(result).toEqual({})
-                expect(await db.fetchAction(69)).toEqual(null)
-            })
-        })
-    })
 
     async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person | undefined> {
         const selectResult = await db.postgres.query(
@@ -855,7 +632,6 @@ describe('DB', () => {
                 session_recording_opt_in: true,
                 person_processing_opt_out: null,
                 heatmaps_opt_in: null,
-                slack_incoming_webhook: null,
                 uuid: expect.any(String),
                 person_display_name_properties: [],
                 test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
@@ -888,7 +664,6 @@ describe('DB', () => {
                 person_processing_opt_out: null,
                 person_display_name_properties: [],
                 heatmaps_opt_in: null,
-                slack_incoming_webhook: null,
                 uuid: expect.any(String),
                 test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
                 cookieless_server_hash_mode: null,

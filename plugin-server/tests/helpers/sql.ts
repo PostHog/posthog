@@ -9,8 +9,6 @@ import {
     PluginConfig,
     PluginsServerConfig,
     ProjectId,
-    PropertyOperator,
-    RawAction,
     RawOrganization,
     RawPerson,
     Team,
@@ -58,34 +56,6 @@ export async function resetTestDatabase(
     const teamIdToCreate = teamIds[0]
     await createUserTeamAndOrganization(db, teamIdToCreate)
     if (withExtendedTestData) {
-        await insertRow(db, 'posthog_action', {
-            id: teamIdToCreate + 67,
-            team_id: teamIdToCreate,
-            name: 'Test Action',
-            description: '',
-            created_at: new Date().toISOString(),
-            created_by_id: commonUserId,
-            deleted: false,
-            post_to_slack: true,
-            slack_message_format: '',
-            is_calculating: false,
-            updated_at: new Date().toISOString(),
-            last_calculated_at: new Date().toISOString(),
-            bytecode_error: null,
-            bytecode: null,
-            steps_json: [
-                {
-                    tag_name: null,
-                    text: null,
-                    href: null,
-                    selector: null,
-                    url: null,
-                    url_matching: null,
-                    event: null,
-                    properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
-                },
-            ],
-        } as RawAction)
         for (const plugin of mocks.pluginRows.concat(extraRows.plugins ?? [])) {
             await insertRow(db, 'posthog_plugin', plugin)
         }

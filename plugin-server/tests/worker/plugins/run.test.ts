@@ -1,6 +1,5 @@
 import { buildIntegerMatcher } from '../../../src/config/config'
 import { Hub, ISOTimestamp, PluginConfig, PostIngestionEvent } from '../../../src/types'
-import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { runComposeWebhook, runOnEvent } from '../../../src/worker/plugins/run'
 
 jest.mock('../../../src/utils/status')
@@ -129,11 +128,7 @@ describe('runOnEvent', () => {
 })
 
 describe('runComposeWebhook', () => {
-    let mockHub: Partial<Hub>,
-        composeWebhook: jest.Mock,
-        mockPluginConfig: Partial<PluginConfig>,
-        mockActionManager: any,
-        mockPostgres: any
+    let mockHub: Partial<Hub>, composeWebhook: jest.Mock, mockPluginConfig: Partial<PluginConfig>
 
     const createEvent = (data: Partial<PostIngestionEvent> = {}): PostIngestionEvent => ({
         eventUuid: 'uuid1',
@@ -160,16 +155,12 @@ describe('runComposeWebhook', () => {
                 getPluginMethod: () => composeWebhook,
             } as any,
         }
-        mockActionManager = {
-            getTeamActions: jest.fn(() => ({})),
-        }
         mockHub = {
             pluginConfigsPerTeam: new Map([[2, [mockPluginConfig as PluginConfig]]]),
             appMetrics: {
                 queueMetric: jest.fn(),
                 queueError: jest.fn(),
             } as any,
-            actionMatcher: new ActionMatcher(mockPostgres, mockActionManager, {} as any),
         }
     })
 

@@ -25,8 +25,6 @@ import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { UUID } from './utils/utils'
-import { ActionManager } from './worker/ingestion/action-manager'
-import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
@@ -77,7 +75,6 @@ export enum PluginServerMode {
     ingestion_historical = 'ingestion-historical',
     events_ingestion = 'events-ingestion',
     async_onevent = 'async-onevent',
-    async_webhooks = 'async-webhooks',
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
@@ -321,8 +318,6 @@ export interface Hub extends PluginsServerConfig {
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
-    actionManager: ActionManager
-    actionMatcher: ActionMatcher
     appMetrics: AppMetrics
     rustyHook: RustyHook
     groupTypeManager: GroupTypeManager
@@ -599,7 +594,6 @@ export interface Team {
     name: string
     anonymize_ips: boolean
     api_token: string
-    slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
     person_processing_opt_out: boolean | null
     heatmaps_opt_in: boolean | null
@@ -993,32 +987,6 @@ export interface ActionStep {
     url_matching: StringMatching | null
     event: string | null
     properties: PropertyFilter[] | null
-}
-
-/** Raw Action row from database. */
-export interface RawAction {
-    id: number
-    team_id: TeamId
-    name: string | null
-    description: string
-    created_at: string
-    created_by_id: number | null
-    deleted: boolean
-    post_to_slack: boolean
-    slack_message_format: string
-    is_calculating: boolean
-    updated_at: string
-    last_calculated_at: string
-    steps_json: ActionStep[] | null
-    bytecode: any[] | null
-    bytecode_error: string | null
-    pinned_at: string | null
-}
-
-/** Usable Action model. */
-export interface Action extends Omit<RawAction, 'steps_json'> {
-    steps: ActionStep[]
-    hooks: Hook[]
 }
 
 /** Raw session recording event row from ClickHouse. */

@@ -16,32 +16,21 @@ import { CdpFunctionCallbackConsumer } from '../cdp/consumers/cdp-function-callb
 import { CdpInternalEventsConsumer } from '../cdp/consumers/cdp-internal-event.consumer'
 import { CdpProcessedEventsConsumer } from '../cdp/consumers/cdp-processed-events.consumer'
 import { defaultConfig } from '../config/config'
-import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
-import { closeHub, createHub, createKafkaClient } from '../utils/db/hub'
+import { closeHub, createHub } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisClient } from '../utils/db/redis'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { posthog } from '../utils/posthog'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { ActionManager } from '../worker/ingestion/action-manager'
-import { ActionMatcher } from '../worker/ingestion/action-matcher'
-import { AppMetrics } from '../worker/ingestion/app-metrics'
-import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
-import { OrganizationManager } from '../worker/ingestion/organization-manager'
-import { TeamManager } from '../worker/ingestion/team-manager'
-import { RustyHook } from '../worker/rusty-hook'
 import { reloadPlugins } from '../worker/tasks'
 import { syncInlinePlugins } from '../worker/vm/inline/inline'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
 import { startAnalyticsEventsIngestionHistoricalConsumer } from './ingestion-queues/analytics-events-ingestion-historical-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { PIPELINES, startEventsIngestionPipelineConsumer } from './ingestion-queues/events-ingestion-consumer'
-import {
-    startAsyncOnEventHandlerConsumer,
-    startAsyncWebhooksHandlerConsumer,
-} from './ingestion-queues/on-event-handler-consumer'
+import { startAsyncOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { DefaultBatchConsumerFactory } from './ingestion-queues/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './ingestion-queues/session-recording-v2/consumer'
@@ -251,44 +240,6 @@ export async function startPluginsServer(
             services.push(
                 await startAsyncOnEventHandlerConsumer({
                     hub: hub,
-                })
-            )
-        }
-
-        if (capabilities.processAsyncWebhooksHandlers) {
-            const hub = serverInstance.hub
-            // If we have a hub, then reuse some of it's attributes, otherwise
-            // we need to create them. We only initialize the ones we need.
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
-            const kafkaProducerWrapper = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(serverConfig))
-            const rustyHook = hub?.rustyHook ?? new RustyHook(serverConfig)
-            const appMetrics =
-                hub?.appMetrics ??
-                new AppMetrics(
-                    kafkaProducerWrapper,
-                    serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
-                    serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-                )
-
-            const actionManager = hub?.actionManager ?? new ActionManager(postgres, serverConfig)
-            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager, teamManager)
-            const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
-
-            services.push(
-                await startAsyncWebhooksHandlerConsumer({
-                    postgres,
-                    kafka,
-                    teamManager,
-                    organizationManager,
-                    serverConfig,
-                    rustyHook,
-                    appMetrics,
-                    actionMatcher,
-                    actionManager,
-                    groupTypeManager,
                 })
             )
         }

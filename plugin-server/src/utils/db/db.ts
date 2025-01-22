@@ -9,7 +9,6 @@ import { QueryResult } from 'pg'
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
-    Action,
     ClickHouseEvent,
     ClickhouseGroup,
     ClickHousePerson,
@@ -43,7 +42,6 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
-import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
 import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
@@ -1146,16 +1144,6 @@ export class DB {
             console.error('Failed to produce message', e, parsedEntry)
             return Promise.resolve()
         }
-    }
-
-    // Action & ActionStep & Action<>Event
-
-    public async fetchAllActionsGroupedByTeam(): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
-        return fetchAllActionsGroupedByTeam(this.postgres)
-    }
-
-    public async fetchAction(id: Action['id']): Promise<Action | null> {
-        return await fetchAction(this.postgres, id)
     }
 
     // Organization
