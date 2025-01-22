@@ -1,5 +1,5 @@
-import { PersonDisplay } from '@posthog/apps-common'
 import { useValues } from 'kea'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { PlayerSidebarSessionSummary } from 'scenes/session-recordings/player/sidebar/PlayerSidebarSessionSummary'
 
 import { playerMetaLogic } from '../playerMetaLogic'

@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Counter, Summary } from 'prom-client'
 
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import {
     Element,
     GroupTypeIndex,
@@ -21,7 +22,6 @@ import {
 import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { MessageSizeTooLarge } from '../../utils/db/error'
-import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
@@ -264,12 +264,11 @@ export class EventsProcessor {
     }
 
     emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
-        const ack = this.kafkaProducer
+        return this.kafkaProducer
             .produce({
                 topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 key: rawEvent.uuid,
                 value: Buffer.from(JSON.stringify(rawEvent)),
-                waitForAck: true,
             })
             .catch(async (error) => {
                 // Some messages end up significantly larger than the original
@@ -283,8 +282,6 @@ export class EventsProcessor {
                     throw error
                 }
             })
-
-        return ack
     }
 
     private async upsertGroup(

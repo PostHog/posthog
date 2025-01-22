@@ -37,7 +37,7 @@ jobs:
                   filters: |
                       hog:
                         # Avoid running tests for irrelevant changes
-                        - 'hogvm/**/*'
+                        - 'common/hogvm/**/*'
                         - 'posthog/hogql/**/*'
                         - 'bin/hog'
                         - 'bin/hoge'
@@ -111,27 +111,27 @@ jobs:
                   npm run grammar:build && git diff --exit-code
               env:
                   # Installing a version of ANTLR compatible with what's in Homebrew as of August 2024 (version 4.13.2),
-                  # as apt-get is quite out of date. The same version must be set in hogql_parser/pyproject.toml
+                  # as apt-get is quite out of date. The same version must be set in common/hogql_parser/pyproject.toml
                   ANTLR_VERSION: '4.13.2'
 
             - name: Check if STL bytecode is up to date
               run: |
-                  python -m hogvm.stl.compile
+                  python -m common.hogvm.stl.compile
                   git diff --exit-code
 
             - name: Run HogVM Python tests
               run: |
-                  pytest hogvm
+                  pytest common/hogvm
 
             - name: Run HogVM TypeScript tests
               run: |
-                  cd hogvm/typescript
+                  cd common/hogvm/typescript
                   pnpm install --frozen-lockfile
                   pnpm run test
 
             - name: Run Hog tests
               run: |
-                  cd hogvm/typescript
+                  cd common/hogvm/typescript
                   pnpm run build 
                   cd ../
                   ./test.sh && git diff --exit-code
@@ -152,7 +152,7 @@ jobs:
               id: check-package-version
               uses: PostHog/check-package-version@v2
               with:
-                  path: hogvm/typescript
+                  path: common/hogvm/typescript
 
     release-hogvm:
         name: Release new HogVM TypeScript version
@@ -191,9 +191,9 @@ jobs:
                   node-version: 18
                   registry-url: https://registry.npmjs.org
             - name: Install package.json dependencies
-              run: cd hogvm/typescript && pnpm install
+              run: cd common/hogvm/typescript && pnpm install
             - name: Publish the package in the npm registry
-              run: cd hogvm/typescript && npm publish --access public
+              run: cd common/hogvm/typescript && npm publish --access public
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
             - name: Sleep 60 seconds to allow npm to update the package
@@ -225,7 +225,7 @@ jobs:
               id: check-mismatch
               run: |
                   # Extract committed version
-                  HOGVM_VERSION=$(jq -r '.version' hogvm/typescript/package.json)
+                  HOGVM_VERSION=$(jq -r '.version' common/hogvm/typescript/package.json)
 
                   # Compare dependencies in package.json
                   MAIN_VERSION=$(jq -r '.dependencies."@posthog/hogvm"' package.json | tr -d '^')
@@ -245,7 +245,7 @@ jobs:
             - name: Update package.json versions
               if: env.mismatch == 'true'
               run: |
-                  VERSION=$(jq ".version" hogvm/typescript/package.json -r)
+                  VERSION=$(jq ".version" common/hogvm/typescript/package.json -r)
 
                   retry_pnpm_install() {
                       local retries=0
@@ -283,7 +283,7 @@ jobs:
               if: env.mismatch == 'true'
               uses: EndBug/add-and-commit@v9
               with:
-                  add: '["package.json", "pnpm-lock.yaml", "plugin-server/package.json", "plugin-server/pnpm-lock.yaml", "hogvm/typescript/package.json"]'
+                  add: '["package.json", "pnpm-lock.yaml", "plugin-server/package.json", "plugin-server/pnpm-lock.yaml", "common/hogvm/typescript/package.json"]'
                   message: 'Update @posthog/hogvm version in package.json'
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
