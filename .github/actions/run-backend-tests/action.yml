@@ -63,7 +63,7 @@ runs:
           id: hogql-parser-diff
           run: |
               git fetch --no-tags --prune --depth=1 origin master
-              changed=$(git diff --quiet HEAD origin/master -- hogql_parser/ && echo "false" || echo "true")
+              changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
               echo "changed=$changed" >> $GITHUB_OUTPUT
 
         - name: Install SAML (python3-saml) dependencies
@@ -122,7 +122,7 @@ runs:
               sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
               sudo ldconfig
               cd ..
-              uv pip install --system ./hogql_parser
+              uv pip install --system ./common/hogql_parser
 
         - name: Set up needed files
           shell: bash
