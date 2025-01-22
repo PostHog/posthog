@@ -1,10 +1,10 @@
 import { LemonButton, LemonCollapse, LemonInputSelect } from '@posthog/lemon-ui'
+import { EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { useEffect, useState } from 'react'
-import { EventType, eventWithTime, IncrementalSource } from 'rrweb'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
