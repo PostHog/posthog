@@ -1,5 +1,4 @@
 import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
-import { CdpFunctionCallbackConsumer } from '../../src/cdp/consumers/cdp-function-callback.consumer'
 import { CdpProcessedEventsConsumer } from '../../src/cdp/consumers/cdp-processed-events.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
@@ -28,9 +27,8 @@ const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
 describe('CDP E2E', () => {
     jest.setTimeout(10000)
-    describe.each(['kafka', 'cyclotron'])('e2e fetch call: %s', (mode) => {
+    describe('e2e fetch call: %s', () => {
         let processedEventsConsumer: CdpProcessedEventsConsumer
-        let functionProcessor: CdpFunctionCallbackConsumer
         let cyclotronWorker: CdpCyclotronWorker | undefined
         let cyclotronFetchWorker: CdpCyclotronWorkerFetch | undefined
         let hub: Hub
@@ -55,24 +53,17 @@ describe('CDP E2E', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            if (mode === 'cyclotron') {
-                hub.CDP_CYCLOTRON_ENABLED_TEAMS = '*'
-                hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
-            }
+            hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
 
             kafkaObserver = await createKafkaObserver(hub, [KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES])
 
             processedEventsConsumer = new CdpProcessedEventsConsumer(hub)
             await processedEventsConsumer.start()
-            functionProcessor = new CdpFunctionCallbackConsumer(hub)
-            await functionProcessor.start()
 
-            if (mode === 'cyclotron') {
-                cyclotronWorker = new CdpCyclotronWorker(hub)
-                await cyclotronWorker.start()
-                cyclotronFetchWorker = new CdpCyclotronWorkerFetch(hub)
-                await cyclotronFetchWorker.start()
-            }
+            cyclotronWorker = new CdpCyclotronWorker(hub)
+            await cyclotronWorker.start()
+            cyclotronFetchWorker = new CdpCyclotronWorkerFetch(hub)
+            await cyclotronFetchWorker.start()
 
             globals = createHogExecutionGlobals({
                 project: {
@@ -95,7 +86,6 @@ describe('CDP E2E', () => {
         afterEach(async () => {
             const stoppers = [
                 processedEventsConsumer?.stop().then(() => console.log('Stopped processedEventsConsumer')),
-                functionProcessor?.stop().then(() => console.log('Stopped functionProcessor')),
                 kafkaObserver?.stop().then(() => console.log('Stopped kafkaObserver')),
                 cyclotronWorker?.stop().then(() => console.log('Stopped cyclotronWorker')),
                 cyclotronFetchWorker?.stop().then(() => console.log('Stopped cyclotronFetchWorker')),
