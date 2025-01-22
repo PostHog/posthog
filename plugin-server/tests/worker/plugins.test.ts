@@ -212,7 +212,6 @@ describe('plugins', () => {
         const vm = pluginConfig.instance as LazyPluginVM
         vm.totalInitAttemptsCounter = 20 // prevent more retries
         await delay(4000) // processError is called at end of retries
-        expect(await pluginConfig.instance!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -241,7 +240,6 @@ describe('plugins', () => {
         const vm = pluginConfig.instance as LazyPluginVM
         vm!.totalInitAttemptsCounter = 20 // prevent more retries
         await delay(4000) // processError is called at end of retries
-        expect(await pluginConfig.instance!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -309,8 +307,6 @@ describe('plugins', () => {
         await setupPlugins(hub)
         const { pluginConfigs } = hub
 
-        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
-
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
 
@@ -341,8 +337,6 @@ describe('plugins', () => {
 
         await setupPlugins(hub)
         const { pluginConfigs } = hub
-
-        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -379,8 +373,6 @@ describe('plugins', () => {
             pluginConfigs.get(39)!,
             `Could not load "plugin.json" for plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId})`
         )
-
-        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
     })
 
     test('local plugin with broken plugin.json does not do much', async () => {
@@ -404,7 +396,6 @@ describe('plugins', () => {
             pluginConfigs.get(39)!,
             expect.stringContaining('Could not load "plugin.json" for plugin ')
         )
-        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
 
         unlink()
     })
@@ -427,7 +418,6 @@ describe('plugins', () => {
             pluginConfigs.get(39)!,
             `Could not load source code for plugin test-maxmind-plugin ID 60 (organization ID ${commonOrganizationId}). Tried: index.js`
         )
-        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
     })
 
     test('plugin config order', async () => {

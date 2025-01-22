@@ -526,19 +526,6 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
-export enum PluginTaskType {
-    Job = 'job',
-    Schedule = 'schedule',
-}
-
-export interface PluginTask {
-    name: string
-    type: PluginTaskType
-    exec: (payload?: Record<string, any>) => Promise<any>
-
-    __ignoreForAppMetrics?: boolean
-}
-
 export type PluginMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
@@ -577,7 +564,6 @@ export interface Alert {
 export interface PluginConfigVMResponse {
     vm: VM
     methods: PluginMethods
-    tasks: Record<PluginTaskType, Record<string, PluginTask>>
     vmResponseVariable: string
     usedImports: Set<string>
 }

@@ -10,8 +10,6 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginMethods,
-    PluginTask,
-    PluginTaskType,
 } from '../../types'
 import { processError } from '../../utils/db/error'
 import { getPlugin, setPluginCapabilities } from '../../utils/db/sql'
@@ -58,8 +56,6 @@ export interface PluginInstance {
     failInitialization?: () => void
 
     getTeardown: () => Promise<PluginMethods['teardownPlugin'] | null>
-    getTask: (name: string, type: PluginTaskType) => Promise<PluginTask | null>
-    getScheduledTasks: () => Promise<Record<string, PluginTask>>
     getPluginMethod: <T extends keyof PluginMethods>(method_name: T) => Promise<PluginMethods[T] | null>
     clearRetryTimeoutIfExists: () => void
     setupPluginIfNeeded: () => Promise<boolean>
@@ -101,34 +97,6 @@ export class LazyPluginVM implements PluginInstance {
             return null
         }
         return (await this.resolveInternalVm)?.methods['teardownPlugin'] || null
-    }
-
-    public async getTask(name: string, type: PluginTaskType): Promise<PluginTask | null> {
-        let task = (await this.resolveInternalVm)?.tasks?.[type]?.[name] || null
-        if (!this.ready && task) {
-            const pluginReady = await this.setupPluginIfNeeded()
-            if (!pluginReady) {
-                task = null
-            }
-        }
-        return task
-    }
-
-    public async getScheduledTasks(): Promise<Record<string, PluginTask>> {
-        let tasks = (await this.resolveInternalVm)?.tasks?.[PluginTaskType.Schedule] || null
-        if (!this.ready && tasks && Object.values(tasks).length > 0) {
-            const pluginReady = await this.setupPluginIfNeeded()
-            if (!pluginReady) {
-                tasks = null
-                // KLUDGE: setupPlugin is retried, meaning methods may fail initially but work after a retry
-                // Schedules on the other hand need to be loaded in advance, so retries cannot turn on scheduled tasks after the fact.
-                await this.createLogEntry(
-                    'Cannot load scheduled tasks because the app errored during setup.',
-                    PluginLogEntryType.Error
-                )
-            }
-        }
-        return tasks || {}
     }
 
     public async getPluginMethod<T extends keyof PluginMethods>(method_name: T): Promise<PluginMethods[T] | null> {

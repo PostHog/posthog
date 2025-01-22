@@ -1,10 +1,10 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Hub, PluginTaskType } from '../types'
+import { Hub } from '../types'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { sleep } from '../utils/utils'
-import { runPluginTask, runProcessEvent } from './plugins/run'
+import { runProcessEvent } from './plugins/run'
 import { setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
 import { populatePluginCapabilities } from './vm/lazy'
@@ -72,9 +72,6 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     teardownPlugins: async (hub) => {
         await teardownPlugins(hub)
-    },
-    flushKafkaMessages: async (hub) => {
-        await hub.kafkaProducer.flush()
     },
     resetAvailableProductFeaturesCache: (hub, args: { organization_id: string }) => {
         hub.organizationManager.resetAvailableProductFeaturesCache(args.organization_id)
