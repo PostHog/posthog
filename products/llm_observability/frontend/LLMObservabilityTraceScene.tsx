@@ -16,7 +16,14 @@ import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationM
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { getDataNodeLogicProps, llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
-import { formatLLMCost, formatLLMLatency, formatLLMUsage, removeMilliseconds } from './utils'
+import {
+    formatLLMCost,
+    formatLLMLatency,
+    formatLLMUsage,
+    formatMetricDescription,
+    formatMetricTitle,
+    removeMilliseconds,
+} from './utils'
 
 export const scene: SceneExport = {
     component: LLMObservabilityTraceScene,
@@ -100,14 +107,15 @@ function TraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
             {typeof trace.inputCost === 'number' && <CostChip cost={trace.inputCost} title="Input cost" />}
             {typeof trace.outputCost === 'number' && <CostChip cost={trace.outputCost} title="Output cost" />}
             {typeof trace.totalCost === 'number' && <CostChip cost={trace.totalCost} title="Total cost" />}
-            {scoreEvents.map((event) => {
-                const { $ai_score_name: scoreName, $ai_score_value: scoreValue } = event.properties
-                return (
-                    <MetadataTag key={event.id} label={scoreValue} textToCopy={scoreValue}>
-                        {`${scoreName ? `Score: ${scoreName}` : 'Score'} ${scoreValue}`}
-                    </MetadataTag>
-                )
-            })}
+            {scoreEvents.map((event) => (
+                <MetadataTag
+                    key={event.id}
+                    label={formatMetricTitle(event.properties)}
+                    textToCopy={String(event.properties.$ai_score_value)}
+                >
+                    {formatMetricDescription(event.properties)}
+                </MetadataTag>
+            ))}
         </header>
     )
 }
