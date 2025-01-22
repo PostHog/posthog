@@ -1,14 +1,15 @@
-import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
-import { HogFunctionType, IntegrationType } from '../../src/cdp/types'
-import { Hub } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { PostgresUse } from '../../src/utils/db/postgres'
-import { createTeam, resetTestDatabase } from '../helpers/sql'
-import { insertHogFunction, insertIntegration } from './fixtures'
+import { HogFunctionType, IntegrationType } from '~/src/cdp/types'
+import { Hub } from '~/src/types'
+import { closeHub, createHub } from '~/src/utils/db/hub'
+import { PostgresUse } from '~/src/utils/db/postgres'
+import { insertHogFunction, insertIntegration } from '~/tests/cdp/fixtures'
+import { createTeam, resetTestDatabase } from '~/tests/helpers/sql'
+
+import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
     let hub: Hub
-    let manager: HogFunctionManager
+    let manager: HogFunctionManagerService
 
     let hogFunctions: HogFunctionType[]
     let integrations: IntegrationType[]
@@ -19,7 +20,7 @@ describe('HogFunctionManager', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        manager = new HogFunctionManager(hub)
+        manager = new HogFunctionManagerService(hub)
 
         const team = await hub.db.fetchTeam(2)
 

@@ -8,7 +8,6 @@ from django_deprecate_fields import deprecate_field
 import numpy
 import snowflake.connector
 from django.conf import settings
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 import uuid
@@ -103,12 +102,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         else:
             last_value_json = str(last_value_py)
 
-        if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
-            key = "incremental_field_last_value_v2"
-        else:
-            key = "incremental_field_last_value"
-
-        self.sync_type_config[key] = last_value_json
+        self.sync_type_config["incremental_field_last_value"] = last_value_json
         self.save()
 
     def soft_delete(self):
