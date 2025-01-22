@@ -33,7 +33,7 @@ $colors: (
     'border-light': rgb(0 0 0 / 8%),
     'border-bold': rgb(0 0 0 / 24%),
     'transparent': transparent,
-    'link': var(--primary-3000),
+    'link': var(--accent-primary),
     // Colors of the PostHog logo
     'brand-blue': #1d4aff,
     'brand-red': #f54e00,
@@ -117,7 +117,7 @@ $colors: (
     'text-3000': var(--text-3000),
     'text-secondary-3000': var(--text-secondary-3000),
     'muted-3000': var(--muted-3000),
-    'primary-3000': var(--primary-3000),
+    'primary-3000': var(--accent-primary),
     'secondary-3000': var(--secondary-3000),
     'secondary-3000-hover': var(--secondary-3000-hover),
     'accent-3000': var(--accent-3000),
@@ -359,7 +359,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 
 // defined here so that they can be shared with the toolbar
 @mixin common-variables {
-    --primary: var(--primary-3000);
+    --primary: var(--accent-primary);
     --muted: var(--muted-3000);
     --default: var(--text-3000);
 
