@@ -225,7 +225,7 @@ def custom_rule_to_expr(custom_rule: CustomChannelRule, source_exprs: ChannelTyp
 def create_channel_type_expr(
     custom_rules: Optional[list[CustomChannelRule]],
     source_exprs: ChannelTypeExprs,
-    timings: [HogQLTimings] = None,
+    timings: Optional[HogQLTimings] = None,
 ) -> ast.Expr:
     if timings is None:
         timings = HogQLTimings()
