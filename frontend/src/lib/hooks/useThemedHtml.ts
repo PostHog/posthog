@@ -18,6 +18,8 @@ export function useThemedHtml(overflowHidden = true): void {
         }
 
         document.body.setAttribute('theme', isDarkModeOn ? 'dark' : 'light')
+        document.body.classList.remove('theme-light', 'theme-dark')
+        document.body.classList.add(isDarkModeOn ? 'theme-dark' : 'theme-light')
 
         if (customCss) {
             const newStyle = document.createElement('style')

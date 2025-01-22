@@ -13,8 +13,9 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, FilterType, PropertyMathType } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
+import { EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { sharedMetricLogic } from './sharedMetricLogic'
 
@@ -66,7 +67,7 @@ export function SharedTrendsMetricForm(): JSX.Element {
                                     showSeriesIndicator={true}
                                     entitiesLimit={1}
                                     showNumericalPropsOnly={true}
-                                    onlyPropertyMathDefinitions={[PropertyMathType.Sum]}
+                                    allowedMathTypes={EXPERIMENT_ALLOWED_MATH_TYPES}
                                     {...commonActionFilterProps}
                                 />
                                 <div className="mt-4 space-y-4">
@@ -224,6 +225,7 @@ export function SharedTrendsMetricForm(): JSX.Element {
                                             showSeriesIndicator={true}
                                             entitiesLimit={1}
                                             showNumericalPropsOnly={true}
+                                            allowedMathTypes={EXPERIMENT_ALLOWED_MATH_TYPES}
                                             {...commonActionFilterProps}
                                         />
                                         <div className="mt-4 space-y-4">

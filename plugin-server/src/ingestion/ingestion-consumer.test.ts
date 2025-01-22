@@ -87,8 +87,9 @@ describe('IngestionConsumer', () => {
     })
 
     beforeEach(async () => {
-        const now = new Date(2025, 1, 1).getTime()
-        jest.spyOn(Date, 'now').mockReturnValue(now)
+        const fixedDateTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+        jest.spyOn(Date, 'now').mockReturnValue(fixedDateTime.toMillis())
+
         offsetIncrementer = 0
         await resetTestDatabase()
         hub = await createHub()
