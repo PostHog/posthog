@@ -83,7 +83,7 @@ impl FormatConfig {
 
 const NEWLINE_DELIM: u8 = b'\n';
 
-pub const fn newline_delim<T: Send>(
+pub fn newline_delim<T: Send>(
     skip_blank_lines: bool,
     inner: impl Fn(&str) -> Result<T, Error> + Sync,
 ) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error> {
@@ -157,7 +157,7 @@ pub const fn newline_delim<T: Send>(
     }
 }
 
-pub const fn json_nd<T>(skip_blank_lines: bool) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error>
+pub fn json_nd<T>(skip_blank_lines: bool) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error>
 where
     T: DeserializeOwned + Send,
 {

@@ -1,25 +1,25 @@
-jest.mock('../../src/utils/now', () => {
+jest.mock('../../../src/utils/now', () => {
     return {
         now: jest.fn(() => Date.now()),
     }
 })
-import { BASE_REDIS_KEY, HogMasker } from '../../src/cdp/hog-masker'
-import { CdpRedis, createCdpRedisPool } from '../../src/cdp/redis'
-import { HogFunctionType } from '../../src/cdp/types'
-import { Hub } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { delay } from '../../src/utils/utils'
-import { HOG_MASK_EXAMPLES } from './examples'
-import { createHogExecutionGlobals, createHogFunction, createInvocation } from './fixtures'
-import { deleteKeysWithPrefix } from './helpers/redis'
+import { CdpRedis, createCdpRedisPool } from '../../../src/cdp/redis'
+import { BASE_REDIS_KEY, HogMaskerService } from '../../../src/cdp/services/hog-masker.service'
+import { HogFunctionType } from '../../../src/cdp/types'
+import { Hub } from '../../../src/types'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { delay } from '../../../src/utils/utils'
+import { HOG_MASK_EXAMPLES } from '../examples'
+import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../fixtures'
+import { deleteKeysWithPrefix } from '../helpers/redis'
 
-const mockNow: jest.Mock = require('../../src/utils/now').now as any
+const mockNow: jest.Mock = require('../../../src/utils/now').now as any
 
 describe('HogMasker', () => {
     describe('integration', () => {
         let now: number
         let hub: Hub
-        let masker: HogMasker
+        let masker: HogMaskerService
         let redis: CdpRedis
 
         beforeEach(async () => {
@@ -30,7 +30,7 @@ describe('HogMasker', () => {
             redis = createCdpRedisPool(hub)
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
 
-            masker = new HogMasker(redis)
+            masker = new HogMaskerService(redis)
         })
 
         const advanceTime = (ms: number) => {
