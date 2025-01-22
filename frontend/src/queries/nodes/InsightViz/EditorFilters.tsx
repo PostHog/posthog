@@ -16,7 +16,6 @@ import { PathsExclusions } from 'scenes/insights/EditorFilters/PathsExclusions'
 import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
 import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
-import { RetentionMeasure } from 'scenes/insights/EditorFilters/RetentionMeasure'
 import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -89,13 +88,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     ? [
                           {
                               key: 'retention-config',
-                              label: 'Condition',
+                              label: 'Retention Summary',
                               component: RetentionSummary,
-                          },
-                          {
-                              key: 'retention-measure',
-                              label: 'Measure retention rate',
-                              component: RetentionMeasure,
                           },
                       ]
                     : []),
