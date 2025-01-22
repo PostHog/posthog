@@ -35,7 +35,6 @@ from posthog.tasks.tasks import (
     delete_expired_exported_assets,
     ee_persist_finished_recordings,
     find_flags_with_enriched_analytics,
-    graphile_worker_queue_size,
     ingestion_lag,
     monitoring_check_clickhouse_schema_drift,
     pg_plugin_server_query_timing,
@@ -200,13 +199,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="0", hour="*"),
         pg_plugin_server_query_timing.s(),
         name="PG plugin server query timing",
-    )
-
-    add_periodic_task_with_expiry(
-        sender,
-        60,
-        graphile_worker_queue_size.s(),
-        name="Graphile Worker queue size",
     )
 
     sender.add_periodic_task(

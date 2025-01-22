@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { EnqueuedPluginJob, Hub, PluginTaskType } from '../types'
+import { Hub, PluginTaskType } from '../types'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { sleep } from '../utils/utils'
@@ -21,9 +21,6 @@ let RELOAD_PLUGINS_PROMISE: Promise<void> | undefined
 let RELOAD_PLUGINS_PROMISE_STARTED = false
 
 export const workerTasks: Record<string, TaskRunner> = {
-    runPluginJob: (hub, { job }: { job: EnqueuedPluginJob }) => {
-        return runPluginTask(hub, job.type, PluginTaskType.Job, job.pluginConfigId, job.payload)
-    },
     runEveryMinute: async (hub, args: { pluginConfigId: number }) => {
         return runPluginTask(hub, 'runEveryMinute', PluginTaskType.Schedule, args.pluginConfigId)
     },

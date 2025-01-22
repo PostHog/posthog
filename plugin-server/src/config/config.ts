@@ -92,7 +92,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         DISABLE_MMDB: isTestEnv(),
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
-        CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         SITE_URL: null,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,

@@ -16,11 +16,6 @@ DEFAULT_AUTO_FIELD: str = "django.db.models.AutoField"
 # Configuration for sqlcommenter
 SQLCOMMENTER_WITH_FRAMEWORK: bool = False
 
-# Database
-# https://docs.djangoproject.com/en/2.2/ref/settings/#databases
-
-JOB_QUEUE_GRAPHILE_URL: str = os.getenv("JOB_QUEUE_GRAPHILE_URL")
-
 
 def postgres_config(host: str) -> dict:
     """Generate the config map we need for a postgres database.
@@ -108,9 +103,6 @@ read_host = os.getenv("POSTHOG_POSTGRES_READ_HOST")
 if read_host:
     DATABASES["replica"] = postgres_config(read_host)
     DATABASE_ROUTERS = ["posthog.dbrouter.ReplicaRouter"]
-
-if JOB_QUEUE_GRAPHILE_URL:
-    DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
 
 
 # Opt-in to using the read replica
