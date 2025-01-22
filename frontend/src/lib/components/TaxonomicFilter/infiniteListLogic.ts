@@ -129,7 +129,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
                         properties: propertyAllowList ? propertyAllowList.join(',') : undefined,
-                        hide_behavioral_cohorts: props.hideBehavioralCohorts ? 'true' : 'false',
+                        ...(props.hideBehavioralCohorts ? { hide_behavioral_cohorts: 'true' } : {}),
                     }
 
                     const start = performance.now()
