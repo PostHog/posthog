@@ -514,8 +514,5 @@ export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): brea
 }
 
 export function isValidQueryForExperiment(query: Node): boolean {
-    return (
-        isNodeWithSource(query) &&
-        (isFunnelsQuery(query.source) || (isTrendsQuery(query.source) && query.source.series.length === 1))
-    )
+    return isNodeWithSource(query) && isFunnelsQuery(query.source) && query.source.series.length >= 2
 }
