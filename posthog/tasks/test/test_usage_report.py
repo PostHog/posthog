@@ -1388,6 +1388,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 rows_synced=10,
                 pipeline=source,
                 pipeline_version=ExternalDataJob.PipelineVersion.V2,
+                billable=False,
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))

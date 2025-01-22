@@ -351,7 +351,7 @@ describe('DB', () => {
 
     describe('updatePerson', () => {
         it('Clickhouse and Postgres are in sync if multiple updates concurrently', async () => {
-            jest.spyOn(db.kafkaProducer!, 'queueMessage')
+            jest.spyOn(db.kafkaProducer!, 'queueMessages')
             const team = await getFirstTeam(hub)
             const uuid = new UUIDT().toString()
             const distinctId = 'distinct_id1'
@@ -364,10 +364,7 @@ describe('DB', () => {
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
             const [updatedPerson, kafkaMessages] = await db.updatePersonDeprecated(personProvided, update)
-            await hub.db.kafkaProducer.queueMessages({
-                kafkaMessages,
-                waitForAck: true,
-            })
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
@@ -380,10 +377,9 @@ describe('DB', () => {
             expect(updatedPerson.properties).toEqual({ c: 'aaa' })
 
             // verify correct Kafka message was sent
-            expect(db.kafkaProducer!.queueMessage).toHaveBeenLastCalledWith({
-                kafkaMessage: generateKafkaPersonUpdateMessage(updatedPerson),
-                waitForAck: true,
-            })
+            expect(db.kafkaProducer!.queueMessages).toHaveBeenLastCalledWith([
+                generateKafkaPersonUpdateMessage(updatedPerson),
+            ])
         })
     })
 
@@ -428,15 +424,12 @@ describe('DB', () => {
                 const [_p, updatePersonKafkaMessages] = await db.updatePersonDeprecated(person, {
                     properties: { foo: 'bar' },
                 })
-                await hub.db.kafkaProducer.queueMessages({
-                    kafkaMessages: updatePersonKafkaMessages,
-                    waitForAck: true,
-                })
+                await hub.db.kafkaProducer.queueMessages(updatePersonKafkaMessages)
                 await db.kafkaProducer.flush()
                 await delayUntilEventIngested(fetchPersonsRows, 2)
 
                 const kafkaMessages = await db.deletePerson(person)
-                await db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+                await db.kafkaProducer.queueMessages(kafkaMessages)
                 await db.kafkaProducer.flush()
 
                 const persons = await delayUntilEventIngested(fetchPersonsRows, 3)
@@ -533,7 +526,7 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
+                { prop: TIMESTAMP.toISO()! },
                 { prop: PropertyUpdateOperation.Set },
                 1
             )
