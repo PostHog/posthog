@@ -353,8 +353,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
     def _validate_event_variants(self, count_result: TrendsQueryResponse, exposure_result: TrendsQueryResponse):
         errors = {
             ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-            ExperimentNoResultsErrorKeys.NO_EVENTS: True,
-            ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
             ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
             ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
         }
@@ -366,8 +364,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         if not count_result.results or not count_result.results[0]:
             raise ValidationError(code="no-results", detail=json.dumps(errors))
-
-        errors[ExperimentNoResultsErrorKeys.NO_EVENTS] = False
 
         # Check if "control" is present
         for event in count_result.results:
