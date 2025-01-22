@@ -1,7 +1,7 @@
 from dataclasses import dataclass
+from functools import cache
 from typing import Optional, Union
 
-from datasets.utils.py_utils import memoize
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
@@ -65,7 +65,7 @@ def create_initial_domain_type(name: str, timings: Optional[HogQLTimings] = None
     )
 
 
-@memoize
+@cache
 def _initial_domain_type_expr():
     return parse_expr(
         """
@@ -264,7 +264,7 @@ def create_channel_type_expr(
         return builtin_rules
 
 
-@memoize
+@cache
 def _initial_default_channel_rules_expr():
     # This logic is referenced in our docs https://posthog.com/docs/data/channel-type, be sure to update both if you
     # update either.
