@@ -26,12 +26,18 @@ describe('BaseSessionBatchRecorder', () => {
     let recorder: BaseSessionBatchRecorder
     let mockFlusher: jest.Mocked<SessionBatchFlusher>
     let mockStream: PassThrough
+    let mockFinish: () => Promise<void>
 
     beforeEach(() => {
         mockStream = new PassThrough()
+        mockFinish = jest.fn().mockResolvedValue(undefined)
         mockFlusher = {
-            open: jest.fn().mockResolvedValue(mockStream),
-            finish: jest.fn().mockResolvedValue(undefined),
+            open: jest.fn().mockImplementation(() =>
+                Promise.resolve({
+                    stream: mockStream,
+                    finish: mockFinish,
+                })
+            ),
         }
         recorder = new BaseSessionBatchRecorder(mockFlusher)
     })
@@ -71,13 +77,13 @@ describe('BaseSessionBatchRecorder', () => {
             })
     }
 
-    const captureOutput = (): Promise<string> => {
+    const captureOutput = (stream: PassThrough): Promise<string> => {
         return new Promise<string>((resolve) => {
             let streamData = ''
-            mockStream.on('data', (chunk) => {
+            stream.on('data', (chunk) => {
                 streamData += chunk
             })
-            mockStream.on('end', () => {
+            stream.on('end', () => {
                 resolve(streamData)
             })
         })
@@ -94,11 +100,11 @@ describe('BaseSessionBatchRecorder', () => {
             ])
 
             recorder.record(message)
-            const outputPromise = captureOutput()
+            const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
             expect(mockFlusher.open).toHaveBeenCalled()
-            expect(mockFlusher.finish).toHaveBeenCalled()
+            expect(mockFinish).toHaveBeenCalled()
 
             const output = await outputPromise
             const lines = parseLines(output)
@@ -125,11 +131,11 @@ describe('BaseSessionBatchRecorder', () => {
             ]
 
             messages.forEach((message) => recorder.record(message))
-            const outputPromise = captureOutput()
+            const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
             expect(mockFlusher.open).toHaveBeenCalled()
-            expect(mockFlusher.finish).toHaveBeenCalled()
+            expect(mockFinish).toHaveBeenCalled()
 
             const output = await outputPromise
             const lines = parseLines(output)
@@ -159,11 +165,11 @@ describe('BaseSessionBatchRecorder', () => {
             ]
 
             messages.forEach((message) => recorder.record(message))
-            const outputPromise = captureOutput()
+            const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
             expect(mockFlusher.open).toHaveBeenCalled()
-            expect(mockFlusher.finish).toHaveBeenCalled()
+            expect(mockFinish).toHaveBeenCalled()
 
             const output = await outputPromise
             const lines = parseLines(output)
@@ -178,11 +184,11 @@ describe('BaseSessionBatchRecorder', () => {
             const message = createMessage('session1', [])
             const bytesWritten = recorder.record(message)
 
-            const outputPromise = captureOutput()
+            const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
             expect(mockFlusher.open).toHaveBeenCalled()
-            expect(mockFlusher.finish).toHaveBeenCalled()
+            expect(mockFinish).toHaveBeenCalled()
 
             const output = await outputPromise
             expect(output).toBe('')
@@ -222,11 +228,11 @@ describe('BaseSessionBatchRecorder', () => {
             ]
 
             messages.forEach((message) => recorder.record(message))
-            const outputPromise = captureOutput()
+            const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
             expect(mockFlusher.open).toHaveBeenCalled()
-            expect(mockFlusher.finish).toHaveBeenCalled()
+            expect(mockFinish).toHaveBeenCalled()
 
             const output = await outputPromise
             const lines = parseLines(output)
@@ -241,6 +247,94 @@ describe('BaseSessionBatchRecorder', () => {
                 ['window1', messages[3].message.eventsByWindowId.window1[0]],
             ])
             expect(output.endsWith('\n')).toBe(true)
+        })
+    })
+
+    describe('flushing behavior', () => {
+        it('should clear sessions after flush', async () => {
+            const stream1 = new PassThrough()
+            const stream2 = new PassThrough()
+            const finish1 = jest.fn().mockResolvedValue(undefined)
+            const finish2 = jest.fn().mockResolvedValue(undefined)
+
+            mockFlusher.open
+                .mockResolvedValueOnce({ stream: stream1, finish: finish1 })
+                .mockResolvedValueOnce({ stream: stream2, finish: finish2 })
+
+            const message1 = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1, adds: [{ parentId: 1, nextId: 2, node: { tag: 'div' } }] },
+                },
+            ])
+
+            const message2 = createMessage('session1', [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 2000,
+                    data: { source: 2, texts: [{ id: 1, value: 'Updated text' }] },
+                },
+            ])
+
+            recorder.record(message1)
+            const outputPromise1 = captureOutput(stream1)
+            await recorder.flush()
+
+            expect(mockFlusher.open).toHaveBeenCalledTimes(1)
+            expect(finish1).toHaveBeenCalledTimes(1)
+            expect(finish2).not.toHaveBeenCalled()
+            const output1 = await outputPromise1
+
+            // Record another message after flush
+            recorder.record(message2)
+            const outputPromise2 = captureOutput(stream2)
+            await recorder.flush()
+
+            expect(mockFlusher.open).toHaveBeenCalledTimes(2)
+            expect(finish1).toHaveBeenCalledTimes(1)
+            expect(finish2).toHaveBeenCalledTimes(1)
+            const output2 = await outputPromise2
+
+            // Each output should only contain the events from its own batch
+            const lines1 = parseLines(output1)
+            const lines2 = parseLines(output2)
+            expect(lines1).toEqual([['window1', message1.message.eventsByWindowId.window1[0]]])
+            expect(lines2).toEqual([['window1', message2.message.eventsByWindowId.window1[0]]])
+        })
+
+        it('should not output anything on second flush if no new events', async () => {
+            const stream1 = new PassThrough()
+            const stream2 = new PassThrough()
+            const finish1 = jest.fn().mockResolvedValue(undefined)
+            const finish2 = jest.fn().mockResolvedValue(undefined)
+
+            mockFlusher.open
+                .mockResolvedValueOnce({ stream: stream1, finish: finish1 })
+                .mockResolvedValueOnce({ stream: stream2, finish: finish2 })
+
+            const message = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ])
+
+            recorder.record(message)
+            await recorder.flush()
+            expect(mockFlusher.open).toHaveBeenCalledTimes(1)
+            expect(finish1).toHaveBeenCalledTimes(1)
+            expect(finish2).not.toHaveBeenCalled()
+
+            const outputPromise = captureOutput(stream2)
+            await recorder.flush()
+            const output = await outputPromise
+
+            expect(output).toBe('')
+            expect(mockFlusher.open).toHaveBeenCalledTimes(2)
+            expect(finish1).toHaveBeenCalledTimes(1)
+            expect(finish2).toHaveBeenCalledTimes(1)
         })
     })
 })

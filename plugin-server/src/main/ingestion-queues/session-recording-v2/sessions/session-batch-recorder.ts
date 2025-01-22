@@ -3,9 +3,13 @@ import { Writable } from 'stream'
 import { MessageWithTeam } from '../teams/types'
 import { SessionRecorder } from './recorder'
 
+export interface StreamWithFinish {
+    stream: Writable
+    finish: () => Promise<void>
+}
+
 export interface SessionBatchFlusher {
-    open(): Promise<Writable>
-    finish(): Promise<void>
+    open(): Promise<StreamWithFinish>
 }
 
 export interface SessionBatchRecorder {
@@ -34,12 +38,16 @@ export class BaseSessionBatchRecorder implements SessionBatchRecorder {
     }
 
     public async flush(): Promise<void> {
-        const stream = await this.flusher.open()
+        const { stream, finish } = await this.flusher.open()
         for (const recorder of this.sessions.values()) {
             await recorder.dump(stream)
         }
         stream.end()
-        await this.flusher.finish()
+        await finish()
+
+        // Clear sessions and size after successful flush
+        this.sessions.clear()
+        this._size = 0
     }
 
     public get size(): number {
