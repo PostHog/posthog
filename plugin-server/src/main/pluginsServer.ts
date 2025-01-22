@@ -89,14 +89,11 @@ export async function startPluginsServer(
     // (default 60 seconds) to allow for the person to be created in the
     // meantime.
     let httpServer: Server | undefined // server
-    let lastActivityCheck: NodeJS.Timeout | undefined
-    let stopEventLoopMetrics: (() => void) | undefined
 
     let shuttingDown = false
     async function closeJobs(): Promise<void> {
         shuttingDown = true
         status.info('💤', ' Shutting down gracefully...')
-        lastActivityCheck && clearInterval(lastActivityCheck)
 
         // HACKY: Stop all consumers and the graphile worker, as well as the
         // http server. Note that we close the http server before the others to
@@ -108,7 +105,6 @@ export async function startPluginsServer(
         // configuration.
         httpServer?.close()
         cancelAllScheduledJobs()
-        stopEventLoopMetrics?.()
         await Promise.allSettled([
             pubSub?.stop(),
             ...services.map((service) => service.onShutdown()),
