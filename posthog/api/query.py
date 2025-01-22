@@ -133,10 +133,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             )  # type: ignore
 
         if data.variables_override is not None:
-            if isinstance(data.query, BaseModel):
-                query_as_dict = data.query.model_dump()
-            else:
-                query_as_dict = data.query
+            query_as_dict = data.query.model_dump()
 
             data.query = apply_dashboard_variables_to_dict(query_as_dict, data.variables_override, self.team)  # type: ignore
 
@@ -171,8 +168,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     user=request.user,
                 )
                 if isinstance(result, BaseModel):
-                    result = result.model_dump_json(by_alias=True)
-                yield f"data: {result}\n\n"
+                    yield f"data: {result.model_dump_json()}\n\n"
+                else:
+                    yield f"data: {result}\n\n"
             except (ExposedHogQLError, ExposedCHQueryError) as e:
                 error_data = {"error": str(e), "code": getattr(e, "code_name", None)}
                 yield f"data: {json.dumps(error_data)}\n\n"
