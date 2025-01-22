@@ -239,6 +239,15 @@ export type WithAccessControl = {
     user_access_level: 'none' | 'member' | 'admin' | 'viewer' | 'editor'
 }
 
+export enum AccessControlResourceType {
+    Project = 'project',
+    Organization = 'organization',
+    FeatureFlag = 'feature_flag',
+    Insight = 'insight',
+    Dashboard = 'dashboard',
+    Notebook = 'notebook',
+}
+
 interface UserBaseType {
     uuid: string
     distinct_id: string
