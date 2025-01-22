@@ -335,8 +335,7 @@ $primitive-teal: (
     }
 }
 
-[theme='dark'],
-.theme-dark {
+[theme='dark'] {
     --brand-primary-hue: var(--primitive-posthog-brand-yellow-hue);
     --brand-primary-saturation: var(--primitive-posthog-brand-yellow-saturation);
     --brand-primary-lightness: var(--primitive-posthog-brand-yellow-lightness);
@@ -369,8 +368,8 @@ $primitive-teal: (
 
     // Content on fills
     // //////////////////////////////////////////////////////////
-    --content-on-fill-warning: var(--primitive-orange-200);
-    --content-on-fill-error: var(--primitive-red-200);
+    --content-on-fill-warning: var(--primitive-orange-100);
+    --content-on-fill-error: var(--primitive-red-100);
     --content-on-fill-success: var(--primitive-green-50);
 
     // Borders
