@@ -364,6 +364,7 @@ export function PropertiesTable({
             {
                 key: 'key',
                 title: 'Key',
+                style: nestingLevel > 0 ? { width: '0px' } : undefined,
                 render: function Key(_, item: any): JSX.Element {
                     return (
                         <div className="properties-table-key">
