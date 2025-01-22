@@ -10,7 +10,7 @@ import { ActivityTab, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 
-export enum ExperimentErrorCode {
+export enum ResultErrorCode {
     NO_CONTROL_VARIANT = 'no-control-variant',
     NO_TEST_VARIANT = 'no-test-variant',
     NO_EXPOSURES = 'no-exposures',
@@ -25,23 +25,23 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
 
     const { statusCode, hasDiagnostics } = error
 
-    function ChecklistItem({ errorCode, value }: { errorCode: ExperimentErrorCode; value: boolean }): JSX.Element {
-        const failureText: Record<ExperimentErrorCode, string> = {
-            [ExperimentErrorCode.NO_CONTROL_VARIANT]: 'Events with the control variant not received',
-            [ExperimentErrorCode.NO_TEST_VARIANT]: 'Events with at least one test variant not received',
-            [ExperimentErrorCode.NO_EXPOSURES]: 'Exposure events not received',
+    function ChecklistItem({ errorCode, value }: { errorCode: ResultErrorCode; value: boolean }): JSX.Element {
+        const failureText: Record<ResultErrorCode, string> = {
+            [ResultErrorCode.NO_CONTROL_VARIANT]: 'Events with the control variant not received',
+            [ResultErrorCode.NO_TEST_VARIANT]: 'Events with at least one test variant not received',
+            [ResultErrorCode.NO_EXPOSURES]: 'Exposure events not received',
         }
 
-        const successText: Record<ExperimentErrorCode, string> = {
-            [ExperimentErrorCode.NO_CONTROL_VARIANT]: 'Events with the control variant received',
-            [ExperimentErrorCode.NO_TEST_VARIANT]: 'Events with at least one test variant received',
-            [ExperimentErrorCode.NO_EXPOSURES]: 'Exposure events have been received',
+        const successText: Record<ResultErrorCode, string> = {
+            [ResultErrorCode.NO_CONTROL_VARIANT]: 'Events with the control variant received',
+            [ResultErrorCode.NO_TEST_VARIANT]: 'Events with at least one test variant received',
+            [ResultErrorCode.NO_EXPOSURES]: 'Exposure events have been received',
         }
 
         const metricType = getMetricType(metric)
         const requiredEvent =
             metricType === InsightType.TRENDS
-                ? errorCode === ExperimentErrorCode.NO_EXPOSURES
+                ? errorCode === ResultErrorCode.NO_EXPOSURES
                     ? metric.exposure_query?.series[0]?.event || '$feature_flag_called'
                     : metric.count_query?.series[0]?.event
                 : metric.funnels_query?.series[0]?.event
@@ -58,13 +58,12 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
                 properties: [
                     {
                         key: `$feature/${experiment.feature_flag?.key}`,
-                        value: [
-                            `${
-                                errorCode === ExperimentErrorCode.NO_CONTROL_VARIANT
-                                    ? 'control'
-                                    : variants.slice(1).map((variant) => variant.key)
-                            }`,
-                        ],
+                        value:
+                            errorCode === ResultErrorCode.NO_EXPOSURES
+                                ? variants.map((variant) => variant.key)
+                                : errorCode === ResultErrorCode.NO_CONTROL_VARIANT
+                                ? ['control']
+                                : variants.slice(1).map((variant) => variant.key),
                         operator: 'exact',
                         type: 'event',
                     },
@@ -103,9 +102,13 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
 
     if (hasDiagnostics) {
         const checklistItems = []
-        for (const [errorCode, value] of Object.entries(error.detail as Record<ExperimentErrorCode, boolean>)) {
+        for (const [errorCode, value] of Object.entries(error.detail as Record<ResultErrorCode, boolean>)) {
+            // Check if the error code is valid (cached response might still have old error codes)
+            if (!Object.values(ResultErrorCode).includes(errorCode as ResultErrorCode)) {
+                continue
+            }
             checklistItems.push(
-                <ChecklistItem key={errorCode} errorCode={errorCode as ExperimentErrorCode} value={value} />
+                <ChecklistItem key={errorCode} errorCode={errorCode as ResultErrorCode} value={value} />
             )
         }
 
