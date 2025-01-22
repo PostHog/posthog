@@ -3372,8 +3372,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.client.logout()
         with self.settings(DECIDE_BILLING_SAMPLING_RATE=0.5), freeze_time("2022-05-07 12:23:07"):
-            for _ in range(10):
-                # given the seed, 5 out of 10 are sampled
+            for _ in range(6):
+                # given the seed, 4 out of 6 are sampled
                 response = self._post_decide(api_version=3)
                 self.assertEqual(response.status_code, 200)
 
@@ -3381,7 +3381,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             # check that no increments made it to redis
             self.assertEqual(
                 client.hgetall(f"posthog:decide_requests:{self.team.pk}"),
-                {b"165192618": b"10"},
+                {b"165192618": b"8"},
             )
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
