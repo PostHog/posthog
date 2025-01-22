@@ -25,12 +25,14 @@ import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { posthog } from '../utils/posthog'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
+import { delay } from '../utils/utils'
 import { ActionManager } from '../worker/ingestion/action-manager'
 import { ActionMatcher } from '../worker/ingestion/action-matcher'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
+import { teardownPlugins } from '../worker/plugins/teardown'
 import { RustyHook } from '../worker/rusty-hook'
 import { reloadPlugins } from '../worker/tasks'
 import { syncInlinePlugins } from '../worker/vm/inline/inline'
@@ -115,6 +117,10 @@ export async function startPluginsServer(
         ])
 
         if (serverInstance.hub) {
+            // Wait *up to* 5 seconds to shut down VMs.
+            await Promise.race([teardownPlugins(serverInstance.hub), delay(5000)])
+            // Wait 2 seconds to flush the last queues and caches
+            await Promise.all([serverInstance.hub.kafkaProducer.flush(), delay(2000)])
             await closeHub(serverInstance.hub)
         }
     }
