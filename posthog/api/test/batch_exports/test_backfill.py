@@ -14,6 +14,7 @@ from posthog.api.test.batch_exports.operations import (
 )
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models.person.util import create_person
 from posthog.temporal.common.client import sync_connect
 from posthog.test.base import _create_event
 
@@ -22,7 +23,8 @@ pytestmark = [
 ]
 
 
-def test_batch_export_backfill(client: HttpClient):
+@pytest.mark.parametrize("model", ["events", "persons"])
+def test_batch_export_backfill(client: HttpClient, model):
     """Test a BatchExport can be backfilled.
 
     We should be able to create a Batch Export, then request that the Schedule
@@ -44,6 +46,7 @@ def test_batch_export_backfill(client: HttpClient):
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": "hour",
+        "model": model,
     }
 
     organization = create_organization("Test Org")
@@ -52,9 +55,21 @@ def test_batch_export_backfill(client: HttpClient):
     client.force_login(user)
 
     # ensure there is data to backfill, otherwise validation will fail
-    _create_event(
-        team=team, event="$pageview", distinct_id="person_1", timestamp=dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
-    )
+    if model == "events":
+        _create_event(
+            team=team,
+            event="$pageview",
+            distinct_id="person_1",
+            timestamp=dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+        )
+    else:
+        create_person(
+            team_id=team.pk,
+            properties={"distinct_id": "1"},
+            uuid=None,
+            version=0,
+            timestamp=dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+        )
 
     with start_test_worker(temporal):
         batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
@@ -379,7 +394,8 @@ def test_batch_export_backfill_created_in_timezone(client: HttpClient):
         assert data["backfill_id"] == f"{batch_export_id}-Backfill-2021-01-01T05:00:00+00:00-2021-10-01T04:00:00+00:00"
 
 
-def test_batch_export_backfill_when_start_at_is_before_earliest_backfill_start_at(client: HttpClient):
+@pytest.mark.parametrize("model", ["events", "persons"])
+def test_batch_export_backfill_when_start_at_is_before_earliest_backfill_start_at(client: HttpClient, model):
     """Test that a BatchExport backfill will use the earliest possible backfill start date if start_at is before this.
 
     For example if the timestamp of the earliest event is 2021-01-02T00:10:00+00:00, and the BatchExport is created with
@@ -401,6 +417,7 @@ def test_batch_export_backfill_when_start_at_is_before_earliest_backfill_start_a
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": "day",
+        "model": model,
     }
 
     organization = create_organization("Test Org")
@@ -408,9 +425,22 @@ def test_batch_export_backfill_when_start_at_is_before_earliest_backfill_start_a
     user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    _create_event(
-        team=team, event="$pageview", distinct_id="person_1", timestamp=dt.datetime(2021, 1, 2, 0, 10, 0, tzinfo=dt.UTC)
-    )
+    if model == "events":
+        _create_event(
+            team=team,
+            event="$pageview",
+            distinct_id="person_1",
+            timestamp=dt.datetime(2021, 1, 2, 0, 10, 0, tzinfo=dt.UTC),
+        )
+    else:
+        create_person(
+            team_id=team.pk,
+            properties={"distinct_id": "1"},
+            uuid=None,
+            version=0,
+            timestamp=dt.datetime(2021, 1, 2, 0, 10, 0, tzinfo=dt.UTC),
+        )
+
     with start_test_worker(temporal):
         batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
         batch_export_id = batch_export["id"]
@@ -485,7 +515,8 @@ def test_batch_export_backfill_when_backfill_end_at_is_before_earliest_event(cli
             )
 
 
-def test_batch_export_backfill_when_no_data_exists(client: HttpClient):
+@pytest.mark.parametrize("model", ["events", "persons"])
+def test_batch_export_backfill_when_no_data_exists(client: HttpClient, model):
     """Test a BatchExport backfill fails if no data exists for the given model."""
     temporal = sync_connect()
 
@@ -503,6 +534,7 @@ def test_batch_export_backfill_when_no_data_exists(client: HttpClient):
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": "day",
+        "model": model,
     }
 
     organization = create_organization("Test Org")

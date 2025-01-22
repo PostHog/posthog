@@ -880,18 +880,40 @@ def fetch_earliest_backfill_start_at(
             "exclude_events": exclude_events,
             "interval_seconds": interval_seconds,
         }
+        result = sync_execute(query, query_args)[0][0]
+        # if no data, ClickHouse returns 1970-01-01 00:00:00
+        # (we just compare the year rather than the whole object because in some cases the timestamp returned by
+        # ClickHouse has a timezone and sometimes it doesn't)
+        if result.year == 1970:
+            return None
+        return result
     elif model == "persons":
+        # In the case of persons, we need to check 2 tables: person and person_distinct_id2
+        # It's more efficient querying both tables separately and taking the minimum timestamp, rather than trying to
+        # join them together.
+        # In some cases we might have invalid timestamps, so we use an arbitrary date in the past to filter these out.
         query = """
             SELECT toStartOfInterval(MIN(_timestamp), INTERVAL %(interval_seconds)s SECONDS)
             FROM person
             WHERE team_id = %(team_id)s
+            AND _timestamp > '2000-01-01'
+            UNION ALL
+            SELECT toStartOfInterval(MIN(_timestamp), INTERVAL %(interval_seconds)s SECONDS)
+            FROM person_distinct_id2
+            WHERE team_id = %(team_id)s
+            AND _timestamp > '2000-01-01'
         """
         query_args = {
             "team_id": team_id,
             "interval_seconds": interval_seconds,
         }
-
-    result = sync_execute(query, query_args)[0][0]
-    if result == dt.datetime.fromtimestamp(0, dt.UTC):
-        return None
-    return result
+        results = sync_execute(query, query_args)
+        # if no data, ClickHouse returns 1970-01-01 00:00:00
+        # (we just compare the year rather than the whole object because in some cases the timestamp returned by
+        # ClickHouse has a timezone and sometimes it doesn't)
+        results = [result[0] for result in results if result[0].year != 1970]
+        if not results:
+            return None
+        return min(results)
+    else:
+        raise ValueError(f"Invalid model: {model}")
