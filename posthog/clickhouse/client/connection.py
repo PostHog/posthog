@@ -62,15 +62,15 @@ _clickhouse_http_pool_mgr = httputil.get_pool_manager(
     block=True,  # makes the maxsize limit per pool, keeps connections
     num_pools=12,  # number of pools
     ca_cert=settings.CLICKHOUSE_CA,  # type: ignore[arg-type]  #  ca_cert default value is None, but the type hint is str instead of Optional[str], https://github.com/ClickHouse/clickhouse-connect/pull/450
-    verify=settings.CLICKHOUSE_VERIFY,
+    verify=settings.QUERYSERVICE_VERIFY,
 )
 
 
 def get_http_client(**overrides):
     kwargs = {
-        "host": settings.CLICKHOUSE_HOST,
+        "host": settings.QUERYSERVICE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
-        "secure": settings.CLICKHOUSE_SECURE,
+        "secure": settings.QUERYSERVICE_SECURE,
         "username": settings.CLICKHOUSE_USER,
         "password": settings.CLICKHOUSE_PASSWORD,
         "settings": {"mutations_sync": "1"} if settings.TEST else {},
