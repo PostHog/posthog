@@ -3,8 +3,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ProductCrossSellLocation, trackProductCrossSell } from 'lib/utils/cross-sell'
+import { ProductCrossSellLocation } from 'lib/utils/product-intents'
 import type React from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { PipelineStage, ProductKey } from '~/types'
@@ -25,6 +26,7 @@ type EmptyStateProps = {
 
 const EmptyState = ({ title, description, action, docsUrl, hog: Hog, groupType }: EmptyStateProps): JSX.Element => {
     const { push } = useActions(router)
+    const { addProductCrossSell } = useActions(teamLogic)
 
     return (
         <div className="w-full p-8 rounded mt-4 flex items-center gap-4">
@@ -39,11 +41,11 @@ const EmptyState = ({ title, description, action, docsUrl, hog: Hog, groupType }
                         type="primary"
                         icon={<IconPlus />}
                         onClick={() => {
-                            trackProductCrossSell({
+                            addProductCrossSell({
                                 from: ProductKey.PRODUCT_ANALYTICS,
                                 to: ProductKey.DATA_WAREHOUSE,
                                 location: ProductCrossSellLocation.TAXONOMIC_FILTER_EMPTY_STATE,
-                                context: {},
+                                metadata: {},
                             })
 
                             push(action.to)
