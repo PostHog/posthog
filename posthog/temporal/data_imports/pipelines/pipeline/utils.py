@@ -8,7 +8,18 @@ from dlt.sources import DltResource
 import deltalake as deltalake
 from django.db.models import F
 from posthog.temporal.common.logger import FilteringBoundLogger
+from dlt.common.data_types.typing import TDataType
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
+
+DLT_TO_PA_TYPE_MAP = {
+    "text": pa.string(),
+    "bigint": pa.int64(),
+    "bool": pa.bool_(),
+    "timestamp": pa.timestamp("us"),
+    "json": pa.string(),
+    "double": pa.float64(),
+    "date": pa.date64(),
+}
 
 
 def _get_primary_keys(resource: DltResource) -> list[Any] | None:
@@ -27,6 +38,30 @@ def _get_primary_keys(resource: DltResource) -> list[Any] | None:
         return list(primary_keys)
 
     raise Exception(f"primary_keys of type {primary_keys.__class__.__name__} are not supported")
+
+
+def _get_column_hints(resource: DltResource) -> dict[str, TDataType] | None:
+    columns = resource._hints.get("columns")
+
+    if columns is None:
+        return None
+
+    return {key: value.get("data_type") for key, value in columns.items()}  # type: ignore
+
+
+def _handle_null_columns_with_definitions(table: pa.Table, resource: DltResource) -> pa.Table:
+    column_hints = _get_column_hints(resource)
+
+    if column_hints is None:
+        return table
+
+    for field_name, data_type in column_hints.items():
+        # If the table doesn't have all fields, then add a field with all Nulls and the correct field type
+        if field_name not in table.schema.names:
+            new_column = pa.array([None] * table.num_rows, type=DLT_TO_PA_TYPE_MAP[data_type])
+            table = table.append_column(field_name, new_column)
+
+    return table
 
 
 def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | None) -> pa.Table:
@@ -126,6 +161,11 @@ def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table
     logger.debug(f"Updating incremental_field_last_value_v2 with {last_value}")
 
     schema.update_incremental_field_last_value(last_value)
+
+
+def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
+    schema.last_synced_at = job.created_at
+    schema.save()
 
 
 def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
