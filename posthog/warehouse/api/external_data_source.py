@@ -17,6 +17,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.cloud_utils import is_cloud
+from posthog.models.user import User
 from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.bigquery import (
     filter_incremental_fields as filter_bigquery_incremental_fields,
@@ -155,6 +156,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    created_by = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
 
@@ -191,6 +193,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
 
         return latest_completed_run.created_at if latest_completed_run else None
+
+    def get_created_by(self, instance: ExternalDataSource) -> str | None:
+        return instance.created_by.email if instance.created_by else None
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -424,12 +429,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         account_id = payload.get("account_id", None)
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
-
         # TODO: remove dummy vars
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
+            created_by=request.user if isinstance(request.user, User) else None,
             team=self.team,
             status="Running",
             source_type=source_type,
@@ -452,6 +457,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
+            created_by=request.user if isinstance(request.user, User) else None,
             team=self.team,
             status="Running",
             source_type=source_type,
@@ -473,6 +479,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
             job_inputs={"api_key": api_key, "site_name": site_name},
@@ -495,6 +502,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
             job_inputs={
@@ -519,6 +527,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
             job_inputs={
@@ -544,6 +553,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
             job_inputs={
@@ -590,6 +600,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
             job_inputs={
@@ -662,6 +673,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
             job_inputs={
@@ -718,6 +730,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
             job_inputs={
