@@ -148,33 +148,36 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             content: (
                 <>
                     <div className="flex gap-4 flex-wrap">
-                        {!featureFlag.is_remote_configuration && (
-                            <div className="w-full">
-                                <FeatureFlagRollout readOnly />
-                                {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
-                                {featureFlag.filters.super_groups && (
-                                    <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
-                                )}
+                        <div className="w-full">
+                            <FeatureFlagRollout readOnly />
+                            {!featureFlag.is_remote_configuration && (
+                                <>
+                                    {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
+                                    {featureFlag.filters.super_groups && (
+                                        <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
+                                    )}
 
-                                <div className="flex gap-x-8">
-                                    <div className="grow">
-                                        <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                                    <div className="flex gap-x-8">
+                                        <div className="grow">
+                                            <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                                        </div>
+
+                                        <div className="max-w-120 w-full">
+                                            <h3 className="l3">Insights that use this feature flag</h3>
+                                            <RecentFeatureFlagInsights />
+                                            <div className="my-4" />
+                                        </div>
                                     </div>
 
-                                    <div className="max-w-120 w-full">
-                                        <h3 className="l3">Insights that use this feature flag</h3>
-                                        <RecentFeatureFlagInsights />
-                                        <div className="my-4" />
-                                    </div>
-                                </div>
-
-                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
-                                    <FeatureFlagAutoRollback readOnly />
-                                )}
-                            </div>
-                        )}
+                                    {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
+                                        <FeatureFlagAutoRollback readOnly />
+                                    )}
+                                    <LemonDivider className="mb-4" />
+                                </>
+                            )}
+                        </div>
                     </div>
-                    <LemonDivider className="mb-4" />
+
                     <FeatureFlagCodeExample featureFlag={featureFlag} />
                 </>
             ),
