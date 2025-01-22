@@ -9,9 +9,19 @@ import {
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
 } from '../types'
-
+/**
+ * This class is only used by the kafka based queuing system. For the Cyclotron system there is no need for this.
+ */
 export class FetchExecutorService {
     constructor(private serverConfig: PluginsServerConfig) {}
+
+    async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult | undefined> {
+        if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
+            status.error('🦔', `[HogExecutor] Bad invocation`, { invocation })
+            return
+        }
+        return await this.executeLocally(invocation)
+    }
 
     async executeLocally(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
         if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
