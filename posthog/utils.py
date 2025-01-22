@@ -5,6 +5,7 @@ import datetime
 import datetime as dt
 import gzip
 import hashlib
+import inspect
 import json
 import os
 import re
@@ -1499,3 +1500,14 @@ def get_from_dict_or_attr(obj: Any, key: str):
         return getattr(obj, key, None)
     else:
         raise AttributeError(f"Object {obj} has no key {key}")
+
+
+def is_constant_in_current_stack(value: str):
+    """Determine if a value is a static string literal anywhere in the current stack."""
+    for frame_info in inspect.stack():
+        frame = frame_info.frame
+        # Get all constants from the code object in the frame
+        code_context = frame.f_code.co_consts
+        if value in code_context:
+            return True
+    return False

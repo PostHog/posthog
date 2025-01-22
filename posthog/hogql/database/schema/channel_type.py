@@ -5,8 +5,7 @@ from typing import Optional, Union
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.placeholders import replace_placeholders
+from posthog.hogql.parser import parse_expr, parse_expr_static
 from posthog.hogql.timings import HogQLTimings
 from posthog.schema import (
     CustomChannelRule,
@@ -49,32 +48,23 @@ def create_initial_domain_type(name: str, timings: Optional[HogQLTimings] = None
     if timings is None:
         timings = HogQLTimings()
 
-    with timings.measure("initial_domain_type_expr"):
-        expr = _initial_domain_type_expr()
-
     return ExpressionField(
         name=name,
-        expr=replace_placeholders(
-            expr,
+        expr=parse_expr_static(
+            """
+           if(
+               {referring_domain} = '$direct',
+               '$direct',
+               hogql_lookupDomainType({referring_domain})
+           )
+           """,
             {
                 "referring_domain": ast.Call(
                     name="toString", args=[ast.Field(chain=["properties", "$initial_referring_domain"])]
                 )
             },
+            timings=timings,
         ),
-    )
-
-
-@cache
-def _initial_domain_type_expr():
-    return parse_expr(
-        """
-if(
-    {referring_domain} = '$direct',
-    '$direct',
-    hogql_lookupDomainType({referring_domain})
-)
-"""
     )
 
 
@@ -240,11 +230,79 @@ def create_channel_type_expr(
             if_args.append(ast.Constant(value=None))
             custom_rule_expr = ast.Call(name="multiIf", args=if_args)
 
-    with timings.measure("default_channel_rules_parse"):
-        builtin_rules_expr = _initial_default_channel_rules_expr()
-    with timings.measure("default_channel_rules_replace"):
-        builtin_rules = replace_placeholders(
-            builtin_rules_expr,
+    with timings.measure("default_channel_rules"):
+        builtin_rules = parse_expr_static(
+            """
+         multiIf(
+             match({campaign}, 'cross-network'),
+             'Cross Network',
+
+             (
+                 {medium} IN ('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting') OR
+                 startsWith({medium}, 'paid') OR
+                 {has_gclid} OR
+                 {gad_source} IS NOT NULL
+             ),
+             coalesce(
+                 hogql_lookupPaidSourceType({source}),
+                 if(
+                     match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+                     'Paid Shopping',
+                     NULL
+                 ),
+                 hogql_lookupPaidMediumType({medium}),
+                 hogql_lookupPaidSourceType({referring_domain}),
+                 multiIf (
+                     {gad_source} = '1',
+                     'Paid Search',
+
+                     match({campaign}, '^(.*video.*)$'),
+                     'Paid Video',
+
+                     {has_fbclid},
+                     'Paid Social',
+
+                     'Paid Unknown'
+                 )
+             ),
+
+             (
+                 {referring_domain} = '$direct'
+                 AND ({medium} IS NULL)
+                 AND ({source} IS NULL OR {source} IN ('(direct)', 'direct', '$direct'))
+                 AND NOT {has_fbclid}
+             ),
+             'Direct',
+
+             coalesce(
+                 hogql_lookupOrganicSourceType({source}),
+                 if(
+                     match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+                     'Organic Shopping',
+                     NULL
+                 ),
+                 hogql_lookupOrganicMediumType({medium}),
+                 hogql_lookupOrganicSourceType({referring_domain}),
+                 multiIf(
+                     match({campaign}, '^(.*video.*)$'),
+                     'Organic Video',
+
+                     match({medium}, 'push$'),
+                     'Push',
+
+                     {has_fbclid},
+                     'Organic Social',
+
+                     {referring_domain} == '$direct',
+                     'Direct',
+
+                     {referring_domain} IS NOT NULL,
+                     'Referral',
+
+                     'Unknown'
+                 )
+             )
+         )""",
             placeholders={
                 "campaign": wrap_with_lower(wrap_with_null_if_empty(source_exprs.campaign)),
                 "medium": wrap_with_lower(wrap_with_null_if_empty(source_exprs.medium)),
@@ -254,6 +312,7 @@ def create_channel_type_expr(
                 "has_fbclid": source_exprs.has_fbclid,
                 "gad_source": wrap_with_null_if_empty(source_exprs.gad_source),
             },
+            timings=timings,
         )
     if custom_rule_expr:
         return ast.Call(
@@ -268,79 +327,7 @@ def create_channel_type_expr(
 def _initial_default_channel_rules_expr():
     # This logic is referenced in our docs https://posthog.com/docs/data/channel-type, be sure to update both if you
     # update either.
-    return parse_expr(
-        """
-        multiIf(
-            match({campaign}, 'cross-network'),
-            'Cross Network',
-
-            (
-                {medium} IN ('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting') OR
-                startsWith({medium}, 'paid') OR
-                {has_gclid} OR
-                {gad_source} IS NOT NULL
-            ),
-            coalesce(
-                hogql_lookupPaidSourceType({source}),
-                if(
-                    match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
-                    'Paid Shopping',
-                    NULL
-                ),
-                hogql_lookupPaidMediumType({medium}),
-                hogql_lookupPaidSourceType({referring_domain}),
-                multiIf (
-                    {gad_source} = '1',
-                    'Paid Search',
-
-                    match({campaign}, '^(.*video.*)$'),
-                    'Paid Video',
-
-                    {has_fbclid},
-                    'Paid Social',
-
-                    'Paid Unknown'
-                )
-            ),
-
-            (
-                {referring_domain} = '$direct'
-                AND ({medium} IS NULL)
-                AND ({source} IS NULL OR {source} IN ('(direct)', 'direct', '$direct'))
-                AND NOT {has_fbclid}
-            ),
-            'Direct',
-
-            coalesce(
-                hogql_lookupOrganicSourceType({source}),
-                if(
-                    match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
-                    'Organic Shopping',
-                    NULL
-                ),
-                hogql_lookupOrganicMediumType({medium}),
-                hogql_lookupOrganicSourceType({referring_domain}),
-                multiIf(
-                    match({campaign}, '^(.*video.*)$'),
-                    'Organic Video',
-
-                    match({medium}, 'push$'),
-                    'Push',
-
-                    {has_fbclid},
-                    'Organic Social',
-
-                    {referring_domain} == '$direct',
-                    'Direct',
-
-                    {referring_domain} IS NOT NULL,
-                    'Referral',
-
-                    'Unknown'
-                )
-            )
-        )"""
-    )
+    return parse_expr()
 
 
 def wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:
