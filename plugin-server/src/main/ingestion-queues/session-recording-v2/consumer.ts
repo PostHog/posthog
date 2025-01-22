@@ -107,6 +107,24 @@ export class SessionRecordingIngester {
         }
     }
 
+    public async handleEachBatch(messages: Message[], context: { heartbeat: () => void }): Promise<void> {
+        context.heartbeat()
+
+        if (messages.length > 0) {
+            logger.info('🔁', `blob_ingester_consumer_v2 - handling batch`, {
+                size: messages.length,
+                partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
+                assignedPartitions: this.assignedPartitions,
+            })
+        }
+
+        await runInstrumentedFunction({
+            statsKey: `recordingingesterv2.handleEachBatch`,
+            sendTimeoutGuardToSentry: false,
+            func: async () => this.processBatchMessages(messages, context),
+        })
+    }
+
     private async processBatchMessages(messages: Message[], context: { heartbeat: () => void }): Promise<void> {
         // Increment message received counter for each message
         messages.forEach((message) => {
@@ -134,11 +152,11 @@ export class SessionRecordingIngester {
 
         await runInstrumentedFunction({
             statsKey: `recordingingesterv2.handleEachBatch.processMessages`,
-            func: async () => this.processMessages(processedMessages),
+            func: async () => this.processMessages(processedMessages, context.heartbeat),
         })
     }
 
-    private async processMessages(parsedMessages: MessageWithTeam[]) {
+    private async processMessages(parsedMessages: MessageWithTeam[], heartbeat: () => void) {
         await this.sessionBatchManager.withBatch(async (batch) => {
             for (const message of parsedMessages) {
                 this.consume(message, batch)
@@ -146,25 +164,40 @@ export class SessionRecordingIngester {
             return Promise.resolve()
         })
 
+        heartbeat()
+
         await this.sessionBatchManager.flushIfNeeded()
     }
 
-    public async handleEachBatch(messages: Message[], context: { heartbeat: () => void }): Promise<void> {
-        context.heartbeat()
+    private consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
+        // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
+        // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
+        this.metrics.resetSessionsRevoked()
+        const { team, message: parsedMessage } = message
+        const debugEnabled = this.isDebugLoggingEnabled(parsedMessage.metadata.partition)
 
-        if (messages.length > 0) {
-            logger.info('🔁', `blob_ingester_consumer_v2 - handling batch`, {
-                size: messages.length,
-                partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
-                assignedPartitions: this.assignedPartitions,
+        if (debugEnabled) {
+            logger.debug('🔄', 'processing_session_recording', {
+                partition: parsedMessage.metadata.partition,
+                offset: parsedMessage.metadata.offset,
+                distinct_id: parsedMessage.distinct_id,
+                session_id: parsedMessage.session_id,
+                raw_size: parsedMessage.metadata.rawSize,
             })
         }
 
-        await runInstrumentedFunction({
-            statsKey: `recordingingesterv2.handleEachBatch`,
-            sendTimeoutGuardToSentry: false,
-            func: async () => this.processBatchMessages(messages, context),
-        })
+        const { partition } = parsedMessage.metadata
+        const isDebug = this.isDebugLoggingEnabled(partition)
+        if (isDebug) {
+            logger.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
+                ...parsedMessage.metadata,
+                team_id: team.teamId,
+                session_id: parsedMessage.session_id,
+            })
+        }
+
+        this.metrics.observeSessionInfo(parsedMessage.metadata.rawSize)
+        batch.record(message)
     }
 
     public async start(): Promise<void> {
@@ -260,37 +293,6 @@ export class SessionRecordingIngester {
 
     private get assignedPartitions(): TopicPartition['partition'][] {
         return this.assignedTopicPartitions.map((x) => x.partition)
-    }
-
-    private consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
-        // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
-        // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
-        this.metrics.resetSessionsRevoked()
-        const { team, message: parsedMessage } = message
-        const debugEnabled = this.isDebugLoggingEnabled(parsedMessage.metadata.partition)
-
-        if (debugEnabled) {
-            logger.debug('🔄', 'processing_session_recording', {
-                partition: parsedMessage.metadata.partition,
-                offset: parsedMessage.metadata.offset,
-                distinct_id: parsedMessage.distinct_id,
-                session_id: parsedMessage.session_id,
-                raw_size: parsedMessage.metadata.rawSize,
-            })
-        }
-
-        const { partition } = parsedMessage.metadata
-        const isDebug = this.isDebugLoggingEnabled(partition)
-        if (isDebug) {
-            logger.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
-                ...parsedMessage.metadata,
-                team_id: team.teamId,
-                session_id: parsedMessage.session_id,
-            })
-        }
-
-        this.metrics.observeSessionInfo(parsedMessage.metadata.rawSize)
-        batch.record(message)
     }
 
     private async onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
