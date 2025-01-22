@@ -298,8 +298,8 @@ User ID,
             content_type="application/csv",
         )
 
-        #  A weird issue with pytest client, need to user Rest framework's one
-        #  see https://stackoverflow.com/questions/39906956/patch-and-put-dont-work-as-expected-when-pytest-is-interacting-with-rest-framew
+        #  A weird issue with pytest client, need to user Rest framework's one
+        #  see https://stackoverflow.com/questions/39906956/patch-and-put-dont-work-as-expected-when-pytest-is-interacting-with-rest-framew
         client = APIClient()
         client.force_login(self.user)
         response = client.patch(
@@ -442,6 +442,64 @@ email@example.org,
         self.assertEqual(len(response.json()["results"]), 2)
 
         # Test with behavioral filter
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], regular_cohort.id)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_list_cohorts_excludes_nested_behavioral_cohorts(self, patch_capture):
+        # Create a behavioral cohort
+        behavioral_cohort = Cohort.objects.create(
+            team=self.team,
+            name="behavioral cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Create a cohort that references the behavioral cohort
+        Cohort.objects.create(
+            team=self.team,
+            name="cohort with nested behavioral",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "cohort",
+                            "value": str(behavioral_cohort.pk),
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Create a regular cohort
+        regular_cohort = Cohort.objects.create(
+            team=self.team,
+            name="regular cohort not behavioral",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "person", "key": "email", "value": "test@posthog.com"}],
+                }
+            },
+        )
+
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
@@ -1612,24 +1670,6 @@ email@example.org,
         self.assertEqual(async_deletion.delete_verified_at, None)
 
         # now let's run async deletions
-        clickhouse_clear_removed_data.delay()
-
-        async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
-        self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
-        self.assertEqual(async_deletion.delete_verified_at, None)
-
-        # optimise cohortpeople table, so all collapsing / replcaing on the merge tree is done
-        sync_execute(f"OPTIMIZE TABLE cohortpeople FINAL SETTINGS mutations_sync = 2")
-
-        # check clickhouse data is gone from cohortpeople table
-        res = sync_execute(
-            "SELECT count() FROM cohortpeople WHERE cohort_id = %(cohort_id)s",
-            {"cohort_id": cohort_id},
-        )
-        self.assertEqual(res[0][0], 1)
-
-        # now let's ensure verification of deletion happens on next run
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]

@@ -305,25 +305,91 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-            search_query = self.request.query_params.get("search", None)
-            if search_query:
-                queryset = queryset.filter(name__icontains=search_query)
-
-            # TRICKY: Feature flags don't support dynamic behavioral cohorts,
-            # so we don't want to show them as selectable options in the taxonomic filter
-            # in the feature flag UI.
-            # TODO: Once we support dynamic behavioral cohorts, we should show them in the taxonomic filter,
-            # and remove this filter.
-            hide_behavioral_cohorts = (
-                self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true"
-            )
-            if hide_behavioral_cohorts:
-                # Exclude cohorts that have behavioral properties anywhere in their nested structure
-                queryset = queryset.exclude(
-                    filters__properties__values__contains=[{"values": [{"type": "behavioral"}]}]
-                )
+            if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
+                all_cohorts = {cohort.id: cohort for cohort in queryset.all()}
+                behavioral_cohort_ids = self._find_behavioral_cohorts(all_cohorts)
+                queryset = queryset.exclude(id__in=behavioral_cohort_ids)
 
         return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
+
+    def _find_behavioral_cohorts(self, all_cohorts: dict[int, Cohort]) -> set[int]:
+        """Find all cohorts that have behavioral filters or reference cohorts with behavioral filters."""
+        behavioral_cohort_ids = set()
+
+        for cohort_id in all_cohorts:
+            if self._has_behavioral_filter(cohort_id, all_cohorts):
+                behavioral_cohort_ids.add(cohort_id)
+                behavioral_cohort_ids.update(
+                    self._find_cohorts_referencing_cohort(cohort_id, all_cohorts, behavioral_cohort_ids)
+                )
+
+        return behavioral_cohort_ids
+
+    def _has_behavioral_filter(self, cohort_id: int, all_cohorts: dict[int, Cohort]) -> bool:
+        """Check if a cohort has behavioral filters."""
+        seen_cohorts = set()
+
+        if cohort_id in seen_cohorts:
+            return False
+        seen_cohorts.add(cohort_id)
+
+        cohort = all_cohorts.get(cohort_id)
+        if not cohort or not cohort.filters:
+            return False
+
+        properties = cohort.filters.get("properties", {})
+        if not isinstance(properties, dict):
+            return False
+
+        return self._check_property_values(properties.get("values", []), all_cohorts, seen_cohorts)
+
+    def _check_property_values(self, values: Any, all_cohorts: dict[int, Cohort], seen_cohorts: set[int]) -> bool:
+        """Check if any property values contain behavioral filters or reference cohorts with behavioral filters."""
+        if not isinstance(values, list):
+            return False
+
+        for value in values:
+            if not isinstance(value, dict):
+                continue
+
+            if value.get("type") == "behavioral":
+                return True
+
+            if value.get("type") == "cohort":
+                nested_id = value.get("value")
+                if nested_id:
+                    try:
+                        if self._has_behavioral_filter(int(nested_id), all_cohorts, seen_cohorts):
+                            return True
+                    except ValueError:
+                        pass
+
+            # Handle nested AND/OR property groups
+            if value.get("type") in ("AND", "OR") and value.get("values"):
+                if self._check_property_values(value["values"], all_cohorts, seen_cohorts):
+                    return True
+
+        return False
+
+    def _find_cohorts_referencing_cohort(
+        self, target_id: int, all_cohorts: dict[int, Cohort], existing_ids: set[int]
+    ) -> set[int]:
+        """Find all cohorts that directly reference the given cohort ID."""
+        referencing_ids = set()
+
+        for other_id, other_cohort in all_cohorts.items():
+            if other_id not in existing_ids and other_cohort.filters:
+                properties = other_cohort.filters.get("properties", {})
+                if isinstance(properties, dict):
+                    for value in properties.get("values", []):
+                        if isinstance(value, dict) and value.get("type") == "cohort":
+                            try:
+                                if int(value.get("value", "0")) == target_id:
+                                    referencing_ids.add(other_id)
+                            except ValueError:
+                                pass
+
+        return referencing_ids
 
     @action(
         methods=["GET"],
