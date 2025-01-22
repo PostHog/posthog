@@ -524,17 +524,19 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             overlay={
                                                 <>
                                                     {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
-                                                        <LemonButton
-                                                            loading={newCohortLoading}
-                                                            onClick={() => {
-                                                                createStaticCohort()
-                                                            }}
-                                                            fullWidth
-                                                        >
-                                                            Create Cohort
-                                                        </LemonButton>
+                                                        <>
+                                                            <LemonButton
+                                                                loading={newCohortLoading}
+                                                                onClick={() => {
+                                                                    createStaticCohort()
+                                                                }}
+                                                                fullWidth
+                                                            >
+                                                                Create Cohort
+                                                            </LemonButton>
+                                                            <LemonDivider />
+                                                        </>
                                                     )}
-                                                    <LemonDivider />
                                                     <LemonButton
                                                         data-attr={
                                                             featureFlag.deleted
@@ -558,8 +560,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 : null
                                                         }
                                                     >
-                                                        <span>{featureFlag.deleted ? 'Restore' : 'Delete'}</span>{' '}
-                                                        <span>feature flag</span>
+                                                        <span>
+                                                            {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
+                                                        </span>
                                                     </LemonButton>
                                                 </>
                                             }
