@@ -467,8 +467,8 @@ GROUP BY session_id, breakdown_value
                     *row,
                     {
                         "value": row[0],
-                        "dateFrom": self.query.dateRange.date_from,
-                        "dateTo": self.query.dateRange.date_to,
+                        "dateFrom": self.query.dateRange.date_from if self.query.dateRange else None,
+                        "dateTo": self.query.dateRange.date_to if self.query.dateRange else None,
                         "breakdownBy": self.query.breakdownBy if hasattr(self.query, "breakdownBy") else None,
                     },
                 ]
