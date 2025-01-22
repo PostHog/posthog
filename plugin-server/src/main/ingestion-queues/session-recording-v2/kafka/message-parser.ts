@@ -10,7 +10,7 @@ import { ParsedMessageData } from './types'
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 const decompressWithGzip = promisify(gunzip)
 
-export class KafkaParser {
+export class KafkaMessageParser {
     constructor(private readonly metrics: KafkaMetrics) {}
 
     public async parseBatch(messages: Message[]): Promise<ParsedMessageData[]> {

@@ -1,8 +1,8 @@
 import { PassThrough } from 'stream'
 
-import { SessionBatchFlusher, StreamWithFinish } from './session-batch-recorder'
+import { SessionBatchWriter, StreamWithFinish } from './session-batch-recorder'
 
-export class BlackholeFlusher implements SessionBatchFlusher {
+export class BlackholeSessionBatchWriter implements SessionBatchWriter {
     public async open(): Promise<StreamWithFinish> {
         return Promise.resolve({
             stream: new PassThrough(),

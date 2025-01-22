@@ -16,15 +16,14 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from './constants'
+import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaMetrics } from './kafka/metrics'
 import { KafkaOffsetManager } from './kafka/offset-manager'
-import { KafkaParser } from './kafka/parser'
 import { SessionRecordingMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
-import { BlackholeFlusher } from './sessions/blackhole-flusher'
+import { BlackholeSessionBatchWriter } from './sessions/blackhole-session-batch-writer'
 import { SessionBatchManager } from './sessions/session-batch-manager'
-import { SessionBatchRecorder } from './sessions/session-batch-recorder'
-import { BaseSessionBatchRecorder } from './sessions/session-batch-recorder'
+import { SessionBatchRecorder, SessionBatchRecorderInterface } from './sessions/session-batch-recorder'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
@@ -48,7 +47,7 @@ export class SessionRecordingIngester {
     private readonly promiseScheduler: PromiseScheduler
     private readonly batchConsumerFactory: BatchConsumerFactory
     private readonly sessionBatchManager: SessionBatchManager
-    private readonly kafkaParser: KafkaParser
+    private readonly kafkaParser: KafkaMessageParser
     private readonly teamFilter: TeamFilter
     private readonly libVersionMonitor?: LibVersionMonitor
 
@@ -67,7 +66,7 @@ export class SessionRecordingIngester {
 
         this.promiseScheduler = new PromiseScheduler()
 
-        this.kafkaParser = new KafkaParser(KafkaMetrics.getInstance())
+        this.kafkaParser = new KafkaMessageParser(KafkaMetrics.getInstance())
         this.teamFilter = new TeamFilter(new TeamService())
         if (ingestionWarningProducer) {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
@@ -91,7 +90,7 @@ export class SessionRecordingIngester {
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 0) * 1024,
             maxBatchAgeMs: config.SESSION_RECORDING_MAX_BATCH_AGE_MS ?? 1000,
-            createBatch: () => new BaseSessionBatchRecorder(new BlackholeFlusher()),
+            createBatch: () => new SessionBatchRecorder(new BlackholeSessionBatchWriter()),
             offsetManager,
         })
 
@@ -169,7 +168,7 @@ export class SessionRecordingIngester {
         await this.sessionBatchManager.flushIfNeeded()
     }
 
-    private consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
+    private consume(message: MessageWithTeam, batch: SessionBatchRecorderInterface) {
         // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
         this.metrics.resetSessionsRevoked()

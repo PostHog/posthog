@@ -1,6 +1,6 @@
 import { TopicPartitionOffset } from 'node-rdkafka'
 
-import { SessionBatchRecorder } from '../sessions/session-batch-recorder'
+import { SessionBatchRecorderInterface } from '../sessions/session-batch-recorder'
 import { MessageWithTeam } from '../teams/types'
 
 interface PartitionOffset {
@@ -10,8 +10,11 @@ interface PartitionOffset {
 
 type CommitOffsetsCallback = (offsets: TopicPartitionOffset[]) => Promise<void>
 
-class OffsetTrackingSessionBatchRecorder implements SessionBatchRecorder {
-    constructor(private readonly recorder: SessionBatchRecorder, private readonly offsetManager: KafkaOffsetManager) {}
+class OffsetTrackingSessionBatchRecorderWrapper implements SessionBatchRecorderInterface {
+    constructor(
+        private readonly recorder: SessionBatchRecorderInterface,
+        private readonly offsetManager: KafkaOffsetManager
+    ) {}
 
     public record(message: MessageWithTeam): number {
         const bytesWritten = this.recorder.record(message)
@@ -38,8 +41,8 @@ export class KafkaOffsetManager {
 
     constructor(private readonly commitOffsets: CommitOffsetsCallback, private readonly topic: string) {}
 
-    public wrapBatch(recorder: SessionBatchRecorder): SessionBatchRecorder {
-        return new OffsetTrackingSessionBatchRecorder(recorder, this)
+    public wrapBatch(recorder: SessionBatchRecorderInterface): SessionBatchRecorderInterface {
+        return new OffsetTrackingSessionBatchRecorderWrapper(recorder, this)
     }
 
     public trackOffset({ partition, offset }: PartitionOffset): void {

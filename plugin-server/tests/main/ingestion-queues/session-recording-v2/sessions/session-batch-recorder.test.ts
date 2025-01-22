@@ -1,8 +1,9 @@
 import { PassThrough } from 'stream'
 
 import {
-    BaseSessionBatchRecorder,
-    SessionBatchFlusher,
+    SessionBatchRecorder,
+    SessionBatchRecorderInterface,
+    SessionBatchWriter,
 } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
 import { MessageWithTeam } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/types'
 
@@ -30,16 +31,16 @@ interface MessageMetadata {
     rawSize?: number
 }
 
-describe('BaseSessionBatchRecorder', () => {
-    let recorder: BaseSessionBatchRecorder
-    let mockFlusher: jest.Mocked<SessionBatchFlusher>
+describe('SessionBatchRecorder', () => {
+    let recorder: SessionBatchRecorderInterface
+    let mockWriter: jest.Mocked<SessionBatchWriter>
     let mockStream: PassThrough
     let mockFinish: () => Promise<void>
 
     beforeEach(() => {
         mockStream = new PassThrough()
         mockFinish = jest.fn().mockResolvedValue(undefined)
-        mockFlusher = {
+        mockWriter = {
             open: jest.fn().mockImplementation(() =>
                 Promise.resolve({
                     stream: mockStream,
@@ -47,7 +48,7 @@ describe('BaseSessionBatchRecorder', () => {
                 })
             ),
         }
-        recorder = new BaseSessionBatchRecorder(mockFlusher)
+        recorder = new SessionBatchRecorder(mockWriter)
     })
 
     const createMessage = (
@@ -116,7 +117,7 @@ describe('BaseSessionBatchRecorder', () => {
             const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            expect(mockFlusher.open).toHaveBeenCalled()
+            expect(mockWriter.open).toHaveBeenCalled()
             expect(mockFinish).toHaveBeenCalled()
 
             const output = await outputPromise
@@ -147,7 +148,7 @@ describe('BaseSessionBatchRecorder', () => {
             const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            expect(mockFlusher.open).toHaveBeenCalled()
+            expect(mockWriter.open).toHaveBeenCalled()
             expect(mockFinish).toHaveBeenCalled()
 
             const output = await outputPromise
@@ -181,7 +182,7 @@ describe('BaseSessionBatchRecorder', () => {
             const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            expect(mockFlusher.open).toHaveBeenCalled()
+            expect(mockWriter.open).toHaveBeenCalled()
             expect(mockFinish).toHaveBeenCalled()
 
             const output = await outputPromise
@@ -200,7 +201,7 @@ describe('BaseSessionBatchRecorder', () => {
             const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            expect(mockFlusher.open).toHaveBeenCalled()
+            expect(mockWriter.open).toHaveBeenCalled()
             expect(mockFinish).toHaveBeenCalled()
 
             const output = await outputPromise
@@ -244,7 +245,7 @@ describe('BaseSessionBatchRecorder', () => {
             const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            expect(mockFlusher.open).toHaveBeenCalled()
+            expect(mockWriter.open).toHaveBeenCalled()
             expect(mockFinish).toHaveBeenCalled()
 
             const output = await outputPromise
@@ -270,7 +271,7 @@ describe('BaseSessionBatchRecorder', () => {
             const finish1 = jest.fn().mockResolvedValue(undefined)
             const finish2 = jest.fn().mockResolvedValue(undefined)
 
-            mockFlusher.open
+            mockWriter.open
                 .mockResolvedValueOnce({ stream: stream1, finish: finish1 })
                 .mockResolvedValueOnce({ stream: stream2, finish: finish2 })
 
@@ -294,7 +295,7 @@ describe('BaseSessionBatchRecorder', () => {
             const outputPromise1 = captureOutput(stream1)
             await recorder.flush()
 
-            expect(mockFlusher.open).toHaveBeenCalledTimes(1)
+            expect(mockWriter.open).toHaveBeenCalledTimes(1)
             expect(finish1).toHaveBeenCalledTimes(1)
             expect(finish2).not.toHaveBeenCalled()
             const output1 = await outputPromise1
@@ -304,7 +305,7 @@ describe('BaseSessionBatchRecorder', () => {
             const outputPromise2 = captureOutput(stream2)
             await recorder.flush()
 
-            expect(mockFlusher.open).toHaveBeenCalledTimes(2)
+            expect(mockWriter.open).toHaveBeenCalledTimes(2)
             expect(finish1).toHaveBeenCalledTimes(1)
             expect(finish2).toHaveBeenCalledTimes(1)
             const output2 = await outputPromise2
@@ -322,7 +323,7 @@ describe('BaseSessionBatchRecorder', () => {
             const finish1 = jest.fn().mockResolvedValue(undefined)
             const finish2 = jest.fn().mockResolvedValue(undefined)
 
-            mockFlusher.open
+            mockWriter.open
                 .mockResolvedValueOnce({ stream: stream1, finish: finish1 })
                 .mockResolvedValueOnce({ stream: stream2, finish: finish2 })
 
@@ -336,7 +337,7 @@ describe('BaseSessionBatchRecorder', () => {
 
             recorder.record(message)
             await recorder.flush()
-            expect(mockFlusher.open).toHaveBeenCalledTimes(1)
+            expect(mockWriter.open).toHaveBeenCalledTimes(1)
             expect(finish1).toHaveBeenCalledTimes(1)
             expect(finish2).not.toHaveBeenCalled()
 
@@ -345,7 +346,7 @@ describe('BaseSessionBatchRecorder', () => {
             const output = await outputPromise
 
             expect(output).toBe('')
-            expect(mockFlusher.open).toHaveBeenCalledTimes(2)
+            expect(mockWriter.open).toHaveBeenCalledTimes(2)
             expect(finish1).toHaveBeenCalledTimes(1)
             expect(finish2).toHaveBeenCalledTimes(1)
         })
@@ -389,7 +390,7 @@ describe('BaseSessionBatchRecorder', () => {
                 ['window1', messages[0].message.eventsByWindowId.window1[0]],
                 ['window1', messages[1].message.eventsByWindowId.window1[0]],
             ])
-            expect(mockFlusher.open).toHaveBeenCalledTimes(1)
+            expect(mockWriter.open).toHaveBeenCalledTimes(1)
             expect(mockFinish).toHaveBeenCalledTimes(1)
         })
 

@@ -1,20 +1,20 @@
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { PromiseQueue } from './promise-queue'
-import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionBatchRecorderInterface } from './session-batch-recorder'
 
 export interface SessionBatchManagerConfig {
     maxBatchSizeBytes: number
     maxBatchAgeMs: number
-    createBatch: () => SessionBatchRecorder
+    createBatch: () => SessionBatchRecorderInterface
     offsetManager: KafkaOffsetManager
 }
 
 export class SessionBatchManager {
-    private currentBatch: SessionBatchRecorder
+    private currentBatch: SessionBatchRecorderInterface
     private queue: PromiseQueue<void>
     private readonly maxBatchSizeBytes: number
     private readonly maxBatchAgeMs: number
-    private readonly createBatch: () => SessionBatchRecorder
+    private readonly createBatch: () => SessionBatchRecorderInterface
     private readonly offsetManager: KafkaOffsetManager
     private lastFlushTime: number
 
@@ -28,7 +28,7 @@ export class SessionBatchManager {
         this.lastFlushTime = Date.now()
     }
 
-    public async withBatch(callback: (batch: SessionBatchRecorder) => Promise<void>): Promise<void> {
+    public async withBatch(callback: (batch: SessionBatchRecorderInterface) => Promise<void>): Promise<void> {
         return this.queue.add(() => callback(this.currentBatch))
     }
 

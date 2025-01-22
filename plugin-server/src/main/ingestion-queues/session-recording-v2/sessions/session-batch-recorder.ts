@@ -8,23 +8,23 @@ export interface StreamWithFinish {
     finish: () => Promise<void>
 }
 
-export interface SessionBatchFlusher {
+export interface SessionBatchWriter {
     open(): Promise<StreamWithFinish>
 }
 
-export interface SessionBatchRecorder {
+export interface SessionBatchRecorderInterface {
     record(message: MessageWithTeam): number
     flush(): Promise<void>
     discardPartition(partition: number): void
     readonly size: number
 }
 
-export class BaseSessionBatchRecorder implements SessionBatchRecorder {
+export class SessionBatchRecorder implements SessionBatchRecorderInterface {
     private readonly partitionSessions = new Map<number, Map<string, SessionRecorder>>()
     private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
 
-    constructor(private readonly flusher: SessionBatchFlusher) {}
+    constructor(private readonly writer: SessionBatchWriter) {}
 
     public record(message: MessageWithTeam): number {
         const { partition } = message.message.metadata
@@ -61,7 +61,7 @@ export class BaseSessionBatchRecorder implements SessionBatchRecorder {
     }
 
     public async flush(): Promise<void> {
-        const { stream, finish } = await this.flusher.open()
+        const { stream, finish } = await this.writer.open()
 
         // Flush sessions grouped by partition
         for (const sessions of this.partitionSessions.values()) {

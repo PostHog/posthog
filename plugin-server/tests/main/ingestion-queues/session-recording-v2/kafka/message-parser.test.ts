@@ -2,20 +2,20 @@ import { promisify } from 'node:util'
 import { Message } from 'node-rdkafka'
 import { gzip } from 'zlib'
 
+import { KafkaMessageParser } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/message-parser'
 import { KafkaMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/metrics'
-import { KafkaParser } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/parser'
 
 const compressWithGzip = promisify(gzip)
 
-describe('KafkaParser', () => {
-    let parser: KafkaParser
+describe('KafkaMessageParser', () => {
+    let parser: KafkaMessageParser
     let mockKafkaMetrics: jest.Mocked<KafkaMetrics>
 
     beforeEach(() => {
         mockKafkaMetrics = {
             incrementMessageDropped: jest.fn(),
         } as jest.Mocked<KafkaMetrics>
-        parser = new KafkaParser(mockKafkaMetrics)
+        parser = new KafkaMessageParser(mockKafkaMetrics)
     })
 
     const createMessage = (data: any, overrides: Partial<Message> = {}): Message => ({
