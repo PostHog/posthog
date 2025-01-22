@@ -13,7 +13,12 @@ const decompressWithGzip = promisify(gunzip)
 export class KafkaParser {
     constructor(private readonly metrics: KafkaMetrics) {}
 
-    public async parseMessage(message: Message): Promise<ParsedMessageData | null> {
+    public async parseBatch(messages: Message[]): Promise<ParsedMessageData[]> {
+        const parsedMessages = await Promise.all(messages.map((message) => this.parseMessage(message)))
+        return parsedMessages.filter((msg) => msg !== null)
+    }
+
+    private async parseMessage(message: Message): Promise<ParsedMessageData | null> {
         const dropMessage = (reason: string, extra?: Record<string, any>) => {
             this.metrics.incrementMessageDropped('session_recordings_blob_ingestion', reason)
 

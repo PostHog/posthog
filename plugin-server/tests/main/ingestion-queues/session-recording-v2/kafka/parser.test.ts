@@ -1,5 +1,5 @@
+import { promisify } from 'node:util'
 import { Message } from 'node-rdkafka'
-import { promisify } from 'util'
 import { gzip } from 'zlib'
 
 import { KafkaMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/metrics'
@@ -28,27 +28,30 @@ describe('KafkaParser', () => {
         ...overrides,
     })
 
-    describe('parseMessage', () => {
-        it('successfully parses a valid message', async () => {
+    describe('parseBatch', () => {
+        it('handles valid snapshot message', async () => {
             const snapshotItems = [
                 { type: 1, timestamp: 1234567890 },
                 { type: 2, timestamp: 1234567891 },
             ]
-            const message = createMessage({
-                data: JSON.stringify({
-                    event: '$snapshot_items',
-                    properties: {
-                        $session_id: 'session1',
-                        $window_id: 'window1',
-                        $snapshot_items: snapshotItems,
-                    },
+            const messages = [
+                createMessage({
+                    data: JSON.stringify({
+                        event: '$snapshot_items',
+                        properties: {
+                            $session_id: 'session1',
+                            $window_id: 'window1',
+                            $snapshot_items: snapshotItems,
+                        },
+                    }),
+                    distinct_id: 'user123',
                 }),
-                distinct_id: 'user123',
-            })
+            ]
 
-            const result = await parser.parseMessage(message)
+            const results = await parser.parseBatch(messages)
 
-            expect(result).toEqual({
+            expect(results).toHaveLength(1)
+            expect(results[0]).toMatchObject({
                 metadata: {
                     partition: 0,
                     topic: 'test-topic',
@@ -71,7 +74,7 @@ describe('KafkaParser', () => {
             expect(mockKafkaMetrics.incrementMessageDropped).not.toHaveBeenCalled()
         })
 
-        it('successfully parses a gzipped message', async () => {
+        it('handles gzipped message', async () => {
             const snapshotItems = [
                 { type: 1, timestamp: 1234567890 },
                 { type: 2, timestamp: 1234567891 },
@@ -89,77 +92,128 @@ describe('KafkaParser', () => {
             }
 
             const gzippedData = await compressWithGzip(JSON.stringify(data))
-            const message = createMessage(data, { value: gzippedData })
+            const messages = [createMessage(data, { value: gzippedData })]
 
-            const result = await parser.parseMessage(message)
+            const results = await parser.parseBatch(messages)
 
-            expect(result).toBeTruthy()
-            expect(result?.session_id).toBe('session1')
+            expect(results).toHaveLength(1)
+            expect(results[0]).toMatchObject({
+                session_id: 'session1',
+                distinct_id: 'user123',
+                eventsByWindowId: {
+                    window1: snapshotItems,
+                },
+                eventsRange: {
+                    start: 1234567890,
+                    end: 1234567891,
+                },
+            })
             expect(mockKafkaMetrics.incrementMessageDropped).not.toHaveBeenCalled()
         })
-        it('drops message with missing value', async () => {
-            const message = createMessage({}, { value: undefined })
-            const result = await parser.parseMessage(message)
 
-            expect(result).toBeNull()
+        it('filters out message with missing value', async () => {
+            const messages = [createMessage({}, { value: null })]
+
+            const results = await parser.parseBatch(messages)
+
+            expect(results).toHaveLength(0)
             expect(mockKafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
                 'session_recordings_blob_ingestion',
                 'message_value_or_timestamp_is_empty'
             )
         })
 
-        it('drops message with missing timestamp', async () => {
-            const message = createMessage({}, { timestamp: undefined })
-            const result = await parser.parseMessage(message)
+        it('filters out message with missing timestamp', async () => {
+            const messages = [createMessage({}, { timestamp: undefined })]
 
-            expect(result).toBeNull()
+            const results = await parser.parseBatch(messages)
+
+            expect(results).toHaveLength(0)
             expect(mockKafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
                 'session_recordings_blob_ingestion',
                 'message_value_or_timestamp_is_empty'
             )
         })
 
-        it('drops message with invalid gzip data', async () => {
-            const invalidGzip = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x00]) // Invalid gzip data
-            const message = createMessage({}, { value: invalidGzip })
+        it('filters out message with invalid gzip data', async () => {
+            const messages = [createMessage({}, { value: Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x00]) })]
 
-            const result = await parser.parseMessage(message)
+            const results = await parser.parseBatch(messages)
 
-            expect(result).toBeNull()
+            expect(results).toHaveLength(0)
             expect(mockKafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
                 'session_recordings_blob_ingestion',
                 'invalid_gzip_data'
             )
         })
 
-        it('drops message with invalid JSON', async () => {
-            const message = createMessage({}, { value: Buffer.from('invalid json') })
-            const result = await parser.parseMessage(message)
+        it('filters out message with invalid json', async () => {
+            const messages = [createMessage({}, { value: Buffer.from('invalid json') })]
 
-            expect(result).toBeNull()
+            const results = await parser.parseBatch(messages)
+
+            expect(results).toHaveLength(0)
             expect(mockKafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
                 'session_recordings_blob_ingestion',
                 'invalid_json'
             )
         })
 
-        it('drops non-snapshot messages', async () => {
-            const message = createMessage({
-                data: JSON.stringify({
-                    event: 'not_a_snapshot',
-                    properties: {
-                        $session_id: 'session1',
-                    },
+        it('filters out non-snapshot message', async () => {
+            const messages = [
+                createMessage({
+                    data: JSON.stringify({
+                        event: 'not_a_snapshot',
+                        properties: {
+                            $session_id: 'session1',
+                        },
+                    }),
                 }),
-            })
+            ]
 
-            const result = await parser.parseMessage(message)
+            const results = await parser.parseBatch(messages)
 
-            expect(result).toBeNull()
+            expect(results).toHaveLength(0)
             expect(mockKafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
                 'session_recordings_blob_ingestion',
                 'received_non_snapshot_message'
             )
+        })
+
+        it('handles empty batch', async () => {
+            const results = await parser.parseBatch([])
+            expect(results).toEqual([])
+        })
+
+        it('processes multiple messages in parallel', async () => {
+            const messages = [
+                createMessage({
+                    data: JSON.stringify({
+                        event: '$snapshot_items',
+                        properties: {
+                            $session_id: 'session1',
+                            $window_id: 'window1',
+                            $snapshot_items: [{ timestamp: 1, type: 2 }],
+                        },
+                    }),
+                }),
+                createMessage({
+                    data: JSON.stringify({
+                        event: '$snapshot_items',
+                        properties: {
+                            $session_id: 'session2',
+                            $window_id: 'window2',
+                            $snapshot_items: [{ timestamp: 2, type: 2 }],
+                        },
+                    }),
+                }),
+            ]
+
+            const results = await parser.parseBatch(messages)
+
+            expect(results).toHaveLength(2)
+            expect(results[0]?.session_id).toBe('session1')
+            expect(results[1]?.session_id).toBe('session2')
         })
     })
 })

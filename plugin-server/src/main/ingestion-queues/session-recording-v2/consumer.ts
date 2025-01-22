@@ -28,7 +28,6 @@ import { BaseSessionBatchRecorder } from './sessions/session-batch-recorder'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
-import { BatchMessageProcessor } from './types'
 import { CaptureIngestionWarningFn } from './types'
 import { getPartitionsForTopic } from './utils'
 import { LibVersionMonitor } from './versions/lib-version-monitor'
@@ -45,11 +44,13 @@ export class SessionRecordingIngester {
     isStopping = false
 
     private isDebugLoggingEnabled: ValueMatcher<number>
-    private readonly messageProcessor: BatchMessageProcessor<Message, MessageWithTeam>
     private readonly metrics: SessionRecordingMetrics
     private readonly promiseScheduler: PromiseScheduler
     private readonly batchConsumerFactory: BatchConsumerFactory
     private readonly sessionBatchManager: SessionBatchManager
+    private readonly kafkaParser: KafkaParser
+    private readonly teamFilter: TeamFilter
+    private readonly libVersionMonitor?: LibVersionMonitor
 
     constructor(
         private config: PluginsServerConfig,
@@ -66,9 +67,15 @@ export class SessionRecordingIngester {
 
         this.promiseScheduler = new PromiseScheduler()
 
-        const kafkaMetrics = KafkaMetrics.getInstance()
-        const kafkaParser = new KafkaParser(kafkaMetrics)
-        const teamService = new TeamService()
+        this.kafkaParser = new KafkaParser(KafkaMetrics.getInstance())
+        this.teamFilter = new TeamFilter(new TeamService())
+        if (ingestionWarningProducer) {
+            const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
+                await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
+            }
+            this.libVersionMonitor = new LibVersionMonitor(captureWarning, VersionMetrics.getInstance())
+        }
+
         this.metrics = SessionRecordingMetrics.getInstance()
 
         const offsetManager = new KafkaOffsetManager(async (offsets) => {
@@ -87,21 +94,6 @@ export class SessionRecordingIngester {
             createBatch: () => new BaseSessionBatchRecorder(new BlackholeFlusher()),
             offsetManager,
         })
-
-        const teamFilter = new TeamFilter(teamService, kafkaParser)
-
-        if (ingestionWarningProducer) {
-            const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
-                await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
-            }
-            this.messageProcessor = new LibVersionMonitor<Message>(
-                teamFilter,
-                captureWarning,
-                VersionMetrics.getInstance()
-            )
-        } else {
-            this.messageProcessor = teamFilter
-        }
 
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
     }
@@ -123,21 +115,26 @@ export class SessionRecordingIngester {
 
         const batchSize = messages.length
         const batchSizeKb = messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
-
         this.metrics.observeKafkaBatchSize(batchSize)
         this.metrics.observeKafkaBatchSizeKb(batchSizeKb)
 
-        const parsedMessages = await runInstrumentedFunction({
+        const processedMessages = await runInstrumentedFunction({
             statsKey: `recordingingesterv2.handleEachBatch.parseBatch`,
             func: async () => {
-                return this.messageProcessor.parseBatch(messages)
+                const parsedMessages = await this.kafkaParser.parseBatch(messages)
+                const messagesWithTeam = await this.teamFilter.filterBatch(parsedMessages)
+                const processedMessages = this.libVersionMonitor
+                    ? await this.libVersionMonitor.processBatch(messagesWithTeam)
+                    : messagesWithTeam
+                return processedMessages
             },
         })
+
         context.heartbeat()
 
         await runInstrumentedFunction({
             statsKey: `recordingingesterv2.handleEachBatch.processMessages`,
-            func: async () => this.processMessages(parsedMessages),
+            func: async () => this.processMessages(processedMessages),
         })
     }
 
