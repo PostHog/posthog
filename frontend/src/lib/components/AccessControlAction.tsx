@@ -34,7 +34,7 @@ export const AccessControlAction = ({
     minAccessLevel,
     resourceType = 'resource',
 }: AccessControlActionProps): JSX.Element => {
-    const hasAccess = userAccessLevel ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel) : false
+    const hasAccess = userAccessLevel ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel) : true
     const disabledReason = !hasAccess
         ? `You don't have sufficient permissions for this ${resourceType}. Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
         : null
