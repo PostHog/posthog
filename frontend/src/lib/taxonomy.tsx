@@ -181,7 +181,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $ai_metric: {
             label: 'AI Metric',
-            description: 'An evaluation metric for a trace of generative AI models (LLMs).',
+            description: 'An evaluation metric for a trace of generative AI models (LLMs)',
+        },
+        $ai_feedback: {
+            label: 'AI Feedback',
+            description: 'User-provided feedback for a trace of a generative AI model (LLM)',
         },
         // Mobile SDKs events
         'Application Opened': {
@@ -1441,6 +1445,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Metric Value (LLM)',
             description: 'The value assigned to the metric used to evaluate the LLM trace',
             examples: ['"negative"', '95'],
+        },
+        $ai_feedback_text: {
+            label: 'AI Feedback Text (LLM)',
+            description: 'The text provided by the user for feedback on the LLM trace',
+            examples: ['"The response was helpful, but it did not use the provided context."'],
         },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below

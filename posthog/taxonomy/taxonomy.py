@@ -192,6 +192,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Metric (LLM)",
             "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
         },
+        "$ai_feedback": {
+            "label": "AI Feedback (LLM)",
+            "description": "User-provided feedback for a trace of a generative AI model (LLM).",
+        },
         "Application Opened": {
             "label": "Application Opened",
             "description": "When a user opens the mobile app either for the first time or from the foreground.",
@@ -1367,6 +1371,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Metric Value (LLM)",
             "description": "The value assigned to the metric used to evaluate the LLM trace",
             "examples": ["negative", "95"],
+        },
+        "$ai_feedback_text": {
+            "label": "AI Feedback Text (LLM)",
+            "description": "The text provided by the user for feedback on the LLM trace",
+            "examples": ['"The response was helpful, but it did not use the provided context."'],
         },
     },
     "numerical_event_properties": {},
