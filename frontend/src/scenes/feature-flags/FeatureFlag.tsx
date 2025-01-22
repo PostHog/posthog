@@ -958,7 +958,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                         {featureFlag.is_remote_configuration ? (
                             <span>
                                 Remote config flags provide runtime configuration values in your app. Read more in the{' '}
-                                <Link to="https://posthog.com/docs/feature-flags/remote-config" className="italic">
+                                <Link to="https://posthog.com/docs/feature-flags/remote-config">
                                     remote config flags documentation
                                 </Link>
                                 .
