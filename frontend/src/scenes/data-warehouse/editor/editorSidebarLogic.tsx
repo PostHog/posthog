@@ -208,7 +208,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                         label: 'Delete folder',
                                         status: 'danger',
                                         onClick: () => {
-                                            actions.deleteFolder(folder.id)
+                                            actions.deleteFolder({ id: folder.id })
                                         },
                                     },
                                 ],
