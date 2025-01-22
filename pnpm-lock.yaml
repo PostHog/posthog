@@ -65,6 +65,9 @@ dependencies:
   '@react-hook/size':
     specifier: ^2.1.2
     version: 2.1.2(react@18.2.0)
+  '@rrweb/rrweb-plugin-console-record':
+    specifier: 2.0.0-alpha.18
+    version: 2.0.0-alpha.18(rrweb@2.0.0-alpha.13)
   '@rrweb/types':
     specifier: 2.0.0-alpha.13
     version: 2.0.0-alpha.13
@@ -309,8 +312,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.207.2
-    version: 1.207.2
+    specifier: 1.207.3
+    version: 1.207.3
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -6115,6 +6118,14 @@ packages:
     resolution: {integrity: sha512-7HQbW7k8VxrAtfzs9FxwO6XSDabn8tSFDi1wwzShOnU+cvaYpfxu0ygyTk3TpXsag1hgFKY3ZIlAfB4WVz2LkQ==}
     dependencies:
       type-fest: 2.19.0
+    dev: false
+
+  /@rrweb/rrweb-plugin-console-record@2.0.0-alpha.18(rrweb@2.0.0-alpha.13):
+    resolution: {integrity: sha512-R/ys7jrOXjCwcVOf3EkXtT3/XZQ+OMqy+3VhUmgrwngpvppThZlbK4a13OCECwkB8OCJ81S9oYleNbszja2IYA==}
+    peerDependencies:
+      rrweb: ^2.0.0-alpha.18
+    dependencies:
+      rrweb: 2.0.0-alpha.13(patch_hash=e2gmypqces37eklplr5o3rvywa)
     dev: false
 
   /@rrweb/types@2.0.0-alpha.13:
@@ -18173,8 +18184,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.207.2:
-    resolution: {integrity: sha512-MaraHxYsuLjTFecD9LxT36ooiqpp6v/NOCjwpbhYaA5BTHJ1GE9m1xK0+Dwa4ZMA3p/QkN66PuHvFr558re7wA==}
+  /posthog-js@1.207.3:
+    resolution: {integrity: sha512-w2MGFtGwN6uZO95YnPwIGNSSxBpfb1t8j4YLjrxflxmbCqoHz1n897DyQPeMEuY4l2DR3jv5+40BWd73E2/jfg==}
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
