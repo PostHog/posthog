@@ -1,22 +1,16 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
-import {
-    convertPropertyGroupToProperties,
-    isGroupPropertyFilter,
-    isLogEntryPropertyFilter,
-    isValidPropertyFilter,
-} from 'lib/components/PropertyFilters/utils'
+import { isLogEntryPropertyFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
-import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
+import { PROPERTY_KEYS } from 'lib/taxonomy'
 import { objectClean } from 'lib/utils'
 import posthog from 'posthog-js'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import { isFilterWithDisplay, isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
 import { MiniFilterKey } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
@@ -43,8 +37,6 @@ import {
 } from '~/queries/utils'
 import {
     AccessLevel,
-    AnyPartialFilterType,
-    AnyPropertyFilter,
     CohortType,
     DashboardMode,
     DashboardType,
@@ -58,8 +50,6 @@ import {
     MultipleSurveyQuestion,
     PersonType,
     PropertyFilterType,
-    PropertyFilterValue,
-    PropertyGroupFilter,
     QueryBasedInsightModel,
     RecordingDurationFilter,
     RecordingReportLoadTimes,
@@ -128,114 +118,6 @@ interface RecordingViewedProps {
     loadedFromBlobStorage: boolean
     snapshot_source: 'web' | 'mobile' | 'unknown'
     load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
-}
-
-function flattenProperties(properties: AnyPropertyFilter[]): string[] {
-    const output = []
-    for (const prop of properties || []) {
-        if (prop.key && isCoreFilter(prop.key)) {
-            output.push(prop.key)
-        } else {
-            output.push('redacted') // Custom property names are not reported
-        }
-    }
-    return output
-}
-
-function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): boolean {
-    const flattenedProperties = convertPropertyGroupToProperties(properties)
-    return (
-        !!flattenedProperties &&
-        flattenedProperties.some(
-            (property) => isGroupPropertyFilter(property) && property.group_type_index !== undefined
-        )
-    )
-}
-
-function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): PropertyFilterValue[] {
-    const flattenedProperties = convertPropertyGroupToProperties(properties) || []
-    const cohortIds = flattenedProperties
-        .filter((p) => p.type === 'cohort')
-        .map((p) => p.value)
-        .filter((a): a is number => !!a)
-
-    return cohortIds || []
-}
-
-/*
-    Takes a full list of filters for an insight and sanitizes any potentially sensitive info to report usage
-*/
-function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any> {
-    const { interval, date_from, date_to, filter_test_accounts, insight } = filters
-
-    let properties_local: string[] = []
-
-    // // If we're aggregating this query by groups
-    // properties.aggregating_by_groups = filters.aggregation_group_type_index != undefined
-    // // If groups are being used in this query
-    // properties.using_groups =
-    //     hasGroupProperties(filters.properties) || filters.breakdown_group_type_index != undefined
-
-    // let totalEventActionFilters = 0
-    // const entities = (filters.events || []).concat(filters.actions || [])
-    // entities.forEach((entity) => {
-    //     if (entity.properties?.length) {
-    //         totalEventActionFilters += entity.properties.length
-    //         properties.using_groups = properties.using_groups || hasGroupProperties(entity.properties)
-    //     }
-    //     if (entity.math_group_type_index != undefined) {
-    //         properties.aggregating_by_groups = true
-    //     }
-    // })
-    // properties.using_groups = properties.using_groups || properties.aggregating_by_groups
-
-    const properties = Array.isArray(filters.properties) ? filters.properties : []
-    const events = Array.isArray(filters.events) ? filters.events : []
-    const actions = Array.isArray(filters.actions) ? filters.actions : []
-    const entities = events.concat(actions)
-
-    // If we're aggregating this query by groups
-    let aggregating_by_groups = filters.aggregation_group_type_index != undefined
-    const breakdown_by_groups = filters.breakdown_group_type_index != undefined
-    // If groups are being used in this query
-    let using_groups = hasGroupProperties(filters.properties)
-    const used_cohort_filter_ids = usedCohortFilterIds(filters.properties)
-
-    for (const entity of entities) {
-        const entityProperties = Array.isArray(entity.properties) ? entity.properties : []
-        properties_local = properties_local.concat(flattenProperties(entityProperties))
-
-        using_groups = using_groups || hasGroupProperties(entityProperties)
-        if (entity.math_group_type_index != undefined) {
-            aggregating_by_groups = true
-        }
-    }
-    const properties_global = flattenProperties(properties)
-
-    return {
-        display: isFilterWithDisplay(filters) ? filters.display : undefined,
-        interval,
-        date_from,
-        date_to,
-        filter_test_accounts,
-        formula: isTrendsFilter(filters) ? filters.formula : undefined,
-        filters_count: properties?.length || 0,
-        events_count: events?.length || 0,
-        actions_count: actions?.length || 0,
-        funnel_viz_type: isFunnelsFilter(filters) ? filters.funnel_viz_type : undefined,
-        funnel_from_step: isFunnelsFilter(filters) ? filters.funnel_from_step : undefined,
-        funnel_to_step: isFunnelsFilter(filters) ? filters.funnel_to_step : undefined,
-        properties_global,
-        properties_global_custom_count: properties_global.filter((item) => item === 'custom').length,
-        properties_local,
-        properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
-        properties_all: properties_global.concat(properties_local),
-        aggregating_by_groups,
-        breakdown_by_groups,
-        using_groups: using_groups || aggregating_by_groups || breakdown_by_groups,
-        used_cohort_filter_ids,
-        insight,
-    }
 }
 
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
@@ -995,7 +877,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment archived', {
                 name: experiment.name,
                 id: experiment.id,
-                filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
             })
         },
@@ -1003,7 +884,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment reset', {
                 name: experiment.name,
                 id: experiment.id,
-                filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
             })
         },
@@ -1013,7 +893,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 id: experiment.id,
                 type: experiment.type,
                 // TODO fix these
-                filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,
             })
@@ -1023,7 +902,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 name: experiment.name,
                 id: experiment.id,
                 // TODO fix these
-                filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,
             })
@@ -1033,7 +911,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 name: experiment.name,
                 id: experiment.id,
                 // TODO fix these
-                filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,
                 launch_date: launchDate.toISOString(),
@@ -1052,7 +929,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 name: experiment.name,
                 id: experiment.id,
                 // TODO fix these
-                filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,
                 end_date: endDate.toISOString(),
@@ -1080,7 +956,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment variant shipped', {
                 name: experiment.name,
                 id: experiment.id,
-                filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,
             })
