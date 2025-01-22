@@ -1916,10 +1916,11 @@ class TestCapture(BaseTest):
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
-            self._send_august_2023_version_session_recording_event()
+            self._send_august_2023_version_session_recording_event(distinct_id="distinct_id123")
 
             assert kafka_produce.mock_calls[0].kwargs["headers"] == [
                 ("token", "token123"),
+                ("distinct_id", "distinct_id123"),
                 (
                     # without setting a version in the URL the default is unknown
                     "lib_version",
@@ -1932,10 +1933,13 @@ class TestCapture(BaseTest):
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
-            self._send_august_2023_version_session_recording_event(query_params="ver=1.123.4")
+            self._send_august_2023_version_session_recording_event(
+                query_params="ver=1.123.4", distinct_id="distinct_id123"
+            )
 
             assert kafka_produce.mock_calls[0].kwargs["headers"] == [
                 ("token", "token123"),
+                ("distinct_id", "distinct_id123"),
                 (
                     # without setting a version in the URL the default is unknown
                     "lib_version",
