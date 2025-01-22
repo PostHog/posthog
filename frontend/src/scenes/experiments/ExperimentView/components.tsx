@@ -16,8 +16,9 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
+import { InsightLabel } from 'lib/components/InsightLabel'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect, useState } from 'react'
@@ -28,11 +29,20 @@ import { Query } from '~/queries/Query/Query'
 import {
     ExperimentFunnelsQueryResponse,
     ExperimentTrendsQueryResponse,
+    FunnelsQuery,
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
+    TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { Experiment, Experiment as ExperimentType, ExperimentIdType, InsightShortId } from '~/types'
+import {
+    ActionFilter,
+    AnyPropertyFilter,
+    Experiment,
+    Experiment as ExperimentType,
+    ExperimentIdType,
+    InsightShortId,
+} from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
@@ -255,7 +265,6 @@ export function PageHeaderCustom(): JSX.Element {
         isExperimentStopped,
         isPrimaryMetricSignificant,
         isSingleVariantShipped,
-        featureFlags,
         hasGoalSet,
         isCreatingExperimentDashboard,
     } = useValues(experimentLogic)
@@ -379,22 +388,16 @@ export function PageHeaderCustom(): JSX.Element {
                             )}
                         </div>
                     )}
-                    {featureFlags[FEATURE_FLAGS.EXPERIMENT_MAKE_DECISION] &&
-                        isPrimaryMetricSignificant(0) &&
-                        !isSingleVariantShipped && (
-                            <>
-                                <Tooltip title="Choose a variant and roll it out to all users">
-                                    <LemonButton
-                                        type="primary"
-                                        icon={<IconFlask />}
-                                        onClick={() => openShipVariantModal()}
-                                    >
-                                        <b>Ship a variant</b>
-                                    </LemonButton>
-                                </Tooltip>
-                                <ShipVariantModal experimentId={experimentId} />
-                            </>
-                        )}
+                    {isPrimaryMetricSignificant(0) && !isSingleVariantShipped && (
+                        <>
+                            <Tooltip title="Choose a variant and roll it out to all users">
+                                <LemonButton type="primary" icon={<IconFlask />} onClick={() => openShipVariantModal()}>
+                                    <b>Ship a variant</b>
+                                </LemonButton>
+                            </Tooltip>
+                            <ShipVariantModal experimentId={experimentId} />
+                        </>
+                    )}
                 </>
             }
         />
@@ -540,5 +543,58 @@ export function LoadingState(): JSX.Element {
             <LemonSkeleton />
             <LemonSkeleton className="w-2/3 h-4" />
         </div>
+    )
+}
+
+export function MetricDisplayTrends({ query }: { query: TrendsQuery | undefined }): JSX.Element {
+    const event = query?.series?.[0] as unknown as ActionFilter
+
+    if (!event) {
+        return <></>
+    }
+
+    return (
+        <>
+            <div className="mb-2">
+                <div className="flex mb-1">
+                    <b>
+                        <InsightLabel action={event} showCountedByTag={true} hideIcon showEventName />
+                    </b>
+                </div>
+                <div className="space-y-1">
+                    {event.properties?.map((prop: AnyPropertyFilter) => (
+                        <PropertyFilterButton key={prop.key} item={prop} />
+                    ))}
+                </div>
+            </div>
+        </>
+    )
+}
+
+export function MetricDisplayFunnels({ query }: { query: FunnelsQuery }): JSX.Element {
+    return (
+        <>
+            {(query.series || []).map((event: any, idx: number) => (
+                <div key={idx} className="mb-2">
+                    <div className="flex mb-1">
+                        <div
+                            className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ backgroundColor: 'var(--bg-table)' }}
+                        >
+                            {idx + 1}
+                        </div>
+                        <b>
+                            <InsightLabel action={event} hideIcon showEventName />
+                        </b>
+                    </div>
+                    <div className="space-y-1">
+                        {event.properties?.map((prop: AnyPropertyFilter) => (
+                            <PropertyFilterButton key={prop.key} item={prop} />
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </>
     )
 }
