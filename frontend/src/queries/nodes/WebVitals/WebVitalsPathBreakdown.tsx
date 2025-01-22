@@ -155,7 +155,7 @@ const Content = ({
                                 <div
                                     className="absolute top-0 left-0 h-full"
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width, backgroundColor: 'var(--neutral-250)', opacity: 0.5 }}
+                                    style={{ width, backgroundColor: 'var(--muted)', opacity: 0.5 }}
                                 />
                                 <span title={path} className="relative z-10 truncate mr-2 flex-1">
                                     {path}
