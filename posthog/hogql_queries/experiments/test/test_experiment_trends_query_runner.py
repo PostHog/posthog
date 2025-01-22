@@ -30,7 +30,7 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 from freezegun import freeze_time
-from typing import cast
+from typing import cast, Any
 from django.utils import timezone
 from datetime import datetime, timedelta
 from posthog.test.test_journeys import journeys_for
@@ -2384,7 +2384,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.COUNT)
 
         # Test allowed sum math types
-        allowed_sum_math_types = [PropertyMathType.SUM, "hogql"]
+        allowed_sum_math_types: list[Any] = [PropertyMathType.SUM, "hogql"]
         for math_type in allowed_sum_math_types:
             count_query = TrendsQuery(
                 series=[EventsNode(event="checkout completed", math=math_type, math_property="revenue")]
