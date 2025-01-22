@@ -1,0 +1,40 @@
+{
+    "$schema": "./node_modules/nx/schemas/nx-schema.json",
+    "targetDefaults": {
+        "build": {
+            "outputs": ["{projectRoot}/frontend/dist"],
+            "cache": true
+        },
+        "build:esbuild": {
+            "outputs": ["{projectRoot}/frontend/dist"],
+            "cache": true
+        }
+    },
+    "defaultBase": "master",
+    "plugins": [
+        {
+            "plugin": "@nx/eslint/plugin",
+            "options": {
+                "targetName": "lint"
+            }
+        },
+        {
+            "plugin": "@nx/storybook/plugin",
+            "options": {
+                "serveStorybookTargetName": "serve:storybook",
+                "buildStorybookTargetName": "build:storybook",
+                "testStorybookTargetName": "test-storybook",
+                "staticStorybookTargetName": "static-storybook"
+            }
+        },
+        {
+            "plugin": "@nx/cypress/plugin",
+            "options": {
+                "targetName": "e2e",
+                "openTargetName": "open-cypress",
+                "componentTestingTargetName": "component-test",
+                "ciTargetName": "e2e-ci"
+            }
+        }
+    ]
+}

@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json.schemastore.org/nx",
+    "name": "hogvm-ts",
+    "sourceRoot": "{projectRoot}/src",
+    "projectType": "library",
+    "targets": {
+        "build": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": ["npm run build"],
+                "cwd": "{projectRoot}"
+            },
+            "outputs": ["{projectRoot}/dist"]
+        },
+        "test": {
+            "executor": "@nrwl/jest:jest",
+            "options": {
+                "jestConfig": "./jest.config.ts"
+            }
+        }
+    }
+}
