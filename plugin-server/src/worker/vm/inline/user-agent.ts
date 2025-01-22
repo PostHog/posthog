@@ -15,9 +15,6 @@ export class UserAgentPlugin implements PluginInstance {
     initialize = async () => {}
     failInitialization = async () => {}
     clearRetryTimeoutIfExists = async () => {}
-    getTeardown = () => {
-        return Promise.resolve(null)
-    }
     setupPluginIfNeeded = () => {
         return Promise.resolve(true)
     }

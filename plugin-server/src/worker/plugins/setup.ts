@@ -5,7 +5,6 @@ import { status } from '../../utils/status'
 import { constructPluginInstance } from '../vm/lazy'
 import { loadPlugin } from './loadPlugin'
 import { loadPluginsFromDB } from './loadPluginsFromDB'
-import { teardownPlugins } from './teardown'
 
 export const importUsedGauge = new Gauge({
     name: 'plugin_import_used',
@@ -45,9 +44,6 @@ export async function setupPlugins(hub: Hub): Promise<void> {
                 await loadPlugin(hub, pluginConfig)
             } else {
                 pluginVMLoadPromises.push(loadPlugin(hub, pluginConfig))
-            }
-            if (prevConfig) {
-                void teardownPlugins(hub, prevConfig)
             }
 
             if (plugin?.is_stateless) {
