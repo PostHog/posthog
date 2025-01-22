@@ -356,6 +356,7 @@ def select_from_sessions_table_v2(
             ),
             gad_source=aggregate_fields["$entry_gad_source"],
         ),
+        timings=context.timings,
     )
     # some aliases for people upgrading from v1 to v2
     aggregate_fields["$exit_current_url"] = aggregate_fields["$end_current_url"]
