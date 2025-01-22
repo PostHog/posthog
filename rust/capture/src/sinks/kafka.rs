@@ -155,7 +155,8 @@ impl KafkaSink {
             .set(
                 "queue.buffering.max.kbytes",
                 (config.kafka_producer_queue_mib * 1024).to_string(),
-            );
+            )
+            .set("acks", config.kafka_producer_acks.to_string());
 
         if !&config.kafka_client_id.is_empty() {
             client_config.set("client.id", &config.kafka_client_id);
@@ -400,6 +401,7 @@ mod tests {
             kafka_client_id: "".to_string(),
             kafka_metadata_max_age_ms: 60000,
             kafka_producer_max_retries: 2,
+            kafka_producer_acks: "all".to_string(),
         };
         let sink = KafkaSink::new(config, handle, limiter, None).expect("failed to create sink");
         (cluster, sink)

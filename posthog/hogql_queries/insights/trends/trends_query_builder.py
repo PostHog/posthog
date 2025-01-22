@@ -699,13 +699,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ):
             for property in self.team.test_account_filters:
                 if is_data_warehouse_series:
-                    if property["type"] in ("event", "person"):
-                        if property["type"] == "event":
-                            property["key"] = f"events.properties.{property['key']}"
-                        elif property["type"] == "person":
-                            property["key"] = f"events.person.properties.{property['key']}"
-                        property["type"] = "data_warehouse"
-                    filters.append(property_to_expr(property, self.team))
+                    property_clone = property.copy()
+                    if property_clone["type"] in ("event", "person"):
+                        if property_clone["type"] == "event":
+                            property_clone["key"] = f"events.properties.{property_clone['key']}"
+                        elif property_clone["type"] == "person":
+                            property_clone["key"] = f"events.person.properties.{property_clone['key']}"
+                        property_clone["type"] = "data_warehouse"
+                    filters.append(property_to_expr(property_clone, self.team))
                 else:
                     filters.append(property_to_expr(property, self.team))
 

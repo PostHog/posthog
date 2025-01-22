@@ -43,6 +43,7 @@ class TestSessionsAPI(APIBaseTest):
             "$end_hostname",
             "$entry_gad_source",
             "$entry_gclid",
+            "$entry_fbclid",
             "$entry_referring_domain",
             "$entry_utm_campaign",
             "$entry_utm_content",

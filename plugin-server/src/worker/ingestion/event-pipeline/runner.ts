@@ -143,6 +143,7 @@ export class EventPipelineRunner {
         const kafkaAcks: Promise<void>[] = []
 
         let processPerson = true // The default.
+
         // Set either at capture time, or in the populateTeamData step, if team-level opt-out is enabled.
         if (event.properties && '$process_person_profile' in event.properties) {
             const propValue = event.properties.$process_person_profile
@@ -352,7 +353,7 @@ export class EventPipelineRunner {
                     teamId,
                     `plugin_server_ingest_event:${currentStepName}`
                 )
-                await this.hub.db.kafkaProducer!.queueMessage({ kafkaMessage: message, waitForAck: true })
+                await this.hub.db.kafkaProducer.queueMessages(message)
             } catch (dlqError) {
                 status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
                 Sentry.captureException(dlqError, {

@@ -56,6 +56,7 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "initial_utm_content": DatabaseField(name="initial_utm_content"),
     "initial_referring_domain": DatabaseField(name="initial_referring_domain"),
     "initial_gclid": DatabaseField(name="initial_gclid"),
+    "initial_fbclid": DatabaseField(name="initial_fbclid"),
     "initial_gad_source": DatabaseField(name="initial_gad_source"),
     "event_count_map": DatabaseField(name="event_count_map"),
     "pageview_count": IntegerDatabaseField(name="pageview_count"),
@@ -85,6 +86,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$entry_utm_content": StringDatabaseField(name="$entry_utm_content"),
     "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
     "$entry_gclid": StringDatabaseField(name="$entry_gclid"),
+    "$entry_fbclid": StringDatabaseField(name="$entry_fbclid"),
     "$entry_gad_source": StringDatabaseField(name="$entry_gad_source"),
     "$event_count_map": DatabaseField(name="$event_count_map"),
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
@@ -122,6 +124,7 @@ class RawSessionsTableV1(Table):
             "initial_utm_content",
             "initial_referring_domain",
             "initial_gclid",
+            "initial_fbclid",
             "initial_gad_source",
         ]
 
@@ -177,6 +180,7 @@ def select_from_sessions_table_v1(
         "$entry_utm_content": null_if_empty(arg_min_merge_field("initial_utm_content")),
         "$entry_referring_domain": null_if_empty(arg_min_merge_field("initial_referring_domain")),
         "$entry_gclid": null_if_empty(arg_min_merge_field("initial_gclid")),
+        "$entry_fbclid": null_if_empty(arg_min_merge_field("initial_fbclid")),
         "$entry_gad_source": null_if_empty(arg_min_merge_field("initial_gad_source")),
         "$event_count_map": ast.Call(
             name="sumMap",
@@ -268,7 +272,14 @@ def select_from_sessions_table_v1(
             url=aggregate_fields["$entry_current_url"],
             hostname=aggregate_fields["$entry_hostname"],
             pathname=aggregate_fields["$entry_pathname"],
-            gclid=aggregate_fields["$entry_gclid"],
+            has_gclid=ast.Call(
+                name="isNotNull",
+                args=[aggregate_fields["$entry_gclid"]],
+            ),
+            has_fbclid=ast.Call(
+                name="isNotNull",
+                args=[aggregate_fields["$entry_fbclid"]],
+            ),
             gad_source=aggregate_fields["$entry_gad_source"],
         ),
     )

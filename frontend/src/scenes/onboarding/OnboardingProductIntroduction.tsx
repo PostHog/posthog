@@ -65,7 +65,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                             setTeamPropertiesForProduct(product.type as ProductKey)
                             addProductIntent({
                                 product_type: product.type as ProductKey,
-                                intent_context: 'onboarding product selected',
+                                intent_context: 'onboarding product selected - primary',
                             })
                             goToNextStep()
                         }}
@@ -85,7 +85,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                             setTeamPropertiesForProduct(product.type as ProductKey)
                             addProductIntent({
                                 product_type: product.type as ProductKey,
-                                intent_context: 'onboarding product selected',
+                                intent_context: 'onboarding product selected - secondary',
                             })
                             completeOnboarding()
                         }}
@@ -100,7 +100,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                                 setTeamPropertiesForProduct(product.type as ProductKey)
                                 addProductIntent({
                                     product_type: product.type as ProductKey,
-                                    intent_context: 'onboarding product selected',
+                                    intent_context: 'onboarding product selected - secondary',
                                 })
                                 goToNextStep()
                             }}

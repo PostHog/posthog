@@ -260,6 +260,14 @@ def test_person_properties(request):
     return {"utm_medium": "referral", "$initial_os": "Linux"}
 
 
+@pytest.fixture
+def use_distributed_events_recent_table(request):
+    try:
+        return request.param
+    except AttributeError:
+        return False
+
+
 @pytest_asyncio.fixture
 async def generate_test_data(
     ateam,
@@ -270,12 +278,13 @@ async def generate_test_data(
     interval,
     test_properties,
     test_person_properties,
+    use_distributed_events_recent_table,
 ):
     """Generate test data in ClickHouse."""
-    if interval != "every 5 minutes":
-        table = "sharded_events"
-    else:
+    if interval == "every 5 minutes" or use_distributed_events_recent_table:
         table = "events_recent"
+    else:
+        table = "sharded_events"
 
     events_to_export_created, _, _ = await generate_test_events_in_clickhouse(
         client=clickhouse_client,

@@ -35,10 +35,15 @@ class PaidThemePermission(BasePermission):
 
 
 class PublicDataColorThemeSerializer(serializers.ModelSerializer):
+    is_global = serializers.SerializerMethodField()
+
     class Meta:
         model = DataColorTheme
         fields = ["id", "name", "colors", "is_global"]
         read_only_fields = ["id", "name", "colors", "is_global"]
+
+    def get_is_global(self, obj):
+        return obj.team_id is None
 
 
 class DataColorThemeSerializer(PublicDataColorThemeSerializer):
