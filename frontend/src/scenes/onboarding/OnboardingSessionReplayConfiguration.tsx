@@ -1,17 +1,12 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { FilmCameraHog } from 'lib/components/hedgehogs'
-
-import { ProductKey } from '~/types'
 
 import { onboardingLogic, type OnboardingStepKey } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
 
 export function OnboardingSessionReplayConfiguration({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element {
-    const { allBillingProducts } = useValues(onboardingLogic)
     const { goToNextStep, updateCurrentTeam } = useActions(onboardingLogic)
-
-    const sessionReplayProduct = allBillingProducts.find((product) => product.type === ProductKey.SESSION_REPLAY)
 
     const handleNext = (enabled: boolean): void => {
         updateCurrentTeam({
@@ -29,18 +24,24 @@ export function OnboardingSessionReplayConfiguration({ stepKey }: { stepKey: Onb
                 </p>
             </div>
 
-            <div className="flex flex-col md:flex-row items-start gap-6">
+            <div className="flex flex-col md:flex-row items-center gap-6">
                 <div className="hidden md:block flex-shrink-0">
                     <FilmCameraHog className="w-36 h-auto" />
                 </div>
                 <div className="flex-1 border border-gray-200 rounded-lg bg-white p-4">
                     <h4 className="text-lg font-semibold mb-2">Why enable Session Replay?</h4>
-                    <ul className="list-inside list-disc space-y-2 text-muted">
-                        {sessionReplayProduct?.features
-                            .filter((feature) => feature.type === 'primary')
-                            .map((feature) => (
-                                <li key={feature.key}>{feature.description}</li>
-                            ))}
+                    <ul className="space-y-2 text-muted">
+                        <li>
+                            <strong>Understand user behavior:</strong> Get a clear view of how people navigate and
+                            interact with your product.
+                        </li>
+                        <li>
+                            <strong>Identify UI/UX issues:</strong> Spot friction points and increase your product's
+                            usability.
+                        </li>
+                        <li>
+                            <strong>Improve customer support:</strong> Quickly diagnose problems for your customers.
+                        </li>
                     </ul>
                 </div>
             </div>

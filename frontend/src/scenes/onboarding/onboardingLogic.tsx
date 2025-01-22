@@ -310,7 +310,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 )
             },
         ],
-        allBillingProducts: [(s) => [s.billing], (billing) => billing?.products || []],
         billingProduct: [
             (s) => [s.product, s.productKey, s.billing],
             (_product, productKey, billing) => {
