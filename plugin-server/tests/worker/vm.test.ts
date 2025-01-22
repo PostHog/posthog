@@ -15,7 +15,6 @@ import { plugin60 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
-jest.mock('../../src/main/graphile-worker/graphile-worker')
 
 jest.setTimeout(100000)
 

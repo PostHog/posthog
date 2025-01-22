@@ -1,15 +1,12 @@
 import * as Sentry from '@sentry/node'
 import * as nodeSchedule from 'node-schedule'
 
-import { startGraphileWorker } from '../src/main/graphile-worker/worker-setup'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginServerCapabilities, PluginsServerConfig } from '../src/types'
 import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.mock('../src/utils/kill')
-jest.mock('../src/main/graphile-worker/schedule')
-jest.mock('../src/main/graphile-worker/worker-setup')
 jest.setTimeout(20000) // 20 sec timeout - longer indicates an issue
 
 function numberOfScheduledJobs() {
@@ -139,43 +136,5 @@ describe('server', () => {
         pluginsServer = null
 
         expect(numberOfScheduledJobs()).toEqual(0)
-    })
-
-    describe('plugin-server capabilities', () => {
-        test('starts graphile for scheduled tasks capability', async () => {
-            pluginsServer = await createPluginServer(
-                {},
-                { ingestion: true, pluginScheduledTasks: true, processPluginJobs: true, syncInlinePlugins: true }
-            )
-
-            expect(startGraphileWorker).toHaveBeenCalled()
-        })
-
-        test('disabling pluginScheduledTasks', async () => {
-            pluginsServer = await createPluginServer(
-                {},
-                { ingestion: true, pluginScheduledTasks: false, processPluginJobs: true }
-            )
-
-            expect(startGraphileWorker).toHaveBeenCalled()
-        })
-
-        test('disabling processPluginJobs', async () => {
-            pluginsServer = await createPluginServer(
-                {},
-                { ingestion: true, pluginScheduledTasks: true, processPluginJobs: false }
-            )
-
-            expect(startGraphileWorker).toHaveBeenCalled()
-        })
-
-        test('disabling processPluginJobs, ingestion, and pluginScheduledTasks', async () => {
-            pluginsServer = await createPluginServer(
-                {},
-                { ingestion: false, pluginScheduledTasks: false, processPluginJobs: false }
-            )
-
-            expect(startGraphileWorker).not.toHaveBeenCalled()
-        })
     })
 })
