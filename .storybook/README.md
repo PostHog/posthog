@@ -8,6 +8,8 @@ This lets you check if you have broken the UI unexpectedly or changed it in the 
 
 You can check `test-runner.ts` to see how this is done
 
+Uses `"@storybook/test-runner"` see: https://storybook.js.org/docs/writing-tests/test-runner
+
 ## to run locally
 
 before you do this... 🤷
