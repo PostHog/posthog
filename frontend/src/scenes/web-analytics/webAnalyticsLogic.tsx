@@ -383,6 +383,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             {
                 setGraphsTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.graphsTab || oldTab,
+                setConversionGoal: (oldTab, { conversionGoal }) => {
+                    if (conversionGoal) {
+                        return GraphsTab.UNIQUE_CONVERSIONS
+                    }
+                    return oldTab
+                },
             },
         ],
         _sourceTab: [
