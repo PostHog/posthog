@@ -80,11 +80,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
-    const { tags } = useValues(tagsModel)
+    const { tags: allExistingTags } = useValues(tagsModel)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { push } = useActions(router)
+    const [tags, setTags] = useState(insight.tags)
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
 
@@ -407,16 +408,17 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
                         {canEditInsight ? (
                             <ObjectTags
-                                tags={insight.tags ?? []}
+                                tags={tags ?? []}
                                 saving={insightSaving}
-                                onChange={(tags) => setInsightMetadata({ tags: tags ?? [] })}
-                                tagsAvailable={tags}
+                                onChange={(tags) => setTags(tags)}
+                                onBlur={() => setInsightMetadata({ tags: tags ?? [] })}
+                                tagsAvailable={allExistingTags}
                                 className="mt-2"
                                 data-attr="insight-tags"
                             />
-                        ) : insight.tags?.length ? (
+                        ) : tags?.length ? (
                             <ObjectTags
-                                tags={insight.tags}
+                                tags={tags}
                                 saving={insightSaving}
                                 className="mt-2"
                                 data-attr="insight-tags"
