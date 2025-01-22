@@ -279,7 +279,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             query
-            == f"SELECT numbers.number AS number, multiply(numbers.number, 2) AS double, plus(plus(1, 1), numbers.number) AS expression_number FROM numbers(2) AS numbers LIMIT {MAX_SELECT_RETURNED_ROWS}"
+            == f"SELECT numbers.number AS number, multiply(numbers.number, 2) AS double, plus(plus(1, 1), numbers.number) FROM numbers(2) AS numbers LIMIT {MAX_SELECT_RETURNED_ROWS}"
         ), query
 
         sql = "select double from (select double from numbers(2))"
