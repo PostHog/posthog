@@ -15,7 +15,7 @@ export class KafkaMessageParser {
 
     public async parseBatch(messages: Message[]): Promise<ParsedMessageData[]> {
         const parsedMessages = await Promise.all(messages.map((message) => this.parseMessage(message)))
-        return parsedMessages.filter((msg: ParsedMessageData | null) => msg !== null)
+        return parsedMessages.filter((msg) => msg !== null) as ParsedMessageData[]
     }
 
     private async parseMessage(message: Message): Promise<ParsedMessageData | null> {
