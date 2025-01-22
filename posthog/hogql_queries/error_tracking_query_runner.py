@@ -1,5 +1,6 @@
 import re
 import structlog
+from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -8,6 +9,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     HogQLFilters,
     ErrorTrackingQuery,
+    ErrorTrackingSparklineConfig,
     ErrorTrackingQueryResponse,
     CachedErrorTrackingQueryResponse,
 )
@@ -16,6 +18,14 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.error_tracking import ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
+
+INTERVAL_FUNCTIONS = {
+    "minute": "toStartOfMinute",
+    "hour": "toStartOfHour",
+    "day": "toStartOfDay",
+    "week": "toStartOfWeek",
+    "month": "toStartOfMonth",
+}
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -43,22 +53,36 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     def select(self):
         exprs: list[ast.Expr] = [
+            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
             ast.Alias(
                 alias="occurrences", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])])
             ),
             ast.Alias(
-                alias="sessions", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["$session_id"])])
+                alias="sessions",
+                expr=ast.Call(
+                    name="count",
+                    distinct=True,
+                    # the $session_id property can be blank if not set
+                    # we do not want that case counted so cast it to `null` which is excluded by default
+                    args=[
+                        ast.Call(
+                            name="nullIf",
+                            args=[ast.Field(chain=["$session_id"]), ast.Constant(value="")],
+                        )
+                    ],
+                ),
             ),
             ast.Alias(
                 alias="users", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])])
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
+            ast.Alias(alias="volumeDay", expr=self.volume(ErrorTrackingSparklineConfig(interval="hour", value=24))),
+            ast.Alias(alias="volumeMonth", expr=self.volume(ErrorTrackingSparklineConfig(interval="day", value=31))),
         ]
 
-        if self.query.select:
-            exprs.extend([parse_expr(x) for x in self.query.select])
+        if self.query.customVolume:
+            exprs.append(ast.Alias(alias="customVolume", expr=self.volume(self.query.customVolume)))
 
         if self.query.issueId:
             exprs.append(
@@ -184,9 +208,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             for result_dict in mapped_results:
                 issue = issues.get(result_dict["id"])
                 if issue:
-                    results.append(
-                        issue | result_dict | {"assignee": self.query.assignee, "id": str(result_dict["id"])}
-                    )
+                    results.append(result_dict | issue)
                 else:
                     logger.error(
                         "error tracking issue not found",
@@ -195,6 +217,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     )
 
         return results
+
+    def volume(self, config: ErrorTrackingSparklineConfig):
+        toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
+        return parse_expr(
+            f"reverse(arrayMap(x -> countEqual(groupArray(dateDiff('{config.interval}', {toStartOfInterval}(timestamp), {toStartOfInterval}(now()))), x), range({config.value})))"
+        )
 
     @property
     def order_by(self):
@@ -214,19 +242,45 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else None
 
     def error_tracking_issues(self, ids):
-        queryset = ErrorTrackingIssue.objects.filter(team=self.team, id__in=ids)
+        queryset = ErrorTrackingIssue.objects.select_related("assignment").filter(team=self.team, id__in=ids)
         queryset = (
             queryset.filter(id=self.query.issueId)
             if self.query.issueId
             else queryset.filter(status__in=[ErrorTrackingIssue.Status.ACTIVE])
         )
-        queryset = (
-            queryset.filter(errortrackingissueassignment__user_id=self.query.assignee)
-            if self.query.assignee
-            else queryset
+        if self.query.assignee:
+            queryset = (
+                queryset.filter(assignment__user_id=self.query.assignee.id)
+                if self.query.assignee.type == "user"
+                else queryset.filter(assignment__user_group_id=self.query.assignee.id)
+            )
+
+        issues = queryset.values(
+            "id", "status", "name", "description", "assignment__user_id", "assignment__user_group_id"
         )
-        issues = queryset.values("id", "status", "name", "description")
-        return {item["id"]: item for item in issues}
+
+        results = {}
+        for issue in issues:
+            result: dict[str, Any] = {
+                "id": str(issue["id"]),
+                "name": issue["name"],
+                "status": issue["status"],
+                "description": issue["description"],
+                "assignee": None,
+            }
+
+            assignment_user_id = issue.get("assignment__user_id")
+            assignment_user_group_id = issue.get("assignment__user_group_id")
+
+            if assignment_user_id or assignment_user_group_id:
+                result["assignee"] = {
+                    "id": assignment_user_id or str(assignment_user_group_id),
+                    "type": "user" if assignment_user_id else "user_group",
+                }
+
+            results[issue["id"]] = result
+
+        return results
 
 
 def search_tokenizer(query: str) -> list[str]:

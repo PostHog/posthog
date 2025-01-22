@@ -7,7 +7,6 @@ import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
 import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { FiltersPanel } from 'scenes/session-recordings/playlist/filters/FiltersPanel'
 
 import { SessionRecordingType } from '~/types'
 
@@ -41,6 +40,7 @@ export type PlaylistProps = {
     loading?: boolean
     headerActions?: JSX.Element
     footerActions?: JSX.Element
+    filterActions?: JSX.Element | null
     onScrollListEdge?: (edge: 'top' | 'bottom') => void
     // Optionally select the first item in the list. Only works in controlled mode
     selectInitialItem?: boolean
@@ -61,6 +61,7 @@ export function Playlist({
     sections,
     headerActions,
     footerActions,
+    filterActions,
     onScrollListEdge,
     listEmptyState,
     selectInitialItem,
@@ -105,10 +106,11 @@ export function Playlist({
                     'Playlist--embedded': embedded,
                 })}
             >
-                <div ref={playlistListRef} className={clsx('Playlist__list w-full', 'Playlist__list--collapsed')}>
-                    <DraggableToNotebook href={notebooksHref}>
-                        <FiltersPanel />
-                    </DraggableToNotebook>
+                <div
+                    ref={playlistListRef}
+                    className="Playlist__list flex flex-col relative overflow-hidden h-full w-full"
+                >
+                    <DraggableToNotebook href={notebooksHref}>{filterActions}</DraggableToNotebook>
 
                     <List
                         title={title}
@@ -222,7 +224,7 @@ const List = ({
     const initiallyOpenSections = sections.filter((s) => s.initiallyOpen).map((s) => s.key)
 
     return (
-        <div className="flex flex-col w-full bg-bg-light overflow-hidden h-full Playlist__list">
+        <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
             <DraggableToNotebook href={notebooksHref}>
                 <div className="flex flex-col gap-1">
                     <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
@@ -239,10 +241,10 @@ const List = ({
                         const content =
                             'content' in s ? (
                                 s.content
-                            ) : loading && s.key === 'other' ? (
-                                <LoadingState />
                             ) : 'items' in s && !!s.items.length ? (
                                 <ListSection {...s} onClick={setActiveItemId} activeItemId={activeItemId} />
+                            ) : loading ? (
+                                <LoadingState />
                             ) : (
                                 emptyState
                             )

@@ -88,11 +88,13 @@ export enum NodeKind {
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
     FunnelCorrelationQuery = 'FunnelCorrelationQuery',
 
-    // Web analytics queries
+    // Web analytics + Web Vitals queries
     WebOverviewQuery = 'WebOverviewQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
+    WebVitalsQuery = 'WebVitalsQuery',
+    WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
 
     // Experiment queries
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
@@ -126,11 +128,14 @@ export type AnyDataNode =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
+    | WebVitalsQuery
+    | WebVitalsPathBreakdownQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | RecordingsQuery
+    | TracesQuery
 
 /**
  * @discriminator kind
@@ -150,14 +155,18 @@ export type QuerySchema =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
-    | WebOverviewQuery
-    | WebStatsTableQuery
-    | WebExternalClicksTableQuery
-    | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
+
+    // Web Analytics + Web Vitals
+    | WebOverviewQuery
+    | WebStatsTableQuery
+    | WebExternalClicksTableQuery
+    | WebGoalsQuery
+    | WebVitalsQuery
+    | WebVitalsPathBreakdownQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -629,10 +638,13 @@ export interface DataTableNode
                     | WebStatsTableQuery
                     | WebExternalClicksTableQuery
                     | WebGoalsQuery
+                    | WebVitalsQuery
+                    | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
+                    | TracesQuery
                 )['response']
             >
         >,
@@ -649,10 +661,13 @@ export interface DataTableNode
         | WebStatsTableQuery
         | WebExternalClicksTableQuery
         | WebGoalsQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
+        | TracesQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -662,6 +677,8 @@ export interface DataTableNode
 export interface GoalLine {
     label: string
     value: number
+    displayLabel?: boolean
+    borderColor?: string
 }
 
 export interface ChartAxis {
@@ -692,6 +709,7 @@ export interface YAxisSettings {
     /** Whether the Y axis should start at zero */
     startAtZero?: boolean
 }
+
 export interface ChartSettings {
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
@@ -887,6 +905,8 @@ export type TrendsFilter = {
     resultCustomizations?:
         | Record<string, ResultCustomizationByValue>
         | Record<numerical_key, ResultCustomizationByPosition>
+    /** Goal Lines */
+    goalLines?: GoalLine[]
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
@@ -1419,6 +1439,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     properties: WebAnalyticsPropertyFilters
     conversionGoal?: WebAnalyticsConversionGoal | null
     compareFilter?: CompareFilter
+    doPathCleaning?: boolean
     sampling?: {
         enabled?: boolean
         forceSamplingRate?: SamplingRate
@@ -1484,7 +1505,6 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
-    doPathCleaning?: boolean
     limit?: integer
 }
 export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
@@ -1530,6 +1550,48 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase<unknow
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
+export type WebVitalsMetric = 'INP' | 'LCP' | 'CLS' | 'FCP'
+export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
+export type WebVitalsMetricBand = 'good' | 'needs_improvements' | 'poor'
+
+export interface WebVitalsQuery<T = InsightQueryNode> extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
+    kind: NodeKind.WebVitalsQuery
+    source: T
+}
+
+export interface WebVitalsItemAction {
+    custom_name: WebVitalsMetric
+    math: WebVitalsPercentile
+}
+export interface WebVitalsItem {
+    data: number[]
+    days: string[]
+    action: WebVitalsItemAction
+}
+
+export type WebVitalsQueryResponse = AnalyticsQueryResponseBase<WebVitalsItem[]>
+export type CachedWebVitalsQueryResponse = CachedQueryResponse<WebVitalsQueryResponse>
+
+export interface WebVitalsPathBreakdownQuery extends WebAnalyticsQueryBase<WebVitalsPathBreakdownQueryResponse> {
+    kind: NodeKind.WebVitalsPathBreakdownQuery
+    percentile: WebVitalsPercentile
+    metric: WebVitalsMetric
+
+    // Threshold for this specific metric, these are stored in the frontend only
+    // so let's send them back to the backend to be used in the query
+    // This tuple represents a [good, poor] threshold, where values below good are good and values above poor are poor
+    // Values in between the two values are the threshold for needs_improvements
+    thresholds: [number, number]
+}
+
+export type WebVitalsPathBreakdownResultItem = { path: string; value: number }
+export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitalsPathBreakdownResultItem[]>
+
+// NOTE: The response is an array of results because pydantic requires it, but this will always have a single entry
+// hence the tuple type rather than a single object.
+export type WebVitalsPathBreakdownQueryResponse = AnalyticsQueryResponseBase<[WebVitalsPathBreakdownResult]>
+export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
+
 export enum SessionAttributionGroupBy {
     ChannelType = 'ChannelType',
     Medium = 'Medium',
@@ -1561,33 +1623,44 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    issueId?: string
-    select?: HogQLExpression[]
+    issueId?: ErrorTrackingIssue['id']
     orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
-    assignee?: integer | null
+    assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
+    customVolume?: ErrorTrackingSparklineConfig | null
     limit?: integer
     offset?: integer
+}
+
+export interface ErrorTrackingIssueAssignee {
+    type: 'user_group' | 'user'
+    id: integer | string
+}
+
+export type ErrorTrackingSparklineConfig = {
+    value: integer
+    interval: 'minute' | 'hour' | 'day' | 'week' | 'month'
 }
 
 export interface ErrorTrackingIssue {
     id: string
     name: string | null
     description: string | null
-    occurrences: number
-    sessions: number
-    users: number
     /**  @format date-time */
     first_seen: string
     /**  @format date-time */
     last_seen: string
     earliest?: string
-    // Sparkline data handled by the DataTable
-    volume?: any
-    assignee: number | null
+    occurrences: number
+    sessions: number
+    users: number
+    volumeDay: number[]
+    volumeMonth: number[]
+    customVolume?: number[]
+    assignee: ErrorTrackingIssueAssignee | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
 }
 
@@ -1982,6 +2055,7 @@ export interface DashboardFilter {
     date_from?: string | null
     date_to?: string | null
     properties?: AnyPropertyFilter[] | null
+    breakdown_filter?: BreakdownFilter | null
 }
 
 export interface InsightsThresholdBounds {
@@ -2152,41 +2226,32 @@ export enum DefaultChannelTypes {
     Unknown = 'Unknown',
 }
 
-export interface LLMGeneration {
+export interface LLMTraceEvent {
     id: string
+    event: string
+    properties: Record<string, any>
     createdAt: string
-    input: any[]
-    latency: number
-    output?: any
-    provider?: string
-    model?: string
-    inputTokens?: number
-    outputTokens?: number
-    inputCost?: number
-    outputCost?: number
-    totalCost?: number
-    httpStatus?: number
-    baseUrl?: string
 }
 
+// Snake-case here for the DataTable component.
 export interface LLMTracePerson {
     uuid: string
-    createdAt: string
+    created_at: string
     properties: Record<string, any>
-    distinctId: string
+    distinct_id: string
 }
 
 export interface LLMTrace {
     id: string
     createdAt: string
     person: LLMTracePerson
-    totalLatency: number
-    inputTokens: number
-    outputTokens: number
-    inputCost: number
-    outputCost: number
-    totalCost: number
-    events: LLMGeneration[]
+    totalLatency?: number
+    inputTokens?: number
+    outputTokens?: number
+    inputCost?: number
+    outputCost?: number
+    totalCost?: number
+    events: LLMTraceEvent[]
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase<LLMTrace[]> {
@@ -2202,6 +2267,9 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     dateRange?: DateRange
     limit?: integer
     offset?: integer
+    filterTestAccounts?: boolean
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
 }
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>

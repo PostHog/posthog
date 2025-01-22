@@ -10,12 +10,16 @@ import pyarrow as pa
 import temporalio.common
 from django.conf import settings
 
+from posthog.temporal.batch_exports.batch_exports import (
+    wait_for_delta_past_data_interval_end,
+)
 from posthog.temporal.batch_exports.heartbeat import BatchExportRangeHeartbeatDetails
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
 from posthog.temporal.batch_exports.sql import (
+    SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
@@ -39,7 +43,7 @@ from posthog.temporal.batch_exports.utils import (
     cast_record_batch_json_columns,
     cast_record_batch_schema_json_columns,
 )
-from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 
@@ -497,6 +501,28 @@ def default_fields() -> list[BatchExportField]:
     ]
 
 
+def is_5_min_batch_export(full_range: tuple[dt.datetime | None, dt.datetime]) -> bool:
+    start_at, end_at = full_range
+    if start_at:
+        return (end_at - start_at) == dt.timedelta(seconds=300)
+    return False
+
+
+def use_distributed_events_recent_table(is_backfill: bool, team_id: int) -> bool:
+    if is_backfill:
+        return False
+
+    events_recent_rollout: float = settings.BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT
+    # sanity check
+    if events_recent_rollout < 0:
+        events_recent_rollout = 0
+    elif events_recent_rollout > 1:
+        events_recent_rollout = 1
+
+    bucket = team_id % 10
+    return bucket < events_recent_rollout * 10
+
+
 class Producer:
     """Async producer for batch exports.
 
@@ -505,8 +531,7 @@ class Producer:
         _task: Used to keep track of producer background task.
     """
 
-    def __init__(self, clickhouse_client: ClickHouseClient):
-        self.clickhouse_client = clickhouse_client
+    def __init__(self):
         self._task: asyncio.Task | None = None
         self.logger = get_internal_logger()
 
@@ -559,20 +584,24 @@ class Producer:
             else:
                 parameters["include_events"] = []
 
-            start_at, end_at = full_range
-
-            if start_at:
-                is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
-            else:
-                is_5_min_batch_export = False
-
-            if is_5_min_batch_export and not is_backfill:
+            # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
+            # may not be able to handle the load from all batch exports
+            if is_5_min_batch_export(full_range=full_range) and not is_backfill:
+                self.logger.info("Using events_recent table for 5 min batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+            # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+            # which is a distributed table that sits in front of the `events_recent` table
+            elif use_distributed_events_recent_table(is_backfill=is_backfill, team_id=team_id):
+                self.logger.info("Using distributed_events_recent table for batch export")
+                query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+                self.logger.info("Using events_batch_export_unbounded view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
             elif is_backfill:
+                self.logger.info("Using events_batch_export_backfill view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
             else:
+                self.logger.info("Using events_batch_export view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW
                 lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
                     team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
@@ -602,6 +631,8 @@ class Producer:
                 query_parameters=parameters,
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
                 min_records_per_batch=min_records_per_batch,
+                team_id=team_id,
+                is_backfill=is_backfill,
             ),
             name="record_batch_producer",
         )
@@ -615,6 +646,8 @@ class Producer:
         done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
         queue: RecordBatchQueue,
         query_parameters: dict[str, typing.Any],
+        team_id: int,
+        is_backfill: bool,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
     ):
@@ -628,30 +661,51 @@ class Producer:
                 should be skipped.
             queue: The queue where to produce record batches.
             query_parameters: Additional query parameters.
+            team_id: The team ID of the batch export.
+            is_backfill: Whether the batch export is a backfill.
             max_record_batch_size_bytes: The max size in bytes of a record batch to insert in `queue`.
                 If a record batch is larger than this, `slice_record_batch` will be used to slice it
                 into smaller record batches.
             min_records_batch_per_batch: If slicing a record batch, each slice should contain at least
                 this number of records.
         """
-        for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
-            if interval_start is not None:
-                query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-            query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
-            query_id = uuid.uuid4()
+        clickhouse_url = None
+        # 5 min batch exports should query a single node, which is known to have zero replication lag
+        if is_5_min_batch_export(full_range=full_range):
+            clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
 
-            try:
-                async for record_batch in self.clickhouse_client.astream_query_as_arrow(
-                    query, query_parameters=query_parameters, query_id=str(query_id)
-                ):
-                    for record_batch_slice in slice_record_batch(
-                        record_batch, max_record_batch_size_bytes, min_records_per_batch
+        # Data can sometimes take a while to settle, so for 5 min batch exports we wait several seconds just to be safe.
+        # For all other batch exports we wait for 1 minute since we're querying the events_recent table using a
+        # distributed table and setting `max_replica_delay_for_distributed_queries` to 1 minute
+        if is_5_min_batch_export(full_range):
+            delta = dt.timedelta(seconds=30)
+        else:
+            delta = dt.timedelta(minutes=1)
+        end_at = full_range[1]
+        await wait_for_delta_past_data_interval_end(end_at, delta)
+
+        async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
+            if not await client.is_alive():
+                raise ConnectionError("Cannot establish connection to ClickHouse")
+
+            for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
+                if interval_start is not None:
+                    query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+                query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+                query_id = uuid.uuid4()
+
+                try:
+                    async for record_batch in client.astream_query_as_arrow(
+                        query, query_parameters=query_parameters, query_id=str(query_id)
                     ):
-                        await queue.put(record_batch_slice)
+                        for record_batch_slice in slice_record_batch(
+                            record_batch, max_record_batch_size_bytes, min_records_per_batch
+                        ):
+                            await queue.put(record_batch_slice)
 
-            except Exception as e:
-                await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
-                raise
+                except Exception as e:
+                    await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
+                    raise
 
 
 def slice_record_batch(

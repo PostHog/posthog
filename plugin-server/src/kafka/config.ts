@@ -2,7 +2,6 @@ import { GlobalConfig } from 'node-rdkafka'
 import { hostname } from 'os'
 
 import { KafkaConfig } from '../utils/db/hub'
-import { KafkaProducerConfig } from './producer'
 
 export const RDKAFKA_LOG_LEVEL_MAPPING = {
     NOTHING: 0,
@@ -12,15 +11,31 @@ export const RDKAFKA_LOG_LEVEL_MAPPING = {
     ERROR: 3,
 }
 
-export const createRdConnectionConfigFromEnvVars = (kafkaConfig: KafkaConfig): GlobalConfig => {
+export const createRdConnectionConfigFromEnvVars = (
+    kafkaConfig: KafkaConfig,
+    target: 'producer' | 'consumer'
+): GlobalConfig => {
+    const kafkaHosts =
+        target === 'producer' ? kafkaConfig.KAFKA_PRODUCER_HOSTS ?? kafkaConfig.KAFKA_HOSTS : kafkaConfig.KAFKA_HOSTS
+
+    const kafkaSecurityProtocol =
+        target === 'producer'
+            ? kafkaConfig.KAFKA_PRODUCER_SECURITY_PROTOCOL ?? kafkaConfig.KAFKA_SECURITY_PROTOCOL
+            : kafkaConfig.KAFKA_SECURITY_PROTOCOL
+
+    const kafkaClientId =
+        target === 'producer'
+            ? kafkaConfig.KAFKA_PRODUCER_CLIENT_ID ?? kafkaConfig.KAFKA_CLIENT_ID
+            : kafkaConfig.KAFKA_CLIENT_ID
+
     // We get the config from the environment variables. This method should
     // convert those vars into connection settings that node-rdkafka can use. We
     // also set the client.id to the hostname of the machine. This is useful for debugging.
     const config: GlobalConfig = {
-        'client.id': kafkaConfig.KAFKA_CLIENT_ID || hostname(),
-        'metadata.broker.list': kafkaConfig.KAFKA_HOSTS,
-        'security.protocol': kafkaConfig.KAFKA_SECURITY_PROTOCOL
-            ? (kafkaConfig.KAFKA_SECURITY_PROTOCOL.toLowerCase() as GlobalConfig['security.protocol'])
+        'client.id': kafkaClientId || hostname(),
+        'metadata.broker.list': kafkaHosts,
+        'security.protocol': kafkaSecurityProtocol
+            ? (kafkaSecurityProtocol.toLowerCase() as GlobalConfig['security.protocol'])
             : 'plaintext',
         'sasl.mechanisms': kafkaConfig.KAFKA_SASL_MECHANISM,
         'sasl.username': kafkaConfig.KAFKA_SASL_USER,
@@ -43,12 +58,4 @@ export const createRdConnectionConfigFromEnvVars = (kafkaConfig: KafkaConfig): G
     }
 
     return config
-}
-
-export const createRdProducerConfigFromEnvVars = (producerConfig: KafkaProducerConfig): KafkaProducerConfig => {
-    return {
-        KAFKA_PRODUCER_LINGER_MS: producerConfig.KAFKA_PRODUCER_LINGER_MS,
-        KAFKA_PRODUCER_BATCH_SIZE: producerConfig.KAFKA_PRODUCER_BATCH_SIZE,
-        KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: producerConfig.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES,
-    }
 }

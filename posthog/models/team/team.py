@@ -275,6 +275,7 @@ class Team(UUIDClassicModel):
     capture_dead_clicks = models.BooleanField(null=True, blank=True, default=False)
     surveys_opt_in = models.BooleanField(null=True, blank=True)
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
+    flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
@@ -296,6 +297,7 @@ class Team(UUIDClassicModel):
     cookieless_server_hash_mode = models.SmallIntegerField(
         default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
     )
+    revenue_tracking_config = models.JSONField(null=True, blank=True)
 
     primary_dashboard = models.ForeignKey(
         "posthog.Dashboard",
