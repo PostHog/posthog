@@ -1,3 +1,5 @@
+import { inStorybookTestRunner } from 'lib/utils'
+
 export function apiHostOrigin(): string {
     const appOrigin = window.location.origin
     if (appOrigin === 'https://us.posthog.com') {
@@ -16,7 +18,7 @@ export function liveEventsHostOrigin(): string | null {
         return 'https://live.eu.posthog.com'
     } else if (appOrigin === 'https://app.dev.posthog.dev') {
         return 'https://live.dev.posthog.dev'
-    } else if (process.env.STORYBOOK) {
+    } else if (inStorybookTestRunner()) {
         return 'http://localhost:6006'
     }
 

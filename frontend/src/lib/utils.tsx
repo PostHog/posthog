@@ -1796,7 +1796,7 @@ export function inStorybookTestRunner(): boolean {
 }
 
 export function inStorybook(): boolean {
-    return '__STORYBOOK_CLIENT_API__' in window
+    return '__STORYBOOK_CLIENT_API__' in window || inStorybookTestRunner()
 }
 
 /** We issue a cancel request, when the request is aborted or times out (frontend side), since in these cases the backend query might still be running. */

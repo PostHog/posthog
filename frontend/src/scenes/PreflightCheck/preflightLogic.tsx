@@ -2,6 +2,7 @@ import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { inStorybook } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
@@ -224,7 +225,7 @@ export const preflightLogic = kea<preflightLogicType>([
         siteUrlMisconfigured: [
             (s) => [s.preflight],
             (preflight): boolean => {
-                if (process?.env.STORYBOOK) {
+                if (inStorybook()) {
                     // Disable the "site URL misconfigured" warning in Storybook. This is for consistent snapshots
                     // - when opening Storybook in the browser or when updating the snapshots in CI, the origin is
                     // http://localhost:6006, but in the local dockerized setup http://host.docker.internal:6006

@@ -15,6 +15,7 @@ import { useActions, useValues } from 'kea'
 import { HeartHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { inStorybook } from 'lib/utils'
 import { useState } from 'react'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -46,9 +47,7 @@ export const UnsubscribeSurveyModal = ({
     const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
     const { unsubscribeDisabledReason, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const [randomizedReasons] = useState(
-        process?.env.STORYBOOK ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
-    )
+    const [randomizedReasons] = useState(inStorybook() ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS))
 
     const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
     const includesPipelinesAddon =

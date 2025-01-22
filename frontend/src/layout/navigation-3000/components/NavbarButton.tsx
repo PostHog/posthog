@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { inStorybook } from 'lib/utils'
 import React, { FunctionComponent, ReactElement, useState } from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -46,7 +47,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
     const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
 
     // Simple skeleton for Storybook to create anonymous navbar buttons
-    if (process.env.STORYBOOK && !here) {
+    if (inStorybook() && !here) {
         // Multiple of 4 because not all `w-${number}` values are available
         const width = Math.floor(((typeof title === 'string' ? title.length : shortTitle?.length ?? 10) * 2) / 4) * 4
 
@@ -94,7 +95,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
     }
 
     const buttonContent =
-        process.env.STORYBOOK && !here ? (
+        inStorybook() && !here ? (
             <LemonSkeleton className={clsx('h-3', `w-${shortTitle?.length ?? 10}`)} />
         ) : (
             <LemonButton

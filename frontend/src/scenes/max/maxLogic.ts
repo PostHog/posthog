@@ -4,7 +4,7 @@ import { createParser } from 'eventsource-parser'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
-import { uuid } from 'lib/utils'
+import { inStorybook, uuid } from 'lib/utils'
 import { isAssistantMessage, isHumanMessage, isReasoningMessage, isVisualizationMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -152,7 +152,7 @@ export const maxLogic = kea<maxLogicType>([
             const allSuggestionsWithoutCurrentlyVisible = values.allSuggestions.filter(
                 (suggestion) => !values.visibleSuggestions?.includes(suggestion)
             )
-            if (!process.env.STORYBOOK) {
+            if (!inStorybook()) {
                 // Randomize order, except in Storybook where we want to keep the order consistent for snapshots
                 shuffle(allSuggestionsWithoutCurrentlyVisible)
             }
