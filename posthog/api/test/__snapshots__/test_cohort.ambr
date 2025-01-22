@@ -81,7 +81,7 @@
                   cohort_id
   FROM cohortpeople
   WHERE (team_id = 99999
-         AND cohort_id = '2'
+         AND cohort_id = '1600'
          AND version < '2')
   '''
 # ---
@@ -183,7 +183,7 @@
                   cohort_id
   FROM cohortpeople
   WHERE (team_id = 99999
-         AND cohort_id = '2'
+         AND cohort_id = '1600'
          AND version < '2')
   '''
 # ---
@@ -193,7 +193,7 @@
   DELETE
   FROM cohortpeople
   WHERE (team_id = 99999
-         AND cohort_id = '2'
+         AND cohort_id = '1600'
          AND version < '2')
   '''
 # ---
