@@ -31,12 +31,12 @@ describe('getEventPropertiesForExperiment', () => {
                 minimum_detectable_effect: 1,
             },
             metrics: [
-                { kind: 'funnel', steps_count: 2 },
-                { kind: 'trend', series_type: 'events' },
+                { kind: 'ExperimentFunnelsQuery', steps_count: 2 },
+                { kind: 'ExperimentTrendsQuery', series_kind: 'EventsNode' },
             ],
             secondary_metrics: [
-                { kind: 'trend', series_type: 'events' },
-                { kind: 'trend', series_type: 'events' },
+                { kind: 'ExperimentTrendsQuery', series_kind: 'EventsNode' },
+                { kind: 'ExperimentTrendsQuery', series_kind: 'EventsNode' },
             ],
             metrics_count: 2,
             secondary_metrics_count: 2,

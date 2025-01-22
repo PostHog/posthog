@@ -124,13 +124,13 @@ interface RecordingViewedProps {
 export function getEventPropertiesForMetric(metric: ExperimentTrendsQuery | ExperimentFunnelsQuery): object {
     if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
         return {
-            kind: 'funnel',
+            kind: NodeKind.ExperimentFunnelsQuery,
             steps_count: metric.funnels_query.series.length,
         }
     }
     return {
-        kind: 'trend',
-        series_type: metric.count_query.series[0].kind.replace('Node', '').toLowerCase(),
+        kind: NodeKind.ExperimentTrendsQuery,
+        series_kind: metric.count_query.series[0].kind,
     }
 }
 
@@ -1015,15 +1015,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment shared metric created', {
                 name: sharedMetric.name,
                 id: sharedMetric.id,
-                kind: sharedMetric.query.kind,
+                ...getEventPropertiesForMetric(sharedMetric.query as ExperimentTrendsQuery | ExperimentFunnelsQuery),
             })
         },
         reportExperimentSharedMetricAssigned: ({ experimentId, sharedMetric }) => {
             posthog.capture('experiment shared metric assigned', {
                 experiment_id: experimentId,
-                shared_metric_name: sharedMetric.name,
-                shared_metric_id: sharedMetric.id,
-                shared_metric_kind: sharedMetric.query.kind,
+                name: sharedMetric.name,
+                id: sharedMetric.id,
+                ...getEventPropertiesForMetric(sharedMetric.query as ExperimentTrendsQuery | ExperimentFunnelsQuery),
             })
         },
         reportExperimentDashboardCreated: ({ experiment, dashboardId }) => {
