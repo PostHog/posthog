@@ -371,7 +371,10 @@ class TestCapture(BaseTest):
                 topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
                 data=ANY,
                 key=None if expect_random_partitioning else ANY,
-                headers=None,
+                headers=[
+                    ("token", self.team.api_token),
+                    ("distinct_id", distinct_id),
+                ],
             )
 
             if not expect_random_partitioning:
