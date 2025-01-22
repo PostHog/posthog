@@ -440,7 +440,7 @@ async function cookielessServerHashStepInner(
             )
         }
 
-        newProperties['$session_id'] = sessionState.sessionId
+        newProperties['$session_id'] = sessionState.sessionId.toString()
 
         newEvent.properties = newProperties
         stripPIIProperties(newEvent)
