@@ -325,9 +325,12 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return behavioral_cohort_ids
 
-    def _has_behavioral_filter(self, cohort_id: int, all_cohorts: dict[int, Cohort]) -> bool:
+    def _has_behavioral_filter(
+        self, cohort_id: int, all_cohorts: dict[int, Cohort], seen_cohorts: Optional[set[int]] = None
+    ) -> bool:
         """Check if a cohort has behavioral filters."""
-        seen_cohorts = set()
+        if seen_cohorts is None:
+            seen_cohorts = set()
 
         if cohort_id in seen_cohorts:
             return False
