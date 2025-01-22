@@ -1,6 +1,7 @@
 import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -119,7 +120,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         window.innerWidth > 1000 &&
         combinedSnippetAndLiveEventsHosts.length > 0
 
-    const showSessionReplayStep = featureFlags[FEATURE_FLAGS.ONBOARDING_SESSION_REPLAY_SEPERATE_STEP] === 'test'
+    const showSessionReplayStep = useFeatureFlag('ONBOARDING_SESSION_REPLAY_SEPERATE_STEP', 'test')
 
     const options: ProductConfigOption[] = [
         {
