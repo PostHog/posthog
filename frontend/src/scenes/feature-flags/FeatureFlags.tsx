@@ -28,7 +28,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { ProductKey } from '~/types'
+import { AccessControlResourceType, ProductKey } from '~/types'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -190,7 +190,7 @@ export function OverViewTab({
                                 <AccessControlledLemonButton
                                     userAccessLevel={featureFlag.user_access_level}
                                     minAccessLevel="editor"
-                                    resourceType="feature flag"
+                                    resourceType={AccessControlResourceType.FeatureFlag}
                                     data-attr={`feature-flag-${featureFlag.key}-switch`}
                                     onClick={() => {
                                         const newValue = !featureFlag.active
@@ -229,7 +229,7 @@ export function OverViewTab({
                                     <AccessControlledLemonButton
                                         userAccessLevel={featureFlag.user_access_level}
                                         minAccessLevel="editor"
-                                        resourceType="feature flag"
+                                        resourceType={AccessControlResourceType.FeatureFlag}
                                         fullWidth
                                         disabled={!featureFlag.can_edit}
                                         onClick={() =>
@@ -250,7 +250,7 @@ export function OverViewTab({
                                     <AccessControlledLemonButton
                                         userAccessLevel={featureFlag.user_access_level}
                                         minAccessLevel="editor"
-                                        resourceType="feature flag"
+                                        resourceType={AccessControlResourceType.FeatureFlag}
                                         status="danger"
                                         onClick={() => {
                                             void deleteWithUndo({

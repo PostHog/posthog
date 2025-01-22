@@ -24,7 +24,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
-import { AvailableFeature, DashboardBasicType, DashboardMode, DashboardType } from '~/types'
+import { AccessControlResourceType, AvailableFeature, DashboardBasicType, DashboardMode, DashboardType } from '~/types'
 
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 
@@ -154,7 +154,7 @@ export function DashboardsTable({
                                       <AccessControlledLemonButton
                                           userAccessLevel={user_access_level}
                                           minAccessLevel="editor"
-                                          resourceType="dashboard"
+                                          resourceType={AccessControlResourceType.Dashboard}
                                           to={urls.dashboard(id)}
                                           onClick={() => {
                                               dashboardLogic({ id }).mount()
@@ -192,7 +192,7 @@ export function DashboardsTable({
                                       <AccessControlledLemonButton
                                           userAccessLevel={user_access_level}
                                           minAccessLevel="editor"
-                                          resourceType="dashboard"
+                                          resourceType={AccessControlResourceType.Dashboard}
                                           onClick={() => {
                                               showDeleteDashboardModal(id)
                                           }}

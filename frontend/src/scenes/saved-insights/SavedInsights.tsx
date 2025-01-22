@@ -57,7 +57,14 @@ import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
-import { ActivityScope, InsightType, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import {
+    AccessControlResourceType,
+    ActivityScope,
+    InsightType,
+    LayoutView,
+    QueryBasedInsightModel,
+    SavedInsightsTabs,
+} from '~/types'
 
 import { ReloadInsight } from './ReloadInsight'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
@@ -496,7 +503,7 @@ export function SavedInsights(): JSX.Element {
                                     <AccessControlledLemonButton
                                         userAccessLevel={insight.user_access_level}
                                         minAccessLevel="editor"
-                                        resourceType="insight"
+                                        resourceType={AccessControlResourceType.Insight}
                                         className="ml-1"
                                         size="xsmall"
                                         onClick={(e) => {
@@ -567,7 +574,7 @@ export function SavedInsights(): JSX.Element {
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
                                     minAccessLevel="editor"
-                                    resourceType="insight"
+                                    resourceType={AccessControlResourceType.Insight}
                                     to={urls.insightEdit(insight.short_id)}
                                     fullWidth
                                 >
@@ -577,7 +584,7 @@ export function SavedInsights(): JSX.Element {
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
                                     minAccessLevel="editor"
-                                    resourceType="insight"
+                                    resourceType={AccessControlResourceType.Insight}
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
                                     fullWidth
@@ -598,7 +605,7 @@ export function SavedInsights(): JSX.Element {
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
                                     minAccessLevel="editor"
-                                    resourceType="insight"
+                                    resourceType={AccessControlResourceType.Insight}
                                     status="danger"
                                     onClick={() =>
                                         void deleteInsightWithUndo({

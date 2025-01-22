@@ -48,6 +48,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
+    AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
     AvailableFeature,
@@ -529,7 +530,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     <AccessControlledLemonButton
                                                         userAccessLevel={featureFlag.user_access_level}
                                                         minAccessLevel="editor"
-                                                        resourceType="feature flag"
+                                                        resourceType={AccessControlResourceType.FeatureFlag}
                                                         data-attr={
                                                             featureFlag.deleted
                                                                 ? 'restore-feature-flag'
@@ -572,7 +573,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         <AccessControlledLemonButton
                                             userAccessLevel={featureFlag.user_access_level}
                                             minAccessLevel="editor"
-                                            resourceType="feature flag"
+                                            resourceType={AccessControlResourceType.FeatureFlag}
                                             data-attr="edit-feature-flag"
                                             type="secondary"
                                             disabledReason={
@@ -785,7 +786,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         <AccessControlAction
                                             userAccessLevel={featureFlag.user_access_level}
                                             minAccessLevel="editor"
-                                            resourceType="feature flag"
+                                            resourceType={AccessControlResourceType.FeatureFlag}
                                         >
                                             {({ disabledReason: accessControlDisabledReason }) => (
                                                 <>

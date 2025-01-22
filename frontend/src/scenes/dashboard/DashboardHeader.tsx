@@ -27,7 +27,13 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardMode, DashboardType, ExporterFormat, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlResourceType,
+    DashboardMode,
+    DashboardType,
+    ExporterFormat,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
@@ -266,7 +272,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 <AccessControlledLemonButton
                                                     userAccessLevel={dashboard.user_access_level}
                                                     minAccessLevel="editor"
-                                                    resourceType="dashboard"
+                                                    resourceType={AccessControlResourceType.Dashboard}
                                                     onClick={() => {
                                                         showDeleteDashboardModal(dashboard.id)
                                                     }}
@@ -300,7 +306,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 <AccessControlledLemonButton
                                     userAccessLevel={dashboard.user_access_level}
                                     minAccessLevel="editor"
-                                    resourceType="dashboard"
+                                    resourceType={AccessControlResourceType.Dashboard}
                                     onClick={showAddInsightToDashboardModal}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
@@ -312,7 +318,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     <AccessControlledLemonButton
                                                         userAccessLevel={dashboard.user_access_level}
                                                         minAccessLevel="editor"
-                                                        resourceType="dashboard"
+                                                        resourceType={AccessControlResourceType.Dashboard}
                                                         fullWidth
                                                         onClick={() => {
                                                             push(urls.dashboardTextTile(dashboard.id, 'new'))

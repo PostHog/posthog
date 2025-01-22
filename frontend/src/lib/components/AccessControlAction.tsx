@@ -1,3 +1,5 @@
+import { AccessControlResourceType } from '~/types'
+
 type AccessControlLevelNone = 'none'
 type AccessControlLevelMember = AccessControlLevelNone | 'member' | 'admin'
 type AccessControlLevelResource = AccessControlLevelNone | 'viewer' | 'editor'
@@ -7,18 +9,27 @@ interface AccessControlActionProps {
     children: (props: { disabled: boolean; disabledReason: string | null }) => React.ReactElement
     userAccessLevel?: AccessControlLevel
     minAccessLevel: AccessControlLevel
-    resourceType: string
+    resourceType: AccessControlResourceType
 }
 
-const orderedAccessLevels = (resourceType: string): AccessControlLevel[] => {
-    if (resourceType === 'project' || resourceType === 'organization') {
+const orderedAccessLevels = (resourceType: AccessControlResourceType): AccessControlLevel[] => {
+    if (resourceType === AccessControlResourceType.Project || resourceType === AccessControlResourceType.Organization) {
         return ['none', 'member', 'admin']
     }
     return ['none', 'viewer', 'editor']
 }
 
+const resourceTypeToString = (resourceType: AccessControlResourceType): string => {
+    if (resourceType === AccessControlResourceType.FeatureFlag) {
+        return 'feature flag'
+    }
+
+    // The rest are single words
+    return resourceType
+}
+
 export const accessLevelSatisfied = (
-    resourceType: string,
+    resourceType: AccessControlResourceType,
     currentLevel: AccessControlLevel,
     requiredLevel: AccessControlLevel
 ): boolean => {
@@ -32,11 +43,13 @@ export const AccessControlAction = ({
     children,
     userAccessLevel,
     minAccessLevel,
-    resourceType = 'resource',
+    resourceType = AccessControlResourceType.Project,
 }: AccessControlActionProps): JSX.Element => {
     const hasAccess = userAccessLevel ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel) : true
     const disabledReason = !hasAccess
-        ? `You don't have sufficient permissions for this ${resourceType}. Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
+        ? `You don't have sufficient permissions for this ${resourceTypeToString(
+              resourceType
+          )}. Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
         : null
 
     return children({

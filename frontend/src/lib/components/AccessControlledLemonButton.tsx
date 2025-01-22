@@ -1,12 +1,12 @@
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
-import { WithAccessControl } from '../../types'
+import { AccessControlResourceType, WithAccessControl } from '../../types'
 import { AccessControlAction } from './AccessControlAction'
 
 export type AccessControlledLemonButtonProps = LemonButtonProps & {
     userAccessLevel?: WithAccessControl['user_access_level']
     minAccessLevel: WithAccessControl['user_access_level']
-    resourceType: string
+    resourceType: AccessControlResourceType
 }
 
 export const AccessControlledLemonButton = ({
