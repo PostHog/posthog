@@ -3,13 +3,14 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
+import { ProductCrossSellLocation, trackProductCrossSell } from 'lib/utils/cross-sell'
 import React from 'react'
 import { getExperimentMetricFromInsight } from 'scenes/experiments/experimentLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
 import { urls } from 'scenes/urls'
 
-import { FunnelVizType, type QueryBasedInsightModel } from '~/types'
+import { FunnelVizType, ProductKey, type QueryBasedInsightModel } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
 
@@ -77,6 +78,14 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                       type="secondary"
                       data-attr="create-experiment-from-insight"
                       size="xsmall"
+                      tooltip="Create a draft experiment with the metric from this funnel."
+                      onClick={() =>
+                          trackProductCrossSell({
+                              from: ProductKey.PRODUCT_ANALYTICS,
+                              to: ProductKey.EXPERIMENTS,
+                              location: ProductCrossSellLocation.CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON,
+                          })
+                      }
                       to={urls.experiment('new', {
                           metric: getExperimentMetricFromInsight(insight as QueryBasedInsightModel),
                           name: insight.name || insight.derived_name || derivedName,

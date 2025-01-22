@@ -1797,7 +1797,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (parsedId === 'new') {
                     actions.resetExperiment({
                         ...NEW_EXPERIMENT,
-                        metrics: [query.metric],
+                        metrics: query.metric ? [query.metric] : [],
                         name: query.name ?? '',
                     })
                 }

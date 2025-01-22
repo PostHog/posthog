@@ -1,5 +1,5 @@
 import { IconMagicWand, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
@@ -24,6 +24,11 @@ const ExperimentFormFields = (): JSX.Element => {
 
     return (
         <div>
+            {experiment.metrics.filter((metric) => Boolean(metric)).length > 0 && (
+                <LemonBanner type="info" className="my-4">
+                    Fill out the details below to create your experiment based off of the insight.
+                </LemonBanner>
+            )}
             <div className="space-y-8">
                 <div className="space-y-6 max-w-120">
                     <LemonField name="name" label="Name">
