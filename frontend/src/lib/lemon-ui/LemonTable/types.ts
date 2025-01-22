@@ -43,6 +43,8 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     sticky?: boolean
     /** Set width. */
     width?: string | number
+    /** Whether the column's contents should expand to the size of the column. */
+    fullWidth?: boolean
 }
 export interface LemonTableColumnGroup<T extends Record<string, any>> {
     title?: string | React.ReactNode
