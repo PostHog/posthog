@@ -37,7 +37,7 @@ export function LLMObservabilityTraceScene(): JSX.Element {
         if (!trace) {
             return undefined
         }
-        return trace.events.filter((event) => event.event !== '$ai_score')
+        return trace.events.filter((event) => event.event !== '$ai_metric')
     }, [trace])
 
     const event = useMemo(() => {
@@ -87,7 +87,7 @@ function CostChip({ cost, title }: { cost: number; title: string }): JSX.Element
 }
 
 function TraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
-    const scoreEvents = useMemo(() => trace.events.filter((event) => event.event === '$ai_score'), [trace])
+    const scoreEvents = useMemo(() => trace.events.filter((event) => event.event === '$ai_metric'), [trace])
 
     return (
         <header className="flex gap-x-8 gap-y-2 flex-wrap border border-border rounded p-4 bg-bg-light text-sm">

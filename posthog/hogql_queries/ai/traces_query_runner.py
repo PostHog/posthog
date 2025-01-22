@@ -200,7 +200,7 @@ class TracesQueryRunner(QueryRunner):
             ast.CompareOperation(
                 left=ast.Field(chain=["event"]),
                 op=ast.CompareOperationOp.In,
-                right=ast.Tuple(exprs=[ast.Constant(value="$ai_generation"), ast.Constant(value="$ai_score")]),
+                right=ast.Tuple(exprs=[ast.Constant(value="$ai_generation"), ast.Constant(value="$ai_metric")]),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,

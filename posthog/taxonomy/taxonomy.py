@@ -188,9 +188,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Generation (LLM)",
             "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
         },
-        "$ai_score": {
-            "label": "AI Score (LLM)",
-            "description": "A trace score of a generative AI model (LLM) used for evaluation. Contains the trace ID, score, and score name.",
+        "$ai_metric": {
+            "label": "AI Metric (LLM)",
+            "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
         },
         "Application Opened": {
             "label": "Application Opened",
@@ -1358,15 +1358,15 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
         },
-        "$ai_score_name": {
-            "label": "AI Score Name (LLM)",
-            "description": "The name assigned to the score used to evaluate the LLM trace",
-            "examples": ["rating", "feedback"],
+        "$ai_metric_name": {
+            "label": "AI Metric Name (LLM)",
+            "description": "The name assigned to the metric used to evaluate the LLM trace",
+            "examples": ["rating", "accuracy"],
         },
-        "$ai_score_value": {
-            "label": "AI Score Value (LLM)",
-            "description": "The value assigned to the score used to evaluate the LLM trace",
-            "examples": ["negative", "10"],
+        "$ai_metric_value": {
+            "label": "AI Metric Value (LLM)",
+            "description": "The value assigned to the metric used to evaluate the LLM trace",
+            "examples": ["negative", "95"],
         },
     },
     "numerical_event_properties": {},

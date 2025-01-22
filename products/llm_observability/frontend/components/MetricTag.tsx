@@ -7,7 +7,7 @@ interface MetricTagProps {
 }
 
 export function MetricTag({ properties }: MetricTagProps): JSX.Element {
-    const { $ai_score_name: metricName, $ai_score_value: metricValue } = properties
+    const { $ai_metric_name: metricName, $ai_metric_value: metricValue } = properties
     const strValue = String(metricValue)
     const isValueLong = strValue.length > 10
 
