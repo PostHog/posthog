@@ -45,6 +45,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 
     actions({
+        loadIssue: true,
         setTab: (tab: IssueTab) => ({ tab }),
         setActiveEventUUID: (uuid: ErrorTrackingEvent['uuid']) => ({ uuid }),
         setIssue: (issue: ErrorTrackingIssue) => ({ issue }),
@@ -70,7 +71,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issue: [
             null as ErrorTrackingIssue | null,
             {
-                loadIssue: async () => {
+                loadRelationalIssue: async () => {
+                    const response = await api.errorTracking.getIssue(props.id)
+                    return { ...values.issue, ...response }
+                },
+                loadClickHouseIssue: async () => {
                     const response = await api.query(
                         errorTrackingIssueQuery({
                             issueId: props.id,
@@ -80,12 +85,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         }),
                         {},
                         undefined,
-                        true
+                        'lazy_async'
                     )
 
                     // ErrorTrackingQuery returns a list of issues
                     // when a fingerprint is supplied there will only be a single issue
-                    return response.results[0]
+                    return { ...values.issue, ...response.results[0] }
                 },
                 updateIssue: async ({ issue }) => {
                     const response = await api.errorTracking.updateIssue(props.id, issue)
@@ -116,11 +121,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
 
         eventsQuery: [
-            (s, p) => [p.id, s.dateRange, s.filterTestAccounts, s.filterGroup],
-            (id, dateRange, filterTestAccounts, filterGroup) =>
+            (s) => [s.issue, s.filterTestAccounts, s.filterGroup],
+            (issue, filterTestAccounts, filterGroup) =>
                 errorTrackingIssueEventsQuery({
-                    issueId: id,
-                    dateRange: dateRange,
+                    issue,
                     filterTestAccounts: filterTestAccounts,
                     filterGroup: filterGroup,
                 }),
@@ -133,6 +137,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 
     listeners(({ actions }) => ({
+        loadIssue: () => actions.loadRelationalIssue(),
         setIssueSuccess: ({ issue }) => {
             if (issue && !issue.earliest) {
                 actions.loadIssue()

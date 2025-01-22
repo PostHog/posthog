@@ -1942,6 +1942,12 @@ const api = {
     },
 
     errorTracking: {
+        async getIssue(
+            id: ErrorTrackingIssue['id']
+        ): Promise<Pick<ErrorTrackingIssue, 'id' | 'name' | 'description' | 'assignee' | 'status' | 'first_seen'>> {
+            return await new ApiRequest().errorTrackingIssue(id).get()
+        },
+
         async updateIssue(
             id: ErrorTrackingIssue['id'],
             data: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>

@@ -1,5 +1,12 @@
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonSegmentedButton,
+    LemonSkeleton,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
@@ -101,13 +108,17 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
     const { sparklineSelectedPeriod, customSparklineConfig } = useValues(errorTrackingLogic)
     const record = props.record as ErrorTrackingIssue
 
+    if (!record.aggregations) {
+        return null
+    }
+
     const [data, labels] =
         sparklineSelectedPeriod === '24h'
-            ? [record.volumeDay, sparklineLabelsDay]
+            ? [record.aggregations.volumeDay, sparklineLabelsDay]
             : sparklineSelectedPeriod === '1m'
-            ? [record.volumeMonth, sparklineLabelsMonth]
+            ? [record.aggregations.volumeMonth, sparklineLabelsMonth]
             : customSparklineConfig
-            ? [record.customVolume, sparklineLabels(customSparklineConfig)]
+            ? [record.aggregations.customVolume, sparklineLabels(customSparklineConfig)]
             : [null, null]
 
     return data ? <Sparkline className="h-8" data={data} labels={labels} /> : null
@@ -154,7 +165,11 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         <div className="space-x-1">
                             <TZLabel time={record.first_seen} className="border-dotted border-b" />
                             <span>|</span>
-                            <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                            {record.last_seen ? (
+                                <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                            ) : (
+                                <LemonSkeleton />
+                            )}
                         </div>
                     </div>
                 }
