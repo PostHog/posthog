@@ -9,7 +9,6 @@ import {
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
     cookielessServerHashStep,
-    deleteAllLocalSalts,
     sessionStateToBuffer,
     toYYYYMMDDInTimezoneSafe,
 } from '../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep'
@@ -139,7 +138,7 @@ describe('cookielessServerHashStep', () => {
         beforeEach(async () => {
             teamId = await createTeam(hub.db.postgres, organizationId)
             await clearRedis()
-            deleteAllLocalSalts()
+            hub.cookielessSaltManager.deleteAllLocalSalts()
             event = deepFreeze({
                 event: 'test event',
                 distinct_id: COOKIELESS_SENTINEL_VALUE,
@@ -313,7 +312,7 @@ describe('cookielessServerHashStep', () => {
             })
             it('should work even if the local salt map is torn down between events (as it can use redis)', async () => {
                 const [actual1] = await cookielessServerHashStep(hub, event)
-                deleteAllLocalSalts()
+                hub.cookielessSaltManager.deleteAllLocalSalts()
                 const [actual2] = await cookielessServerHashStep(hub, eventABitLater)
 
                 if (!actual1?.properties || !actual2?.properties) {

@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 import { getDomain } from 'tldts'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { CookielessServerHashMode, Hub } from '../../../types'
+import { CookielessConfig, CookielessServerHashMode, Hub } from '../../../types'
 import { ConcurrencyController } from '../../../utils/concurrencyController'
 import { DB } from '../../../utils/db/db'
 import { now } from '../../../utils/now'
@@ -74,6 +74,108 @@ const SALT_TTL_SECONDS =
 const SESSION_TTL_SECONDS = 60 * 60 * 24
 const IDENTIFIES_TTL_SECONDS = 60 * 60 * 24
 const DELETE_EXPIRED_SALTS_INTERVAL_MS = 60 * 60 * 1000
+
+export class CookielessSaltManager {
+    private readonly db: DB
+    private readonly config: CookielessConfig
+    private readonly localSaltMap: Record<string, Uint32Array> = {}
+    private readonly mutex = new ConcurrencyController(1)
+    private readonly cleanupInterval: NodeJS.Timeout
+
+    constructor(db: DB, config: CookielessConfig) {
+        this.db = db
+        this.config = config
+        // Periodically delete expired salts from the local cache. Note that this doesn't delete them from redis, but
+        // that's handled by using redis TTLs. Deleting these salts is what allows us to use the hash of PII data in a
+        // non PII way. Of course, these are also deleted when the node process restarts.
+        this.cleanupInterval = setInterval(this.deleteExpiredLocalSalts, DELETE_EXPIRED_SALTS_INTERVAL_MS)
+        // Call unref on the timer object, so that it doesn't prevent node from exiting.
+        this.cleanupInterval.unref()
+    }
+
+    getSaltForDay(yyyymmdd: string, timestampMs: number): Promise<Uint32Array> {
+        if (!isCalendarDateValid(yyyymmdd)) {
+            throw new Error('Date is out of range')
+        }
+
+        // see if we have it locally
+        if (this.localSaltMap[yyyymmdd]) {
+            return Promise.resolve(this.localSaltMap[yyyymmdd])
+        }
+
+        // get the salt for the day from redis, but only do this once for this node process
+        return this.mutex.run({
+            fn: async (): Promise<Uint32Array> => {
+                // check if we got the salt while waiting for the mutex
+                if (this.localSaltMap[yyyymmdd]) {
+                    return this.localSaltMap[yyyymmdd]
+                }
+
+                // try to get it from redis instead
+                const saltBase64 = await this.db.redisGet<string | null>(
+                    `cookieless_salt:${yyyymmdd}`,
+                    null,
+                    'cookielessServerHashStep'
+                )
+                if (saltBase64) {
+                    const salt = base64StringToUint32ArrayLE(saltBase64)
+                    this.localSaltMap[yyyymmdd] = salt
+                    return salt
+                }
+
+                // try to write a new one to redis, but don't overwrite
+                const newSaltParts = createRandomUint32x4()
+                const setResult = await this.db.redisSetNX(
+                    `cookieless_salt:${yyyymmdd}`,
+                    uint32ArrayLEToBase64String(newSaltParts),
+                    'cookielessServerHashStep',
+                    SALT_TTL_SECONDS
+                )
+                if (setResult === 'OK') {
+                    this.localSaltMap[yyyymmdd] = newSaltParts
+                    return newSaltParts
+                }
+
+                // if we couldn't write, it means that it exists in redis already
+                const saltBase64Retry = await this.db.redisGet<string | null>(
+                    `cookieless_salt:${yyyymmdd}`,
+                    null,
+                    'cookielessServerHashStep'
+                )
+                if (!saltBase64Retry) {
+                    throw new Error('Failed to get salt from redis')
+                }
+
+                const salt = base64StringToUint32ArrayLE(saltBase64Retry)
+                this.localSaltMap[yyyymmdd] = salt
+
+                return salt
+            },
+            priority: timestampMs,
+        })
+    }
+
+    deleteExpiredLocalSalts = () => {
+        for (const key in this.localSaltMap) {
+            if (!isCalendarDateValid(key)) {
+                delete this.localSaltMap[key]
+            }
+        }
+    }
+
+    deleteAllLocalSalts(): void {
+        for (const key in this.localSaltMap) {
+            delete this.localSaltMap[key]
+        }
+    }
+
+    shutdown(): void {
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval)
+        }
+        this.deleteAllLocalSalts()
+    }
+}
 
 export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Promise<[PluginEvent | undefined]> {
     // if events aren't using this mode, skip all processing
@@ -187,7 +289,7 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
             return [undefined]
         }
 
-        const hashValue = await doHash(hub.db, {
+        const hashValue = await doHash(hub, {
             timestampMs,
             eventTimeZone,
             teamTimeZone,
@@ -214,7 +316,7 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
         // ASSUMPTION: all events are processed in order, for this to happen we need them to be in the same kafka topic at this point
 
         // Find the base hash value, before we take the number of identifies into account
-        const baseHashValue = await doHash(hub.db, {
+        const baseHashValue = await doHash(hub, {
             timestampMs,
             eventTimeZone,
             teamTimeZone,
@@ -239,7 +341,7 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
             const numIdentifies = await hub.db.redisSAddAndSCard(identifiesRedisKey, event.uuid, IDENTIFIES_TTL_SECONDS)
 
             // we want the number of identifies that happened before this one
-            hashValue = await doHash(hub.db, {
+            hashValue = await doHash(hub, {
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone,
@@ -255,7 +357,7 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
             newProperties['$anon_distinct_id'] = hashToDistinctId(hashValue)
         } else if (event.distinct_id === COOKIELESS_SENTINEL_VALUE) {
             const numIdentifies = await hub.db.redisSCard(identifiesRedisKey)
-            hashValue = await doHash(hub.db, {
+            hashValue = await doHash(hub, {
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone,
@@ -274,7 +376,7 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
             const numIdentifies = await hub.db.redisSCard(identifiesRedisKey)
 
             // this event is after identify has been called, so subtract 1 from the numIdentifies
-            hashValue = await doHash(hub.db, {
+            hashValue = await doHash(hub, {
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone,
@@ -343,81 +445,8 @@ function getProperties(
     return { userAgent, ip, host, timezone, timestampMs, teamId, hashExtra }
 }
 
-const localSaltMap: Record<string, Uint32Array> = {}
-const mutex = new ConcurrencyController(1)
-
-export async function getSaltForDay(
-    db: DB,
-    timestamp: number,
-    eventTimeZone: string | undefined,
-    teamtimeZone: string
-): Promise<Uint32Array> {
-    // get the day based on the timezone
-    const yyyymmdd = toYYYYMMDDInTimezoneSafe(timestamp, eventTimeZone, teamtimeZone)
-
-    if (!isCalendarDateValid(yyyymmdd)) {
-        throw new Error('Date is out of range')
-    }
-
-    // see if we have it locally
-    if (localSaltMap[yyyymmdd]) {
-        return localSaltMap[yyyymmdd]
-    }
-
-    // get the salt for the day from redis, but only do this once for this node process
-    return mutex.run({
-        fn: async (): Promise<Uint32Array> => {
-            // check if we got the salt while waiting for the mutex
-            if (localSaltMap[yyyymmdd]) {
-                return localSaltMap[yyyymmdd]
-            }
-
-            // try to get it from redis instead
-            const saltBase64 = await db.redisGet<string | null>(
-                `cookieless_salt:${yyyymmdd}`,
-                null,
-                'cookielessServerHashStep'
-            )
-            if (saltBase64) {
-                const salt = base64StringToUint32ArrayLE(saltBase64)
-                localSaltMap[yyyymmdd] = salt
-                return salt
-            }
-
-            // try to write a new one to redis, but don't overwrite
-            const newSaltParts = createRandomUint32x4()
-            const setResult = await db.redisSetNX(
-                `cookieless_salt:${yyyymmdd}`,
-                uint32ArrayLEToBase64String(newSaltParts),
-                'cookielessServerHashStep',
-                SALT_TTL_SECONDS
-            )
-            if (setResult === 'OK') {
-                localSaltMap[yyyymmdd] = newSaltParts
-                return newSaltParts
-            }
-
-            // if we couldn't write, it means that it exists in redis already
-            const saltBase64Retry = await db.redisGet<string | null>(
-                `cookieless_salt:${yyyymmdd}`,
-                null,
-                'cookielessServerHashStep'
-            )
-            if (!saltBase64Retry) {
-                throw new Error('Failed to get salt from redis')
-            }
-
-            const salt = base64StringToUint32ArrayLE(saltBase64Retry)
-            localSaltMap[yyyymmdd] = salt
-
-            return salt
-        },
-        priority: timestamp,
-    })
-}
-
 export async function doHash(
-    db: DB,
+    hub: Hub,
     {
         timestampMs,
         eventTimeZone,
@@ -440,7 +469,8 @@ export async function doHash(
         hashExtra?: string
     }
 ) {
-    const salt = await getSaltForDay(db, timestampMs, eventTimeZone, teamTimeZone)
+    const yyyymmdd = toYYYYMMDDInTimezoneSafe(timestampMs, eventTimeZone, teamTimeZone)
+    const salt = await hub.cookielessSaltManager.getSaltForDay(yyyymmdd, timestampMs)
     const rootDomain = getDomain(host) || host
     return siphashDouble.hash(
         salt,
@@ -581,24 +611,3 @@ export function sessionStateToBuffer({ sessionId, lastActivityTimestamp }: Sessi
     buffer.writeBigUInt64LE(BigInt(lastActivityTimestamp), 16)
     return buffer
 }
-
-export function deleteExpiredLocalSalts(): void {
-    for (const key in localSaltMap) {
-        if (!isCalendarDateValid(key)) {
-            delete localSaltMap[key]
-        }
-    }
-}
-
-export function deleteAllLocalSalts(): void {
-    for (const key in localSaltMap) {
-        delete localSaltMap[key]
-    }
-}
-
-// Periodically delete expired salts from the local cache. Note that this doesn't delete them from redis, but
-// that's handled by using redis TTLs. Deleting these salts is what allows us to use the hash of PII data in a
-// non PII way. Of course, these are also deleted when the node process restarts.
-// Call unref on the timer object, so that it doesn't prevent node from exiting.
-const interval = setInterval(deleteExpiredLocalSalts, DELETE_EXPIRED_SALTS_INTERVAL_MS)
-interval.unref()

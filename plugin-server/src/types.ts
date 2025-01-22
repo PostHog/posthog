@@ -28,6 +28,7 @@ import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
+import type { CookielessSaltManager } from './worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -374,6 +375,7 @@ export interface Hub extends PluginsServerConfig {
 
     // cookieless
     cookielessConfig: CookielessConfig
+    cookielessSaltManager: CookielessSaltManager
 }
 
 export interface PluginServerCapabilities {
@@ -1361,4 +1363,5 @@ export interface ModelRow {
 export interface CookielessConfig {
     disabled: boolean
     forceStatelessMode: boolean
+    saltTtlSeconds: number
 }
