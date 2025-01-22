@@ -80,7 +80,7 @@ export class CookielessSaltManager {
     private readonly config: CookielessConfig
     private readonly localSaltMap: Record<string, Uint32Array> = {}
     private readonly mutex = new ConcurrencyController(1)
-    private readonly cleanupInterval: NodeJS.Timeout
+    private cleanupInterval: NodeJS.Timeout | null = null
 
     constructor(db: DB, config: CookielessConfig) {
         this.db = db
@@ -172,6 +172,7 @@ export class CookielessSaltManager {
     shutdown(): void {
         if (this.cleanupInterval) {
             clearInterval(this.cleanupInterval)
+            this.cleanupInterval = null
         }
         this.deleteAllLocalSalts()
     }
