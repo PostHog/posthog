@@ -24,7 +24,14 @@ import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
-import { InsightLogicProps, InsightShortId, ItemMode, QueryBasedInsightModel, SetInsightOptions } from '~/types'
+import {
+    AccessControlResourceType,
+    InsightLogicProps,
+    InsightShortId,
+    ItemMode,
+    QueryBasedInsightModel,
+    SetInsightOptions,
+} from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { insightDataLogic } from './insightDataLogic'
@@ -309,7 +316,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (insight, featureFlags) => {
                 if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
                     return insight.user_access_level
-                        ? accessLevelSatisfied('insight', insight.user_access_level, 'editor')
+                        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
                         : true
                 }
                 return (
