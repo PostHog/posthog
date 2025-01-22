@@ -78,7 +78,7 @@ function Trace({
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     const panels = displayFrames.map(
-        ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure }, index) => {
+        ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure, in_app }, index) => {
             const record = stackFrameRecords[raw_id]
             return {
                 key: index,
@@ -102,13 +102,14 @@ function Trace({
                                 </div>
                             ) : null}
                         </div>
-                        {!resolved && (
-                            <div className="flex items-center space-x-1">
+                        <div className="space-x-1">
+                            {in_app && <LemonTag>In App</LemonTag>}
+                            {!resolved && (
                                 <Tooltip title={resolve_failure}>
                                     <LemonTag>Unresolved</LemonTag>
                                 </Tooltip>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
                 ),
                 content:

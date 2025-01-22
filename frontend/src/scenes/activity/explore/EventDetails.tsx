@@ -11,8 +11,8 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, KNOWN_PROMOTED_PROPERTY_PARENTS } from 'lib/taxonomy'
 import { pluralize } from 'lib/utils'
 import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/event-property-utls'
+import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
 import { useState } from 'react'
-import { ConversationDisplay } from 'scenes/llm-observability/ConversationDisplay/ConversationDisplay'
 
 import { EventType, PropertyDefinitionType } from '~/types'
 
@@ -137,7 +137,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             key: 'conversation',
             label: 'Conversation',
             content: (
-                <div className="mx-3 -mt-2 mb-2">
+                <div className="mx-3 -mt-2 mb-2 space-y-2">
                     <ConversationDisplay eventProperties={event.properties} />
                 </div>
             ),

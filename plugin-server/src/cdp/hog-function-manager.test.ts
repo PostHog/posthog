@@ -1,9 +1,9 @@
 import { Hub } from '../types'
-import { HogFunctionManager } from './hog-function-manager'
+import { HogFunctionManagerService } from './services/hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
     let hub: Hub
-    let manager: HogFunctionManager
+    let manager: HogFunctionManagerService
 
     beforeEach(() => {
         hub = {
@@ -30,7 +30,7 @@ describe('HogFunctionManager', () => {
             capabilities: {},
         } as any as Hub
 
-        manager = new HogFunctionManager(hub)
+        manager = new HogFunctionManagerService(hub)
     })
 
     describe('start()', () => {

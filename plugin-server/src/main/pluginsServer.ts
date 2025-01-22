@@ -11,16 +11,14 @@ import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { CdpApi } from '../cdp/cdp-api'
-import {
-    CdpCyclotronWorker,
-    CdpCyclotronWorkerFetch,
-    CdpFunctionCallbackConsumer,
-    CdpInternalEventsConsumer,
-    CdpProcessedEventsConsumer,
-} from '../cdp/cdp-consumers'
+import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpFunctionCallbackConsumer } from '../cdp/consumers/cdp-function-callback.consumer'
+import { CdpInternalEventsConsumer } from '../cdp/consumers/cdp-internal-event.consumer'
+import { CdpProcessedEventsConsumer } from '../cdp/consumers/cdp-processed-events.consumer'
 import { defaultConfig } from '../config/config'
+import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
-import { closeHub, createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
+import { closeHub, createHub, createKafkaClient } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisClient } from '../utils/db/redis'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
@@ -338,12 +336,12 @@ export async function startPluginsServer(
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
             const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
-            const KafkaProducerWrapper = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
+            const kafkaProducerWrapper = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(serverConfig))
             const rustyHook = hub?.rustyHook ?? new RustyHook(serverConfig)
             const appMetrics =
                 hub?.appMetrics ??
                 new AppMetrics(
-                    KafkaProducerWrapper,
+                    kafkaProducerWrapper,
                     serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
                     serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
                 )

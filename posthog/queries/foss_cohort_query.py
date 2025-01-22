@@ -360,11 +360,16 @@ class FOSSCohortQuery(EventQuery):
                 )
 
             date_condition, date_params = self._get_date_condition()
+            if len(self._events) > 0:
+                event_condition = f"AND event IN %({event_param_name})s"
+            else:
+                event_condition = ""
+
             query = f"""
             SELECT {", ".join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_person_ids_query()}
             WHERE team_id = %(team_id)s
-            AND event IN %({event_param_name})s
+            {event_condition}
             {date_condition}
             {person_prop_query}
             GROUP BY person_id

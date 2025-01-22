@@ -5,7 +5,8 @@ import { Hub } from '../../../../../src/types'
 import { closeHub, createHub } from '../../../../../src/utils/db/hub'
 
 jest.mock('../../../../../src/utils/status')
-jest.mock('../../../../../src/kafka/producer')
+
+import '../../../../helpers/mocks/producer.mock'
 
 const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
 
