@@ -18,6 +18,38 @@ const config = {
 
             purple: '#B62AD9',
         },
+        backgroundColor: {
+            'accent-primary': 'var(--accent-primary)',
+            'accent-primary-hover': 'var(--accent-primary-hover)',
+            'accent-secondary': 'var(--accent-secondary)',
+            
+            'accent-secondary-hover': 'var(--accent-secondary-hover)',
+            'fill-info-overlay': 'var(--bg-fill-info-overlay)',
+            'fill-warning-overlay': 'var(--bg-fill-warning-overlay)',
+            'fill-error-overlay': 'var(--bg-fill-error-overlay)',
+            'fill-success-overlay': 'var(--bg-fill-success-overlay)',
+        },
+        textColor: {
+            'accent-primary': 'var(--accent-primary)',
+            'accent-primary-hover': 'var(--accent-primary-hover)',
+            'accent-secondary': 'var(--accent-secondary)',
+            'accent-secondary-hover': 'var(--accent-secondary-hover)',
+            
+            'on-fill-warning': 'var(--text-on-bg-fill-warning)',
+            'on-fill-error': 'var(--text-on-bg-fill-error)',
+            'on-fill-success': 'var(--text-on-bg-fill-success)',
+        },
+        borderColor: {
+            'accent-primary': 'var(--accent-primary)',
+            'accent-primary-hover': 'var(--accent-primary-hover)',
+            'accent-secondary': 'var(--accent-secondary)',
+            'accent-secondary-hover': 'var(--accent-secondary-hover)',
+
+            'info': 'var(--border-info)',
+            'warning': 'var(--border-warning)',
+            'error': 'var(--border-error)',
+            'success': 'var(--border-success)',
+        },
         fontFamily: {
             sans: [
                 '-apple-system',

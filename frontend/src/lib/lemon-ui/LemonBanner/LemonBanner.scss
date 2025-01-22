@@ -15,24 +15,24 @@
     }
 
     &.LemonBanner--info {
-        background-color: var(--fill-info-overlay);
+        background-color: var(--bg-fill-info-overlay);
     }
 
     &.LemonBanner--warning {
-        color: var(--content-on-fill-warning);
-        background-color: var(--fill-warning-overlay);
+        color: var(--text-on-bg-fill-warning);
+        background-color: var(--bg-fill-warning-overlay);
         border-color: var(--border-warning);
     }
 
     &.LemonBanner--error {
-        color: var(--content-on-fill-error);
-        background-color: var(--fill-error-overlay);
+        color: var(--text-on-bg-fill-error);
+        background-color: var(--bg-fill-error-overlay);
         border-color: var(--border-error);
     }
 
     &.LemonBanner--success {
-        color: var(--content-on-fill-success);
-        background-color: var(--fill-success-overlay);
+        color: var(--text-on-bg-fill-success);
+        background-color: var(--bg-fill-success-overlay);
         border-color: var(--border-success);
     }
 

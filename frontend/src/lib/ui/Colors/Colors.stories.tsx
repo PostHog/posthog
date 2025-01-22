@@ -1,4 +1,4 @@
-import { LemonCheckbox, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonSwitch, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
 import { useValues } from 'kea'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -66,6 +66,8 @@ export function PrimitiveColors(): JSX.Element {
 export function BrandColors(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
+    const [checked, setChecked] = useState(true)
+
     const [primaryHue, setPrimaryHue] = useState<number>(isDarkModeOn ? 43 : 19)
     const [primarySaturation, setPrimarySaturation] = useState<number>(isDarkModeOn ? 94 : 100)
     const [primaryLightness, setPrimaryLightness] = useState<number>(isDarkModeOn ? 57 : 48)
@@ -83,9 +85,20 @@ export function BrandColors(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="border border-border">
-                <LemonCheckbox checked={true} onChange={() => {}} />
+            <div className="border border-border flex flex-col gap-2 p-4 items-start">
+                <LemonCheckbox checked={checked} onChange={setChecked} />
                 <Link to="/design-system/colors">A link example</Link>
+                <LemonSwitch checked={checked} onChange={setChecked} />
+                <LemonTabs
+                    activeKey="1"
+                    tabs={[
+                        { key: '1', label: 'Tab 1' },
+                        { key: '2', label: 'Tab 2' },
+                    ]}
+                />
+                <LemonTag type="primary">Tag</LemonTag>
+                <Spinner />
+                <p className="text-primary [theme='dark']:text-accent-primary">Text</p>
             </div>
 
             <div className="flex flex-col gap-2 border border-border rounded-md p-2">

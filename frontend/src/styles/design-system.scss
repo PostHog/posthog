@@ -255,24 +255,22 @@ $primitive-teal: (
     // --surface-primary: var(--primitive-white); /* Most prominent surface (Cards, tables, etc.) */
 
     // Content (text, icons)
-    // General text, icons, etc on surfaces
-    // //////////////////////////////////////////////////////////
-    --content-primary: var(--primitive-neutral-950); /* Text on primary surface/background */
+    --text-primary: var(--primitive-neutral-950); /* Text on primary surface/background */
 
     // Fills
     // Small colourful areas: banners, pills, buttons, etc.
     // //////////////////////////////////////////////////////////
-    --fill-info-overlay: var(--primitive-3000-25); /* Fill for info blocks */
-    --fill-warning-overlay: var(--primitive-orange-50); /* Fill for warning blocks */
-    --fill-error-overlay: var(--primitive-red-50); /* Fill for error blocks */
-    --fill-success-overlay: var(--primitive-green-50); /* Fill for success blocks */
+    --bg-fill-info-overlay: var(--primitive-3000-25); /* bg for info blocks */
+    --bg-fill-warning-overlay: var(--primitive-orange-50); /* bg for warning blocks */
+    --bg-fill-error-overlay: var(--primitive-red-50); /* bg for error blocks */
+    --bg-fill-success-overlay: var(--primitive-green-50); /* bg for success blocks */
 
     // Content on fills
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
-    --content-on-fill-warning: var(--primitive-orange-800); /* On-fill text for warning */
-    --content-on-fill-error: var(--primitive-red-800); /* On-fill text for error */
-    --content-on-fill-success: var(--primitive-green-800); /* On-fill text for success */
+    --text-on-bg-fill-warning: var(--primitive-orange-800); /* On-fill text for warning */
+    --text-on-bg-fill-error: var(--primitive-red-800); /* On-fill text for error */
+    --text-on-bg-fill-success: var(--primitive-green-800); /* On-fill text for success */
 
     // Borders
     // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
@@ -358,20 +356,20 @@ $primitive-teal: (
 
     // Fills
     // //////////////////////////////////////////////////////////
-    --fill-info-overlay: var(--primitive-neutral-cool-900);
-    --fill-warning-overlay: var(--primitive-amber-800);
-    --fill-error-overlay: var(--primitive-red-900);
-    --fill-success-overlay: var(--primitive-green-800);
+    --bg-fill-info-overlay: var(--primitive-neutral-cool-900);
+    --bg-fill-warning-overlay: var(--primitive-amber-800);
+    --bg-fill-error-overlay: var(--primitive-red-900);
+    --bg-fill-success-overlay: var(--primitive-green-800);
 
     // Content
     // //////////////////////////////////////////////////////////
-    --content-primary: var(--primitive-neutral-100);
+    --text-primary: var(--primitive-neutral-100);
 
     // Content on fills
     // //////////////////////////////////////////////////////////
-    --content-on-fill-warning: var(--primitive-orange-200);
-    --content-on-fill-error: var(--primitive-red-200);
-    --content-on-fill-success: var(--primitive-green-50);
+    --text-on-bg-fill-warning: var(--primitive-orange-100);
+    --text-on-bg-fill-error: var(--primitive-red-100);
+    --text-on-bg-fill-success: var(--primitive-green-50);
 
     // Borders
     // //////////////////////////////////////////////////////////
@@ -379,8 +377,4 @@ $primitive-teal: (
     --border-warning: var(--primitive-orange-700);
     --border-error: var(--primitive-red-700);
     --border-success: var(--primitive-green-700);
-}
-
-.fill-accent-primary {
-    background-color: var(--accent-primary);
 }
