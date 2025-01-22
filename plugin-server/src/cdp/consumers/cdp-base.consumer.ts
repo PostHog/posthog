@@ -1,12 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import {
-    KAFKA_APP_METRICS_2,
-    KAFKA_CDP_FUNCTION_CALLBACKS,
-    KAFKA_EVENTS_PLUGIN_INGESTION,
-    KAFKA_LOG_ENTRIES,
-} from '../../config/kafka-topics'
+import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { KafkaProducerWrapper } from '../../kafka/producer'
@@ -26,16 +21,13 @@ import { HogMaskerService } from '../services/hog-masker.service'
 import { HogWatcherService } from '../services/hog-watcher.service'
 import {
     HogFunctionAppMetric,
-    HogFunctionInvocation,
     HogFunctionInvocationResult,
-    HogFunctionInvocationSerialized,
-    HogFunctionInvocationSerializedCompressed,
     HogFunctionLogEntrySerialized,
     HogFunctionMessageToProduce,
     HogFunctionType,
     HogFunctionTypeType,
 } from '../types'
-import { fixLogDeduplication, gzipObject } from '../utils'
+import { fixLogDeduplication } from '../utils'
 import { convertToCaptureEvent } from '../utils'
 
 // Metrics that were at the top of the file
@@ -207,48 +199,6 @@ export abstract class CdpConsumerBase {
             topic: KAFKA_LOG_ENTRIES,
             value: logEntry,
             key: logEntry.instance_id,
-        })
-    }
-
-    // NOTE: These will be removed once we are only on Cyclotron
-    protected async queueInvocationsToKafka(invocation: HogFunctionInvocation[]) {
-        await Promise.all(
-            invocation.map(async (item) => {
-                await this.queueInvocationToKafka(item)
-            })
-        )
-    }
-
-    protected async queueInvocationToKafka(invocation: HogFunctionInvocation) {
-        // NOTE: WE keep the queueParams args as kafka land still needs them
-        const serializedInvocation: HogFunctionInvocationSerialized = {
-            ...invocation,
-            hogFunctionId: invocation.hogFunction.id,
-        }
-
-        if (invocation.queue === 'fetch') {
-            // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
-            this.produceAppMetric({
-                team_id: invocation.teamId,
-                app_source_id: invocation.hogFunction.id,
-                metric_kind: 'other',
-                metric_name: 'fetch',
-                count: 1,
-            })
-        }
-
-        delete (serializedInvocation as any).hogFunction
-
-        const request: HogFunctionInvocationSerializedCompressed = {
-            state: await gzipObject(serializedInvocation),
-        }
-
-        // NOTE: This is very temporary as it is producing the response. the response will actually be produced by the 3rd party service
-        // Later this will actually be the _request_ which we will push to the async function topic if we make one
-        this.messagesToProduce.push({
-            topic: KAFKA_CDP_FUNCTION_CALLBACKS,
-            value: request,
-            key: `${invocation.hogFunction.id}:${invocation.id}`,
         })
     }
 

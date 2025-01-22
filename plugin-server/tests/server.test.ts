@@ -94,7 +94,6 @@ describe('server', () => {
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 cdpProcessedEvents: true,
-                cdpFunctionCallbacks: true,
                 cdpCyclotronWorker: true,
                 syncInlinePlugins: true,
             }

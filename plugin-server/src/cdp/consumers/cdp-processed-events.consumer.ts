@@ -1,13 +1,12 @@
 import { CyclotronManager } from '@posthog/cyclotron'
 import { Message } from 'node-rdkafka'
-import { Hub, RawClickHouseEvent, ValueMatcher } from 'types'
+import { Hub, RawClickHouseEvent } from 'types'
 
 import {
     convertToHogFunctionInvocationGlobals,
     fixLogDeduplication,
     serializeHogFunctionInvocation,
 } from '../../cdp/utils'
-import { buildIntegerMatcher } from '../../config/config'
 import { KAFKA_EVENTS_JSON, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { status } from '../../utils/status'
@@ -21,16 +20,10 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected groupId = 'cdp-processed-events-consumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
 
-    private cyclotronMatcher: ValueMatcher<number>
     private cyclotronManager?: CyclotronManager
 
     constructor(hub: Hub) {
         super(hub)
-        this.cyclotronMatcher = buildIntegerMatcher(hub.CDP_CYCLOTRON_ENABLED_TEAMS, true)
-    }
-
-    private cyclotronEnabled(invocation: HogFunctionInvocation): boolean {
-        return !!(this.cyclotronManager && this.cyclotronMatcher(invocation.globals.project.id))
     }
 
     public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocation[]> {
@@ -42,22 +35,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             this.createHogFunctionInvocations(invocationGlobals)
         )
 
-        // Split out the cyclotron invocations
-        const [cyclotronInvocations, kafkaInvocations] = invocationsToBeQueued.reduce(
-            (acc, item) => {
-                if (this.cyclotronEnabled(item)) {
-                    acc[0].push(item)
-                } else {
-                    acc[1].push(item)
-                }
-
-                return acc
-            },
-            [[], []] as [HogFunctionInvocation[], HogFunctionInvocation[]]
-        )
-
         // For the cyclotron ones we simply create the jobs
-        const cyclotronJobs = cyclotronInvocations.map((item) => {
+        const cyclotronJobs = invocationsToBeQueued.map((item) => {
             return {
                 teamId: item.globals.project.id,
                 functionId: item.hogFunction.id,
@@ -72,23 +51,6 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             status.error('⚠️', 'Error creating cyclotron jobs', e)
             status.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
             throw e
-        }
-
-        if (kafkaInvocations.length) {
-            // As we don't want to over-produce to kafka we invoke the hog functions and then queue the results
-            const invocationResults = await runInstrumentedFunction({
-                statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
-                func: async () => {
-                    const hogResults = await this.runManyWithHeartbeat(kafkaInvocations, (item) =>
-                        this.hogExecutor.execute(item)
-                    )
-                    return [...hogResults]
-                },
-            })
-
-            await this.processInvocationResults(invocationResults)
-            const newInvocations = invocationResults.filter((r) => !r.finished).map((r) => r.invocation)
-            await this.queueInvocationsToKafka(newInvocations)
         }
 
         await this.produceQueuedMessages()

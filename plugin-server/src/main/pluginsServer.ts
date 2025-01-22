@@ -12,7 +12,6 @@ import v8Profiler from 'v8-profiler-next'
 import { getPluginServerCapabilities } from '../capabilities'
 import { CdpApi } from '../cdp/cdp-api'
 import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../cdp/consumers/cdp-cyclotron-worker.consumer'
-import { CdpFunctionCallbackConsumer } from '../cdp/consumers/cdp-function-callback.consumer'
 import { CdpInternalEventsConsumer } from '../cdp/consumers/cdp-internal-event.consumer'
 import { CdpProcessedEventsConsumer } from '../cdp/consumers/cdp-processed-events.consumer'
 import { defaultConfig } from '../config/config'
@@ -471,15 +470,8 @@ export async function startPluginsServer(
             const consumer = new CdpInternalEventsConsumer(hub)
             await consumer.start()
             services.push(consumer.service)
-        }
 
-        if (capabilities.cdpFunctionCallbacks) {
-            const hub = await setupHub()
-            const consumer = new CdpFunctionCallbackConsumer(hub)
-            await consumer.start()
-            services.push(consumer.service)
-
-            // NOTE: The function callback service is more idle so can handle http requests as well
+            // NOTE: This processor is generally very idle so doubles as our api
             if (capabilities.http) {
                 const api = new CdpApi(hub, consumer)
                 expressApp.use('/', api.router())

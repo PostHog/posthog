@@ -27,7 +27,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 preflightSchedules: true,
                 cdpProcessedEvents: true,
                 cdpInternalEvents: true,
-                cdpFunctionCallbacks: true,
                 cdpCyclotronWorker: true,
                 syncInlinePlugins: true,
                 ...sharedCapabilities,
@@ -115,11 +114,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_internal_events:
             return {
                 cdpInternalEvents: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.cdp_function_callbacks:
-            return {
-                cdpFunctionCallbacks: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.cdp_cyclotron_worker:
