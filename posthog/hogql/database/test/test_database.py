@@ -598,6 +598,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
 
+    @patch("posthog.hogql.database.database.TEST", False)
     def test_create_hogql_database_caching(self):
         # mock_cache.return_value = False
         from posthog.hogql.database.database import create_hogql_database

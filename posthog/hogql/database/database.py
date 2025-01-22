@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception
 
 from posthog.hogql import ast
+from posthog.settings import TEST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.database.models import (
@@ -336,7 +337,7 @@ def create_hogql_database(
             database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
                 "$virt_initial_channel_type",
                 modifiers.customChannelTypeRules,
-                use_cache=True,  # This is normally implied but mocking tests is impossible otherwise
+                use_cache=not TEST,  # This is normally implied but mocking tests is impossible otherwise
             )
 
     with timings.measure("group_type_mapping"):
