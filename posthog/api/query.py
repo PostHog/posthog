@@ -1,7 +1,8 @@
 import re
 import uuid
+import json
 
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import status, viewsets
@@ -115,6 +116,78 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             self.handle_column_ch_error(e)
             capture_exception(e)
             raise
+
+    @extend_schema(
+        request=QueryRequest,
+        responses={
+            200: QueryResponseAlternative,
+        },
+    )
+    @monitor(feature=Feature.QUERY, endpoint="query_eventsource", method="POST")
+    @action(methods=["POST"], detail=False)
+    def eventsource(self, request, *args, **kwargs) -> StreamingHttpResponse:
+        data = self.get_model(request.data, QueryRequest)
+        if data.filters_override is not None:
+            data.query = apply_dashboard_filters_to_dict(
+                data.query.model_dump(), data.filters_override.model_dump(), self.team
+            )  # type: ignore
+
+        if data.variables_override is not None:
+            if isinstance(data.query, BaseModel):
+                query_as_dict = data.query.model_dump()
+            else:
+                query_as_dict = data.query
+
+            data.query = apply_dashboard_variables_to_dict(query_as_dict, data.variables_override, self.team)  # type: ignore
+
+        client_query_id = data.client_query_id or uuid.uuid4().hex
+        execution_mode = execution_mode_from_refresh(data.refresh)
+
+        self._tag_client_query_id(client_query_id)
+
+        if execution_mode == execution_mode.CACHE_ONLY_NEVER_CALCULATE:
+            # Here in query endpoint we always want to calculate if the cache is stale
+            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+
+        # with event source we always want to "block" if we're calculating
+        if execution_mode in [
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+            ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+        ]:
+            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        if execution_mode in [ExecutionMode.CALCULATE_ASYNC_ALWAYS]:
+            execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+
+        tag_queries(query=request.data["query"])
+
+        def generate_response():
+            try:
+                result = process_query_model(
+                    self.team,
+                    data.query,
+                    execution_mode=execution_mode,
+                    query_id=client_query_id,
+                    user=request.user,
+                )
+                if isinstance(result, BaseModel):
+                    result = result.model_dump_json(by_alias=True)
+                yield f"data: {result}\n\n"
+            except (ExposedHogQLError, ExposedCHQueryError) as e:
+                error_data = {"error": str(e), "code": getattr(e, "code_name", None)}
+                yield f"data: {json.dumps(error_data)}\n\n"
+            except Exception as e:
+                self.handle_column_ch_error(e)
+                capture_exception(e)
+                error_data = {"error": str(e)}
+                yield f"data: {json.dumps(error_data)}\n\n"
+
+        response = StreamingHttpResponse(
+            generate_response(),
+            content_type="text/event-stream",
+        )
+        response["Cache-Control"] = "no-cache"
+        return response
 
     @extend_schema(
         description="(Experimental)",

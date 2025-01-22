@@ -885,6 +885,10 @@ class ApiRequest {
         return apiRequest
     }
 
+    public queryEventSource(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('query').addPathComponent('eventsource')
+    }
+
     // Conversations
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
@@ -2653,6 +2657,10 @@ const api = {
                 variables_override: variablesOverride,
             },
         })
+    },
+
+    queryEventSourceUrl(): string {
+        return new ApiRequest().queryEventSource().assembleFullUrl()
     },
 
     conversations: {
