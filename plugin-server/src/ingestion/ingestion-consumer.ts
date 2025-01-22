@@ -19,8 +19,8 @@ import { Hub, PipelineEvent, PluginServerService } from '../types'
 import { normalizeEvent } from '../utils/event'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
-import { MemoryRateLimiter } from '../utils/token-bucket'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
+import { MemoryRateLimiter } from './utils/overflow-detector'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
