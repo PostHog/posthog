@@ -177,6 +177,7 @@ export const cohortsModel = kea<cohortsModelType>([
         ],
     }),
     selectors({
+        cohortsWithAllUsers: [(s) => [s.cohorts], (cohorts) => [{ id: 'all', name: 'All Users*' }, ...cohorts.results]],
         cohortsById: [
             (s) => [s.cohorts],
             (cohorts): Partial<Record<string | number, CohortType>> =>
