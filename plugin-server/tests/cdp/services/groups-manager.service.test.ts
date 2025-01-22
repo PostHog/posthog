@@ -1,10 +1,10 @@
-import { GroupsManager } from '../../src/cdp/groups-manager'
-import { Hub } from '../../src/types'
-import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './fixtures'
+import { GroupsManagerService } from '../../../src/cdp/services/groups-manager.service'
+import { Hub } from '../../../src/types'
+import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from '../fixtures'
 
 describe('Groups Manager', () => {
     jest.setTimeout(1000)
-    let groupsManager: GroupsManager
+    let groupsManager: GroupsManagerService
 
     let mockGroupTypes: { team_id: number; group_type: string; group_type_index: number }[] = []
     let mockGroups: { team_id: number; group_key: string; group_type_index: number; group_properties?: any }[] = []
@@ -19,7 +19,7 @@ describe('Groups Manager', () => {
     }
 
     beforeEach(() => {
-        groupsManager = new GroupsManager(mockHub as unknown as Hub)
+        groupsManager = new GroupsManagerService(mockHub as unknown as Hub)
     })
 
     describe('unit tests', () => {
