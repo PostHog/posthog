@@ -24,9 +24,10 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         const invocationResults = await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
             func: async () => {
-                // Disclaimer: fetchExecutor would use rusty-hook to send a fetch request but thats no longer the case
-                // We are currentyl going to execute the fetch locally for testing purposes
-                // as nothing should ever land on the deprecated fetch queue this should be somewhat safe.
+                // NOTE: this service will never do fetching (unless we decide we want to do it in node at some point, its only used for e2e testing)
+                // fetchExecutor would use rusty-hook to send a fetch request but thats no longer the case
+                // we are currentyl going to execute the fetch locally for testing purposes
+                // as nothing should ever land on the deprecated fetch queue this should be safe.
                 const fetchQueue = invocations.filter((item) => item.queue === 'fetch')
                 const fetchResults = await this.runManyWithHeartbeat(fetchQueue, (item) =>
                     this.fetchExecutor.execute(item)
