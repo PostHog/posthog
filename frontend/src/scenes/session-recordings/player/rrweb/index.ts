@@ -1,5 +1,5 @@
+import { EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
 import Hls from 'hls.js'
-import { EventType, eventWithTime, IncrementalSource } from 'rrweb'
 import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 
 export const PLACEHOLDER_SVG_DATA_IMAGE_URL =

@@ -25,13 +25,13 @@
     }
 
     &.LemonTag--primary {
-        color: var(--primary-3000);
+        color: var(--accent-primary);
         background: none;
-        border-color: var(--primary-3000);
+        border-color: var(--accent-primary);
     }
 
     &.LemonTag--option {
-        color: var(--primary-3000);
+        color: var(--accent-primary);
         background-color: var(--accent-3000);
     }
 
