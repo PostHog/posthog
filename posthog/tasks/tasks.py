@@ -294,7 +294,6 @@ def replay_count_metrics() -> None:
 KNOWN_CELERY_TASK_IDENTIFIERS = {
     "pluginJob",
     "runEveryHour",
-    "runEveryMinute",
     "runEveryDay",
 }
 

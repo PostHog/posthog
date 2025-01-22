@@ -306,23 +306,13 @@ export async function startPluginsServer(
             //         status.info('⚡', 'Reloading plugins!')
             //         await piscina?.broadcastTask({ task: 'reloadPlugins' })
 
-            //         if (hub?.capabilities.pluginScheduledTasks && piscina) {
-            //             await piscina.broadcastTask({ task: 'reloadSchedule' })
-            //             hub.pluginSchedule = await loadPluginSchedule(piscina)
-            //         }
             //     },
             //     'reset-available-product-features-cache': async (message) => {
             //         await piscina?.broadcastTask({
             //             task: 'resetAvailableProductFeaturesCache',
             //             args: JSON.parse(message),
             //         })
-            //     },
-            //     'populate-plugin-capabilities': async (message) => {
-            //         // We need this to be done in only once
-            //         if (hub?.capabilities.appManagementSingleton && piscina) {
-            //             await piscina?.broadcastTask({ task: 'populatePluginCapabilities', args: JSON.parse(message) })
-            //         }
-            //     },
+            //     }
             // })
 
             // await pubSub.start()

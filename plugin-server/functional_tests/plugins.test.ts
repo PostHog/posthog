@@ -511,45 +511,6 @@ test.concurrent(`plugin jobs: can call runNow from processEvent`, async () => {
     })
 })
 
-test.concurrent(
-    `plugin jobs: runEveryMinute is executed`,
-    async () => {
-        // NOTE: we do not check Hour and Day, merely because if we advance
-        // too much it seems we end up performing alot of reloads of
-        // actions, which prevents the test from completing.
-        //
-        // NOTE: we do not use Fake Timers here as there is an issue in that
-        // it only appears to work for timers in the main thread, and not
-        // ones in the worker threads.
-        const plugin = await createPlugin({
-            organization_id: organizationId,
-            name: 'runEveryMinute plugin',
-            plugin_type: 'source',
-            is_global: false,
-            source__index_ts: `
-            export async function runEveryMinute() {
-                console.info(JSON.stringify(['runEveryMinute']))
-            }
-        `,
-        })
-
-        const teamId = await createTeam(organizationId)
-        const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
-
-        await waitForExpect(
-            async () => {
-                const logEntries = await fetchPluginConsoleLogEntries(pluginConfig.id)
-                expect(
-                    logEntries.filter(({ message: [method] }) => method === 'runEveryMinute').length
-                ).toBeGreaterThan(0)
-            },
-            120_000,
-            1000
-        )
-    },
-    120000
-)
-
 test.concurrent('plugins can use attachements', async () => {
     const indexJs = `
         export function processEvent(event, { attachments }) {

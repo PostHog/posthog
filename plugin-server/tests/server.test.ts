@@ -50,7 +50,6 @@ describe('server', () => {
                 ingestion: true,
                 ingestionOverflow: true,
                 ingestionHistorical: true,
-                appManagementSingleton: true,
                 preflightSchedules: true,
                 syncInlinePlugins: true,
             }

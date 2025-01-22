@@ -15,15 +15,12 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 ingestionOverflow: true,
                 ingestionHistorical: true,
                 eventsIngestionPipelines: true, // with null PluginServerMode we run all of them
-                pluginScheduledTasks: true,
-                processPluginJobs: true,
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
                 sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 sessionRecordingBlobIngestionV2: true,
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
-                appManagementSingleton: true,
                 preflightSchedules: true,
                 cdpProcessedEvents: true,
                 cdpInternalEvents: true,
@@ -95,18 +92,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 processAsyncWebhooksHandlers: true,
                 ...sharedCapabilities,
             }
-        case PluginServerMode.jobs:
-            return {
-                processPluginJobs: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.scheduler:
-            return {
-                pluginScheduledTasks: true,
-                appManagementSingleton: true,
-                syncInlinePlugins: true,
-                ...sharedCapabilities,
-            }
         case PluginServerMode.cdp_processed_events:
             return {
                 cdpProcessedEvents: true,
@@ -135,12 +120,9 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 ingestion: true,
                 ingestionHistorical: true,
                 eventsIngestionPipelines: true,
-                pluginScheduledTasks: true,
-                processPluginJobs: true,
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
-                appManagementSingleton: true,
                 preflightSchedules: true,
                 syncInlinePlugins: true,
                 ...sharedCapabilities,

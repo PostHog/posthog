@@ -78,8 +78,6 @@ export enum PluginServerMode {
     events_ingestion = 'events-ingestion',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
-    jobs = 'jobs',
-    scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
@@ -348,8 +346,6 @@ export interface PluginServerCapabilities {
     ingestionOverflow?: boolean
     ingestionHistorical?: boolean
     eventsIngestionPipelines?: boolean
-    pluginScheduledTasks?: boolean
-    processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
@@ -360,7 +356,6 @@ export interface PluginServerCapabilities {
     cdpInternalEvents?: boolean
     cdpFunctionCallbacks?: boolean
     cdpCyclotronWorker?: boolean
-    appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
     mmdb?: boolean
@@ -1075,82 +1070,6 @@ export enum Database {
     ClickHouse = 'clickhouse',
     Postgres = 'postgres',
 }
-
-export interface PluginScheduleControl {
-    stopSchedule: () => Promise<void>
-    reloadSchedule: () => Promise<void>
-}
-
-export interface JobsConsumerControl {
-    stop: () => Promise<void>
-    resume: () => Promise<void>
-}
-
-export type IngestEventResponse =
-    | { success: true; actionMatches: Action[]; preIngestionEvent: PreIngestionEvent | null }
-    | { success: false; error: string }
-
-export interface EventDefinitionType {
-    id: string
-    name: string
-    volume_30_day: number | null
-    query_usage_30_day: number | null
-    team_id: number
-    project_id: number | null
-    last_seen_at: string // DateTime
-    created_at: string // DateTime
-}
-
-export enum UnixTimestampPropertyTypeFormat {
-    UNIX_TIMESTAMP = 'unix_timestamp',
-    UNIX_TIMESTAMP_MILLISECONDS = 'unix_timestamp_milliseconds',
-}
-
-export enum DateTimePropertyTypeFormat {
-    ISO8601_DATE = 'YYYY-MM-DDThh:mm:ssZ',
-    FULL_DATE = 'YYYY-MM-DD hh:mm:ss',
-    FULL_DATE_INCREASING = 'DD-MM-YYYY hh:mm:ss',
-    DATE = 'YYYY-MM-DD',
-    RFC_822 = 'rfc_822',
-    WITH_SLASHES = 'YYYY/MM/DD hh:mm:ss',
-    WITH_SLASHES_INCREASING = 'DD/MM/YYYY hh:mm:ss',
-}
-
-export enum PropertyType {
-    DateTime = 'DateTime',
-    String = 'String',
-    Numeric = 'Numeric',
-    Boolean = 'Boolean',
-}
-
-export enum PropertyDefinitionTypeEnum {
-    Event = 1,
-    Person = 2,
-    Group = 3,
-}
-
-export interface PropertyDefinitionType {
-    id: string
-    name: string
-    is_numerical: boolean
-    volume_30_day: number | null
-    query_usage_30_day: number | null
-    team_id: number
-    project_id: number | null
-    property_type?: PropertyType
-    type: PropertyDefinitionTypeEnum
-    group_type_index: number | null
-}
-
-export interface EventPropertyType {
-    id: string
-    event: string
-    property: string
-    team_id: number
-    project_id: number | null
-}
-
-export type PluginFunction = 'onEvent' | 'processEvent' | 'pluginTask'
 
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 

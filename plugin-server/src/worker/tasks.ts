@@ -4,7 +4,6 @@ import { Hub, PluginTaskType } from '../types'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { sleep } from '../utils/utils'
-import { loadSchedule } from './plugins/loadSchedule'
 import { runPluginTask, runProcessEvent } from './plugins/run'
 import { setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
@@ -21,9 +20,6 @@ let RELOAD_PLUGINS_PROMISE: Promise<void> | undefined
 let RELOAD_PLUGINS_PROMISE_STARTED = false
 
 export const workerTasks: Record<string, TaskRunner> = {
-    runEveryMinute: async (hub, args: { pluginConfigId: number }) => {
-        return runPluginTask(hub, 'runEveryMinute', PluginTaskType.Schedule, args.pluginConfigId)
-    },
     runEveryHour: (hub, args: { pluginConfigId: number }) => {
         return runPluginTask(hub, 'runEveryHour', PluginTaskType.Schedule, args.pluginConfigId)
     },
@@ -73,9 +69,6 @@ export const workerTasks: Record<string, TaskRunner> = {
 
             await RELOAD_PLUGINS_PROMISE
         }
-    },
-    reloadSchedule: async (hub) => {
-        await loadSchedule(hub)
     },
     teardownPlugins: async (hub) => {
         await teardownPlugins(hub)

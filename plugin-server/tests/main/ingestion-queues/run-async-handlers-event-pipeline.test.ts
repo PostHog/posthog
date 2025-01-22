@@ -121,42 +121,6 @@ describe('runAppsOnEventPipeline()', () => {
             })
         ).rejects.toEqual(new DependencyUnavailableError('Failed to produce', 'Kafka', error))
     })
-
-    test(`doesn't throw on arbitrary failures`, async () => {
-        // If we receive an arbitrary error, we should just skip the event. We
-        // only want to retry on `RetryError` and `DependencyUnavailableError` as these are
-        // things under our control.
-        const organizationId = await createOrganization(hub.postgres)
-        const plugin = await createPlugin(hub.postgres, {
-            organization_id: organizationId,
-            name: 'runEveryMinute plugin',
-            plugin_type: 'source',
-            is_global: false,
-            source__index_ts: `
-                export async function onEvent(event, { jobs }) {
-                    throw new Error('arbitrary failure')
-                }
-            `,
-        })
-
-        const teamId = await createTeam(hub.postgres, organizationId)
-        await createPluginConfig(hub.postgres, { team_id: teamId, plugin_id: plugin.id })
-        await setupPlugins(hub)
-
-        const event = {
-            distinctId: 'asdf',
-            teamId: teamId,
-            event: 'some event',
-            properties: {},
-            eventUuid: new UUIDT().toString(),
-            person_created_at: null,
-            person_properties: {},
-            timestamp: new Date().toISOString() as ISOTimestamp,
-            elementsList: [],
-        }
-
-        await expect(processOnEventStep(hub, event)).resolves.toEqual(null)
-    })
 })
 
 describe('eachBatchAsyncHandlers', () => {
