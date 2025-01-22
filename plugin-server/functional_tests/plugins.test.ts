@@ -3,7 +3,6 @@ import { v4 as uuid4 } from 'uuid'
 import { ONE_HOUR } from '../src/config/constants'
 import { PluginLogEntryType } from '../src/types'
 import { UUIDT } from '../src/utils/utils'
-import { getCacheKey } from '../src/worker/vm/extensions/cache'
 import {
     capture,
     createAndReloadPluginConfig,
@@ -18,10 +17,7 @@ import {
     fetchPluginConsoleLogEntries,
     fetchPluginLogEntries,
     fetchPostgresPersons,
-    getPluginConfig,
-    redis,
     reloadPlugins,
-    updatePluginConfig,
     waitForPluginToLoad,
 } from './api'
 import { waitForExpect } from './expectations'
