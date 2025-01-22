@@ -55,7 +55,7 @@ The three pages below are must-reads though. They're key to writing production-r
 1. Install `hogql_parser` by building from local sources:
 
     ```bash
-    pip install ./hogql_parser
+    pip install ./common/hogql_parser
     ```
 
    > If you're getting compilation errors like this on macOS Sonoma:  
