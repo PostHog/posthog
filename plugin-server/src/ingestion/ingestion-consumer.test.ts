@@ -79,7 +79,7 @@ describe('IngestionConsumer', () => {
         token: team.api_token,
         ip: '127.0.0.1',
         site_url: 'us.posthog.com',
-        now: fixedTime.toISO(),
+        now: fixedTime.toISO()!,
         event: '$pageview',
         properties: {
             $current_url: 'http://localhost:8000',
