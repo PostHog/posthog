@@ -4,11 +4,10 @@ import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
-import { buildIntegerMatcher } from '../config/config'
-import { Hub, ValueMatcher } from '../types'
-import { status } from '../utils/status'
-import { UUIDT } from '../utils/utils'
-import { HogFunctionManager } from './hog-function-manager'
+import { buildIntegerMatcher } from '../../config/config'
+import { Hub, ValueMatcher } from '../../types'
+import { status } from '../../utils/status'
+import { UUIDT } from '../../utils/utils'
 import {
     CyclotronFetchFailureInfo,
     HogFunctionAppMetric,
@@ -21,8 +20,9 @@ import {
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
-} from './types'
-import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from './utils'
+} from '../types'
+import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
+import { HogFunctionManagerService } from './hog-function-manager.service'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -133,10 +133,10 @@ export const buildGlobalsWithInputs = (
     return newGlobals
 }
 
-export class HogExecutor {
+export class HogExecutorService {
     private telemetryMatcher: ValueMatcher<number>
 
-    constructor(private hub: Hub, private hogFunctionManager: HogFunctionManager) {
+    constructor(private hub: Hub, private hogFunctionManager: HogFunctionManagerService) {
         this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
