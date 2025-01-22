@@ -18,7 +18,6 @@
 import Redis from 'ioredis'
 import LibrdKafkaError from 'node-rdkafka/lib/error'
 
-import { defaultConfig } from '../../../src/config/config'
 import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
 import { buildOnEventIngestionConsumer } from '../../../src/main/ingestion-queues/on-event-handler-consumer'
 import { Hub, ISOTimestamp } from '../../../src/types'
@@ -27,7 +26,6 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
 import { processOnEventStep } from '../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
-import Piscina, { makePiscina } from '../../../src/worker/piscina'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
 import { teardownPlugins } from '../../../src/worker/plugins/teardown'
 import {
@@ -168,7 +166,6 @@ describe('eachBatchAsyncHandlers', () => {
     // to https://github.com/piscinajs/piscina#method-runtask-options should be
     // the case.
     let hub: Hub
-    let piscina: Piscina
 
     beforeEach(async () => {
         jest.useFakeTimers({ advanceTimers: true })
@@ -181,8 +178,7 @@ describe('eachBatchAsyncHandlers', () => {
     })
 
     test('rejections from kafka are bubbled up to the consumer', async () => {
-        piscina = await makePiscina(defaultConfig, hub)
-        const ingestionConsumer = buildOnEventIngestionConsumer({ hub, piscina })
+        const ingestionConsumer = buildOnEventIngestionConsumer({ hub })
 
         const error = new LibrdKafkaError({ message: 'test', code: 1, errno: 1, origin: 'test', isRetriable: true })
 

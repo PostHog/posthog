@@ -32,7 +32,6 @@ import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
-import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { RustyHook } from '../worker/rusty-hook'
 import { syncInlinePlugins } from '../worker/vm/inline/inline'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
@@ -66,7 +65,6 @@ const pluginServerStartupTimeMs = new Counter({
 
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
-    makePiscina: (serverConfig: PluginsServerConfig, hub: Hub) => Promise<Piscina> = defaultMakePiscina,
     capabilities?: PluginServerCapabilities
 ): Promise<ServerInstance> {
     const timer = new Date()
@@ -82,9 +80,6 @@ export async function startPluginsServer(
 
     // Used to trigger reloads of plugin code/config
     let pubSub: PubSub | undefined
-
-    // A Node Worker Thread pool
-    let piscina: Piscina | undefined
 
     const services: PluginServerService[] = []
 
@@ -118,10 +113,6 @@ export async function startPluginsServer(
             ...services.map((service) => service.onShutdown()),
             posthog.shutdownAsync(),
         ])
-
-        if (piscina) {
-            await stopPiscina(piscina)
-        }
 
         if (serverInstance.hub) {
             await closeHub(serverInstance.hub)
@@ -209,7 +200,6 @@ export async function startPluginsServer(
     try {
         if (capabilities.ingestion) {
             const hub = await setupHub()
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             services.push(
                 await startAnalyticsEventsIngestionConsumer({
                     hub: hub,
@@ -219,7 +209,6 @@ export async function startPluginsServer(
 
         if (capabilities.ingestionHistorical) {
             const hub = await setupHub()
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             services.push(
                 await startAnalyticsEventsIngestionHistoricalConsumer({
                     hub: hub,
@@ -239,7 +228,6 @@ export async function startPluginsServer(
                 }
 
                 const hub = await setupHub()
-                piscina = piscina ?? (await makePiscina(serverConfig, hub))
                 services.push(
                     await startEventsIngestionPipelineConsumer({
                         hub: hub,
@@ -251,7 +239,6 @@ export async function startPluginsServer(
 
         if (capabilities.ingestionOverflow) {
             const hub = await setupHub()
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             services.push(
                 await startAnalyticsEventsIngestionOverflowConsumer({
                     hub: hub,
@@ -261,7 +248,6 @@ export async function startPluginsServer(
 
         if (capabilities.processAsyncOnEventHandlers) {
             const hub = await setupHub()
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             services.push(
                 await startAsyncOnEventHandlerConsumer({
                     hub: hub,
@@ -490,13 +476,6 @@ const startPreflightSchedules = (hub: Hub) => {
             jsonSerialize: false,
         })
     })
-}
-
-export async function stopPiscina(piscina: Piscina): Promise<void> {
-    // Wait *up to* 5 seconds to shut down VMs.
-    await Promise.race([piscina.broadcastTask({ task: 'teardownPlugins' }), delay(5000)])
-    // Wait 2 seconds to flush the last queues and caches
-    await Promise.all([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
 }
 
 const kafkaProtocolErrors = new Counter({

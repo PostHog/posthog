@@ -3,7 +3,6 @@ import * as nodeSchedule from 'node-schedule'
 
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginServerCapabilities, PluginsServerConfig } from '../src/types'
-import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.mock('../src/utils/kill')
@@ -22,7 +21,6 @@ describe('server', () => {
                 LOG_LEVEL: LogLevel.Debug,
                 ...config,
             },
-            makePiscina,
             capabilities
         )
     }

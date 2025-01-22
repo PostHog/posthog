@@ -6,7 +6,6 @@ import { startPluginsServer } from '../../src/main/pluginsServer'
 import { Hub, LogLevel, PluginLogEntry, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
-import { makePiscina } from '../../src/worker/piscina'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
@@ -58,7 +57,6 @@ describe('teardown', () => {
             {
                 LOG_LEVEL: LogLevel.Log,
             },
-            makePiscina,
             undefined
         )
 
@@ -103,7 +101,6 @@ describe('teardown', () => {
             {
                 LOG_LEVEL: LogLevel.Log,
             },
-            makePiscina,
             undefined
         )
 
