@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { getDomain } from 'tldts'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
+import { runInstrumentedFunction } from '../../../main/utils'
 import { CookielessConfig, CookielessServerHashMode, Hub } from '../../../types'
 import { ConcurrencyController } from '../../../utils/concurrencyController'
 import { DB } from '../../../utils/db/db'
@@ -195,6 +196,15 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
         return [undefined]
     }
 
+    return runInstrumentedFunction({
+        func: async () => {
+            return await cookielessServerHashStepInner(hub, event)
+        },
+        statsKey: 'cookieless.process_event',
+    })
+}
+
+async function cookielessServerHashStepInner(hub: Hub, event: PluginEvent): Promise<[PluginEvent | undefined]> {
     // if the team isn't allowed to use this mode, drop the event
     const team = await hub.teamManager.getTeamForEvent(event)
     if (!team?.cookieless_server_hash_mode) {
