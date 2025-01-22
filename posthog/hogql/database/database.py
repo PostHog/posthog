@@ -328,14 +328,14 @@ def create_hogql_database(
             )
             cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
 
-        with timings.measure("initial_domain_type"):
-            database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-                "$virt_initial_referring_domain_type"
-            )
-        with timings.measure("initial_channel_type"):
-            database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-                "$virt_initial_channel_type", modifiers.customChannelTypeRules
-            )
+    with timings.measure("initial_domain_type"):
+        database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
+            "$virt_initial_referring_domain_type", timings=timings
+        )
+    with timings.measure("initial_channel_type"):
+        database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
+            "$virt_initial_channel_type", modifiers.customChannelTypeRules, timings=timings
+        )
 
     with timings.measure("group_type_mapping"):
         for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
