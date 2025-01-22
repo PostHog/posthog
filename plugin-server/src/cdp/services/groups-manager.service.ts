@@ -1,8 +1,8 @@
 import LRUCache from 'lru-cache'
 
-import { Hub, Team } from '../types'
-import { PostgresUse } from '../utils/db/postgres'
-import { GroupType, HogFunctionInvocationGlobals } from './types'
+import { Hub, Team } from '../../types'
+import { PostgresUse } from '../../utils/db/postgres'
+import { GroupType, HogFunctionInvocationGlobals } from '../types'
 
 export type GroupsMap = Record<string, GroupType>
 export type GroupsCache = Record<Team['id'], GroupsMap>
@@ -21,7 +21,7 @@ type Group = {
 
 const GROUP_TYPES_CACHE_AGE_MS = 60 * 10 * 1000 // 10 minutes
 
-export class GroupsManager {
+export class GroupsManagerService {
     groupTypesMappingCache: LRUCache<number, { type: string; index: number }[]>
 
     constructor(private hub: Hub) {
