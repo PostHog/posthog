@@ -105,8 +105,8 @@ export function BrandColors(): JSX.Element {
                         <LemonSlider value={primaryLightness} onChange={setPrimaryLightness} min={0} max={100} />
                     </label>
 
-                    {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{ backgroundColor: `var(--accent-primary)` }}
                         className="w-12 h-12 rounded border border-border"
                     />
@@ -129,8 +129,8 @@ export function BrandColors(): JSX.Element {
                         <LemonSlider value={secondaryLightness} onChange={setSecondaryLightness} min={0} max={100} />
                     </label>
 
-                    {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{ backgroundColor: `var(--accent-secondary)` }}
                         className="w-12 h-12 rounded border border-border"
                     />
