@@ -11,6 +11,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType, ItemMode } from '~/types'
 
@@ -18,6 +19,7 @@ import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import { countryCodeToName } from '../WorldMap'
 import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
+import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
@@ -80,6 +82,7 @@ export function InsightsTable({
     const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
+    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -207,6 +210,14 @@ export function InsightsTable({
                     return compareFn()(labelA, labelB)
                 },
             })
+        })
+    }
+
+    if (hasInsightColors) {
+        columns.push({
+            title: <ColorCustomizationColumnTitle />,
+            render: (_, item) => <ColorCustomizationColumnItem item={item} />,
+            key: 'color',
         })
     }
 

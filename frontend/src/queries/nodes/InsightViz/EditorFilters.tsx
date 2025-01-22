@@ -84,11 +84,15 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         {
             title: 'General',
             editorFilters: filterFalsy([
-                isRetention && {
-                    key: 'retention-summary',
-                    label: 'Retention Summary',
-                    component: RetentionSummary,
-                },
+                ...(isRetention
+                    ? [
+                          {
+                              key: 'retention-config',
+                              label: 'Retention Summary',
+                              component: RetentionSummary,
+                          },
+                      ]
+                    : []),
                 ...(isPaths
                     ? filterFalsy([
                           {
@@ -360,5 +364,5 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 }
 
 function filterFalsy(a: (InsightEditorFilter | false | null | undefined)[]): InsightEditorFilter[] {
-    return a.filter((e) => !!e) as InsightEditorFilter[]
+    return a.filter((e): e is InsightEditorFilter => !!e)
 }

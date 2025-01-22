@@ -80,13 +80,13 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
                 <div className="w-full bg-border rounded-full h-1" />
             </div>
             <div
-                className="absolute h-1 bg-primary rounded-full pointer-events-none"
+                className="absolute h-1 fill-accent-primary rounded-full pointer-events-none"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: `${proportion * 100}%` }}
             />
             <div
                 className={clsx(
-                    'absolute size-3 box-content border-2 border-bg-light rounded-full cursor-pointer bg-primary transition-shadow duration-75',
+                    'absolute size-3 box-content border-2 border-bg-light rounded-full cursor-pointer fill-accent-primary transition-shadow duration-75',
                     dragging ? 'ring-2 scale-90' : 'ring-0 hover:ring-2'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
