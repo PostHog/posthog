@@ -42,6 +42,7 @@ import {
 import {
     Breadcrumb,
     BreakdownAttributionType,
+    BreakdownType,
     ChartDisplayType,
     CohortType,
     CountPerActorMathType,
@@ -937,6 +938,15 @@ export const experimentLogic = kea<experimentLogicType>([
                     {
                         name: 'Experiment: ' + values.experiment.name,
                         description: `Dashboard for [${experimentUrl}](${experimentUrl})`,
+                        filters: {
+                            date_from: values.experiment.start_date,
+                            date_to: values.experiment.end_date,
+                            properties: [],
+                            breakdown_filter: {
+                                breakdown: '$feature/' + values.experiment.feature_flag_key,
+                                breakdown_type: 'event' as BreakdownType,
+                            },
+                        },
                     } as Partial<DashboardType>
                 )
 
