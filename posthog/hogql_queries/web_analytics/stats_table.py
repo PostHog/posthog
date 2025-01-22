@@ -455,25 +455,34 @@ GROUP BY session_id, breakdown_value
                 else response.columns
             )
 
-        # Add replay URL column if it doesn't exist
-        if columns is not None and "context.columns.replay_url" not in columns:
-            # Append replay URL column to the list of columns
-            columns = [*list(columns), "context.columns.replay_url"]
+        # Add replay URL column if it doesn't exist (for session replay cross-selling)
+        if columns is not None:
+            if "context.columns.replay_url" not in columns:
+                # Append replay URL column to the list of columns (as Robbie suggested)
+                columns = [*list(columns), "context.columns.replay_url"]
 
-            # We pass the value, date_from, date_to and breakdownBy to the frontend
-            # so we can use it to generate the URL to session replay
-            results_mapped = [
-                [
-                    *row,
-                    {
-                        "value": row[0],
-                        "dateFrom": self.query.dateRange.date_from if self.query.dateRange else None,
-                        "dateTo": self.query.dateRange.date_to if self.query.dateRange else None,
-                        "breakdownBy": self.query.breakdownBy if hasattr(self.query, "breakdownBy") else None,
-                    },
+                # We pass the value, date_from, date_to and breakdownBy to the frontend
+                # so we can use it to generate the URL to session replay
+                results_mapped = [
+                    [
+                        *row,
+                        {
+                            "value": row[0] if len(row) > 0 else None,
+                            "dateFrom": (
+                                self.query.dateRange.date_from
+                                if hasattr(self.query, "dateRange") and self.query.dateRange is not None
+                                else None
+                            ),
+                            "dateTo": (
+                                self.query.dateRange.date_to
+                                if hasattr(self.query, "dateRange") and self.query.dateRange is not None
+                                else None
+                            ),
+                            "breakdownBy": (self.query.breakdownBy if hasattr(self.query, "breakdownBy") else None),
+                        },
+                    ]
+                    for row in (results_mapped or [])
                 ]
-                for row in results_mapped
-            ]
 
         return WebStatsTableQueryResponse(
             columns=columns,
