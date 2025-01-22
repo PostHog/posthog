@@ -13,6 +13,7 @@ import {
     IconStack,
     IconTestTube,
     IconToggle,
+    IconBug
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -306,6 +307,19 @@ export const SidePanelSupport = (): JSX.Element => {
                                             targetBlank
                                         >
                                             Request a feature
+                                        </LemonButton>
+                                    </li>
+                                    <li>
+                                        <LemonButton
+                                            type="secondary"
+                                            status="alt"
+                                            to={`https://github.com/PostHog/posthog/issues/new?&labels=bug&template=bug_report.yml&debug-info=${encodeURIComponent(
+                                                getPublicSupportSnippet(region, currentOrganization, currentTeam)
+                                            )}`}
+                                            icon={<IconBug />}
+                                            targetBlank
+                                        >
+                                            Report a bug
                                         </LemonButton>
                                     </li>
                                 </ul>
