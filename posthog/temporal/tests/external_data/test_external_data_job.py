@@ -526,7 +526,10 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
         ),
         mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
-            return_value={"clickhouse": {"id": "string", "name": "string"}},
+            return_value={
+                "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
+                "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
+            },
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
@@ -536,7 +539,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
         folder_path = job_1.folder_path()
         job_1_customer_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/")
 
-        assert len(job_1_customer_objects["Contents"]) == 2
+        assert len(job_1_customer_objects["Contents"]) == 3
 
     with (
         mock.patch.object(RESTClient, "paginate", mock_charges_paginate),
@@ -561,7 +564,10 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
         ),
         mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
-            return_value={"clickhouse": {"id": "string", "name": "string"}},
+            return_value={
+                "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
+                "customer": {"clickhouse": "string", "hogql": "StringDatabaseField"},
+            },
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
@@ -569,7 +575,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
         activity_environment.run(import_data_activity_sync, job_2_inputs)
 
         job_2_charge_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path()}/charge/")
-        assert len(job_2_charge_objects["Contents"]) == 2
+        assert len(job_2_charge_objects["Contents"]) == 3
 
 
 @pytest.mark.django_db(transaction=True)
@@ -674,7 +680,10 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
         ),
         mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
-            return_value={"clickhouse": {"id": "string", "name": "string"}},
+            return_value={
+                "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
+                "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
+            },
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
@@ -684,7 +693,7 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
         folder_path = job_1.folder_path()
         job_1_customer_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/")
 
-        assert len(job_1_customer_objects["Contents"]) == 2
+        assert len(job_1_customer_objects["Contents"]) == 3
 
         job_1.refresh_from_db()
         assert job_1.rows_synced == 1
@@ -881,4 +890,4 @@ async def test_run_postgres_job(
 
         folder_path = await sync_to_async(job_1.folder_path)()
         job_1_team_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/posthog_test/")
-        assert len(job_1_team_objects["Contents"]) == 2
+        assert len(job_1_team_objects["Contents"]) == 3
