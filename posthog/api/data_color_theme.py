@@ -31,7 +31,7 @@ class PaidThemePermission(BasePermission):
         if request.method in SAFE_METHODS or obj.is_global:
             return True
 
-        return view.organization.is_feature_available(AvailableFeature.WHITE_LABELLING)
+        return view.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES)
 
 
 class PublicDataColorThemeSerializer(serializers.ModelSerializer):

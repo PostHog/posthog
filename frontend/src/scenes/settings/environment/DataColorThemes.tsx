@@ -20,7 +20,7 @@ export function DataColorThemes(): JSX.Element {
     const themes = _themes || []
 
     return (
-        <PayGateMini feature={AvailableFeature.WHITE_LABELLING}>
+        <PayGateMini feature={AvailableFeature.DATA_COLOR_THEMES}>
             <div className="space-y-4">
                 <LemonTable
                     loading={themesLoading}
