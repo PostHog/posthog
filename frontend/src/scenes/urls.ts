@@ -5,7 +5,13 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
-import { HogQLFilters, HogQLVariable, Node } from '~/queries/schema'
+import {
+    type ExperimentFunnelsQuery,
+    type ExperimentTrendsQuery,
+    HogQLFilters,
+    HogQLVariable,
+    Node,
+} from '~/queries/schema'
 import {
     ActionType,
     ActivityTab,
@@ -160,7 +166,7 @@ export const urls = {
     experiment: (
         id: string | number,
         options?: {
-            insight?: string
+            metric?: ExperimentTrendsQuery | ExperimentFunnelsQuery
             name?: string
         }
     ): string => `/experiments/${id}${options ? `?${toParams(options)}` : ''}`,

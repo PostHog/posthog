@@ -19,7 +19,6 @@ import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightsApi } from 'scenes/insights/utils/api'
 import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -58,7 +57,6 @@ import {
     FunnelExperimentVariant,
     FunnelStep,
     FunnelVizType,
-    type InsightShortId,
     InsightType,
     MultivariateFlagVariant,
     ProductKey,
@@ -590,8 +588,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
             )
 
-            const experimentMetric = values.metricFromInsight
-
             if (hasFormErrors(values.experimentErrors)) {
                 return
             }
@@ -619,7 +615,6 @@ export const experimentLogic = kea<experimentLogicType>([
                                 recommended_sample_size: recommendedSampleSize,
                                 minimum_detectable_effect: minimumDetectableEffect,
                             },
-                            metrics: experimentMetric ? [experimentMetric] : [],
                             ...(!draft && { start_date: dayjs() }),
                             // backwards compatibility: Remove any global properties set on the experiment.
                             // These were used to change feature flag targeting, but this is controlled directly
@@ -649,7 +644,6 @@ export const experimentLogic = kea<experimentLogicType>([
                             minimum_detectable_effect: minimumDetectableEffect,
                         },
                         ...(!draft && { start_date: dayjs() }),
-                        metrics: experimentMetric ? [experimentMetric] : [],
                     })
                     if (response) {
                         actions.reportExperimentCreated(response)
@@ -1038,31 +1032,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 return response
             },
         },
-        metricFromInsight: [
-            null as ExperimentTrendsQuery | ExperimentFunnelsQuery | null,
-            {
-                loadMetricFromInsight: async (
-                    shortId: InsightShortId
-                ): Promise<ExperimentTrendsQuery | ExperimentFunnelsQuery | null> => {
-                    const insight = await insightsApi
-                        .getByShortId(shortId, undefined, 'async')
-                        .then((insight) => {
-                            const metric = getExperimentMetricFromInsight(insight) ?? null
-
-                            if (!metric) {
-                                lemonToast.error('Failed to generate experiment from insight')
-                            }
-
-                            return metric
-                        })
-                        .catch(() => {
-                            lemonToast.error('Failed to generate experiment from insight')
-                            return null
-                        })
-                    return insight
-                },
-            },
-        ],
         metricResults: [
             null as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[] | null,
             {
@@ -1828,15 +1797,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (parsedId === 'new') {
                     actions.resetExperiment({
                         ...NEW_EXPERIMENT,
+                        metrics: [query.metric],
                         name: query.name ?? '',
                     })
                 }
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
                     actions.loadExperiment()
-                }
-
-                if (query.insight) {
-                    actions.loadMetricFromInsight(query.insight as InsightShortId)
                 }
             }
         },

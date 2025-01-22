@@ -4,18 +4,17 @@ import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
 import React from 'react'
+import { getExperimentMetricFromInsight } from 'scenes/experiments/experimentLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
 import { urls } from 'scenes/urls'
 
-import { FunnelVizType, ItemMode } from '~/types'
+import { FunnelVizType, type QueryBasedInsightModel } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { insightProps, insight, supportsCreatingExperiment } = useValues(insightLogic)
-    const { insightMode } = useValues(insightSceneLogic)
+    const { insightProps, insight, supportsCreatingExperiment, derivedName } = useValues(insightLogic)
     const { conversionMetrics, aggregationTargetLabel, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
@@ -70,7 +69,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
               ]
             : []),
 
-        ...(supportsCreatingExperiment && insightMode === ItemMode.View
+        ...(supportsCreatingExperiment
             ? [
                   <LemonButton
                       key="run-experiment"
@@ -79,8 +78,8 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                       data-attr="create-experiment-from-insight"
                       size="xsmall"
                       to={urls.experiment('new', {
-                          insight: insight.short_id ?? undefined,
-                          name: (insight.name || insight.derived_name) ?? undefined,
+                          metric: getExperimentMetricFromInsight(insight as QueryBasedInsightModel),
+                          name: insight.name || insight.derived_name || derivedName,
                       })}
                   >
                       Run experiment
