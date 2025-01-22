@@ -240,7 +240,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
-        if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
+        if not instance.organization.is_feature_available(AvailableFeature.WHITE_LABELLING):
             representation["default_data_theme"] = (
                 DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
             )

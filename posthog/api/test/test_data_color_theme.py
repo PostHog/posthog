@@ -28,7 +28,7 @@ class TestDataColorTheme(APIBaseTest):
 
     def test_can_edit_own_themes(self) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.DATA_COLOR_THEMES, "name": AvailableFeature.DATA_COLOR_THEMES}
+            {"key": AvailableFeature.WHITE_LABELLING, "name": AvailableFeature.WHITE_LABELLING}
         ]
         self.organization.save()
 
