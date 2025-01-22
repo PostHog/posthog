@@ -310,9 +310,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         items: [
             (s, p) => [s.remoteItems, s.localItems, p.showNumericalPropsOnly ?? (() => false)],
             (remoteItems, localItems, showNumericalPropsOnly) => {
-                let results = [...localItems.results, ...remoteItems.results]
-
-                results = results.filter((n) => {
+                const results = [...localItems.results, ...remoteItems.results].filter((n) => {
                     if (!showNumericalPropsOnly) {
                         return true
                     }
