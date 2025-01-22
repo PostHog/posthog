@@ -312,17 +312,43 @@ export function PropertiesTable({
         return (
             <div>
                 {properties.length ? (
-                    properties.map((item, index) => (
-                        <PropertiesTable
-                            key={index}
-                            type={type}
-                            properties={item}
-                            nestingLevel={nestingLevel + 1}
-                            useDetectedPropertyType={
-                                ['$set', '$set_once'].some((s) => s === rootKey) ? false : useDetectedPropertyType
-                            }
-                        />
-                    ))
+                    <LemonTable
+                        columns={[
+                            {
+                                key: 'key',
+                                title: 'Index',
+                                render: function Key(_, item: any): JSX.Element {
+                                    return <div className="properties-table-key">{item[0]}</div>
+                                },
+                            },
+                            {
+                                key: 'value',
+                                title: (
+                                    <div className="flex items-center justify-between w-full">
+                                        <div>Value</div>
+                                        <LemonTag type="muted" className="font-mono uppercase">
+                                            array
+                                        </LemonTag>
+                                    </div>
+                                ),
+                                render: function Value(_, item: any): JSX.Element {
+                                    return (
+                                        <PropertiesTable
+                                            type={type}
+                                            properties={item[1]}
+                                            nestingLevel={nestingLevel + 1}
+                                            useDetectedPropertyType={
+                                                ['$set', '$set_once'].some((s) => s === rootKey)
+                                                    ? false
+                                                    : useDetectedPropertyType
+                                            }
+                                        />
+                                    )
+                                },
+                            },
+                        ]}
+                        dataSource={properties.map((item, index) => [index, item])}
+                    />
                 ) : (
                     <LemonTag type="muted" className="font-mono uppercase">
                         Array (empty)
