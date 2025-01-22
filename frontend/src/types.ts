@@ -4157,6 +4157,7 @@ export interface IncrementalField {
 
 export interface ExternalDataSourceSyncSchema {
     table: string
+    rows?: number | null
     should_sync: boolean
     incremental_field: string | null
     incremental_field_type: string | null
