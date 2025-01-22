@@ -1,8 +1,10 @@
 import json
 from functools import lru_cache
+import logging
 from typing import Any, Optional, Union, cast
 
 import posthoganalytics
+from pydantic import BaseModel
 import structlog
 from django.db import transaction
 from django.db.models import Count, Prefetch, QuerySet
@@ -43,9 +45,7 @@ from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.constants import (
     INSIGHT,
     INSIGHT_FUNNELS,
-    INSIGHT_PATHS,
     INSIGHT_STICKINESS,
-    PATHS_INCLUDE_EVENT_TYPES,
     TRENDS_STICKINESS,
     FunnelVizType,
 )
@@ -60,20 +60,21 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
     apply_dashboard_filters_to_dict,
+    apply_dashboard_variables_to_dict,
 )
-from posthog.hogql_queries.legacy_compatibility.feature_flag import (
-    hogql_insights_replace_filters,
-)
+from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters, get_query_method
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
     execution_mode_from_refresh,
+    get_query_runner,
     shared_insights_execution_mode,
 )
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import DashboardTile, Filter, Insight, User
+from posthog.models import DashboardTile, Filter, Insight, User, Cohort
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -85,9 +86,8 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.alert import are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
-from posthog.models.filters import RetentionFilter
-from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -97,8 +97,6 @@ from posthog.queries.funnels import (
     ClickhouseFunnelTrends,
 )
 from posthog.queries.funnels.utils import get_funnel_order_class
-from posthog.queries.paths.paths import Paths
-from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
@@ -106,13 +104,16 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
-    filters_override_requested_by_client,
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
+    filters_override_requested_by_client,
+    variables_override_requested_by_client,
 )
 
 logger = structlog.get_logger(__name__)
@@ -167,6 +168,24 @@ def log_and_report_insight_activity(
             )
 
 
+def capture_legacy_api_call(request: request.Request, team: Team):
+    try:
+        event = "legacy insight endpoint called"
+        distinct_id: str = request.user.distinct_id  # type: ignore
+        properties = {
+            "path": request._request.path,
+            "method": request._request.method,
+            "query_method": get_query_method(request=request, team=team),
+            "filter": get_filter(request=request, team=team),
+            "was_impersonated": is_impersonated_session(request),
+        }
+
+        posthoganalytics.capture(distinct_id, event, properties, groups=(groups(team.organization, team)))
+    except Exception as e:
+        logging.exception(f"Error in capture_legacy_api_call: {e}")
+        pass
+
+
 class QuerySchemaParser(JSONParser):
     """
     A query schema parser that only parses the query field and validates it against the schema if it is present
@@ -192,7 +211,7 @@ class DashboardTileBasicSerializer(serializers.ModelSerializer):
         fields = ["id", "dashboard_id", "deleted"]
 
 
-class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
     """
@@ -330,6 +349,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
             "timezone",
             "is_cached",
             "query_status",
@@ -346,6 +366,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
             "timezone",
             "refreshing",
             "is_cached",
@@ -594,12 +615,17 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         request: Optional[Request] = self.context.get("request")
         dashboard_filters_override = filters_override_requested_by_client(request) if request else None
+        dashboard_variables_override = variables_override_requested_by_client(request) if request else None
 
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
         ):
             query = instance.query or instance.query_from_filters
-            if dashboard is not None or dashboard_filters_override is not None:
+            if (
+                dashboard is not None
+                or dashboard_filters_override is not None
+                or dashboard_variables_override is not None
+            ):
                 query = apply_dashboard_filters_to_dict(
                     query,
                     (
@@ -611,6 +637,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     ),
                     instance.team,
                 )
+
+                query = apply_dashboard_variables_to_dict(
+                    query,
+                    dashboard_variables_override or {},
+                    instance.team,
+                )
             representation["filters"] = {}
             representation["query"] = query
         else:
@@ -618,7 +650,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
             )
             representation["query"] = instance.get_effective_query(
-                dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
+                dashboard=dashboard,
+                dashboard_filters_override=dashboard_filters_override,
+                dashboard_variables_override=dashboard_variables_override,
             )
 
             if "insight" not in representation["filters"] and not representation["query"]:
@@ -639,16 +673,19 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
                 filters_override = filters_override_requested_by_client(self.context["request"])
+                variables_override = variables_override_requested_by_client(self.context["request"])
 
                 if self.context.get("is_shared", False):
                     execution_mode = shared_insights_execution_mode(execution_mode)
 
                 return calculate_for_query_based_insight(
                     insight,
+                    team=self.context["get_team"](),
                     dashboard=dashboard,
                     execution_mode=execution_mode,
                     user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
                     filters_override=filters_override,
+                    variables_override=variables_override,
                 )
             except ExposedHogQLError as e:
                 raise ValidationError(str(e))
@@ -692,6 +729,7 @@ Background calculation can be tracked using the `query_status` response field.""
 )
 class InsightViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
@@ -708,10 +746,7 @@ class InsightViewSet(
     sharing_enabled_actions = ["retrieve", "list"]
     queryset = Insight.objects_including_soft_deleted.all()
 
-    retention_query_class = Retention
     stickiness_query_class = Stickiness
-    paths_query_class = Paths
-
     parser_classes = (QuerySchemaParser,)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
@@ -726,7 +761,12 @@ class InsightViewSet(
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         return context
 
-    def safely_get_queryset(self, queryset) -> QuerySet:
+    def dangerously_get_queryset(self):
+        # Insights are retrieved under /environments/ because they include team-specific query results,
+        # but they are in fact project-level, rather than environment-level
+        assert self.team.project_id is not None
+        queryset = self.queryset.filter(team__project_id=self.team.project_id)
+
         include_deleted = False
 
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
@@ -751,6 +791,10 @@ class InsightViewSet(
                 queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
             ),
         )
+
+        # Add access level filtering for list actions if not sharing access token
+        if not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            queryset = self._filter_queryset_by_access_level(queryset)
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
@@ -812,15 +856,30 @@ class InsightViewSet(
                 )
             elif key == INSIGHT:
                 insight = request.GET[INSIGHT]
+                legacy_filter = Q(query__isnull=True) & Q(filters__insight=insight)
+                legacy_to_hogql_mapping = {
+                    "TRENDS": schema.NodeKind.TRENDS_QUERY,
+                    "FUNNELS": schema.NodeKind.FUNNELS_QUERY,
+                    "RETENTION": schema.NodeKind.RETENTION_QUERY,
+                    "PATHS": schema.NodeKind.PATHS_QUERY,
+                    "STICKINESS": schema.NodeKind.STICKINESS_QUERY,
+                    "LIFECYCLE": schema.NodeKind.LIFECYCLE_QUERY,
+                }
                 if insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.exclude(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                 elif insight == "SQL":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.filter(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
+                elif insight in legacy_to_hogql_mapping:
+                    queryset = queryset.filter(
+                        legacy_filter
+                        | Q(query__isnull=False)
+                        & Q(query__kind=schema.NodeKind.INSIGHT_VIZ_NODE)
+                        & Q(query__source__kind=legacy_to_hogql_mapping[insight])
+                    )
                 else:
-                    queryset = queryset.filter(query__isnull=True)
-                    queryset = queryset.filter(filters__insight=insight)
+                    queryset = queryset.filter(legacy_filter)
             elif key == "search":
                 queryset = queryset.filter(
                     Q(name__icontains=request.GET["search"])
@@ -903,8 +962,6 @@ When set, the specified dashboard's filters and date range override will be appl
     # Calculated Insight Endpoints
     # /projects/:id/insights/trend
     # /projects/:id/insights/funnel
-    # /projects/:id/insights/retention
-    # /projects/:id/insights/path
     #
     # Request parameters and caching are handled here and passed onto respective .queries classes
     # ******************************************
@@ -926,11 +983,19 @@ When set, the specified dashboard's filters and date range override will be appl
     )
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
+        capture_legacy_api_call(request, self.team)
+
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
-                result = self.calculate_trends(request)
+                query_method = get_query_method(request=request, team=self.team)
+                if query_method == "hogql":
+                    result = self.calculate_trends_hogql(request)
+                else:
+                    result = self.calculate_trends(request)
         except ExposedHogQLError as e:
+            raise ValidationError(str(e))
+        except Cohort.DoesNotExist as e:
             raise ValidationError(str(e))
         filter = Filter(request=request, team=self.team)
 
@@ -948,7 +1013,7 @@ When set, the specified dashboard's filters and date range override will be appl
         if self.request.accepted_renderer.format == "csv":
             csvexport = []
             for item in result["result"]:
-                line = {"series": item["action"].get("custom_name") or item["label"]}
+                line = {"series": (item["action"].get("custom_name") if item["action"] else None) or item["label"]}
                 for index, data in enumerate(item["data"]):
                     line[item["labels"][index]] = data
                 csvexport.append(line)
@@ -990,6 +1055,23 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return {"result": result, "timezone": team.timezone}
 
+    @cached_by_filters
+    def calculate_trends_hogql(self, request: request.Request) -> dict[str, Any]:
+        team = self.team
+        filter = Filter(request=request, team=team)
+        query = filter_to_query(filter.to_dict())
+        query_runner = get_query_runner(query, team, limit_context=None)
+
+        # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert (
+            isinstance(result, schema.CachedTrendsQueryResponse)
+            or isinstance(result, schema.CachedStickinessQueryResponse)
+            or isinstance(result, schema.CachedLifecycleQueryResponse)
+        )
+
+        return {"result": result.results, "timezone": team.timezone}
+
     # ******************************************
     # /projects/:id/insights/funnel
     # The funnel endpoint is asynchronously processed. When a request is received, the endpoint will
@@ -1012,13 +1094,22 @@ When set, the specified dashboard's filters and date range override will be appl
     )
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        capture_legacy_api_call(request, self.team)
+
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
-                funnel = self.calculate_funnel(request)
+                query_method = get_query_method(request=request, team=self.team)
+                if query_method == "hogql":
+                    funnel = self.calculate_funnel_hogql(request)
+                else:
+                    funnel = self.calculate_funnel(request)
+
         except ExposedHogQLError as e:
             raise ValidationError(str(e))
 
+        if isinstance(funnel["result"], BaseModel):
+            funnel["result"] = funnel["result"].model_dump()
         funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])
         funnel["timings"] = [val.model_dump() for val in timings.to_list()]
 
@@ -1046,78 +1137,25 @@ When set, the specified dashboard's filters and date range override will be appl
                 "timezone": team.timezone,
             }
 
-    # ******************************************
-    # /projects/:id/insights/retention
-    # params:
-    # - start_entity: (dict) specifies id and type of the entity to focus retention on
-    # - **shared filter types
-    # ******************************************
-    @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
-    def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        timings = HogQLTimings()
-        try:
-            with timings.measure("calculate"):
-                result = self.calculate_retention(request)
-        except ExposedHogQLError as e:
-            raise ValidationError(str(e))
-
-        result["timings"] = [val.model_dump() for val in timings.to_list()]
-        return Response(result)
-
     @cached_by_filters
-    def calculate_retention(self, request: request.Request) -> dict[str, Any]:
+    def calculate_funnel_hogql(self, request: request.Request) -> dict[str, Any]:
         team = self.team
-        data = {}
-        if not request.GET.get("date_from") and not request.data.get("date_from"):
-            data.update({"date_from": "-11d"})
-        filter = RetentionFilter(data=data, request=request, team=self.team)
-        base_uri = request.build_absolute_uri("/")
-        result = self.retention_query_class(base_uri=base_uri).run(filter, team)
-        return {"result": result, "timezone": team.timezone}
+        filter = Filter(request=request, team=team)
+        filter = filter.shallow_clone(overrides={"insight": "FUNNELS"})
+        query = filter_to_query(filter.to_dict())
+        query_runner = get_query_runner(query, team, limit_context=None)
 
-    # ******************************************
-    # /projects/:id/insights/path
-    # params:
-    # - start: (string) specifies the name of the starting property or element
-    # - request_type: (string: $pageview, $autocapture, $screen, custom_event) specifies the path type
-    # - **shared filter types
-    # ******************************************
-    @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
-    def path(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        timings = HogQLTimings()
-        try:
-            with timings.measure("calculate"):
-                result = self.calculate_path(request)
-        except ExposedHogQLError as e:
-            raise ValidationError(str(e))
+        # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(result, schema.CachedFunnelsQueryResponse)
 
-        result["timings"] = [val.model_dump() for val in timings.to_list()]
-        return Response(result)
-
-    @cached_by_filters
-    def calculate_path(self, request: request.Request) -> dict[str, Any]:
-        team = self.team
-        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
-
-        funnel_filter = None
-        funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
-        if funnel_filter_data:
-            if isinstance(funnel_filter_data, str):
-                funnel_filter_data = json.loads(funnel_filter_data)
-            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
-
-        #  backwards compatibility
-        if filter.path_type:
-            filter = filter.shallow_clone({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
-        resp = self.paths_query_class(filter=filter, team=team, funnel_filter=funnel_filter).run()
-
-        return {"result": resp, "timezone": team.timezone}
+        return {"result": result.results, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/:short_id/viewed
     # Creates or updates an InsightViewed object for the user/insight combo
     # ******************************************
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         InsightViewed.objects.update_or_create(
             team=self.team,
@@ -1141,7 +1179,7 @@ When set, the specified dashboard's filters and date range override will be appl
         page = int(request.query_params.get("page", "1"))
 
         item_id = kwargs["pk"]
-        if not Insight.objects.filter(id=item_id, team_id=self.team_id).exists():
+        if not Insight.objects.filter(id=item_id, team__project_id=self.team.project_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(

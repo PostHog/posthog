@@ -371,35 +371,36 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, 403)
             self.assertEqual(mock_sync_from_plugin_archive.call_count, 2)  # Not extracted on auth failure
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_plugin_auth(self, mock_get, mock_reload):
-        repo_url = "https://github.com/PostHog/helloworldplugin"
-        response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
-        self.assertEqual(response.status_code, 201)
+        with freeze_time("2021-08-25T22:09:14.252Z"):
+            repo_url = "https://github.com/PostHog/helloworldplugin"
+            response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
+            self.assertEqual(response.status_code, 201)
 
-        plugin_id = response.json()["id"]
+        with freeze_time("2021-08-25T22:09:14.253Z"):
+            plugin_id = response.json()["id"]
 
-        api_url = "/api/organizations/@current/plugins/{}".format(response.json()["id"])
+            api_url = "/api/organizations/@current/plugins/{}".format(response.json()["id"])
 
-        for level in (
-            Organization.PluginsAccessLevel.NONE,
-            Organization.PluginsAccessLevel.CONFIG,
-        ):
-            self.organization.plugins_access_level = level
+            for level in (
+                Organization.PluginsAccessLevel.NONE,
+                Organization.PluginsAccessLevel.CONFIG,
+            ):
+                self.organization.plugins_access_level = level
+                self.organization.save()
+                response = self.client.delete(api_url)
+                self.assertEqual(response.status_code, 403)
+
+            self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
             self.organization.save()
             response = self.client.delete(api_url)
-            self.assertEqual(response.status_code, 403)
-
-        self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
-        self.organization.save()
-        response = self.client.delete(api_url)
         self.assertEqual(response.status_code, 204)
         self.assert_plugin_activity(
             [
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com"},
-                    "activity": "installed",
-                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "activity": "uninstalled",
+                    "created_at": "2021-08-25T22:09:14.253000Z",
                     "scope": "Plugin",
                     "item_id": str(plugin_id),
                     "detail": {
@@ -412,7 +413,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 },
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com"},
-                    "activity": "uninstalled",
+                    "activity": "installed",
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Plugin",
                     "item_id": str(plugin_id),
@@ -955,22 +956,22 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_listing_plugins_is_not_nplus1(self, _mock_get, _mock_reload) -> None:
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(10):
             self._assert_number_of_when_listed_plugins(0)
 
         Plugin.objects.create(organization=self.organization)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(10):
             self._assert_number_of_when_listed_plugins(1)
 
         Plugin.objects.create(organization=self.organization)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(10):
             self._assert_number_of_when_listed_plugins(2)
 
         Plugin.objects.create(organization=self.organization)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(10):
             self._assert_number_of_when_listed_plugins(3)
 
     def _assert_number_of_when_listed_plugins(self, expected_plugins_count: int) -> None:
@@ -1199,6 +1200,14 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             format="multipart",
         )
         self.assertEqual(response.status_code, 200)
+
+    def test_retrieving_plugin_config_logs_empty(self, mock_get, mock_reload):
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, enabled=True, team=self.team, order=0)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/plugin_configs/{plugin_config.id}/logs/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"count": 0, "next": None, "previous": None, "results": []})
 
     def test_delete_plugin_config_auth(self, mock_get, mock_reload):
         response = self.client.post(

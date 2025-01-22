@@ -263,10 +263,10 @@ async function expectLocatorToMatchStorySnapshot(
  * as it doesn't work with local Storybook (the live reload feature keeps up a long-running request, so we aren't idle).
  */
 async function waitForPageReady(page: Page): Promise<void> {
-    await page.waitForLoadState("domcontentloaded");
-    await page.waitForLoadState("load");
+    await page.waitForLoadState('domcontentloaded')
+    await page.waitForLoadState('load')
     if (process.env.CI) {
-        await page.waitForLoadState("networkidle");
+        await page.waitForLoadState('networkidle')
     }
-    await page.evaluate(() => document.fonts.ready);
+    await page.evaluate(() => document.fonts.ready)
 }

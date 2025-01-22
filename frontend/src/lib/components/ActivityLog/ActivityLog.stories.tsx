@@ -42,7 +42,7 @@ const meta: Meta<typeof ActivityLog> = {
                     ctx.status(200),
                     ctx.json({ results: featureFlagsActivityResponseJson }),
                 ],
-                '/api/projects/:team/insights/activity': (_, __, ctx) => [
+                '/api/environments/:team_id/insights/activity': (_, __, ctx) => [
                     ctx.status(200),
                     ctx.json({ results: insightsActivityResponseJson }),
                 ],
@@ -57,6 +57,9 @@ const meta: Meta<typeof ActivityLog> = {
             },
         }),
     ],
+    parameters: {
+        mockDate: '2024-05-01 12:00:00',
+    },
 }
 export default meta
 

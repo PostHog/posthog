@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from posthog.hogql.timings import HogQLTimings
@@ -23,7 +24,7 @@ class HogQLContext:
     """Context given to a HogQL expression printer"""
 
     # Team making the queries
-    team_id: Optional[int]
+    team_id: Optional[int] = None
     # Team making the queries - if team is passed in, then the team isn't queried when creating the database
     team: Optional["Team"] = None
     # Virtual database we're querying, will be populated from team_id if not present
@@ -94,3 +95,12 @@ class HogQLContext:
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.errors):
             self.errors.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
+
+    @cached_property
+    def project_id(self) -> int:
+        from posthog.models import Team
+
+        if not self.team and not self.team_id:
+            raise ValueError("Either team or team_id must be set to determine project_id")
+        team = self.team or Team.objects.only("project_id").get(id=self.team_id)
+        return team.project_id

@@ -19,6 +19,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -27,7 +28,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -62,7 +63,7 @@
   SELECT 1 AS "a"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 2)
+         AND "posthog_organizationmembership"."user_id" = 99999)
   LIMIT 1
   '''
 # ---
@@ -76,7 +77,7 @@
          "posthog_organizationmembership"."updated_at"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 2)
+         AND "posthog_organizationmembership"."user_id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -88,20 +89,6 @@
   '''
 # ---
 # name: TestOrganizationResourceAccessAPI.test_list_organization_resource_access_is_not_nplus1.13
-  '''
-  SELECT "ee_organizationresourceaccess"."id",
-         "ee_organizationresourceaccess"."resource",
-         "ee_organizationresourceaccess"."access_level",
-         "ee_organizationresourceaccess"."organization_id",
-         "ee_organizationresourceaccess"."created_by_id",
-         "ee_organizationresourceaccess"."created_at",
-         "ee_organizationresourceaccess"."updated_at"
-  FROM "ee_organizationresourceaccess"
-  WHERE "ee_organizationresourceaccess"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 100
-  '''
-# ---
-# name: TestOrganizationResourceAccessAPI.test_list_organization_resource_access_is_not_nplus1.14
   '''
   SELECT "ee_organizationresourceaccess"."id",
          "ee_organizationresourceaccess"."resource",
@@ -146,7 +133,7 @@
   SELECT 1 AS "a"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 2)
+         AND "posthog_organizationmembership"."user_id" = 99999)
   LIMIT 1
   '''
 # ---
@@ -160,7 +147,7 @@
          "posthog_organizationmembership"."updated_at"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 2)
+         AND "posthog_organizationmembership"."user_id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -205,6 +192,7 @@
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -213,7 +201,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---

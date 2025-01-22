@@ -1,4 +1,4 @@
-import { IconUpload, IconX } from '@posthog/icons'
+import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonFileInput, LemonModal, LemonSkeleton, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
@@ -15,21 +15,36 @@ export function VariantScreenshot({
     rolloutPercentage: number
 }): JSX.Element {
     const { experiment } = useValues(experimentLogic)
-    const { updateExperimentVariantImages } = useActions(experimentLogic)
+    const { updateExperimentVariantImages, reportExperimentVariantScreenshotUploaded } = useActions(experimentLogic)
 
-    const [mediaId, setMediaId] = useState(experiment.parameters?.variant_screenshot_media_ids?.[variantKey] || null)
-    const [isLoadingImage, setIsLoadingImage] = useState(true)
-    const [isModalOpen, setIsModalOpen] = useState(false)
+    const getInitialMediaIds = (): string[] => {
+        const variantImages = experiment.parameters?.variant_screenshot_media_ids?.[variantKey]
+        if (!variantImages) {
+            return []
+        }
+
+        return Array.isArray(variantImages) ? variantImages : [variantImages]
+    }
+
+    const [mediaIds, setMediaIds] = useState<string[]>(getInitialMediaIds())
+    const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
+    const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (_, __, id) => {
-            setMediaId(id)
-            if (id) {
+            if (id && mediaIds.length < 5) {
+                const newMediaIds = [...mediaIds, id]
+                setMediaIds(newMediaIds)
+
                 const updatedVariantImages = {
                     ...experiment.parameters?.variant_screenshot_media_ids,
-                    [variantKey]: id,
+                    [variantKey]: newMediaIds,
                 }
+
                 updateExperimentVariantImages(updatedVariantImages)
+                reportExperimentVariantScreenshotUploaded(experiment.id)
+            } else if (mediaIds.length >= 5) {
+                lemonToast.error('Maximum of 5 images allowed')
             }
         },
         onError: (detail) => {
@@ -37,64 +52,107 @@ export function VariantScreenshot({
         },
     })
 
+    const handleImageLoad = (mediaId: string): void => {
+        setLoadingImages((prev) => ({ ...prev, [mediaId]: false }))
+    }
+
+    const handleImageError = (mediaId: string): void => {
+        setLoadingImages((prev) => ({ ...prev, [mediaId]: false }))
+    }
+
+    const handleDelete = (indexToDelete: number): void => {
+        const newMediaIds = mediaIds.filter((_, index) => index !== indexToDelete)
+        setMediaIds(newMediaIds)
+
+        const updatedVariantImages = {
+            ...experiment.parameters?.variant_screenshot_media_ids,
+            [variantKey]: newMediaIds,
+        }
+
+        updateExperimentVariantImages(updatedVariantImages)
+    }
+
+    const getThumbnailWidth = (): string => {
+        const totalItems = mediaIds.length < 5 ? mediaIds.length + 1 : mediaIds.length
+        switch (totalItems) {
+            case 1:
+                return 'w-20'
+            case 2:
+                return 'w-20'
+            case 3:
+                return 'w-16'
+            case 4:
+                return 'w-14'
+            case 5:
+                return 'w-12'
+            default:
+                return 'w-20'
+        }
+    }
+
+    const widthClass = getThumbnailWidth()
+
     return (
         <div className="space-y-4">
-            {!mediaId ? (
-                <LemonFileInput
-                    accept="image/*"
-                    multiple={false}
-                    onChange={setFilesToUpload}
-                    loading={uploading}
-                    value={filesToUpload}
-                    callToAction={
-                        <>
-                            <IconUpload className="text-2xl" />
-                            <span>Upload a preview of this variant's UI</span>
-                        </>
-                    }
-                />
-            ) : (
-                <div className="relative">
-                    <div className="text-muted inline-flex flow-row items-center gap-1 cursor-pointer">
-                        <div onClick={() => setIsModalOpen(true)} className="cursor-zoom-in relative">
-                            <div className="relative flex overflow-hidden select-none size-20 w-full rounded before:absolute before:inset-0 before:border before:rounded">
-                                {isLoadingImage && <LemonSkeleton className="absolute inset-0" />}
-                                <img
-                                    className="size-full object-cover"
-                                    src={mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
-                                    onError={() => setIsLoadingImage(false)}
-                                    onLoad={() => setIsLoadingImage(false)}
-                                />
-                            </div>
-                            <div className="absolute -inset-2 group">
-                                <LemonButton
-                                    icon={<IconX />}
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        setMediaId(null)
-                                        const updatedVariantImages = {
-                                            ...experiment.parameters?.variant_screenshot_media_ids,
-                                        }
-                                        delete updatedVariantImages[variantKey]
-                                        updateExperimentVariantImages(updatedVariantImages)
-                                    }}
-                                    size="small"
-                                    tooltip="Remove"
-                                    tooltipPlacement="right"
-                                    noPadding
-                                    className="group-hover:flex hidden absolute right-0 top-0"
-                                />
+            <div className="flex gap-4 items-start">
+                {mediaIds.map((mediaId, index) => (
+                    <div key={mediaId} className="relative">
+                        <div className="text-muted inline-flex flow-row items-center gap-1 cursor-pointer">
+                            <div onClick={() => setSelectedImageIndex(index)} className="cursor-zoom-in relative">
+                                <div
+                                    className={`relative flex overflow-hidden select-none ${widthClass} h-16 rounded before:absolute before:inset-0 before:border before:rounded`}
+                                >
+                                    {loadingImages[mediaId] && <LemonSkeleton className="absolute inset-0" />}
+                                    <img
+                                        className="w-full h-full object-cover"
+                                        src={mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
+                                        onError={() => handleImageError(mediaId)}
+                                        onLoad={() => handleImageLoad(mediaId)}
+                                    />
+                                </div>
+                                <div className="absolute -inset-2 group">
+                                    <LemonButton
+                                        icon={<IconX />}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleDelete(index)
+                                        }}
+                                        size="small"
+                                        tooltip="Remove"
+                                        tooltipPlacement="right"
+                                        noPadding
+                                        className="group-hover:flex hidden absolute right-0 top-0"
+                                    />
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                ))}
+
+                {mediaIds.length < 5 && (
+                    <div className={`relative ${widthClass} h-16`}>
+                        <LemonFileInput
+                            accept="image/*"
+                            multiple={false}
+                            onChange={setFilesToUpload}
+                            loading={uploading}
+                            value={filesToUpload}
+                            callToAction={
+                                <div className="flex items-center justify-center w-full h-16 border border-dashed rounded cursor-pointer hover:border-[var(--primary)]">
+                                    <span className="text-2xl text-muted">+</span>
+                                </div>
+                            }
+                        />
+                    </div>
+                )}
+            </div>
+
             <LemonModal
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
+                isOpen={selectedImageIndex !== null}
+                onClose={() => setSelectedImageIndex(null)}
                 title={
                     <div className="flex items-center gap-2">
-                        <span>Screenshot</span>
+                        <span>Screenshot {selectedImageIndex !== null ? selectedImageIndex + 1 : ''}</span>
                         <LemonDivider className="my-0 mx-1" vertical />
                         <VariantTag experimentId={experiment.id} variantKey={variantKey} />
                         {rolloutPercentage !== undefined && (
@@ -103,12 +161,20 @@ export function VariantScreenshot({
                     </div>
                 }
             >
-                <img
-                    src={mediaId?.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
-                    alt={`Screenshot: ${variantKey}`}
-                    className="max-w-full max-h-[80vh] overflow-auto"
-                />
+                {selectedImageIndex !== null && mediaIds[selectedImageIndex] && (
+                    <img
+                        src={
+                            mediaIds[selectedImageIndex]?.startsWith('data:')
+                                ? mediaIds[selectedImageIndex]
+                                : `/uploaded_media/${mediaIds[selectedImageIndex]}`
+                        }
+                        alt={`Screenshot ${selectedImageIndex + 1}: ${variantKey}`}
+                        className="max-w-full max-h-[80vh] overflow-auto"
+                    />
+                )}
             </LemonModal>
         </div>
     )
 }
+
+export default VariantScreenshot

@@ -8,7 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 
-import { AvailableFeature, OrganizationBasicType, ProductKey, UserTheme, UserType } from '~/types'
+import { AvailableFeature, OrganizationBasicType, ProductKey, UserRole, UserTheme, UserType } from '~/types'
 
 import { urls } from './urls'
 import type { userLogicType } from './userLogicType'
@@ -55,7 +55,7 @@ export const userLogic = kea<userLogicType>([
             {
                 loadUser: async () => {
                     try {
-                        return await api.get('api/users/@me/')
+                        return await api.get<UserType>('api/users/@me/')
                     } catch (error: any) {
                         console.error(error)
                         actions.loadUserFailure(error.message)
@@ -67,12 +67,13 @@ export const userLogic = kea<userLogicType>([
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
                     try {
-                        const response = await api.update('api/users/@me/', user)
+                        const response = await api.update<UserType>('api/users/@me/', user)
                         successCallback && successCallback()
                         return response
                     } catch (error: any) {
                         console.error(error)
                         actions.updateUserFailure(error.message)
+                        return values.user
                     }
                 },
                 setUserScenePersonalisation: async ({ scene, dashboard }) => {
@@ -80,13 +81,14 @@ export const userLogic = kea<userLogicType>([
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
                     try {
-                        return await api.create('api/users/@me/scene_personalisation', {
+                        return await api.create<UserType>('api/users/@me/scene_personalisation', {
                             scene,
                             dashboard,
                         })
                     } catch (error: any) {
                         console.error(error)
                         actions.updateUserFailure(error.message)
+                        return values.user
                     }
                 },
             },
@@ -246,6 +248,22 @@ export const userLogic = kea<userLogicType>([
             (s) => [s.user],
             (user): UserTheme => {
                 return user?.theme_mode || 'light'
+            },
+        ],
+
+        isUserNonTechnical: [
+            (s) => [s.user],
+            (user): boolean => {
+                const nonTechnicalRoles = [
+                    UserRole.Founder,
+                    UserRole.Leadership,
+                    UserRole.Marketing,
+                    UserRole.Sales,
+                    UserRole.Other,
+                ]
+                return user?.role_at_organization
+                    ? nonTechnicalRoles.includes(user.role_at_organization as UserRole)
+                    : false
             },
         ],
     }),

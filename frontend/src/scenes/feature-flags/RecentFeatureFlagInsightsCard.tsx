@@ -3,7 +3,7 @@ import { CompactList } from 'lib/components/CompactList/CompactList'
 import { InsightRow } from 'scenes/project-homepage/RecentInsights'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, QueryBasedInsightModel } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
@@ -25,7 +25,6 @@ export function RecentFeatureFlagInsights(): JSX.Element {
     }
     return (
         <CompactList
-            title="Insights that use this feature flag"
             loading={relatedInsightsLoading}
             emptyMessage={{
                 title: 'You have no insights that use this feature flag',
@@ -35,6 +34,7 @@ export function RecentFeatureFlagInsights(): JSX.Element {
             }}
             items={relatedInsights.slice(0, 5)}
             renderRow={(insight: QueryBasedInsightModel, index) => <InsightRow key={index} insight={insight} />}
+            contentHeightBehavior="shrink"
         />
     )
 }

@@ -1,5 +1,6 @@
 import datetime as dt
 from typing import Any, TypedDict, cast
+from loginas.utils import is_impersonated_session
 
 import posthoganalytics
 import structlog
@@ -31,6 +32,7 @@ from posthog.batch_exports.service import (
     sync_batch_export,
     unpause_batch_export,
 )
+from posthog.constants import AvailableFeature
 from posthog.hogql import ast, errors
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
@@ -183,7 +185,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
 
 class HogQLSelectQueryField(serializers.Field):
-    def to_internal_value(self, data: str) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_internal_value(self, data: str) -> ast.SelectQuery | ast.SelectSetQuery:
         """Parse a HogQL SelectQuery from a string query."""
         try:
             parsed_query = parse_select(data)
@@ -244,6 +246,20 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "schema",
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
+
+    def validate(self, attrs: dict) -> dict:
+        team = self.context["get_team"]()
+        attrs["team"] = team
+
+        has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
+
+        if not has_addon:
+            # Check if the user is impersonated - if so we allow changes as it could be an admin user fixing things
+
+            if not is_impersonated_session(self.context["request"]):
+                raise serializers.ValidationError("The Data Pipelines addon is required for batch exports.")
+
+        return attrs
 
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
@@ -329,7 +345,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         return batch_export_schema
 
-    def validate_hogql_query(self, hogql_query: ast.SelectQuery | ast.SelectUnionQuery) -> ast.SelectQuery:
+    def validate_hogql_query(self, hogql_query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
         """Validate a HogQLQuery being used for batch exports.
 
         This method essentially checks that a query is supported by batch exports:
@@ -338,7 +354,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         3. Query must SELECT FROM events, and only from events.
         """
 
-        if isinstance(hogql_query, ast.SelectUnionQuery):
+        if isinstance(hogql_query, ast.SelectSetQuery):
             raise serializers.ValidationError("UNIONs are not supported")
 
         parsed = cast(ast.SelectQuery, hogql_query)
@@ -393,23 +409,31 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         start_at_input = request.data.get("start_at", None)
         end_at_input = request.data.get("end_at", None)
 
-        if start_at_input is None or end_at_input is None:
-            raise ValidationError("Both 'start_at' and 'end_at' must be specified")
+        temporal = sync_connect()
+        batch_export = self.get_object()
 
-        start_at = validate_date_input(start_at_input, self.team)
-        end_at = validate_date_input(end_at_input, self.team)
+        if start_at_input is not None:
+            start_at = validate_date_input(start_at_input, self.team)
+        else:
+            start_at = None
+
+        if end_at_input is not None:
+            end_at = validate_date_input(end_at_input, self.team)
+        else:
+            end_at = None
+
+        if start_at is None or end_at is None:
+            backfill_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)
+            return response.Response({"backfill_id": backfill_id})
 
         if start_at >= end_at:
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
-
-        batch_export = self.get_object()
 
         if end_at > dt.datetime.now(dt.UTC) + batch_export.interval_time_delta:
             raise ValidationError(
                 f"The provided 'end_at' ({end_at.isoformat()}) is too far into the future. Cannot backfill beyond 1 batch period into the future."
             )
 
-        temporal = sync_connect()
         try:
             backfill_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)
         except BatchExportWithNoEndNotAllowedError:

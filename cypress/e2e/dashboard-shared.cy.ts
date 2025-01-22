@@ -2,9 +2,9 @@ import { dashboards } from '../productAnalytics'
 
 describe('Shared dashboard', () => {
     beforeEach(() => {
-        cy.intercept('GET', /api\/projects\/\d+\/insights\/\?.*/).as('loadInsightList')
-        cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
-        cy.intercept('POST', /\/api\/projects\/\d+\/dashboards/).as('createDashboard')
+        cy.intercept('GET', /api\/environments\/\d+\/insights\/\?.*/).as('loadInsightList')
+        cy.intercept('PATCH', /api\/environments\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+        cy.intercept('POST', /\/api\/environments\/\d+\/dashboards/).as('createDashboard')
         cy.useSubscriptionStatus('unsubscribed')
 
         cy.clickNavMenu('dashboards')

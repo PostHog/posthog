@@ -8,7 +8,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Team, Group
-from posthog.schema import ActorsQuery
+from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
 
 import orjson as json
 
@@ -27,7 +27,7 @@ class ActorStrategy:
         raise NotImplementedError()
 
     def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        return {}
+        return RecordingsHelper(self.team).get_recordings(matching_events)
 
     def input_columns(self) -> list[str]:
         raise NotImplementedError()
@@ -88,11 +88,10 @@ class PersonStrategy(ActorStrategy):
 
         return person_uuid_to_person
 
-    def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        return RecordingsHelper(self.team).get_recordings(matching_events)
-
     def input_columns(self) -> list[str]:
-        return ["person", "id", "created_at", "person.$delete"]
+        if isinstance(self.query.source, InsightActorsQuery) and isinstance(self.query.source.source, TrendsQuery):
+            return ["person", "id", "person.$delete", "event_distinct_ids"]
+        return ["person", "id", "person.$delete"]
 
     def filter_conditions(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []

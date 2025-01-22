@@ -3,17 +3,16 @@ import { LemonBanner, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { InsightType } from '~/types'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentIdType, InsightType } from '~/types'
 
-import { EXPERIMENT_INSIGHT_ID } from '../constants'
+import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-
 interface ExperimentCalculatorProps {
-    experimentId: number | 'new'
+    experimentId: ExperimentIdType
 }
 
 function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Element {
@@ -108,20 +107,34 @@ function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Elem
 }
 
 export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorProps): JSX.Element {
-    const { experimentInsightType, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
+    const { _getMetricType, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
         experimentLogic({ experimentId })
     )
     const { setExperiment } = useActions(experimentLogic({ experimentId }))
 
+    const metricType = _getMetricType(experiment.metrics[0])
+
     // :KLUDGE: need these to mount the Query component to load the insight */
-    const insightLogicInstance = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID, syncWithUrl: false })
+    const insightLogicInstance = insightLogic({
+        dashboardItemId: metricType === InsightType.FUNNELS ? MetricInsightId.Funnels : MetricInsightId.Trends,
+        syncWithUrl: false,
+    })
     const { insightProps } = useValues(insightLogicInstance)
-    const { query } = useValues(insightDataLogic(insightProps))
+    let query = null
+    if (experiment.metrics.length > 0) {
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source:
+                metricType === InsightType.FUNNELS
+                    ? (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query
+                    : (experiment.metrics[0] as ExperimentTrendsQuery).count_query,
+        }
+    }
 
     const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
 
     let sliderMaxValue = 0
-    if (experimentInsightType === InsightType.FUNNELS) {
+    if (metricType === InsightType.FUNNELS) {
         if (100 - funnelConversionRate < 50) {
             sliderMaxValue = 100 - funnelConversionRate
         } else {
@@ -204,7 +217,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                         The calculations are based on the events received in the last 14 days. This event count may
                         differ from what was considered in earlier estimates.
                     </LemonBanner>
-                    {experimentInsightType === InsightType.TRENDS ? (
+                    {_getMetricType(experiment.metrics[0]) === InsightType.TRENDS ? (
                         <TrendCalculation experimentId={experimentId} />
                     ) : (
                         <FunnelCalculation experimentId={experimentId} />

@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
@@ -44,6 +45,7 @@ interface InsightMetaProps
         | 'showEditingControls'
         | 'showDetailsControls'
         | 'moreButtons'
+        | 'variablesOverride'
     > {
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
@@ -55,6 +57,7 @@ export function InsightMeta({
     ribbonColor,
     dashboardId,
     updateColor,
+    variablesOverride,
     removeFromDashboard,
     deleteWithUndo,
     refresh,
@@ -95,42 +98,23 @@ export function InsightMeta({
             refreshDisabledReason={refreshDisabledReason}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
-            topHeading={<TopHeading insight={insight} />}
-            meta={
-                <>
-                    <Link to={urls.insightView(short_id, dashboardId)}>
-                        <h4 title={name} data-attr="insight-card-title">
-                            {name || <i>{summary}</i>}
-                            {loading && (
-                                <Tooltip
-                                    title="This insight is queued to check for newer results. It will be updated soon."
-                                    placement="top-end"
-                                >
-                                    <span className="text-primary text-sm font-medium ml-1.5">
-                                        <Spinner className="mr-1.5 text-base" />
-                                        Refreshing
-                                    </span>
-                                </Tooltip>
-                            )}
-                        </h4>
-                    </Link>
-
-                    {!!insight.description && (
-                        <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
-                            {insight.description}
-                        </LemonMarkdown>
-                    )}
-                    {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
-
-                    {loading && <LemonTableLoader loading={true} />}
-                </>
+            topHeading={<TopHeading query={insight.query} />}
+            content={
+                <InsightMetaContent
+                    link={urls.insightView(short_id, dashboardId, variablesOverride)}
+                    title={name}
+                    fallbackTitle={summary}
+                    description={insight.description}
+                    loading={loading}
+                    tags={insight.tags}
+                />
             }
-            metaDetails={<InsightDetails insight={insight} />}
+            metaDetails={<InsightDetails query={insight.query} footerInfo={insight} />}
             samplingFactor={samplingFactor}
             moreButtons={
                 <>
                     <>
-                        <LemonButton to={urls.insightView(short_id, dashboardId)} fullWidth>
+                        <LemonButton to={urls.insightView(short_id, dashboardId, variablesOverride)} fullWidth>
                             View
                         </LemonButton>
                         {refresh && (
@@ -256,7 +240,19 @@ export function InsightMeta({
                                     Remove from dashboard
                                 </LemonButton>
                             ) : (
-                                <LemonButton status="danger" onClick={() => void deleteWithUndo?.()} fullWidth>
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => {
+                                        void (async () => {
+                                            try {
+                                                await deleteWithUndo?.()
+                                            } catch (error: any) {
+                                                lemonToast.error(`Failed to delete insight meta: ${error.detail}`)
+                                            }
+                                        })()
+                                    }}
+                                    fullWidth
+                                >
                                     Delete insight
                                 </LemonButton>
                             )}
@@ -265,5 +261,54 @@ export function InsightMeta({
                 </>
             }
         />
+    )
+}
+
+export function InsightMetaContent({
+    title,
+    fallbackTitle,
+    description,
+    link,
+    loading,
+    tags,
+}: {
+    title: string
+    fallbackTitle?: string
+    description?: string
+    link?: string
+    loading?: boolean
+    tags?: string[]
+}): JSX.Element {
+    let titleEl: JSX.Element = (
+        <h4 title={title} data-attr="insight-card-title">
+            {title || <i>{fallbackTitle || 'Untitled'}</i>}
+            {loading && (
+                <Tooltip
+                    title="This insight is queued to check for newer results. It will be updated soon."
+                    placement="top-end"
+                >
+                    <span className="text-primary text-sm font-medium ml-1.5">
+                        <Spinner className="mr-1.5 text-base" />
+                        Refreshing
+                    </span>
+                </Tooltip>
+            )}
+        </h4>
+    )
+    if (link) {
+        titleEl = <Link to={link}>{titleEl}</Link>
+    }
+
+    return (
+        <>
+            {titleEl}
+            {!!description && (
+                <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
+                    {description}
+                </LemonMarkdown>
+            )}
+            {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
+            <LemonTableLoader loading={loading} />
+        </>
     )
 }

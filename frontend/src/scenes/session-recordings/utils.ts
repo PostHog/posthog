@@ -1,6 +1,10 @@
-import { UniversalFiltersGroup, UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
+import { LegacyRecordingFilters, RecordingUniversalFilters, UniversalFiltersGroup, UniversalFilterValue } from '~/types'
 
-import { LegacyRecordingFilters, RecordingUniversalFilters } from '~/types'
+export const TimestampFormatToLabel = {
+    relative: 'Relative',
+    utc: 'UTC',
+    device: 'Device',
+}
 
 export const isUniversalFilters = (
     filters: RecordingUniversalFilters | LegacyRecordingFilters
@@ -8,6 +12,7 @@ export const isUniversalFilters = (
     return 'filter_group' in filters
 }
 
+// TODO we shouldn't be ever converting to filters any more, but I won't unpick this in this PR
 export const filtersFromUniversalFilterGroups = (filters: RecordingUniversalFilters): UniversalFilterValue[] => {
     const group = filters.filter_group.values[0] as UniversalFiltersGroup
     return group.values as UniversalFilterValue[]

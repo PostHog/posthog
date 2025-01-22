@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, TypeAlias
+from typing import TYPE_CHECKING, Optional, TypeAlias
 from django.db import models
 
 from posthog.client import sync_execute
@@ -27,6 +27,10 @@ from sentry_sdk import capture_exception
 from posthog.warehouse.util import database_sync_to_async
 from posthog.warehouse.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type, STR_TO_HOGQL_MAPPING
 from .external_table_definitions import external_tables
+from posthog.hogql.context import HogQLContext
+
+if TYPE_CHECKING:
+    from posthog.warehouse.models import ExternalDataJob
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
@@ -104,8 +108,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     def soft_delete(self):
         from posthog.warehouse.models.join import DataWarehouseJoin
 
-        DataWarehouseJoin.objects.filter(source_table_name=self.name).delete()
-        DataWarehouseJoin.objects.filter(joining_table_name=self.name).delete()
+        for join in DataWarehouseJoin.objects.filter(
+            Q(team_id=self.team.pk) & (Q(source_table_name=self.name) | Q(joining_table_name=self.name))
+        ).exclude(deleted=True):
+            join.soft_delete()
 
         self.deleted = True
         self.deleted_at = datetime.now()
@@ -135,13 +141,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         except:
             return False
 
-    def get_columns(self, safe_expose_ch_error=True) -> DataWarehouseTableColumns:
+    def get_columns(
+        self,
+        pipeline_version: Optional["ExternalDataJob.PipelineVersion"] = None,
+        safe_expose_ch_error: bool = True,
+    ) -> DataWarehouseTableColumns:
         try:
+            placeholder_context = HogQLContext(team_id=self.team.pk)
             s3_table_func = build_function_call(
                 url=self.url_pattern,
                 format=self.format,
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
+                context=placeholder_context,
+                pipeline_version=pipeline_version,
             )
 
             result = sync_execute(
@@ -149,7 +162,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                     SELECT *
                     FROM {s3_table_func}
                     LIMIT 1
-                )"""
+                )""",
+                args=placeholder_context.values,
             )
         except Exception as err:
             capture_exception(err)
@@ -174,15 +188,18 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     def get_count(self, safe_expose_ch_error=True) -> int:
         try:
+            placeholder_context = HogQLContext(team_id=self.team.pk)
             s3_table_func = build_function_call(
                 url=self.url_pattern,
                 format=self.format,
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
+                context=placeholder_context,
             )
 
             result = sync_execute(
                 f"SELECT count() FROM {s3_table_func}",
+                args=placeholder_context.values,
             )
         except Exception as err:
             capture_exception(err)

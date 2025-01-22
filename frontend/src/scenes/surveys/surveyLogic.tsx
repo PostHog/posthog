@@ -12,7 +12,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
     BaseMathType,
@@ -105,6 +105,7 @@ export interface QuestionResultsReady {
     [key: string]: boolean
 }
 
+export type DataCollectionType = 'until_stopped' | 'until_limit' | 'until_adaptive_limit'
 export type ScheduleType = 'once' | 'recurring'
 
 const getResponseField = (i: number): string => (i === 0 ? '$survey_response' : `$survey_response_${i}`)
@@ -168,6 +169,9 @@ export const surveyLogic = kea<surveyLogicType>([
             nextStep,
             specificQuestionIndex,
         }),
+        setDataCollectionType: (dataCollectionType: DataCollectionType) => ({
+            dataCollectionType,
+        }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
         deleteBranchingLogic: true,
         archiveSurvey: true,
@@ -178,9 +182,16 @@ export const surveyLogic = kea<surveyLogicType>([
 
         setSchedule: (schedule: ScheduleType) => ({ schedule }),
         resetTargeting: true,
+        resetSurveyAdaptiveSampling: true,
+        resetSurveyResponseLimits: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
     }),
     loaders(({ props, actions, values }) => ({
+        responseSummary: {
+            summarize: async ({ questionIndex }: { questionIndex?: number }) => {
+                return api.surveys.summarize_responses(props.id, questionIndex)
+            },
+        },
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
@@ -324,7 +335,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             JSONExtractString(properties, '${getResponseField(questionIndex)}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
-                        WHERE event = 'survey sent' 
+                        WHERE event = 'survey sent'
                             AND properties.$survey_id = '${props.id}'
                             ${iterationCondition}
                             AND timestamp >= '${startDate}'
@@ -454,7 +465,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             JSONExtractString(properties, '${getResponseField(questionIndex)}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
-                        WHERE event = 'survey sent' 
+                        WHERE event = 'survey sent'
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
@@ -491,7 +502,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
-                        SELECT 
+                        SELECT
                             count(),
                             arrayJoin(JSONExtractArrayRaw(properties, '${getResponseField(questionIndex)}')) AS choice
                         FROM events
@@ -603,6 +614,19 @@ export const surveyLogic = kea<surveyLogicType>([
         loadSurveySuccess: () => {
             actions.loadSurveyUserStats()
         },
+        resetSurveyResponseLimits: () => {
+            actions.setSurveyValue('responses_limit', null)
+        },
+
+        resetSurveyAdaptiveSampling: () => {
+            actions.setSurveyValues({
+                response_sampling_interval: null,
+                response_sampling_interval_type: null,
+                response_sampling_limit: null,
+                response_sampling_start_date: null,
+                response_sampling_daily_limits: null,
+            })
+        },
         resetTargeting: () => {
             actions.setSurveyValue('linked_flag_id', NEW_SURVEY.linked_flag_id)
             actions.setSurveyValue('targeting_flag_filters', NEW_SURVEY.targeting_flag_filters)
@@ -615,6 +639,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 iteration_count: NEW_SURVEY.iteration_count,
                 iteration_frequency_days: NEW_SURVEY.iteration_frequency_days,
             })
+            actions.setFlagPropertyErrors(NEW_SURVEY.targeting_flag_filters)
         },
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
@@ -640,6 +665,12 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 setSurveyMissing: () => true,
+            },
+        ],
+        dataCollectionType: [
+            'until_stopped' as DataCollectionType,
+            {
+                setDataCollectionType: (_, { dataCollectionType }) => dataCollectionType,
             },
         ],
 
@@ -872,6 +903,24 @@ export const surveyLogic = kea<surveyLogicType>([
                 return !!(survey.start_date && !survey.end_date)
             },
         ],
+        surveyUsesLimit: [
+            (s) => [s.survey],
+            (survey: Survey): boolean => {
+                return !!(survey.responses_limit && survey.responses_limit > 0)
+            },
+        ],
+        surveyUsesAdaptiveLimit: [
+            (s) => [s.survey],
+            (survey: Survey): boolean => {
+                return !!(
+                    survey.response_sampling_interval &&
+                    survey.response_sampling_interval > 0 &&
+                    survey.response_sampling_interval_type !== '' &&
+                    survey.response_sampling_limit &&
+                    survey.response_sampling_limit > 0
+                )
+            },
+        ],
         surveyShufflingQuestionsAvailable: [
             (s) => [s.survey],
             (survey: Survey): boolean => {
@@ -941,6 +990,9 @@ export const surveyLogic = kea<surveyLogicType>([
                             }),
                             'timestamp',
                             'person',
+                            `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
+                            `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
+                            `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
                         ],
                         orderBy: ['timestamp DESC'],
                         where: [`event == 'survey sent'`],
@@ -1014,6 +1066,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             },
         ],
+
         getBranchingDropdownValue: [
             (s) => [s.survey],
             (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {

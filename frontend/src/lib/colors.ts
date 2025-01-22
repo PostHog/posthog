@@ -4,39 +4,49 @@ import { LifecycleToggle } from '~/types'
 
 import { LemonTagType } from './lemon-ui/LemonTag'
 
-/** --brand-blue in HSL for saturation mixing */
-export const BRAND_BLUE_HSL: [number, number, number] = [228, 100, 56]
-export const PURPLE: [number, number, number] = [260, 88, 71]
+/*
+ * Data colors.
+ */
 
-/* Insight series colors. */
+/** CSS variable names for the default posthog theme data colors. */
 const dataColorVars = [
-    'color-1',
-    'color-2',
-    'color-3',
-    'color-4',
-    'color-5',
-    'color-6',
-    'color-7',
-    'color-8',
-    'color-9',
-    'color-10',
-    'color-11',
-    'color-12',
-    'color-13',
-    'color-14',
-    'color-15',
-]
+    'data-color-1',
+    'data-color-2',
+    'data-color-3',
+    'data-color-4',
+    'data-color-5',
+    'data-color-6',
+    'data-color-7',
+    'data-color-8',
+    'data-color-9',
+    'data-color-10',
+    'data-color-11',
+    'data-color-12',
+    'data-color-13',
+    'data-color-14',
+    'data-color-15',
+] as const
 
-export const tagColors: LemonTagType[] = [
-    'primary',
-    'highlight',
-    'warning',
-    'danger',
-    'success',
-    'completion',
-    'caution',
-    'option',
-]
+export type DataColorToken =
+    | 'preset-1'
+    | 'preset-2'
+    | 'preset-3'
+    | 'preset-4'
+    | 'preset-5'
+    | 'preset-6'
+    | 'preset-7'
+    | 'preset-8'
+    | 'preset-9'
+    | 'preset-10'
+    | 'preset-11'
+    | 'preset-12'
+    | 'preset-13'
+    | 'preset-14'
+    | 'preset-15'
+
+export type DataColorTheme = Partial<Record<DataColorToken, string>> & {
+    [key: `preset-${number}`]: string
+}
 
 export function getColorVar(variable: string): string {
     const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
@@ -48,6 +58,10 @@ export function getColorVar(variable: string): string {
     return colorValue.trim()
 }
 
+export function getDataThemeColor(theme: DataColorTheme, color: DataColorToken): string {
+    return theme[color] as string
+}
+
 /** Returns the color for the given series index.
  *
  * The returned colors are in hex format for compatibility with Chart.js. They repeat
@@ -57,7 +71,12 @@ export function getColorVar(variable: string): string {
  */
 export function getSeriesColor(index: number = 0): string {
     const adjustedIndex = index % dataColorVars.length
-    return getColorVar(`data-${dataColorVars[adjustedIndex]}`)
+    return getColorVar(dataColorVars[adjustedIndex])
+}
+
+/** Returns all color options for series */
+export function getSeriesColorPalette(): string[] {
+    return dataColorVars.map((colorVar) => getColorVar(colorVar))
 }
 
 /** Return the background color for the given series index. */
@@ -99,18 +118,17 @@ export function getGraphColors(isDarkModeOn: boolean): Record<string, string | n
     }
 }
 
-/**
- * Gradate color saturation based on its intended strength.
- * This is for visualizations where a data point's color depends on its value.
- * @param hsl The HSL color to gradate.
- * @param strength The strength of the data point.
- * @param floor The minimum saturation. This preserves proportionality of strength, so doesn't just cut it off.
+/*
+ * Tag colors.
  */
-export function gradateColor(
-    hsl: [number, number, number],
-    strength: number,
-    floor: number = 0
-): `hsla(${number}, ${number}%, ${number}%, ${string})` {
-    const saturation = floor + (1 - floor) * strength
-    return `hsla(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%, ${saturation.toPrecision(3)})`
-}
+
+export const tagColors: LemonTagType[] = [
+    'primary',
+    'highlight',
+    'warning',
+    'danger',
+    'success',
+    'completion',
+    'caution',
+    'option',
+]

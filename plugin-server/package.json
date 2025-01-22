@@ -13,7 +13,7 @@
         "start:dev": "NODE_ENV=dev BASE_DIR=.. nodemon --watch src/ --exec node -r @swc-node/register src/index.ts",
         "start:devNoWatch": "NODE_ENV=dev BASE_DIR=.. node -r @swc-node/register src/index.ts",
         "build": "pnpm clean && pnpm compile",
-        "clean": "rm -rf dist/*",
+        "clean": "rm -rf dist/* && rm -rf ../rust/cyclotron-node/index.node",
         "typescript:compile": "tsc -b",
         "typescript:check": "tsc --noEmit -p .",
         "compile": "pnpm typescript:compile",
@@ -42,8 +42,8 @@
     "repository": "https://github.com/PostHog/posthog-plugin-server",
     "license": "MIT",
     "dependencies": {
-        "@aws-sdk/client-s3": "^3.315.0",
-        "@aws-sdk/lib-storage": "^3.315.0",
+        "@aws-sdk/client-s3": "^3.709.0",
+        "@aws-sdk/lib-storage": "^3.709.0",
         "@babel/core": "^7.18.10",
         "@babel/plugin-transform-react-jsx": "^7.18.10",
         "@babel/preset-env": "^7.18.10",
@@ -54,7 +54,7 @@
         "@maxmind/geoip2-node": "^3.4.0",
         "@posthog/clickhouse": "^1.7.0",
         "@posthog/cyclotron": "file:../rust/cyclotron-node",
-        "@posthog/hogvm": "^1.0.54",
+        "@posthog/hogvm": "^1.0.66",
         "@posthog/plugin-scaffold": "1.4.4",
         "@sentry/node": "^7.49.0",
         "@sentry/profiling-node": "^0.3.0",
@@ -69,15 +69,18 @@
         "express": "^4.18.2",
         "faker": "^5.5.3",
         "fast-deep-equal": "^3.1.3",
+        "fastpriorityqueue": "^0.7.5",
         "fernet-nodejs": "^1.0.6",
         "generic-pool": "^3.7.1",
         "graphile-worker": "0.13.0",
         "ioredis": "^4.27.6",
         "ipaddr.js": "^2.1.0",
+        "js-big-decimal": "^2.2.0",
         "kafkajs": "^2.2.0",
         "kafkajs-snappy": "^1.1.0",
         "lru-cache": "^6.0.0",
         "luxon": "^3.4.4",
+        "lz4-kafkajs": "1.0.0",
         "node-fetch": "^2.6.1",
         "node-rdkafka": "^2.17.0",
         "node-schedule": "^2.1.0",
@@ -91,7 +94,8 @@
         "tail": "^2.2.6",
         "uuid": "^9.0.1",
         "v8-profiler-next": "^1.9.0",
-        "vm2": "3.9.18"
+        "vm2": "3.9.18",
+        "zod": "^3.24.1"
     },
     "devDependencies": {
         "0x": "^5.5.0",
@@ -108,9 +112,9 @@
         "@types/faker": "^5.5.7",
         "@types/generic-pool": "^3.1.9",
         "@types/ioredis": "^4.26.4",
-        "@types/jest": "^28.1.1",
+        "@types/jest": "^29.5.14",
         "@types/long": "4.x.x",
-        "@types/luxon": "^1.27.0",
+        "@types/luxon": "^3.4.2",
         "@types/node": "^16.0.0",
         "@types/node-fetch": "^2.5.10",
         "@types/node-schedule": "^2.1.0",
@@ -132,7 +136,7 @@
         "eslint-plugin-node": "^11.1.0",
         "eslint-plugin-promise": "^6.1.1",
         "eslint-plugin-simple-import-sort": "^7.0.0",
-        "jest": "^28.1.1",
+        "jest": "^29.7.0",
         "nodemon": "^2.0.22",
         "parse-prometheus-text-format": "^1.1.1",
         "pino-pretty": "^9.1.0",
@@ -148,6 +152,6 @@
     },
     "cyclotron": {
         "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": true,
-        "version": "0.1.6"
+        "version": "0.1.7"
     }
 }

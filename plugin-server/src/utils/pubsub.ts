@@ -51,12 +51,16 @@ export class PubSub {
         }
 
         await this.redisSubscriber.unsubscribe()
-        this.redisSubscriber.disconnect()
+        if (this.redisSubscriber) {
+            this.redisSubscriber.disconnect()
+        }
         this.redisSubscriber = undefined
 
         if (this.redisPublisher) {
             const redisPublisher = await this.redisPublisher
-            redisPublisher.disconnect()
+            if (redisPublisher) {
+                redisPublisher.disconnect()
+            }
             this.redisPublisher = undefined
         }
 

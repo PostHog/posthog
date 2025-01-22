@@ -1,114 +1,307 @@
-import { IconBug, IconDashboard, IconInfo, IconTerminal } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import {
+    BaseIcon,
+    IconCheck,
+    IconDashboard,
+    IconGear,
+    IconInfo,
+    IconSearch,
+    IconStethoscope,
+    IconTerminal,
+} from '@posthog/icons'
+import { LemonButton, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconChevronRight, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { IconWindow } from 'scenes/session-recordings/player/icons'
-
-import { SessionRecordingPlayerTab } from '~/types'
-
-import { playerSettingsLogic } from '../playerSettingsLogic'
+import { useEffect, useState } from 'react'
+import { SettingsBar, SettingsButton, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
-    SessionRecordingPlayerMode,
-} from '../sessionRecordingPlayerLogic'
+    InspectorListItem,
+    playerInspectorLogic,
+} from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { FilterableInspectorListItemTypes } from '~/types'
+
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
-import { playerInspectorLogic } from './playerInspectorLogic'
 
 export const TabToIcon = {
-    [SessionRecordingPlayerTab.ALL]: undefined,
-    [SessionRecordingPlayerTab.EVENTS]: IconUnverifiedEvent,
-    [SessionRecordingPlayerTab.CONSOLE]: IconTerminal,
-    [SessionRecordingPlayerTab.NETWORK]: IconDashboard,
-    [SessionRecordingPlayerTab.DOCTOR]: IconBug,
+    [FilterableInspectorListItemTypes.EVENTS]: IconUnverifiedEvent,
+    [FilterableInspectorListItemTypes.CONSOLE]: IconTerminal,
+    [FilterableInspectorListItemTypes.NETWORK]: IconDashboard,
+    [FilterableInspectorListItemTypes.DOCTOR]: IconStethoscope,
 }
 
-function TabButtons({
-    tabs,
-    logicProps,
+function sideActionForType({
+    miniFilters,
+    setMiniFilter,
+    allItemsByMiniFilterKey,
 }: {
-    tabs: SessionRecordingPlayerTab[]
-    logicProps: SessionRecordingPlayerLogicProps
+    miniFilters: SharedListMiniFilter[]
+    setMiniFilter: (key: string, enabled: boolean) => void
+    allItemsByMiniFilterKey: Record<string, InspectorListItem[]>
+}): SideAction {
+    return {
+        icon: <IconChevronRight className="rotate-90" />,
+        dropdown: {
+            closeOnClickInside: false,
+            overlay: (
+                <>
+                    {miniFilters.map(
+                        // without setting fontVariant to none a single digit number between brackets gets rendered as a ligature 🤷
+                        (filter: SharedListMiniFilter) => {
+                            return (
+                                <LemonButton
+                                    fullWidth
+                                    size="xsmall"
+                                    key={filter.name}
+                                    icon={
+                                        filter.enabled ? (
+                                            <IconCheck className="text-sm" />
+                                        ) : (
+                                            <BaseIcon className="text-sm" />
+                                        )
+                                    }
+                                    status={filter.enabled ? 'danger' : 'default'}
+                                    onClick={() => {
+                                        setMiniFilter(filter.key, !filter.enabled)
+                                    }}
+                                    tooltip={filter.tooltip}
+                                    active={filter.enabled}
+                                >
+                                    <div className="flex flex-row w-full items-center justify-between">
+                                        <span>{filter.name}&nbsp;</span>
+                                        <span
+                                            // without setting fontVariant to none a single digit number between brackets gets rendered as a ligature 🤷
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={{ fontVariant: 'none' }}
+                                        >
+                                            (<span>{allItemsByMiniFilterKey[filter.key]?.length ?? 0}</span>)
+                                        </span>
+                                    </div>
+                                </LemonButton>
+                            )
+                        }
+                    )}
+                </>
+            ),
+        },
+    }
+}
+
+function FilterSettingsButton({
+    type,
+    icon,
+    disabledReason,
+    hasFilterableItems,
+    upsellSideAction,
+}: {
+    type: FilterableInspectorListItemTypes
+    icon: JSX.Element
+    disabledReason?: string | undefined
+    hasFilterableItems?: boolean
+    upsellSideAction?: SideAction
 }): JSX.Element {
-    const inspectorLogic = playerInspectorLogic(logicProps)
-    const { tab, tabsState } = useValues(inspectorLogic)
-    const { setTab } = useActions(inspectorLogic)
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { allItemsByMiniFilterKey } = useValues(playerInspectorLogic(logicProps))
+    const { miniFiltersForType } = useValues(miniFiltersLogic)
+    const { setMiniFilter, setMiniFilters } = useActions(miniFiltersLogic)
+
+    const networkFilters = miniFiltersForType(type)?.filter((x) => x.name !== 'All')
+    const filterKeys = networkFilters.map((x) => x.key)
+    const isEnabled = networkFilters.some((x) => !!x.enabled)
 
     return (
-        <LemonTabs
-            size="small"
-            activeKey={tab}
-            onChange={(tabId) => setTab(tabId)}
-            tabs={tabs.map((tabId) => {
-                const TabIcon = TabToIcon[tabId]
-                return {
-                    key: tabId,
-                    label: (
-                        <div className="flex items-center gap-1">
-                            {TabIcon ? (
-                                tabsState[tabId] === 'loading' ? (
-                                    <Spinner textColored />
-                                ) : (
-                                    <TabIcon />
-                                )
-                            ) : undefined}
-                            <span>{capitalizeFirstLetter(tabId)}</span>
-                        </div>
-                    ),
-                }
-            })}
+        <SettingsButton
+            sideAction={
+                upsellSideAction
+                    ? upsellSideAction
+                    : hasFilterableItems
+                    ? sideActionForType({
+                          setMiniFilter,
+                          allItemsByMiniFilterKey,
+                          miniFilters: networkFilters,
+                      })
+                    : undefined
+            }
+            label={capitalizeFirstLetter(type)}
+            icon={icon}
+            onClick={() => {
+                setMiniFilters(filterKeys, !isEnabled)
+            }}
+            disabledReason={disabledReason}
+            active={!hasFilterableItems ? false : isEnabled}
+        />
+    )
+}
+
+function NetworkFilterSettingsButton(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
+    const { currentTeam } = useValues(teamLogic)
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+
+    const hasNetworkItems = allItemsByItemType[FilterableInspectorListItemTypes.NETWORK]?.length > 0
+
+    return (
+        <FilterSettingsButton
+            type={FilterableInspectorListItemTypes.NETWORK}
+            icon={<IconDashboard />}
+            // we disable the filter toggle-all when there are no items
+            disabledReason={!hasNetworkItems ? 'There are no network requests in this recording' : undefined}
+            hasFilterableItems={hasNetworkItems}
+            // if there are no results and the feature is disabled, then we'd upsell
+            upsellSideAction={
+                !hasNetworkItems && !currentTeam?.capture_performance_opt_in
+                    ? {
+                          icon: <IconChevronRight className="rotate-90" />,
+
+                          dropdown: {
+                              closeOnClickInside: false,
+                              overlay: (
+                                  <LemonButton
+                                      icon={<IconGear />}
+                                      fullWidth
+                                      size="xsmall"
+                                      onClick={() =>
+                                          openSettingsPanel({
+                                              sectionId: 'project-replay',
+                                              settingId: 'replay-network',
+                                          })
+                                      }
+                                  >
+                                      Configure network capture in settings.
+                                  </LemonButton>
+                              ),
+                          },
+                      }
+                    : undefined
+            }
+        />
+    )
+}
+
+function ConsoleFilterSettingsButton(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
+    const { currentTeam } = useValues(teamLogic)
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+
+    const hasConsoleItems = allItemsByItemType[FilterableInspectorListItemTypes.CONSOLE]?.length > 0
+
+    return (
+        <FilterSettingsButton
+            type={FilterableInspectorListItemTypes.CONSOLE}
+            icon={<IconTerminal />}
+            // we disable the filter toggle-all when there are no items
+            disabledReason={!hasConsoleItems ? 'There are no console logs in this recording' : undefined}
+            hasFilterableItems={hasConsoleItems}
+            // if there are no results and the feature is disabled, then we'd upsell
+            upsellSideAction={
+                !hasConsoleItems && !currentTeam?.capture_console_log_opt_in
+                    ? {
+                          icon: <IconChevronRight className="rotate-90" />,
+
+                          dropdown: {
+                              closeOnClickInside: false,
+                              overlay: (
+                                  <LemonButton
+                                      icon={<IconGear />}
+                                      fullWidth
+                                      size="xsmall"
+                                      onClick={() =>
+                                          openSettingsPanel({
+                                              sectionId: 'project-replay',
+                                              settingId: 'replay',
+                                          })
+                                      }
+                                  >
+                                      Configure console log capture in settings.
+                                  </LemonButton>
+                              ),
+                          },
+                      }
+                    : undefined
+            }
+        />
+    )
+}
+
+function EventsFilterSettingsButton(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
+
+    const hasEventItems = allItemsByItemType[FilterableInspectorListItemTypes.EVENTS]?.length > 0
+
+    return (
+        <FilterSettingsButton
+            type={FilterableInspectorListItemTypes.EVENTS}
+            icon={<IconUnverifiedEvent />}
+            // we disable the filter toggle-all when there are no items
+            disabledReason={!hasEventItems ? 'There are no events in this recording' : undefined}
+            hasFilterableItems={hasEventItems}
+            // there is no event upsell currently
+            upsellSideAction={undefined}
         />
     )
 }
 
 export function PlayerInspectorControls(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const inspectorLogic = playerInspectorLogic(logicProps)
-    const { tab, windowIdFilter, windowIds, showMatchingEventsFilter } = useValues(inspectorLogic)
-    const { setWindowIdFilter, setTab } = useActions(inspectorLogic)
-    const { showOnlyMatching, miniFilters, searchQuery } = useValues(playerSettingsLogic)
-    const { setShowOnlyMatching, setMiniFilter, setSearchQuery } = useActions(playerSettingsLogic)
+    const { searchQuery, miniFiltersByKey } = useValues(miniFiltersLogic)
+    const { setSearchQuery, setMiniFilter } = useActions(miniFiltersLogic)
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const inspectorTabs = [
-        SessionRecordingPlayerTab.ALL,
-        SessionRecordingPlayerTab.EVENTS,
-        SessionRecordingPlayerTab.CONSOLE,
-        SessionRecordingPlayerTab.NETWORK,
-    ]
-    if (window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
-        inspectorTabs.push(SessionRecordingPlayerTab.DOCTOR)
-    } else {
-        // ensure we've not left the doctor tab in the tabs state
-        if (tab === SessionRecordingPlayerTab.DOCTOR) {
-            setTab(SessionRecordingPlayerTab.ALL)
-        }
-    }
+    const [showSearch, setShowSearch] = useState(false)
 
-    if (mode === SessionRecordingPlayerMode.Sharing) {
-        // Events can't be loaded in sharing mode
-        inspectorTabs.splice(1, 1)
-        // Doctor tab is not available in sharing mode
-        inspectorTabs.pop()
-    }
+    useEffect(() => {
+        if (!window.IMPERSONATED_SESSION && !featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
+            // ensure we've not left the doctor active
+            setMiniFilter('doctor', false)
+        }
+    }, [featureFlags, setMiniFilter])
 
     return (
-        <div className="bg-bg-3000 border-b pb-2">
-            <div className="flex flex-nowrap">
-                <div className="w-2.5 mb-2 border-b shrink-0" />
-                <TabButtons tabs={inspectorTabs} logicProps={logicProps} />
-                <div className="flex flex-1 border-b shrink-0 mb-2" />
-            </div>
-
-            <div className="flex px-2 gap-x-3 flex-wrap gap-y-1">
-                <div className="flex flex-1 items-center">
+        <div className="flex">
+            <SettingsBar border="bottom" className="justify-end">
+                {mode !== SessionRecordingPlayerMode.Sharing && <EventsFilterSettingsButton />}
+                <ConsoleFilterSettingsButton />
+                <NetworkFilterSettingsButton />
+                {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
+                    mode !== SessionRecordingPlayerMode.Sharing && (
+                        <SettingsToggle
+                            title="Doctor events help diagnose the health of a recording, and are used by PostHog support"
+                            icon={<IconStethoscope />}
+                            label="Doctor"
+                            active={!!miniFiltersByKey['doctor']?.enabled}
+                            onClick={() => setMiniFilter('doctor', !miniFiltersByKey['doctor']?.enabled)}
+                        />
+                    )}
+                <LemonButton
+                    icon={<IconSearch />}
+                    size="xsmall"
+                    onClick={() => {
+                        const newState = !showSearch
+                        setShowSearch(newState)
+                        if (!newState) {
+                            // clear the search when we're hiding the search bar
+                            setSearchQuery('')
+                        }
+                    }}
+                    status={showSearch ? 'danger' : 'default'}
+                    title="Search"
+                    className="rounded-[0px]"
+                />
+            </SettingsBar>
+            {showSearch && (
+                <div className="flex px-2 py-1">
                     <LemonInput
                         size="xsmall"
                         onChange={(e) => setSearchQuery(e)}
@@ -124,67 +317,7 @@ export function PlayerInspectorControls(): JSX.Element {
                         }
                     />
                 </div>
-
-                <div
-                    className="flex items-center gap-1 flex-wrap font-medium text-primary-alt"
-                    data-attr="mini-filters"
-                >
-                    {miniFilters.map((filter) => (
-                        <LemonButton
-                            key={filter.key}
-                            size="small"
-                            noPadding
-                            active={filter.enabled}
-                            onClick={() => {
-                                // "alone" should always be a select-to-true action
-                                setMiniFilter(filter.key, filter.alone || !filter.enabled)
-                            }}
-                            tooltip={filter.tooltip}
-                        >
-                            <span className="p-1 text-xs">{filter.name}</span>
-                        </LemonButton>
-                    ))}
-                </div>
-
-                {windowIds.length > 1 ? (
-                    <div className="flex items-center gap-2">
-                        <LemonSelect
-                            size="xsmall"
-                            data-attr="player-window-select"
-                            value={windowIdFilter}
-                            onChange={(val) => setWindowIdFilter(val || null)}
-                            options={[
-                                {
-                                    value: null,
-                                    label: 'All windows',
-                                    icon: <IconWindow size="small" value="A" className="text-muted" />,
-                                },
-                                ...windowIds.map((windowId, index) => ({
-                                    value: windowId,
-                                    label: `Window ${index + 1}`,
-                                    icon: <IconWindow size="small" value={index + 1} className="text-muted" />,
-                                })),
-                            ]}
-                            tooltip="Each recording window translates to a distinct browser tab or window."
-                        />
-                    </div>
-                ) : null}
-
-                {showMatchingEventsFilter ? (
-                    <div className="flex items-center gap-1">
-                        <LemonCheckbox checked={showOnlyMatching} size="small" onChange={setShowOnlyMatching} />
-                        <span className="flex whitespace-nowrap text-xs gap-1">
-                            Only events matching filters
-                            <Tooltip
-                                title="Display only the events that match the global filter."
-                                className="text-base text-muted-alt"
-                            >
-                                <IconInfo />
-                            </Tooltip>
-                        </span>
-                    </div>
-                ) : null}
-            </div>
+            )}
         </div>
     )
 }

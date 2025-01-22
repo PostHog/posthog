@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, queryExportContext } from '~/queries/query'
-import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema'
+import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -11,7 +11,7 @@ describe('query', () => {
     beforeEach(() => {
         useMocks({
             post: {
-                '/api/projects/:team/query': (req) => {
+                '/api/environments/:team_id/query': (req) => {
                     const data = req.body as any
                     if (data.query?.kind === 'HogQLQuery') {
                         return [200, { results: [], clickhouse: 'clickhouse string', hogql: 'hogql string' }]

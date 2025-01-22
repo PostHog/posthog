@@ -1,5 +1,6 @@
 import * as Icons from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -8,9 +9,10 @@ import { availableOnboardingProducts, getProductUri, onboardingLogic } from 'sce
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { OnboardingProduct, ProductKey } from '~/types'
+
+import { productsLogic } from './productsLogic'
 
 export const scene: SceneExport = {
     component: Products,
@@ -21,41 +23,33 @@ export function getProductIcon(color: string, iconKey?: string | null, className
     return <Icon className={className} color={color} />
 }
 
-export function ProductCard({
+export function SelectableProductCard({
     product,
     productKey,
-    getStartedActionOverride,
+    onClick,
     orientation = 'vertical',
     className,
+    selected = false,
 }: {
     product: OnboardingProduct
     productKey: string
-    getStartedActionOverride?: () => void
+    onClick: () => void
     orientation?: 'horizontal' | 'vertical'
     className?: string
+    selected?: boolean
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { setIncludeIntro } = useActions(onboardingLogic)
-    const { addProductIntent } = useActions(teamLogic)
+    const { replayLandingPage } = useValues(onboardingLogic)
+
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[productKey]
     const vertical = orientation === 'vertical'
-
     return (
         <LemonCard
             data-attr={`${productKey}-onboarding-card`}
             className={clsx('flex justify-center cursor-pointer', vertical ? 'flex-col' : 'items-center', className)}
             key={productKey}
-            onClick={() => {
-                setIncludeIntro(false)
-                if (!onboardingCompleted) {
-                    getStartedActionOverride && getStartedActionOverride()
-                }
-                router.actions.push(urls.onboarding(productKey))
-                addProductIntent({
-                    product_type: productKey as ProductKey,
-                    intent_context: 'onboarding product selected',
-                })
-            }}
+            onClick={onClick}
+            focused={selected}
         >
             {onboardingCompleted && (
                 <Tooltip
@@ -66,15 +60,15 @@ export function ProductCard({
                         className="relative"
                         onClick={(e) => {
                             e.stopPropagation()
-                            router.actions.push(getProductUri(productKey as ProductKey))
+                            router.actions.push(getProductUri(productKey as ProductKey, replayLandingPage))
                         }}
                         data-attr={`return-to-${productKey}`}
                     >
-                        <Icons.IconCheckCircle className="absolute top-0 right-0" color="green" />
+                        <IconCheckCircle className="absolute top-0 right-0" color="green" />
                     </div>
                 </Tooltip>
             )}
-            <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center">
+            <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center select-none">
                 <div className="self-center">{getProductIcon(product.iconColor, product.icon, 'text-2xl')}</div>
                 <div className="font-bold text-center self-start text-md">{product.name}</div>
             </div>
@@ -83,28 +77,77 @@ export function ProductCard({
 }
 
 export function Products(): JSX.Element {
-    const { isFirstProductOnboarding } = useValues(onboardingLogic)
     const { showInviteModal } = useActions(inviteLogic)
 
+    const { toggleSelectedProduct, setFirstProductOnboarding, handleStartOnboarding } = useActions(productsLogic)
+    const { selectedProducts, firstProductOnboarding } = useValues(productsLogic)
+
     return (
-        <div className="flex flex-col flex-1 w-full px-6 items-center justify-center bg-bg-3000 h-[calc(100vh-var(--breadcrumbs-height-full)-2*var(--scene-padding))]">
-            <div className="mb-8">
-                {isFirstProductOnboarding ? (
-                    <h2 className="text-center text-4xl">Where do you want to start?</h2>
-                ) : (
-                    <h2 className="text-center text-4xl">Welcome back. What would you like to set up?</h2>
-                )}
-                {isFirstProductOnboarding && <p className="text-center">You can set up additional products later.</p>}
-            </div>
+        <div className="flex flex-col flex-1 w-full p-4 items-center justify-center bg-bg-3000">
             <>
-                <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(3,_minmax(min-content,_160px))] ">
-                    {Object.keys(availableOnboardingProducts).map((productKey) => (
-                        <ProductCard
-                            product={availableOnboardingProducts[productKey]}
-                            key={productKey}
-                            productKey={productKey}
-                        />
-                    ))}
+                <div className="flex flex-col justify-center flex-grow items-center">
+                    <div className="mb-2">
+                        <h2 className="text-center text-4xl">Which products would you like to use?</h2>
+                        <p className="text-center">
+                            Don't worry &ndash; you can pick more than one! Please select all that apply.
+                        </p>
+                    </div>
+                    <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full max-w-[720px]">
+                        <div className="flex flex-wrap gap-4 items-center justify-center">
+                            {Object.keys(availableOnboardingProducts).map((productKey) => (
+                                <SelectableProductCard
+                                    product={availableOnboardingProducts[productKey]}
+                                    key={productKey}
+                                    productKey={productKey}
+                                    onClick={() => {
+                                        toggleSelectedProduct(productKey as ProductKey)
+                                    }}
+                                    className="w-[160px]"
+                                    selected={selectedProducts.includes(productKey as ProductKey)}
+                                />
+                            ))}
+                        </div>
+
+                        <div className="flex gap-2 justify-center items-center">
+                            {selectedProducts.length > 1 ? (
+                                <>
+                                    <LemonLabel>Start first with</LemonLabel>
+                                    <LemonSelect
+                                        value={firstProductOnboarding}
+                                        options={selectedProducts.map((productKey) => ({
+                                            label: availableOnboardingProducts[productKey].name,
+                                            value: productKey,
+                                        }))}
+                                        onChange={(value) => value && setFirstProductOnboarding(value)}
+                                        placeholder="Select a product"
+                                        className="bg-bg-light"
+                                    />
+                                    <LemonButton
+                                        sideIcon={<IconArrowRight />}
+                                        onClick={handleStartOnboarding}
+                                        type="primary"
+                                        status="alt"
+                                        data-attr="onboarding-continue"
+                                    >
+                                        Go
+                                    </LemonButton>
+                                </>
+                            ) : (
+                                <LemonButton
+                                    type="primary"
+                                    status="alt"
+                                    onClick={handleStartOnboarding}
+                                    data-attr="onboarding-continue"
+                                    sideIcon={<IconArrowRight />}
+                                    disabledReason={
+                                        selectedProducts.length === 0 ? 'Select a product to start with' : undefined
+                                    }
+                                >
+                                    Get started
+                                </LemonButton>
+                            )}
+                        </div>
+                    </div>
                 </div>
                 <p className="text-center mt-8">
                     Need help from a team member? <Link onClick={() => showInviteModal()}>Invite them</Link>

@@ -21,6 +21,6 @@ describe('Billing Upgrade CTA', () => {
         cy.reload()
 
         cy.get('[data-attr=billing-page-core-upgrade-cta] .LemonButton__content').should('not.exist')
-        cy.get('[data-attr=manage-billing]').should('have.text', 'Manage card details and view past invoices')
+        cy.get('[data-attr=manage-billing]').should('have.text', 'Manage card details and invoices')
     })
 })

@@ -45,6 +45,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                 "stickiness_days": "1",
                 "label": "$pageview",
             },
+            self.team.pk,
         )
 
         insert_cohort_from_insight_filter(
@@ -118,6 +119,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                 "date_to": "2021-01-01",
                 "label": "$pageview",
             },
+            self.team.pk,
         )
         insert_cohort_from_insight_filter(
             cohort_id,
@@ -228,6 +230,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                 "interval": "day",
                 "properties": '[{"key": "$domain", "value": "app.posthog.com", "operator": "icontains", "type": "event"}]',
             },
+            self.team.pk,
         )
         insert_cohort_from_insight_filter(
             cohort_id,
@@ -357,6 +360,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                 "date_to": "2021-01-07",
                 "funnel_step": "1",
             },
+            self.team.pk,
         )
 
         insert_cohort_from_insight_filter(cohort_id, params)
@@ -445,6 +449,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                 "entity_order": "0",
                 "lifecycle_type": "returning",
             },
+            self.team.pk,
         )
 
         insert_cohort_from_insight_filter(
@@ -507,6 +512,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                 "entity_order": "0",
                 "lifecycle_type": "dormant",
             },
+            self.team.pk,
         )
         self.assertEqual(_insert_cohort_from_insight_filter.call_count, 2)
 

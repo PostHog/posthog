@@ -12,7 +12,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), equals(heatmaps.current_url, 'http://example.com')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), equals(heatmaps.current_url, 'http://example.com')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -38,7 +38,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), equals(heatmaps.current_url, 'http://example.com/about')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), equals(heatmaps.current_url, 'http://example.com/about')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -64,7 +64,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -90,7 +90,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com.+$')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com.+$')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -116,7 +116,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -142,7 +142,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products.+$')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products.+$')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -168,7 +168,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -194,7 +194,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products/.+/parts/.+$')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products/.+/parts/.+$')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -220,7 +220,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -246,7 +246,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products/.+/reviews/.+$')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products/.+/reviews/.+$')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -272,7 +272,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -298,7 +298,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products/1.+$')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products/1.+$')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -324,7 +324,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -350,7 +350,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products/1.+/parts/.+$')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products/1.+/parts/.+$')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -376,7 +376,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$')))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -402,7 +402,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(150, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
+     WHERE and(equals(heatmaps.team_id, 99999), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(150, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -428,7 +428,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(161, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
+     WHERE and(equals(heatmaps.team_id, 99999), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(161, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -454,7 +454,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(177, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
+     WHERE and(equals(heatmaps.team_id, 99999), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(177, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -480,7 +480,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(201, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
+     WHERE and(equals(heatmaps.team_id, 99999), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(201, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -506,7 +506,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(161, 16))), 0), ifNull(lessOrEquals(heatmaps.viewport_width, round(divide(192, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
+     WHERE and(equals(heatmaps.team_id, 99999), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(161, 16))), 0), ifNull(lessOrEquals(heatmaps.viewport_width, round(divide(192, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -532,7 +532,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -558,7 +558,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -584,7 +584,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -610,7 +610,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2024-05-03'))))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2024-05-03'))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -636,7 +636,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -662,7 +662,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -688,7 +688,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08'))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -714,7 +714,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus(toDate('2023-03-14'), toIntervalDay(1)))))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus(toDate('2023-03-14'), toIntervalDay(1)))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -740,7 +740,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-15')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus(toDate('2023-03-15'), toIntervalDay(1)))))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-15')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus(toDate('2023-03-15'), toIntervalDay(1)))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -767,7 +767,7 @@
        (SELECT heatmaps.distinct_id AS distinct_id,
                multiply(plus(heatmaps.y, heatmaps.viewport_height), heatmaps.scale_factor) AS scroll_y
         FROM heatmaps
-        WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'scrolldepth'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-06'))))
+        WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'scrolldepth'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-06'))))
      GROUP BY bucket)
   ORDER BY bucket ASC
   LIMIT 1000000 SETTINGS readonly=2,

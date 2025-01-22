@@ -4,6 +4,7 @@ from django.conf import settings
 import structlog
 from asgiref.sync import async_to_sync
 from django.db import transaction
+from django.db.models import Q
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 
@@ -18,7 +19,13 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
-from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
+from posthog.warehouse.models import (
+    CLICKHOUSE_HOGQL_MAPPING,
+    DataWarehouseJoin,
+    DataWarehouseModelPath,
+    DataWarehouseSavedQuery,
+    clean_type,
+)
 import uuid
 
 
@@ -46,7 +53,11 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]
-        context = HogQLContext(team_id=team_id, database=create_hogql_database(team_id=team_id))
+        database = self.context.get("database", None)
+        if not database:
+            database = create_hogql_database(team_id=team_id)
+
+        context = HogQLContext(team_id=team_id, database=database)
 
         fields = serialize_fields(view.hogql_definition().fields, context, view.name, table_type="external")
         return [
@@ -69,7 +80,20 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         view = DataWarehouseSavedQuery(**validated_data)
         # The columns will be inferred from the query
         try:
-            view.columns = view.get_columns()
+            client_types = self.context["request"].data.get("types", [])
+            if len(client_types) == 0:
+                view.columns = view.get_columns()
+            else:
+                columns = {
+                    str(item[0]): {
+                        "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                        "clickhouse": item[1],
+                        "valid": True,
+                    }
+                    for item in client_types
+                }
+                view.columns = columns
+
             view.external_tables = view.s3_tables
         except Exception as err:
             raise serializers.ValidationError(str(err))
@@ -150,13 +174,21 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     search_fields = ["name"]
     ordering = "-created_at"
 
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["database"] = create_hogql_database(team_id=self.team_id)
+        return context
+
     def safely_get_queryset(self, queryset):
         return queryset.prefetch_related("created_by").exclude(deleted=True).order_by(self.ordering)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseSavedQuery = self.get_object()
-        DataWarehouseJoin.objects.filter(source_table_name=instance.name).delete()
-        DataWarehouseJoin.objects.filter(joining_table_name=instance.name).delete()
+
+        for join in DataWarehouseJoin.objects.filter(
+            Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
+        ).exclude(deleted=True):
+            join.soft_delete()
 
         if instance.table is not None:
             instance.table.soft_delete()

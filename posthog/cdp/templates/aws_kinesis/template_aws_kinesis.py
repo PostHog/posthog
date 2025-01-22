@@ -3,6 +3,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-aws-kinesis",
     name="AWS Kinesis",
     description="Put data to an AWS Kinesis stream",
@@ -16,7 +17,7 @@ fun getPayload() {
   let date := formatDateTime(now(), '%Y%m%d')
 
   let payload := jsonStringify({
-    'StreamName': inputs.aws_kinesis_stream_arn,
+    'StreamName': inputs.aws_kinesis_stream_name,
     'PartitionKey': inputs.aws_kinesis_partition_key ?? generateUUIDv4(),
     'Data': base64Encode(jsonStringify(inputs.payload)),
   })
@@ -81,7 +82,7 @@ let res := fetch(f'https://kinesis.{inputs.aws_region}.amazonaws.com', getPayloa
 if (res.status >= 200 and res.status < 300) {
   print('Event sent successfully!')
 } else {
-  print('Error sending event:', res.status, res.body)
+  throw Error(f'Error from {inputs.aws_region}.amazonaws.com (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[
@@ -108,9 +109,9 @@ if (res.status >= 200 and res.status < 300) {
             "default": "us-east-1",
         },
         {
-            "key": "aws_kinesis_stream_arn",
+            "key": "aws_kinesis_stream_name",
             "type": "string",
-            "label": "Kinesis Stream ARN",
+            "label": "Kinesis Stream Name",
             "secret": False,
             "required": True,
         },

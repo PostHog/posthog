@@ -1,14 +1,14 @@
-from datetime import datetime, timedelta
 import json
+from datetime import datetime, timedelta
 from urllib.parse import quote
 
 from django.test.client import Client
 from django.urls import reverse
 from freezegun import freeze_time
 from rest_framework import status
+
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -142,7 +142,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 45
+        cls.base_app_num_queries = 47
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -164,7 +164,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
 
-        with self.assertNumQueries(self.base_app_num_queries + 4):  # AutoProjectMiddleware adds 4 queries
+        with self.assertNumQueries(self.base_app_num_queries + 6):  # AutoProjectMiddleware adds 4 queries
             response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -212,7 +212,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_accessing_dashboards_list(self):
-        with self.assertNumQueries(self.base_app_num_queries):  # No AutoProjectMiddleware queries
+        with self.assertNumQueries(self.base_app_num_queries + 2):  # No AutoProjectMiddleware queries
             response_app = self.client.get(f"/dashboard")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -282,7 +282,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(self):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
-        with self.assertNumQueries(self.base_app_num_queries + 4):
+        with self.assertNumQueries(self.base_app_num_queries + 6):
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -296,7 +296,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_creating_feature_flag(self):
-        with self.assertNumQueries(self.base_app_num_queries):
+        with self.assertNumQueries(self.base_app_num_queries + 2):
             response_app = self.client.get(f"/feature_flags/new")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -501,7 +501,8 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertNotIn("ph_current_project_name", response.cookies)
 
 
-@override_settings(IMPERSONATION_TIMEOUT_SECONDS=30)
+@override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
+@override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
 class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
     other_user: User
 
@@ -538,21 +539,65 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         assert response.status_code == 200
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
 
-    def test_after_timeout_api_requests_401(self):
-        now = datetime.now()
+    def test_after_idle_timeout_api_requests_401(self):
+        now = datetime(2024, 1, 1, 12, 0, 0)
         with freeze_time(now):
             self.login_as_other_user()
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
+            assert res.json()["is_impersonated_until"] == "2024-01-01T12:00:20+00:00"
             assert self.client.session.get("session_created_at") == now.timestamp()
 
-        with freeze_time(now + timedelta(seconds=10)):
+        # Move forward by 19
+        now = now + timedelta(seconds=19)
+        with freeze_time(now):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
+            assert res.json()["is_impersonated_until"] == "2024-01-01T12:00:39+00:00"
 
-        with freeze_time(now + timedelta(seconds=35)):
+        # Past idle timeout
+        now = now + timedelta(seconds=21)
+
+        with freeze_time(now):
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 401
+
+    def test_after_total_timeout_api_requests_401(self):
+        now = datetime(2024, 1, 1, 12, 0, 0)
+        with freeze_time(now):
+            self.login_as_other_user()
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "other-user@posthog.com"
+            assert res.json()["is_impersonated_until"] == "2024-01-01T12:00:20+00:00"
+            assert self.client.session.get("session_created_at") == now.timestamp()
+
+        for _ in range(4):
+            # Move forward by 19 seconds 4 times for a total of 76 seconds
+            now = now + timedelta(seconds=19)
+            with freeze_time(now):
+                res = self.client.get("/api/users/@me")
+                assert res.status_code == 200
+                assert res.json()["email"] == "other-user@posthog.com"
+                # Format exactly like the date above
+                assert res.json()["is_impersonated_until"] == (now + timedelta(seconds=20)).strftime(
+                    "%Y-%m-%dT%H:%M:%S+00:00"
+                )
+
+        now = now + timedelta(seconds=19)
+        with freeze_time(now):
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "other-user@posthog.com"
+            # Even though below the idle timeout, we now see the total timeout as that is earlier
+            assert res.json()["is_impersonated_until"] == "2024-01-01T12:01:40+00:00"
+
+        # Now even less than the idle time will take us past the total timeout
+        now = now + timedelta(seconds=10)
+
+        with freeze_time(now):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 401
 

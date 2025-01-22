@@ -24,8 +24,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/persons/retention': sampleRetentionPeopleResponse,
-                '/api/projects/:team_id/persons/properties': samplePersonProperties,
+                '/api/environments/:team_id/persons/retention': sampleRetentionPeopleResponse,
+                '/api/environments/:team_id/persons/properties': samplePersonProperties,
                 '/api/projects/:team_id/groups_types': [],
             },
             post: {

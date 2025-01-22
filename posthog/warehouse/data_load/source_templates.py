@@ -1,29 +1,36 @@
-from posthog.temporal.common.logger import bind_temporal_worker_logger
-from posthog.warehouse.models.external_data_job import ExternalDataJob, get_external_data_job, get_latest_run_if_exists
+from django.db import close_old_connections
+from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.join import DataWarehouseJoin
-from posthog.warehouse.util import database_sync_to_async
 
 
-@database_sync_to_async
 def database_operations(team_id: int, table_prefix: str) -> None:
-    customer_join_exists = DataWarehouseJoin.objects.filter(
-        team_id=team_id,
-        source_table_name="persons",
-        source_table_key="properties.email",
-        joining_table_name=f"{table_prefix}stripe_customer",
-        joining_table_key="email",
-        field_name=f"{table_prefix}stripe_customer",
-    ).exists()
+    customer_join_exists = (
+        DataWarehouseJoin.objects.filter(
+            team_id=team_id,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=f"{table_prefix}stripe_customer",
+            joining_table_key="email",
+            field_name=f"{table_prefix}stripe_customer",
+        )
+        .exclude(deleted=True)
+        .exists()
+    )
 
-    invoice_join_exists = DataWarehouseJoin.objects.filter(
-        team_id=team_id,
-        source_table_name="persons",
-        source_table_key="properties.email",
-        joining_table_name=f"{table_prefix}stripe_invoice",
-        joining_table_key="customer_email",
-        field_name=f"{table_prefix}stripe_invoice",
-    ).exists()
+    invoice_join_exists = (
+        DataWarehouseJoin.objects.filter(
+            team_id=team_id,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=f"{table_prefix}stripe_invoice",
+            joining_table_key="customer_email",
+            field_name=f"{table_prefix}stripe_invoice",
+        )
+        .exclude(deleted=True)
+        .exists()
+    )
 
     if not customer_join_exists:
         DataWarehouseJoin.objects.create(
@@ -46,11 +53,19 @@ def database_operations(team_id: int, table_prefix: str) -> None:
         )
 
 
-async def create_warehouse_templates_for_source(team_id: int, run_id: str) -> None:
-    logger = await bind_temporal_worker_logger(team_id=team_id)
+def create_warehouse_templates_for_source(team_id: int, run_id: str) -> None:
+    logger = bind_temporal_worker_logger_sync(team_id=team_id)
+    close_old_connections()
 
-    job: ExternalDataJob = await get_external_data_job(job_id=run_id)
-    last_successful_job: ExternalDataJob | None = await get_latest_run_if_exists(job.team_id, job.pipeline_id)
+    job: ExternalDataJob = ExternalDataJob.objects.get(pk=run_id)
+    last_successful_job: ExternalDataJob | None = (
+        ExternalDataJob.objects.filter(
+            team_id=job.team_id, pipeline_id=job.pipeline_id, status=ExternalDataJob.Status.COMPLETED
+        )
+        .prefetch_related("pipeline")
+        .order_by("-created_at")
+        .first()
+    )
 
     source: ExternalDataSource.Type = job.pipeline.source_type
 
@@ -63,7 +78,7 @@ async def create_warehouse_templates_for_source(team_id: int, run_id: str) -> No
 
     table_prefix = job.pipeline.prefix or ""
 
-    await database_operations(team_id, table_prefix)
+    database_operations(team_id, table_prefix)
 
     logger.info(
         f"Created warehouse template for job {run_id}",

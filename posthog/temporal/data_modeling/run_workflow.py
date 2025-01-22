@@ -23,6 +23,7 @@ from deltalake import DeltaTable
 from django.conf import settings
 from dlt.common.libs.deltalake import get_delta_tables
 
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
@@ -262,9 +263,11 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             await materialize_model(model.label, team)
-    except Exception:
+    except Exception as err:
+        await logger.aexception("Failed to materialize model %s due to error: %s", model.label, str(err))
         await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label))
     else:
+        await logger.ainfo("Materialized model %s", model.label)
         await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
     finally:
         queue.task_done()
@@ -342,7 +345,11 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
     """A dlt source representing a HogQL table given by a HogQL query."""
 
     async def get_hogql_rows():
-        response = await asyncio.to_thread(execute_hogql_query, query, team)
+        settings = HogQLGlobalSettings(max_execution_time=60 * 10)  # 10 mins, same as the /query endpoint async workers
+
+        response = await asyncio.to_thread(
+            execute_hogql_query, query, team, settings=settings, limit_context=LimitContext.SAVED_QUERY
+        )
 
         if not response.columns:
             raise EmptyHogQLResponseColumnsError()
@@ -536,7 +543,6 @@ class StartRunActivityInputs:
 @temporalio.activity.defn
 async def start_run_activity(inputs: StartRunActivityInputs) -> None:
     """Activity that starts a run by updating statuses of associated models."""
-    run_at = dt.datetime.fromisoformat(inputs.run_at)
 
     try:
         async with asyncio.TaskGroup() as tg:
@@ -545,7 +551,7 @@ async def start_run_activity(inputs: StartRunActivityInputs) -> None:
                     continue
 
                 tg.create_task(
-                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.RUNNING, run_at, inputs.team_id)
+                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.RUNNING, None, inputs.team_id)
                 )
     except* Exception:
         await logger.aexception("Failed to update saved query status when starting run")
@@ -574,7 +580,7 @@ async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
 
             for label in inputs.failed:
                 tg.create_task(
-                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.FAILED, run_at, inputs.team_id)
+                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.FAILED, None, inputs.team_id)
                 )
     except* Exception:
         await logger.aexception("Failed to update saved query status when finishing run")
@@ -595,7 +601,7 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
 
 
 async def update_saved_query_status(
-    label: str, status: DataWarehouseSavedQuery.Status, run_at: dt.datetime, team_id: int
+    label: str, status: DataWarehouseSavedQuery.Status, run_at: typing.Optional[dt.datetime], team_id: int
 ):
     filter_params: dict[str, int | str | uuid.UUID] = {"team_id": team_id}
 
@@ -606,7 +612,9 @@ async def update_saved_query_status(
         filter_params["name"] = label
 
     saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(**filter_params).get)()
-    saved_query.last_run_at = run_at
+
+    if run_at:
+        saved_query.last_run_at = run_at
     saved_query.status = status
 
     await database_sync_to_async(saved_query.save)()

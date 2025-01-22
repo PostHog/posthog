@@ -3,6 +3,7 @@ import { dayjs } from 'lib/dayjs'
 
 import {
     CohortType,
+    DataColorThemeModel,
     FilterLogicalOperator,
     GroupType,
     OrganizationInviteType,
@@ -84,12 +85,16 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
+    user_access_level: 'admin',
     access_control: true,
     has_group_types: true,
     primary_dashboard: 1,
     live_events_columns: null,
     person_on_events_querying_enabled: true,
     live_events_token: '123',
+    capture_dead_clicks: false,
+    human_friendly_comparison_periods: false,
+    flags_persistence_default: false,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -97,6 +102,7 @@ export const MOCK_DEFAULT_PROJECT: ProjectType = {
     name: 'MockHog App + Marketing',
     organization_id: MOCK_ORGANIZATION_ID,
     created_at: '2020-06-30T09:53:35.932534Z',
+    product_description: null,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
@@ -132,7 +138,11 @@ export const MOCK_DEFAULT_USER: UserType = {
     distinct_id: MOCK_DEFAULT_BASIC_USER.uuid,
     first_name: MOCK_DEFAULT_BASIC_USER.first_name,
     email: MOCK_DEFAULT_BASIC_USER.email,
-    notification_settings: { plugin_disabled: false },
+    notification_settings: {
+        plugin_disabled: false,
+        project_weekly_digest_disabled: {},
+        all_weekly_digest_disabled: false,
+    },
     anonymize_data: false,
     toolbar_mode: 'toolbar',
     has_password: true,
@@ -273,3 +283,28 @@ export const MOCK_DEFAULT_PLUGIN_CONFIG: PluginConfigWithPluginInfo = {
     created_at: '2020-12-01T14:00:00.000Z',
     plugin_info: MOCK_DEFAULT_PLUGIN,
 }
+
+export const MOCK_DATA_COLOR_THEMES: DataColorThemeModel[] = [
+    {
+        id: 1,
+        name: 'Default Theme',
+        colors: [
+            '#1d4aff',
+            '#621da6',
+            '#42827e',
+            '#ce0e74',
+            '#f14f58',
+            '#7c440e',
+            '#529a0a',
+            '#0476fb',
+            '#fe729e',
+            '#35416b',
+            '#41cbc4',
+            '#b64b02',
+            '#e4a604',
+            '#a56eff',
+            '#30d5c8',
+        ],
+        is_global: true,
+    },
+]

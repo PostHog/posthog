@@ -6,10 +6,11 @@ use std::time::Duration;
 use health::{HealthHandle, HealthRegistry};
 use tokio::net::TcpListener;
 
+use crate::client::database::get_pool;
+use crate::client::geoip::GeoIpClient;
+use crate::client::redis::RedisClient;
+use crate::cohort::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
-use crate::database::get_pool;
-use crate::geoip::GeoIpClient;
-use crate::redis::RedisClient;
 use crate::router;
 
 pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
@@ -26,8 +27,7 @@ where
 
     // TODO - we should have a dedicated URL for both this and the writer – the reader will read
     // from the replica, and the writer will write to the main database.
-    let postgres_reader = match get_pool(&config.read_database_url, config.max_pg_connections).await
-    {
+    let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await {
         Ok(client) => Arc::new(client),
         Err(e) => {
             tracing::error!("Failed to create read Postgres client: {}", e);
@@ -35,7 +35,7 @@ where
         }
     };
 
-    let postgres_writer =
+    let writer =
         // TODO - we should have a dedicated URL for both this and the reader – the reader will read
         // from the replica, and the writer will write to the main database.
         match get_pool(&config.write_database_url, config.max_pg_connections).await {
@@ -54,6 +54,12 @@ where
         }
     };
 
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        reader.clone(),
+        Some(config.cache_max_cohort_entries),
+        Some(config.cache_ttl_seconds),
+    ));
+
     let health = HealthRegistry::new("liveness");
 
     // TODO - we don't have a more complex health check yet, but we should add e.g. some around DB operations
@@ -65,8 +71,9 @@ where
     // You can decide which client to pass to the router, or pass both if needed
     let app = router::router(
         redis_client,
-        postgres_reader,
-        postgres_writer,
+        reader,
+        writer,
+        cohort_cache,
         geoip_service,
         health,
         config,

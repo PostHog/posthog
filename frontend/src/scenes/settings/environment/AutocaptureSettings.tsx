@@ -66,13 +66,19 @@ export function AutocaptureSettings(): JSX.Element {
                 submission associated with a <code>button</code>, <code>form</code>, <code>input</code>,{' '}
                 <code>select</code>, or <code>textarea</code>, when using our web JavaScript SDK.
             </p>
+
             <p>
-                Autocapture is also available for React Native, where it has to be{' '}
+                Autocapture is also available for{' '}
                 <Link to="https://posthog.com/docs/libraries/react-native#autocapture" target="_blank">
-                    configured directly in code
+                    React Native
+                </Link>{' '}
+                and{' '}
+                <Link to="https://posthog.com/docs/libraries/ios#autocapture" target="_blank">
+                    iOS
                 </Link>
-                .
+                , where they can be configured directly in code.
             </p>
+
             <div className="space-y-2">
                 <LemonSwitch
                     id="posthog-autocapture-switch"

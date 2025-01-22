@@ -5,11 +5,11 @@ import {
     isHogQLQuery,
     isPersonsNode,
     isSessionAttributionExplorerQuery,
+    isTracesQuery,
     isWebExternalClicksQuery,
     isWebGoalsQuery,
     isWebOverviewQuery,
     isWebStatsTableQuery,
-    isWebTopClicksQuery,
 } from '~/queries/utils'
 
 export enum QueryFeature {
@@ -27,6 +27,7 @@ export enum QueryFeature {
     displayResponseError,
     hideLoadNextButton,
     testAccountFilters,
+    highlightExceptionEventRows,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
@@ -62,7 +63,6 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
 
     if (
         isWebOverviewQuery(query) ||
-        isWebTopClicksQuery(query) ||
         isWebExternalClicksQuery(query) ||
         isWebStatsTableQuery(query) ||
         isWebGoalsQuery(query)
@@ -70,6 +70,12 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.hideLoadNextButton)
+    }
+
+    if (isTracesQuery(query)) {
+        features.add(QueryFeature.dateRangePicker)
+        features.add(QueryFeature.eventPropertyFilters)
+        features.add(QueryFeature.testAccountFilters)
     }
 
     return features

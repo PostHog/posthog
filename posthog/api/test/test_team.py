@@ -16,13 +16,18 @@ from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.product_intent import ProductIntent
+from posthog.models.project import Project
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
+from posthog.utils import get_instance_realm
 
 
 def team_api_test_factory():
@@ -82,6 +87,26 @@ def team_api_test_factory():
             self.assertNotIn("event_properties_numerical", response_data)
             self.assertNotIn("event_names_with_usage", response_data)
             self.assertNotIn("event_properties_with_usage", response_data)
+
+        def test_retrieve_team_has_group_types(self):
+            other_team = Team.objects.create(organization=self.organization, project=self.project)
+
+            response = self.client.get("/api/environments/@current/")
+            response_data = response.json()
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+            self.assertEqual(response_data["has_group_types"], False)
+
+            # Creating a group type in the same project, but different team
+            GroupTypeMapping.objects.create(
+                project=self.project, team=other_team, group_type="person", group_type_index=0
+            )
+
+            response = self.client.get("/api/environments/@current/")
+            response_data = response.json()
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+            self.assertEqual(response_data["has_group_types"], True)  # Irreleveant that group type has different `team`
 
         def test_cant_retrieve_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
@@ -433,7 +458,10 @@ def team_api_test_factory():
         def test_delete_batch_exports(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
+            ]
+            self.organization.save()
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             destination_data = {
@@ -461,16 +489,16 @@ def team_api_test_factory():
                     json.dumps(batch_export_data),
                     content_type="application/json",
                 )
-                self.assertEqual(response.status_code, 201)
+                assert response.status_code == 201, response.json()
 
                 batch_export = response.json()
                 batch_export_id = batch_export["id"]
 
                 response = self.client.delete(f"/api/environments/{team.id}")
-                self.assertEqual(response.status_code, 204)
+                assert response.status_code == 204, response.json()
 
                 response = self.client.get(f"/api/environments/{team.id}/batch_exports/{batch_export_id}")
-                self.assertEqual(response.status_code, 404)
+                assert response.status_code == 404, response.json()
 
                 with self.assertRaises(RPCError):
                     describe_schedule(temporal, batch_export_id)
@@ -1039,9 +1067,87 @@ def team_api_test_factory():
                     "$session_id": "test_session_id",
                     "intent_context": "onboarding product selected",
                     "$set_once": {"first_onboarding_product_selected": "product_analytics"},
+                    "is_first_intent_for_product": True,
+                    "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                    "intent_updated_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                    "realm": get_instance_realm(),
                 },
                 team=self.team,
             )
+
+        @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
+        @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation", return_value=False)
+        @patch("posthog.api.project.report_user_action")
+        @patch("posthog.api.team.report_user_action")
+        @freeze_time("2024-01-01T00:00:00Z")
+        def test_can_update_product_intent_if_already_exists(
+            self,
+            mock_report_user_action: MagicMock,
+            mock_report_user_action_legacy_endpoint: MagicMock,
+            mock_check_and_update_activation: MagicMock,
+        ) -> None:
+            """
+            Intent already exists, but hasn't been activated yet. It should update the intent
+            and send a new event for the user showing the intent.
+            """
+            intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
+            original_created_at = intent.created_at
+            assert original_created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            # change the time of the existing intent
+            with freeze_time("2024-01-02T00:00:00Z"):
+                if self.client_class is EnvironmentToProjectRewriteClient:
+                    mock_report_user_action = mock_report_user_action_legacy_endpoint
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/add_product_intent/",
+                    {"product_type": "product_analytics"},
+                    headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+                )
+                assert response.status_code == status.HTTP_201_CREATED
+                product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+                assert product_intent.updated_at == datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC)
+                assert product_intent.created_at == original_created_at
+                mock_check_and_update_activation.assert_called_once()
+                mock_report_user_action.assert_called_once_with(
+                    self.user,
+                    "user showed product intent",
+                    {
+                        "product_key": "product_analytics",
+                        "$current_url": "https://posthogtest.com/my-url",
+                        "$session_id": "test_session_id",
+                        "intent_context": None,
+                        "$set_once": {"first_onboarding_product_selected": "product_analytics"},
+                        "is_first_intent_for_product": False,
+                        "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                        "intent_updated_at": datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC),
+                        "realm": get_instance_realm(),
+                    },
+                    team=self.team,
+                )
+
+        @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
+        @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation")
+        @patch("posthog.api.project.report_user_action")
+        @patch("posthog.api.team.report_user_action")
+        @freeze_time("2024-01-05T00:00:00Z")
+        def test_doesnt_send_event_for_already_activated_intent(
+            self,
+            mock_report_user_action: MagicMock,
+            mock_report_user_action_legacy_endpoint: MagicMock,
+            mock_check_and_update_activation: MagicMock,
+        ) -> None:
+            ProductIntent.objects.create(
+                team=self.team, product_type="product_analytics", activated_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            )
+            if self.client_class is EnvironmentToProjectRewriteClient:
+                mock_report_user_action = mock_report_user_action_legacy_endpoint
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/add_product_intent/",
+                {"product_type": "product_analytics"},
+                headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+            )
+            assert response.status_code == status.HTTP_201_CREATED
+            mock_check_and_update_activation.assert_not_called()
+            mock_report_user_action.assert_not_called()
 
         @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
@@ -1070,6 +1176,10 @@ def team_api_test_factory():
                     "product_key": "product_analytics",
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
+                    "intent_context": None,
+                    "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                    "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
+                    "realm": get_instance_realm(),
                 },
                 team=self.team,
             )
@@ -1147,7 +1257,7 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
     """
     This is a helper that just creates a team. It currently uses the orm, but we
     could use either the api, or django admin to create, to get better parity
-    with real world  scenarios.
+    with real world scenarios.
     """
     return Team.objects.create(
         organization=organization,
@@ -1160,4 +1270,105 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
 
 
 class TestTeamAPI(team_api_test_factory()):  # type: ignore
-    pass
+    def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        _, team_in_other_project = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user
+        )
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
+            scoped_teams=[other_team_in_project.id],
+        )
+
+        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {team["id"] for team in response.json()["results"]},
+            {other_team_in_project.id},
+            "Only the scoped team listed here, the other two should be excluded",
+        )
+
+    def test_teams_outside_personal_api_key_scoped_organizations_not_listed(self):
+        other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
+            scoped_organizations=[other_org.id],
+        )
+
+        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {team["id"] for team in response.json()["results"]},
+            {team_in_other_org.id},
+            "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
+        )
+
+    def test_can_create_team_with_valid_project_limit(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                "name": "Organizations Projects",
+                "limit": 5,
+            }
+        ]
+        self.organization.save()
+        self.assertEqual(Team.objects.count(), 1)
+
+        response = self.client.post("/api/projects/@current/environments/", {"name": "New Project"})
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Team.objects.count(), 2)
+
+    def test_cant_create_team_when_at_project_limit(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                "name": "Organizations Projects",
+                "limit": 1,
+            }
+        ]
+        self.organization.save()
+        self.assertEqual(Team.objects.count(), 1)
+
+        response = self.client.post("/api/projects/@current/environments/", {"name": "New Project"})
+        self.assertEqual(response.status_code, 403)
+        response_data = response.json()
+        self.assertDictContainsSubset(
+            {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments.",
+            },
+            response_data,
+        )
+        self.assertEqual(Team.objects.count(), 1)
+
+    def test_can_create_team_with_unlimited_projects_feature(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Organizations Projects", "limit": None}
+        ]
+        self.organization.save()
+        self.assertEqual(Team.objects.count(), 1)
+
+        response = self.client.post("/api/projects/@current/environments/", {"name": "New Project"})
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Team.objects.count(), 2)
+
+        response = self.client.post("/api/projects/@current/environments/", {"name": "New Project 2"})
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Team.objects.count(), 3)

@@ -6,14 +6,14 @@ from random import random
 import sentry_sdk
 from dateutil import parser
 from sentry_sdk.integrations.celery import CeleryIntegration
+from sentry_sdk.integrations.clickhouse_driver import ClickhouseDriverIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
-from sentry_sdk.integrations.clickhouse_driver import ClickhouseDriverIntegration
-from posthog.git import get_git_commit_full
 
+from posthog.git import get_git_commit_full
 from posthog.settings import get_from_env
-from posthog.settings.base_variables import TEST
+from posthog.settings.base_variables import SERVER_GATEWAY_INTERFACE, TEST
 
 
 def before_send(event, hint):
@@ -75,7 +75,7 @@ def traces_sampler(sampling_context: dict) -> float:
     if op == "http.server":
         path = sampling_context.get("wsgi_environ", {}).get("PATH_INFO")
         force_sample = bool(sampling_context.get("wsgi_environ", {}).get("HTTP_FORCE_SAMPLE"))
-        if os.environ.get("SERVER_GATEWAY_INTERFACE") == "ASGI":
+        if SERVER_GATEWAY_INTERFACE == "ASGI":
             path = sampling_context.get("asgi_scope", {}).get("path", "")
             headers = sampling_context.get("asgi_scope", {}).get("headers", [])
             for name, value in headers:

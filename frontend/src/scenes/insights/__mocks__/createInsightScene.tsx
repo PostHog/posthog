@@ -16,7 +16,7 @@ export function createInsightStory(
     return function InsightStory() {
         useStorybookMocks({
             get: {
-                '/api/projects/:team_id/insights/': (_, __, ctx) => [
+                '/api/environments/:team_id/insights/': (_, __, ctx) => [
                     ctx.status(200),
                     ctx.json({
                         count: 1,
@@ -35,7 +35,7 @@ export function createInsightStory(
                 ],
             },
             post: {
-                '/api/projects/:team_id/query/': (req, __, ctx) => [
+                '/api/environments/:team_id/query/': (req, __, ctx) => [
                     ctx.status(200),
                     ctx.json({
                         cache_key: req.params.query,

@@ -3,13 +3,15 @@ import uuid
 from typing import cast
 from unittest import mock
 from unittest.mock import ANY, Mock, patch
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
 from django.utils import timezone
 from django.utils.text import slugify
+from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from freezegun.api import freeze_time
 from rest_framework import status
 
@@ -78,6 +80,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response_data["team"]["api_token"], "token123")
         self.assertNotIn("test_account_filters", response_data["team"])  # Ensure we're not returning the full `Team`
         self.assertNotIn("event_names", response_data["team"])
+        self.assertEqual(response_data["role_at_organization"], self.user.role_at_organization)
 
         self.assertEqual(response_data["organization"]["name"], self.organization.name)
         self.assertEqual(response_data["organization"]["membership_level"], 1)
@@ -189,6 +192,7 @@ class TestUserAPI(APIBaseTest):
                 "id": 1,  # should be ignored
                 "organization": str(another_org.id),  # should be ignored
                 "team": str(another_team.id),  # should be ignored
+                "role_at_organization": "engineering",
             },
         )
 
@@ -202,6 +206,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response_data["organization"]["id"], str(self.organization.id))
         self.assertEqual(response_data["team"]["id"], self.team.id)
         self.assertEqual(response_data["has_seen_product_intro_for"], {"feature_flags": True})
+        self.assertEqual(response_data["role_at_organization"], "engineering")
 
         user.refresh_from_db()
         self.assertNotEqual(user.pk, 1)
@@ -210,6 +215,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(user.anonymize_data, True)
         self.assertDictContainsSubset({"plugin_disabled": False}, user.notification_settings)
         self.assertEqual(user.has_seen_product_intro_for, {"feature_flags": True})
+        self.assertEqual(user.role_at_organization, "engineering")
 
         mock_capture.assert_called_once_with(
             user.distinct_id,
@@ -221,6 +227,7 @@ class TestUserAPI(APIBaseTest):
                     "first_name",
                     "has_seen_product_intro_for",
                     "partial_notification_settings",
+                    "role_at_organization",
                 ],
                 "$set": mock.ANY,
             },
@@ -417,7 +424,7 @@ class TestUserAPI(APIBaseTest):
             token = email_verification_token_generator.make_token(self.user)
             with freeze_time("2020-01-01T21:37:00+00:00"):
                 response = self.client.post(
-                    f"/api/users/@me/verify_email/",
+                    f"/api/users/verify_email/",
                     {"uuid": self.user.uuid, "token": token},
                 )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -856,19 +863,38 @@ class TestUserAPI(APIBaseTest):
     def test_redirect_user_to_site_with_toolbar(self, patched_token):
         patched_token.return_value = "tokenvalue"
 
-        self.team.app_urls = ["http://127.0.0.1:8000"]
+        self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
         response = self.client.get(
-            "/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8000"
+            "/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8010"
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         locationHeader = response.headers.get("location", "not found")
-        self.assertIn("%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22", locationHeader)
+        self.assertIn("22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22", locationHeader)
         self.maxDiff = None
         self.assertEqual(
-            locationHeader,
-            "http://127.0.0.1:8000#__posthog=%7B%22action%22%3A%20%22ph_authorize%22%2C%20%22token%22%3A%20%22token123%22%2C%20%22temporaryToken%22%3A%20%22tokenvalue%22%2C%20%22actionId%22%3A%20null%2C%20%22userIntent%22%3A%20%22add-action%22%2C%20%22toolbarVersion%22%3A%20%22toolbar%22%2C%20%22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22%2C%20%22dataAttributes%22%3A%20%5B%22data-attr%22%5D%2C%20%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22%7D",
+            unquote(locationHeader),
+            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+        )
+
+    @patch("posthog.api.user.secrets.token_urlsafe")
+    def test_redirect_user_to_site_with_experiments_toolbar(self, patched_token):
+        patched_token.return_value = "tokenvalue"
+
+        self.team.app_urls = ["http://127.0.0.1:8010"]
+        self.team.save()
+
+        response = self.client.get(
+            "/api/user/redirect_to_site/?userIntent=edit-experiment&experimentId=12&appUrl=http%3A%2F%2F127.0.0.1%3A8010"
+        )
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        locationHeader = response.headers.get("location", "not found")
+        self.assertIn("22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22", locationHeader)
+        self.maxDiff = None
+        self.assertEqual(
+            unquote(locationHeader),
+            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
@@ -921,6 +947,102 @@ class TestUserAPI(APIBaseTest):
             assert (
                 response.json()[field] == initial_user[field]
             ), f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+
+    def test_can_update_notification_settings(self):
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "plugin_disabled": False,
+                    "project_weekly_digest_disabled": {123: True},
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"],
+            {
+                "plugin_disabled": False,
+                "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
+                "all_weekly_digest_disabled": False,
+            },
+        )
+
+        self.user.refresh_from_db()
+        self.assertEqual(
+            self.user.partial_notification_settings,
+            {
+                "plugin_disabled": False,
+                "project_weekly_digest_disabled": {"123": True},
+                "all_weekly_digest_disabled": False,
+            },
+        )
+
+    def test_notification_settings_project_settings_are_merged_not_replaced(self):
+        # First update
+        response = self.client.patch(
+            "/api/users/@me/", {"notification_settings": {"project_weekly_digest_disabled": {123: True}}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Second update with different project
+        response = self.client.patch(
+            "/api/users/@me/", {"notification_settings": {"project_weekly_digest_disabled": {456: True}}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"]["project_weekly_digest_disabled"], {"123": True, "456": True}
+        )
+
+    def test_invalid_notification_settings_returns_error(self):
+        response = self.client.patch("/api/users/@me/", {"notification_settings": {"invalid_key": True}})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Key invalid_key is not valid as a key for notification settings",
+                "attr": "notification_settings",
+            },
+        )
+
+    def test_notification_settings_wrong_type_returns_error(self):
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "project_weekly_digest_disabled": {"123": "not a boolean"}  # This should be True or False
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Project notification setting values must be boolean, got <class 'str'> instead",
+                "attr": "notification_settings",
+            },
+        )
+
+    def test_can_disable_all_notifications(self):
+        response = self.client.patch("/api/users/@me/", {"notification_settings": {"all_weekly_digest_disabled": True}})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"],
+            {
+                "plugin_disabled": True,  # Default value
+                "project_weekly_digest_disabled": {},  # Default value
+                "all_weekly_digest_disabled": True,
+            },
+        )
 
 
 class TestUserSlackWebhook(APIBaseTest):
@@ -1021,7 +1143,7 @@ class TestStaffUserAPI(APIBaseTest):
     def test_add_2fa(self, patch_is_valid):
         patch_is_valid.return_value = Mock()
         self._create_user("newuser@posthog.com", password="12345678")
-        response = self.client.get(f"/api/users/@me/start_2fa_setup/")
+        response = self.client.get(f"/api/users/@me/two_factor_start_setup/")
         response = self.client.post(f"/api/users/@me/validate_2fa/", {"token": 123456})
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
@@ -1033,7 +1155,13 @@ class TestEmailVerificationAPI(APIBaseTest):
         # prevent throttling of user requests to pass on from one test
         # to the next
         cache.clear()
-        return super().setUp()
+        super().setUp()
+
+        set_instance_setting("EMAIL_HOST", "localhost")
+
+        self.other_user = self._create_user("otheruser@posthog.com", password="12345678")
+        assert not self.other_user.is_email_verified
+        assert not self.other_user.is_email_verified
 
     # Email verification request
 
@@ -1041,7 +1169,7 @@ class TestEmailVerificationAPI(APIBaseTest):
     def test_user_can_request_verification_email(self, mock_capture):
         set_instance_setting("EMAIL_HOST", "localhost")
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
-            response = self.client.post(f"/api/users/@me/request_email_verification/", {"uuid": self.user.uuid})
+            response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.content.decode(), '{"success":true}')
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
@@ -1059,7 +1187,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         reset_link = html_message[link_index : html_message.find('"', link_index)]
         token = reset_link.replace("https://my.posthog.net/verify_email/", "").replace(f"{self.user.uuid}/", "")
 
-        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # check is_email_verified is changed to True
@@ -1093,8 +1221,9 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(mock_capture.call_count, 3)
 
     def test_cant_verify_if_email_is_not_configured(self):
+        set_instance_setting("EMAIL_HOST", "")
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
-            response = self.client.post(f"/api/users/@me/request_email_verification/", {"uuid": self.user.uuid})
+            response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -1112,7 +1241,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         for i in range(7):
             with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
                 response = self.client.post(
-                    f"/api/users/@me/request_email_verification/",
+                    f"/api/users/request_email_verification/",
                     {"uuid": self.user.uuid},
                 )
             if i < 6:
@@ -1132,11 +1261,11 @@ class TestEmailVerificationAPI(APIBaseTest):
 
     def test_can_validate_email_verification_token(self):
         token = email_verification_token_generator.make_token(self.user)
-        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_cant_validate_email_verification_token_without_a_token(self):
-        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid})
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -1162,7 +1291,7 @@ class TestEmailVerificationAPI(APIBaseTest):
             expired_token,
         ]:
             response = self.client.post(
-                f"/api/users/@me/verify_email/",
+                f"/api/users/verify_email/",
                 {"uuid": self.user.uuid, "token": token},
             )
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -1175,3 +1304,228 @@ class TestEmailVerificationAPI(APIBaseTest):
                     "attr": "token",
                 },
             )
+
+    def test_can_only_validate_email_token_one_time(self):
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_token",
+                "detail": "This verification token is invalid or has expired.",
+                "attr": "token",
+            },
+        )
+
+    def test_email_verification_logs_in_user(self):
+        token = email_verification_token_generator.make_token(self.user)
+
+        self.client.logout()
+        assert self.client.get("/api/users/@me/").status_code == 401
+        session_user_id = self.client.session.get("_auth_user_id")
+        assert session_user_id is None
+
+        # NOTE: Posting sets the session user id but doesn't log in the test client hence we just check the session id
+        self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+        session_user_id = self.client.session.get("_auth_user_id")
+        assert session_user_id == str(self.user.id)
+
+    def test_email_verification_logs_in_correctuser(self):
+        other_token = email_verification_token_generator.make_token(self.other_user)
+        self.client.logout()
+        assert self.client.session.get("_auth_user_id") is None
+
+        # NOTE: The user id in path should basically be ignored
+        self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": other_token})
+        session_user_id = self.client.session.get("_auth_user_id")
+        assert session_user_id == str(self.other_user.id)
+
+    def test_email_verification_does_not_apply_to_current_logged_in_user(self):
+        other_token = email_verification_token_generator.make_token(self.other_user)
+
+        res = self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": other_token})
+        assert res.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        self.other_user.refresh_from_db()
+        # Should now be logged in as other user
+        assert self.client.session.get("_auth_user_id") == str(self.other_user.id)
+        assert not self.user.is_email_verified
+        assert self.other_user.is_email_verified
+
+    def test_email_verification_fails_if_using_other_accounts_token(self):
+        token = email_verification_token_generator.make_token(self.user)
+        other_token = email_verification_token_generator.make_token(self.other_user)
+        self.client.logout()
+
+        assert (
+            self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": token}).status_code
+            == status.HTTP_400_BAD_REQUEST
+        )
+
+        assert (
+            self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": other_token}).status_code
+            == status.HTTP_400_BAD_REQUEST
+        )
+
+    def test_does_not_apply_pending_email_for_old_tokens(self):
+        self.client.logout()
+
+        token = email_verification_token_generator.make_token(self.user)
+        self.user.pending_email = "new@posthog.com"
+        self.user.save()
+
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert self.user.email != "new@posthog.com"
+        assert self.user.pending_email == "new@posthog.com"
+
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.email == "new@posthog.com"
+        assert self.user.pending_email is None
+
+
+class TestUserTwoFactor(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # prevent throttling of user requests to pass on from one test
+        # to the next
+        cache.clear()
+
+    @patch("posthog.api.user.TOTPDeviceForm")
+    def test_two_factor_start_setup(self, mock_totp_form):
+        response = self.client.get(f"/api/users/@me/two_factor_start_setup/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Verify session contains required keys
+        self.assertIn("django_two_factor-hex", self.client.session)
+        self.assertIn("django_two_factor-qr_secret_key", self.client.session)
+        self.assertEqual(len(self.client.session["django_two_factor-hex"]), 40)  # 20 bytes hex = 40 chars
+
+    @patch("posthog.api.user.TOTPDeviceForm")
+    def test_two_factor_validation_with_valid_token(self, mock_totp_form):
+        # Setup form mock
+        mock_form_instance = mock_totp_form.return_value
+        mock_form_instance.is_valid.return_value = True
+
+        # Setup session state
+        session = self.client.session
+        session["django_two_factor-hex"] = "1234567890abcdef1234"
+        session.save()
+
+        response = self.client.post(f"/api/users/@me/two_factor_validate/", {"token": "123456"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Verify form was created with correct params
+        mock_totp_form.assert_called_once_with("1234567890abcdef1234", self.user, data={"token": "123456"})
+        mock_form_instance.save.assert_called_once()
+
+    @patch("posthog.api.user.TOTPDeviceForm")
+    def test_two_factor_validation_with_invalid_token(self, mock_totp_form):
+        # Setup form mock to fail validation
+        mock_form_instance = mock_totp_form.return_value
+        mock_form_instance.is_valid.return_value = False
+
+        # Setup session state
+        session = self.client.session
+        session["django_two_factor-hex"] = "1234567890abcdef1234"
+        session.save()
+
+        response = self.client.post(f"/api/users/@me/two_factor_validate/", {"token": "invalid"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "token_invalid",
+                "detail": "Token is not valid",
+                "attr": None,
+            },
+        )
+
+    def test_two_factor_status_when_disabled(self):
+        response = self.client.get(f"/api/users/@me/two_factor_status/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "is_enabled": False,
+                "backup_codes": [],
+                "method": None,
+            },
+        )
+
+    @patch("posthog.api.user.default_device")
+    def test_two_factor_status_when_enabled(self, mock_default_device):
+        # Mock TOTP device
+        totp_device = TOTPDevice.objects.create(user=self.user, name="default")
+        mock_default_device.return_value = totp_device
+
+        # Create backup codes
+        static_device = StaticDevice.objects.create(user=self.user, name="backup")
+        static_device.token_set.create(token="123456")
+        static_device.token_set.create(token="789012")
+
+        response = self.client.get(f"/api/users/@me/two_factor_status/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "is_enabled": True,
+                "backup_codes": ["123456", "789012"],
+                "method": "TOTP",
+            },
+        )
+
+    @patch("posthog.api.user.default_device")
+    def test_two_factor_backup_codes_generation(self, mock_default_device):
+        # Mock TOTP device to simulate 2FA being enabled
+        totp_device = TOTPDevice.objects.create(user=self.user, name="default")
+        mock_default_device.return_value = totp_device
+
+        response = self.client.post(f"/api/users/@me/two_factor_backup_codes/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        backup_codes = response.json()["backup_codes"]
+        self.assertEqual(len(backup_codes), 5)  # Verify 5 backup codes are generated
+
+        # Verify codes are stored in database
+        static_device = StaticDevice.objects.get(user=self.user)
+        stored_codes = [token.token for token in static_device.token_set.all()]
+        self.assertEqual(sorted(backup_codes), sorted(stored_codes))
+
+    def test_two_factor_backup_codes_requires_2fa_enabled(self):
+        response = self.client.post(f"/api/users/@me/two_factor_backup_codes/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "2fa_not_enabled",
+                "detail": "2FA must be enabled first",
+                "attr": None,
+            },
+        )
+
+    def test_two_factor_disable(self):
+        # Setup 2FA devices
+        TOTPDevice.objects.create(user=self.user, name="default")
+        static_device = StaticDevice.objects.create(user=self.user, name="backup")
+        static_device.token_set.create(token="123456")
+
+        response = self.client.post(f"/api/users/@me/two_factor_disable/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Verify all 2FA devices are removed
+        self.assertEqual(TOTPDevice.objects.filter(user=self.user).count(), 0)
+        self.assertEqual(StaticDevice.objects.filter(user=self.user).count(), 0)

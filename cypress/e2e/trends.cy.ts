@@ -6,7 +6,7 @@ describe('Trends', () => {
     })
 
     it('Can load a graph from a URL directly', () => {
-        cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
+        cy.intercept('POST', /api\/environments\/\d+\/query\//).as('loadNewQueryInsight')
 
         // regression test, the graph wouldn't load when going directly to a URL
         cy.visit(

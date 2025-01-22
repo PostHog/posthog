@@ -1,11 +1,11 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { replayLandingPageLogic } from 'scenes/session-recordings/replayLandingPageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -16,6 +16,7 @@ import {
     Breadcrumb,
     OnboardingProduct,
     ProductKey,
+    ReplayTabs,
 } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
@@ -43,21 +44,21 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.PRODUCT_ANALYTICS]: {
         name: 'Product Analytics',
         icon: 'IconGraph',
-        iconColor: 'blue',
+        iconColor: 'rgb(47 128 250)',
         url: urls.insights(),
         scene: Scene.SavedInsights,
     },
     [ProductKey.WEB_ANALYTICS]: {
         name: 'Web Analytics',
         icon: 'IconPieChart',
-        iconColor: 'var(--warning)',
+        iconColor: 'rgb(54 196 111)',
         url: urls.webAnalytics(),
         scene: Scene.WebAnalytics,
     },
     [ProductKey.DATA_WAREHOUSE]: {
         name: 'Data Warehouse',
         icon: 'IconDatabase',
-        iconColor: 'salmon',
+        iconColor: 'rgb(133 103 255)',
         breadcrumbsName: 'Data Warehouse',
         url: urls.dataWarehouse(),
         scene: Scene.DataWarehouse,
@@ -65,22 +66,30 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.SESSION_REPLAY]: {
         name: 'Session Replay',
         icon: 'IconRewindPlay',
-        iconColor: 'var(--warning)',
+        iconColor: 'rgb(247 165 1)',
         url: urls.replay(),
         scene: Scene.Replay,
     },
     [ProductKey.FEATURE_FLAGS]: {
-        name: 'Feature Flags & Experiments',
+        name: 'Feature Flags',
         breadcrumbsName: 'Feature Flags',
         icon: 'IconToggle',
-        iconColor: 'seagreen',
+        iconColor: 'rgb(48 171 198)',
         url: urls.featureFlags(),
         scene: Scene.FeatureFlags,
+    },
+    [ProductKey.EXPERIMENTS]: {
+        name: 'Experiments',
+        breadcrumbsName: 'Experiments',
+        icon: 'IconTestTube',
+        iconColor: 'rgb(182 42 217)',
+        url: urls.experiments(),
+        scene: Scene.Experiments,
     },
     [ProductKey.SURVEYS]: {
         name: 'Surveys',
         icon: 'IconMessage',
-        iconColor: 'blue',
+        iconColor: 'rgb(243 84 84)',
         url: urls.surveys(),
         scene: Scene.Surveys,
     },
@@ -100,12 +109,12 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
 
-export const getProductUri = (productKey: ProductKey): string => {
+export const getProductUri = (productKey: ProductKey, replayLandingPage: ReplayTabs): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
             return urls.insightNew()
         case ProductKey.SESSION_REPLAY:
-            return urls.replay()
+            return urls.replay(replayLandingPage)
         case ProductKey.FEATURE_FLAGS:
             return urls.featureFlag('new')
         case ProductKey.SURVEYS:
@@ -119,19 +128,19 @@ export const onboardingLogic = kea<onboardingLogicType>([
     props({} as OnboardingLogicProps),
     path(['scenes', 'onboarding', 'onboardingLogic']),
     // connect this so we start collecting live events the whole time during onboarding
-    connect(liveEventsTableLogic),
+    connect(liveEventsTableLogic({ showLiveStreamErrorToast: false })),
     connect({
         values: [
             billingLogic,
             ['billing'],
             teamLogic,
             ['currentTeam'],
-            featureFlagLogic,
-            ['featureFlags'],
             userLogic,
             ['user'],
             preflightLogic,
             ['isCloudOrDev'],
+            replayLandingPageLogic,
+            ['replayLandingPage'],
         ],
         actions: [
             billingLogic,
@@ -229,12 +238,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
-            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride) => {
+            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride, s.replayLandingPage],
+            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride, replayLandingPage) => {
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
-                return productKey ? getProductUri(productKey as ProductKey) : urls.default()
+                return productKey ? getProductUri(productKey as ProductKey, replayLandingPage) : urls.default()
             },
         ],
         totalOnboardingSteps: [
@@ -281,7 +290,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
         shouldShowReverseProxyStep: [
             (s) => [s.productKey],
             (productKey) => {
-                return productKey && [ProductKey.FEATURE_FLAGS].includes(productKey as ProductKey)
+                return (
+                    productKey && [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS].includes(productKey as ProductKey)
+                )
             },
         ],
         isStepKeyInvalid: [

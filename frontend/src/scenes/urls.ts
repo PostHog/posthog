@@ -3,7 +3,8 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
-import { HogQLFilters, Node } from '~/queries/schema'
+import { productUrls } from '~/products'
+import { HogQLFilters, HogQLVariable, Node } from '~/queries/schema'
 import {
     ActionType,
     ActivityTab,
@@ -20,6 +21,7 @@ import {
     SDKKey,
 } from '~/types'
 
+import { BillingSectionId } from './billing/types'
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 import { SurveysTabs } from './surveys/surveysLogic'
@@ -35,7 +37,10 @@ import { SurveysTabs } from './surveys/surveysLogic'
  * Sync the paths with AutoProjectMiddleware!
  */
 
+export type LLMObservabilityTab = 'dashboard' | 'traces' | 'generations'
+
 export const urls = {
+    ...productUrls,
     absolute: (path = ''): string => window.location.origin + path,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
@@ -89,19 +94,39 @@ export const urls = {
             }
         ).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
-    insightView: (id: InsightShortId, dashboardId?: number): string =>
-        `/insights/${id}${dashboardId !== undefined ? `?dashboard=${dashboardId}` : ''}`,
+    insightView: (
+        id: InsightShortId,
+        dashboardId?: number,
+        variablesOverride?: Record<string, HogQLVariable>
+    ): string => {
+        const params = [
+            { param: 'dashboard', value: dashboardId },
+            { param: 'variables_override', value: variablesOverride },
+        ]
+            .filter((n) => Boolean(n.value))
+            .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
+            .join('&')
+        return `/insights/${id}${params.length ? `?${params}` : ''}`
+    },
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
     insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
-    webAnalytics: (): string => `/web`,
 
-    replay: (tab?: ReplayTabs, filters?: Partial<RecordingUniversalFilters>, sessionRecordingId?: string): string =>
+    webAnalytics: (): string => `/web`,
+    webAnalyticsWebVitals: (): string => `/web/web-vitals`,
+
+    replay: (
+        tab?: ReplayTabs,
+        filters?: Partial<RecordingUniversalFilters>,
+        sessionRecordingId?: string,
+        order?: string
+    ): string =>
         combineUrl(tab ? `/replay/${tab}` : '/replay/home', {
             ...(filters ? { filters } : {}),
             ...(sessionRecordingId ? { sessionRecordingId } : {}),
+            ...(order ? { order } : {}),
         }).url,
     replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
     replaySingle: (id: string): string => `/replay/${id}`,
@@ -133,22 +158,25 @@ export const urls = {
     cohorts: (): string => '/cohorts',
     experiment: (id: string | number): string => `/experiments/${id}`,
     experiments: (): string => '/experiments',
+    experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
+    experimentsSharedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-    earlyAccessFeatures: (): string => '/early_access_features',
-    /** @param id A UUID or 'new'. ':id' for routing. */
-    earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
+    featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
     errorTracking: (): string => '/error_tracking',
-    errorTrackingGroup: (fingerprint: string): string =>
-        `/error_tracking/${fingerprint === ':fingerprint' ? fingerprint : encodeURIComponent(fingerprint)}`,
+    errorTrackingConfiguration: (): string => '/error_tracking/configuration',
+    /** @param id A UUID or 'new'. ':id' for routing. */
+    errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
+    errorTrackingIssue: (id: string): string => `/error_tracking/${id}`,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
-    dataModel: (): string => '/data-model',
+    customCss: (): string => '/themes/custom-css',
     dataWarehouse: (query?: string | Record<string, any>): string =>
         combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
             .url,
+    sqlEditor: (): string => `/sql`,
     dataWarehouseView: (id: string): string => combineUrl(`/data-warehouse/view/${id}`).url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
@@ -182,6 +210,8 @@ export const urls = {
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
+    organizationBillingSection: (section: BillingSectionId = 'overview'): string =>
+        combineUrl(`/organization/billing/${section}`).url,
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
@@ -212,6 +242,7 @@ export const urls = {
         urls.shared(token, exportOptions).replace('/shared/', '/embedded/'),
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
+    debugHog: (): string => '/debug/hog',
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
     notebooks: (): string => '/notebooks',

@@ -40,6 +40,7 @@ import {
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isStickinessQuery } from '~/queries/utils'
 import {
     ActionFilter,
@@ -123,6 +124,10 @@ export interface ActionFilterRowProps {
         deleteButton,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element // build your own row given these components
     trendsDisplayCategory: ChartDisplayCategory | null
+    /** Whether properties shown should be limited to just numerical types */
+    showNumericalPropsOnly?: boolean
+    /** Only show these property math definitions */
+    onlyPropertyMathDefinitions?: Array<string>
 }
 
 export function ActionFilterRow({
@@ -151,6 +156,8 @@ export function ActionFilterRow({
     readOnly = false,
     renderRow,
     trendsDisplayCategory,
+    showNumericalPropsOnly,
+    onlyPropertyMathDefinitions,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -177,6 +184,7 @@ export function ActionFilterRow({
     const {
         math,
         math_property: mathProperty,
+        math_property_type: mathPropertyType,
         math_hogql: mathHogQL,
         math_group_type_index: mathGroupTypeIndex,
     } = filter
@@ -196,9 +204,11 @@ export function ActionFilterRow({
                       mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
                           ? mathHogQL ?? 'count()'
                           : undefined,
+                  mathPropertyType,
               }
             : {
                   math_property: undefined,
+                  mathPropertyType: undefined,
                   math_hogql: undefined,
                   math_group_type_index: undefined,
                   math: undefined,
@@ -210,11 +220,12 @@ export function ActionFilterRow({
             ...mathProperties,
         })
     }
-    const onMathPropertySelect = (_: unknown, property: string): void => {
+    const onMathPropertySelect = (_: unknown, property: string, groupType: TaxonomicFilterGroupType): void => {
         updateFilterMath({
             ...filter,
             math_hogql: undefined,
             math_property: property,
+            math_property_type: groupType,
             index,
         })
     }
@@ -223,6 +234,7 @@ export function ActionFilterRow({
         updateFilterMath({
             ...filter,
             math_property: undefined,
+            math_property_type: undefined,
             math_hogql: hogql,
             index,
         })
@@ -281,6 +293,7 @@ export function ActionFilterRow({
             placeholder="All events"
             placeholderClass=""
             disabled={disabled || readOnly}
+            showNumericalPropsOnly={showNumericalPropsOnly}
         />
     )
 
@@ -415,6 +428,7 @@ export function ActionFilterRow({
                                             style={{ maxWidth: '100%', width: 'initial' }}
                                             mathAvailability={mathAvailability}
                                             trendsDisplayCategory={trendsDisplayCategory}
+                                            onlyPropertyMathDefinitions={onlyPropertyMathDefinitions}
                                         />
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.PropertyValue && (
@@ -425,6 +439,8 @@ export function ActionFilterRow({
                                                         TaxonomicFilterGroupType.DataWarehouseProperties,
                                                         TaxonomicFilterGroupType.NumericalEventProperties,
                                                         TaxonomicFilterGroupType.SessionProperties,
+                                                        TaxonomicFilterGroupType.PersonProperties,
+                                                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
                                                     ]}
                                                     schemaColumns={
                                                         filter.type == TaxonomicFilterGroupType.DataWarehouse &&
@@ -435,11 +451,12 @@ export function ActionFilterRow({
                                                             : []
                                                     }
                                                     value={mathProperty}
-                                                    onChange={(currentValue) =>
-                                                        onMathPropertySelect(index, currentValue)
+                                                    onChange={(currentValue, groupType) =>
+                                                        onMathPropertySelect(index, currentValue, groupType)
                                                     }
                                                     eventNames={name ? [name] : []}
                                                     data-attr="math-property-select"
+                                                    showNumericalPropsOnly={showNumericalPropsOnly}
                                                     renderValue={(currentValue) => (
                                                         <Tooltip
                                                             title={
@@ -584,9 +601,20 @@ export function ActionFilterRow({
                         onChange={(properties) => updateFilterProperty({ properties, index })}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
+                        metadataSource={
+                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                ? {
+                                      kind: NodeKind.HogQLQuery,
+                                      query: `select ${filter.distinct_id_field} from ${filter.table_name}`,
+                                  }
+                                : undefined
+                        }
                         taxonomicGroupTypes={
                             filter.type == TaxonomicFilterGroupType.DataWarehouse
-                                ? [TaxonomicFilterGroupType.DataWarehouseProperties]
+                                ? [
+                                      TaxonomicFilterGroupType.DataWarehouseProperties,
+                                      TaxonomicFilterGroupType.HogQLExpression,
+                                  ]
                                 : propertiesTaxonomicGroupTypes
                         }
                         eventNames={
@@ -618,6 +646,8 @@ interface MathSelectorProps {
     onMathSelect: (index: number, value: any) => any
     trendsDisplayCategory: ChartDisplayCategory | null
     style?: React.CSSProperties
+    /** Only show these property math definitions */
+    onlyPropertyMathDefinitions?: Array<string>
 }
 
 function isPropertyValueMath(math: string | undefined): math is PropertyMathType {
@@ -636,6 +666,7 @@ function useMathSelectorOptions({
     mathAvailability,
     onMathSelect,
     trendsDisplayCategory,
+    onlyPropertyMathDefinitions,
 }: MathSelectorProps): LemonSelectOptions<string> {
     const mountedInsightDataLogic = insightDataLogic.findMounted()
     const query = mountedInsightDataLogic?.values?.query
@@ -650,9 +681,16 @@ function useMathSelectorOptions({
         staticActorsOnlyMathDefinitions,
     } = useValues(mathsLogic)
 
-    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
-        isPropertyValueMath(math) ? math : PropertyMathType.Average
-    )
+    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(() => {
+        if (isPropertyValueMath(math)) {
+            return math
+        }
+        if (onlyPropertyMathDefinitions?.length) {
+            return onlyPropertyMathDefinitions[0] as PropertyMathType
+        }
+        return PropertyMathType.Average
+    })
+
     const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average
     )
@@ -734,12 +772,19 @@ function useMathSelectorOptions({
                             setPropertyMathTypeShown(value as PropertyMathType)
                             onMathSelect(index, value)
                         }}
-                        options={Object.entries(PROPERTY_MATH_DEFINITIONS).map(([key, definition]) => ({
-                            value: key,
-                            label: definition.shortName,
-                            tooltip: definition.description,
-                            'data-attr': `math-${key}-${index}`,
-                        }))}
+                        options={Object.entries(PROPERTY_MATH_DEFINITIONS)
+                            .filter(([key]) => {
+                                if (undefined === onlyPropertyMathDefinitions) {
+                                    return true
+                                }
+                                return onlyPropertyMathDefinitions.includes(key)
+                            })
+                            .map(([key, definition]) => ({
+                                value: key,
+                                label: definition.shortName,
+                                tooltip: definition.description,
+                                'data-attr': `math-${key}-${index}`,
+                            }))}
                         onClick={(e) => e.stopPropagation()}
                         size="small"
                         dropdownMatchSelectWidth={false}

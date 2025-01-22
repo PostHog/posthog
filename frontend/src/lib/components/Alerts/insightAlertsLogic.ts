@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { GoalLine } from '~/queries/schema'
-import { getBreakdown, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { AlertConditionType, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
+import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
@@ -16,13 +16,7 @@ export interface InsightAlertsLogicProps {
 }
 
 export const areAlertsSupportedForInsight = (query?: Record<string, any> | null): boolean => {
-    return (
-        !!query &&
-        isInsightVizNode(query) &&
-        isTrendsQuery(query.source) &&
-        query.source.trendsFilter !== null &&
-        !getBreakdown(query.source)
-    )
+    return !!query && isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null
 }
 
 export const insightAlertsLogic = kea<insightAlertsLogicType>([
@@ -35,6 +29,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
     connect((props: InsightAlertsLogicProps) => ({
         actions: [insightVizDataLogic(props.insightLogicProps), ['setQuery']],
+        values: [insightVizDataLogic(props.insightLogicProps), ['showAlertThresholdLines']],
     })),
 
     loaders(({ props }) => ({
@@ -62,28 +57,36 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
     selectors({
         alertThresholdLines: [
-            (s) => [s.alerts],
-            (alerts: AlertType[]): GoalLine[] =>
+            (s) => [s.alerts, s.showAlertThresholdLines],
+            (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] =>
                 alerts.flatMap((alert) => {
-                    const thresholds = []
+                    if (
+                        !showAlertThresholdLines ||
+                        alert.threshold.configuration.type !== InsightThresholdType.ABSOLUTE ||
+                        alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE ||
+                        !alert.threshold.configuration.bounds
+                    ) {
+                        return []
+                    }
 
-                    const absoluteThreshold = alert.threshold.configuration.absoluteThreshold
+                    const bounds = alert.threshold.configuration.bounds
 
-                    if (absoluteThreshold?.upper !== undefined) {
-                        thresholds.push({
+                    const annotations = []
+                    if (bounds?.upper != null) {
+                        annotations.push({
                             label: `${alert.name} Upper Threshold`,
-                            value: absoluteThreshold?.upper,
+                            value: bounds?.upper,
                         })
                     }
 
-                    if (absoluteThreshold?.lower !== undefined) {
-                        thresholds.push({
+                    if (bounds?.lower != null) {
+                        annotations.push({
                             label: `${alert.name} Lower Threshold`,
-                            value: absoluteThreshold?.lower,
+                            value: bounds?.lower,
                         })
                     }
 
-                    return thresholds
+                    return annotations
                 }),
         ],
     }),

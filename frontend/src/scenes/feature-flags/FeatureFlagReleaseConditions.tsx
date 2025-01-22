@@ -40,10 +40,15 @@ export function FeatureFlagReleaseConditions({
     filters,
     onChange,
     hideMatchOptions,
+    nonEmptyFeatureFlagVariants,
+    showTrashIconWithOneCondition = false,
+    removedLastConditionCallback,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
     isSuper?: boolean
     excludeTitle?: boolean
+    showTrashIconWithOneCondition?: boolean
+    removedLastConditionCallback?: () => void
 }): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -77,6 +82,8 @@ export function FeatureFlagReleaseConditions({
 
     const { cohortsById } = useValues(cohortsModel)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+
+    const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
 
     const filterGroups: FeatureFlagGroupType[] = (isSuper ? filters?.super_groups : filters?.groups) || []
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
@@ -134,13 +141,19 @@ export function FeatureFlagReleaseConditions({
                                     noPadding
                                     onClick={() => duplicateConditionSet(index)}
                                 />
-                                {!isEarlyAccessFeatureCondition(group) && filterGroups.length > 1 && (
-                                    <LemonButton
-                                        icon={<IconTrash />}
-                                        noPadding
-                                        onClick={() => removeConditionSet(index)}
-                                    />
-                                )}
+                                {!isEarlyAccessFeatureCondition(group) &&
+                                    (filterGroups.length > 1 || showTrashIconWithOneCondition) && (
+                                        <LemonButton
+                                            icon={<IconTrash />}
+                                            noPadding
+                                            onClick={() => {
+                                                removeConditionSet(index)
+                                                if (filterGroups.length === 1) {
+                                                    removedLastConditionCallback?.()
+                                                }
+                                            }}
+                                        />
+                                    )}
                             </div>
                         )}
                     </div>
@@ -190,21 +203,26 @@ export function FeatureFlagReleaseConditions({
                                             (val, idx) => (
                                                 <LemonSnack key={idx}>
                                                     {val}
-                                                    {isPropertyFilterWithOperator(property) &&
-                                                    ['is_date_before', 'is_date_after'].includes(property.operator) &&
-                                                    dateStringToComponents(String(val)) // check it's a relative date
-                                                        ? ` ( ${dateFilterToText(
-                                                              String(val),
-                                                              undefined,
-                                                              '',
-                                                              [],
-                                                              false,
-                                                              String(val).slice(-1) === 'h'
-                                                                  ? 'MMMM D, YYYY HH:mm:ss'
-                                                                  : 'MMMM D, YYYY',
-                                                              true
-                                                          )} )`
-                                                        : ''}
+                                                    <span>
+                                                        {isPropertyFilterWithOperator(property) &&
+                                                        ['is_date_before', 'is_date_after'].includes(
+                                                            property.operator
+                                                        ) &&
+                                                        dateStringToComponents(String(val)) // check it's a relative date
+                                                            ? ` ( ${dateFilterToText(
+                                                                  String(val),
+                                                                  undefined,
+                                                                  '',
+                                                                  [],
+                                                                  false,
+                                                                  String(val).slice(-1) === 'h'
+                                                                      ? 'MMMM D, YYYY HH:mm:ss'
+                                                                      : 'MMMM D, YYYY',
+                                                                  true
+                                                              )}{' '}
+                                                            )`
+                                                            : ''}
+                                                    </span>
                                                 </LemonSnack>
                                             )
                                         )
@@ -245,6 +263,7 @@ export function FeatureFlagReleaseConditions({
                                         : null
                                 }
                                 exactMatchFeatureFlagCohortOperators={true}
+                                hideBehavioralCohorts={true}
                             />
                         </div>
                     )}
@@ -265,8 +284,10 @@ export function FeatureFlagReleaseConditions({
                         >
                             <div className="text-sm ">
                                 Rolled out to{' '}
-                                <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
-                                <b>{aggregationTargetName}</b> in this set.{' '}
+                                {group.rollout_percentage != null ? <b>{group.rollout_percentage}</b> : <b>100</b>}
+                                <b>%</b>
+                                <span> of </span>
+                                <b>{aggregationTargetName}</b> <span>in this set.</span>
                             </div>
                         </LemonTag>
                     ) : (
@@ -330,11 +351,11 @@ export function FeatureFlagReleaseConditions({
                                     }
                                     return ''
                                 })()}{' '}
-                                of total {aggregationTargetName}.
+                                <span>of total {aggregationTargetName}.</span>
                             </div>
                         </div>
                     )}
-                    {nonEmptyVariants.length > 0 && (
+                    {featureFlagVariants.length > 0 && (
                         <>
                             <LemonDivider className="my-3" />
                             {readOnly ? (
@@ -359,7 +380,7 @@ export function FeatureFlagReleaseConditions({
                                             allowClear={true}
                                             value={group.variant}
                                             onChange={(value) => updateConditionSet(index, undefined, undefined, value)}
-                                            options={nonEmptyVariants.map((variant) => ({
+                                            options={featureFlagVariants.map((variant) => ({
                                                 label: variant.key,
                                                 value: variant.key,
                                             }))}
@@ -453,8 +474,17 @@ export function FeatureFlagReleaseConditions({
                                 <>
                                     <h3 className="l3">Release conditions</h3>
                                     <div className="text-muted mb-4">
-                                        Specify the {aggregationTargetName} to which you want to release this flag. Note
-                                        that condition sets are rolled out independently of each other.
+                                        Specify {aggregationTargetName} for flag release. Condition sets roll out
+                                        independently.
+                                        {aggregationTargetName === 'users' && (
+                                            <>
+                                                {' '}
+                                                Cohort-based targeting{' '}
+                                                <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-behavioral-cohort-as-a-feature-flag-target">
+                                                    doesn't support dynamic behavioral cohorts.
+                                                </Link>{' '}
+                                            </>
+                                        )}
                                     </div>
                                 </>
                             )}

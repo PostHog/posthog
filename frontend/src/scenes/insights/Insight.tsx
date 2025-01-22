@@ -1,9 +1,11 @@
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { DebugCHQueries } from 'lib/components/CommandPalette/DebugCHQueries'
 import { isObject } from 'lib/utils'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { ReloadInsight } from 'scenes/saved-insights/ReloadInsight'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
@@ -21,16 +23,20 @@ export interface InsightSceneProps {
 
 export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
-    const { insightMode, insight, filtersOverride } = useValues(insightSceneLogic)
+    const { insightMode, insight, filtersOverride, variablesOverride, freshQuery } = useValues(insightSceneLogic)
 
     // insightLogic
     const logic = insightLogic({
         dashboardItemId: insightId || 'new',
         // don't use cached insight if we have filtersOverride
-        cachedInsight: isObject(filtersOverride) && insight?.short_id === insightId ? insight : null,
+        cachedInsight:
+            (isObject(filtersOverride) || isObject(variablesOverride)) && insight?.short_id === insightId
+                ? insight
+                : null,
         filtersOverride,
+        variablesOverride,
     })
-    const { insightProps } = useValues(logic)
+    const { insightProps, accessDeniedToInsight } = useValues(logic)
 
     // insightDataLogic
     const { query, showQueryEditor, showDebugPanel } = useValues(insightDataLogic(insightProps))
@@ -47,18 +53,25 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         }
     }
 
+    if (accessDeniedToInsight) {
+        return <AccessDenied object="insight" />
+    }
+
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <div className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
 
-                {isObject(filtersOverride) && (
+                {(isObject(filtersOverride) || isObject(variablesOverride)) && (
                     <LemonBanner type="warning" className="mb-4">
                         <div className="flex flex-row items-center justify-between gap-2">
-                            <span>You are viewing this insight with filters from a dashboard</span>
+                            <span>
+                                You are viewing this insight with{' '}
+                                {isObject(variablesOverride) ? 'variables' : 'filters'} from a dashboard
+                            </span>
 
                             <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>
-                                Discard dashboard filters
+                                Discard dashboard {isObject(variablesOverride) ? 'variables' : 'filters'}
                             </LemonButton>
                         </div>
                     </LemonBanner>
@@ -72,9 +85,11 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                     </div>
                 )}
 
+                {freshQuery ? <ReloadInsight /> : null}
+
                 <Query
                     query={isInsightVizNode(query) ? { ...query, full: true } : query}
-                    setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
+                    setQuery={setQuery}
                     readOnly={insightMode !== ItemMode.Edit}
                     context={{
                         showOpenEditorButton: false,
@@ -83,6 +98,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                         insightProps,
                     }}
                     filtersOverride={filtersOverride}
+                    variablesOverride={variablesOverride}
                 />
             </div>
         </BindLogic>

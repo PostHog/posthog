@@ -15,14 +15,14 @@ export type HogBytecode = any[]
 // subset of EntityFilter
 export interface HogFunctionFilterBase {
     id: string
-    name: string | null
-    order: number
-    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+    name?: string | null
+    order?: number
+    properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
 }
 
 export interface HogFunctionFilterEvent extends HogFunctionFilterBase {
     type: 'events'
-    bytecode: HogBytecode
+    bytecode?: HogBytecode
 }
 
 export interface HogFunctionFilterAction extends HogFunctionFilterBase {
@@ -33,7 +33,7 @@ export interface HogFunctionFilterAction extends HogFunctionFilterBase {
 
 export type HogFunctionFilter = HogFunctionFilterEvent | HogFunctionFilterAction
 
-export type HogFunctionFiltersMasking = {
+export type HogFunctionMasking = {
     ttl: number | null
     hash: string
     bytecode: HogBytecode
@@ -169,14 +169,35 @@ export type HogFunctionQueueParametersFetchRequest = {
     headers?: Record<string, string>
 }
 
+export type CyclotronFetchFailureKind =
+    | 'timeout'
+    | 'timeoutgettingbody'
+    | 'missingparameters'
+    | 'invalidparameters'
+    | 'requesterror'
+    | 'failurestatus'
+    | 'invalidbody'
+    | 'responsetoolarge'
+
+export type CyclotronFetchFailureInfo = {
+    kind: CyclotronFetchFailureKind
+    message: string
+    headers?: Record<string, string>
+    status?: number
+    timestamp: DateTime
+}
+
 export type HogFunctionQueueParametersFetchResponse = {
     /** An error message to indicate something went wrong and the invocation should be stopped */
     error?: any
-    /** The data to be passed to the Hog function from the response */
+    /** On success, the fetch worker returns only the successful response */
     response?: {
         status: number
-        body?: string
+        headers: Record<string, string>
     } | null
+    /** On failure, the fetch worker returns a list of info about the attempts made*/
+    trace?: CyclotronFetchFailureInfo[]
+    body?: string // Both results AND failures can have a body
     timings?: HogFunctionTiming[]
     logs?: LogEntry[]
 }
@@ -187,7 +208,7 @@ export type HogFunctionInvocationQueueParameters =
 
 export type HogFunctionInvocation = {
     id: string
-    globals: HogFunctionInvocationGlobals
+    globals: HogFunctionInvocationGlobalsWithInputs
     teamId: Team['id']
     hogFunction: HogFunctionType
     priority: number
@@ -196,6 +217,7 @@ export type HogFunctionInvocation = {
     // The current vmstate (set if the invocation is paused)
     vmState?: VMState
     timings: HogFunctionTiming[]
+    functionToExecute?: [string, any[]]
 }
 
 export type HogFunctionAsyncFunctionRequest = {
@@ -211,6 +233,7 @@ export type HogFunctionInvocationResult = {
     // asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
     logs: LogEntry[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
+    execResult?: unknown
 }
 
 export type HogFunctionInvocationAsyncRequest = {
@@ -239,7 +262,7 @@ export type HogFunctionInvocationSerializedCompressed = {
 
 // Mostly copied from frontend types
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field'
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -249,11 +272,31 @@ export type HogFunctionInputSchemaType = {
     description?: string
     integration?: string
     integration_key?: string
-    integration_field?: 'slack_channel'
+    requires_field?: string
+    integration_field?: string
+    requiredScopes?: string
+}
+
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'transformation'
+    | 'internal_destination'
+    | 'email'
+    | 'sms'
+    | 'push'
+    | 'activity'
+    | 'alert'
+    | 'broadcast'
+
+export interface HogFunctionMappingType {
+    inputs_schema?: HogFunctionInputSchemaType[]
+    inputs?: Record<string, HogFunctionInputType> | null
+    filters?: HogFunctionFilters | null
 }
 
 export type HogFunctionType = {
     id: string
+    type: HogFunctionTypeType
     team_id: number
     name: string
     enabled: boolean
@@ -263,7 +306,8 @@ export type HogFunctionType = {
     inputs?: Record<string, HogFunctionInputType>
     encrypted_inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
-    masking?: HogFunctionFiltersMasking | null
+    mappings?: HogFunctionMappingType[] | null
+    masking?: HogFunctionMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
 }
 
@@ -271,6 +315,7 @@ export type HogFunctionInputType = {
     value: any
     secret?: boolean
     bytecode?: HogBytecode | object
+    order?: number
 }
 
 export type IntegrationType = {
@@ -285,6 +330,10 @@ export type IntegrationType = {
     created_at?: string
     created_by_id?: number
 }
+export type HogFunctionAppMetric = Pick<
+    AppMetric2Type,
+    'team_id' | 'app_source_id' | 'metric_kind' | 'metric_name' | 'count'
+>
 
 export type HogFunctionMessageToProduce = {
     topic: string

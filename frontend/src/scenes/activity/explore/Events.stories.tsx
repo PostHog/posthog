@@ -14,7 +14,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/projects/:team_id/query': eventsQuery,
+                '/api/environments/:team_id/query': eventsQuery,
             },
         }),
     ],

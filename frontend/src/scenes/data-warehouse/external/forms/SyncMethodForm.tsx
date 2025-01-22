@@ -10,7 +10,7 @@ const getIncrementalSyncSupported = (
     if (!schema.incremental_available) {
         return {
             disabled: true,
-            disabledReason: "Incremental append replication isn't supported on this table",
+            disabledReason: "Incremental replication isn't supported on this table",
         }
     }
 
@@ -109,23 +109,18 @@ export const SyncMethodForm = ({
                         label: (
                             <div className="mb-6 font-normal">
                                 <div className="items-center flex leading-[normal] overflow-hidden mb-2.5">
-                                    <h2 className="mb-0 mr-2">Incremental append replication</h2>
+                                    <h2 className="mb-0 mr-2">Incremental replication</h2>
                                     {!incrementalSyncSupported.disabled && (
                                         <LemonTag type="success">Recommended</LemonTag>
                                     )}
                                 </div>
                                 <p>
-                                    When using incremental append replication, we'll store the max value of the below
-                                    field on each sync and only sync rows with greater or equal value on the next run.
+                                    When using incremental replication, we'll store the max value of the below field on
+                                    each sync and only sync rows with greater or equal value on the next run.
                                 </p>
                                 <p>
-                                    You should pick a field that increments for each row, such as a{' '}
-                                    <code>created_at</code> timestamp.
-                                </p>
-                                <p>
-                                    This method will append all new rows to your existing table - this means duplicate
-                                    data can exist if the incremental field updates for updated rows (such as when using
-                                    an <code>updated_at</code> field)
+                                    You should pick a field that increments or updates each time the row is updated,
+                                    such as a <code>updated_at</code> timestamp.
                                 </p>
                                 <LemonSelect
                                     value={incrementalFieldValue}
@@ -167,8 +162,7 @@ export const SyncMethodForm = ({
             />
             {showRefreshMessage && (
                 <p className="text-danger">
-                    Note: Changing the sync type or incremental append replication field will trigger a full table
-                    refresh
+                    Note: Changing the sync type or incremental replication field will trigger a full table refresh
                 </p>
             )}
             <div className="flex flex-row justify-end w-full">
@@ -185,7 +179,7 @@ export const SyncMethodForm = ({
                                 (n) => n.field === incrementalFieldValue
                             )
                             if (!fieldSelected) {
-                                lemonToast.error('Selected field for incremental append replication not found')
+                                lemonToast.error('Selected field for incremental replication not found')
                                 return
                             }
 

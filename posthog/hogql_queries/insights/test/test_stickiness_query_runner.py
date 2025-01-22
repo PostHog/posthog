@@ -14,7 +14,7 @@ from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
-    InsightDateRange,
+    DateRange,
     ElementPropertyFilter,
     EmptyPropertyFilter,
     EventPropertyFilter,
@@ -36,7 +36,7 @@ from posthog.schema import (
     CompareFilter,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.test.base import APIBaseTest, _create_event, _create_person
+from posthog.test.base import APIBaseTest, _create_event, _create_person, ClickhouseTestMixin
 
 
 @dataclass
@@ -72,7 +72,7 @@ StickinessProperties = Union[
 ]
 
 
-class TestStickinessQueryRunner(APIBaseTest):
+class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     default_date_from = "2020-01-11"
     default_date_to = "2020-01-20"
 
@@ -120,7 +120,9 @@ class TestStickinessQueryRunner(APIBaseTest):
         return person_result
 
     def _create_test_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
 
         create_group(
             team_id=self.team.pk,
@@ -213,7 +215,7 @@ class TestStickinessQueryRunner(APIBaseTest):
 
         query = StickinessQuery(
             series=query_series,
-            dateRange=InsightDateRange(date_from=query_date_from, date_to=query_date_to),
+            dateRange=DateRange(date_from=query_date_from, date_to=query_date_to),
             interval=query_interval,
             properties=properties,
             stickinessFilter=filters,
@@ -539,6 +541,73 @@ class TestStickinessQueryRunner(APIBaseTest):
         assert response.results[1]["count"] == 2
         assert response.results[1]["compare_label"] == "previous"
         assert response.results[1]["data"] == [0, 0, 0, 0, 1, 0, 0, 0, 1]
+
+    def test_criteria(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-15T12:00:00Z",
+                                "2020-01-15T12:00:00Z",
+                                "2020-01-17T12:00:00Z",
+                                "2020-01-17T12:00:00Z",
+                                "2020-01-17T12:00:00Z",
+                                "2020-01-19T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-19T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
+                ),
+            ]
+        )
+
+        response = self._run_query(
+            date_from="2020-01-12",
+            date_to="2020-01-20",
+            filters=StickinessFilter(**{"stickinessCriteria": {"operator": "gte", "value": 2}}),
+        )
+        assert response.results[0]["count"] == 2
+        assert response.results[0]["data"] == [0, 1, 1, 0, 0, 0, 0, 0, 0]
+
+        response = self._run_query(
+            date_from="2020-01-12",
+            date_to="2020-01-20",
+            filters=StickinessFilter(**{"stickinessCriteria": {"operator": "lte", "value": 1}}),
+        )
+        assert response.results[0]["count"] == 2
+        assert response.results[0]["data"] == [2, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        response = self._run_query(
+            date_from="2020-01-11",
+            date_to="2020-01-20",
+            filters=StickinessFilter(**{"stickinessCriteria": {"operator": "exact", "value": 2}}),
+        )
+        assert response.results[0]["count"] == 2
+        assert response.results[0]["data"] == [0, 1, 1, 0, 0, 0, 0, 0, 0, 0]
 
     def test_filter_test_accounts(self):
         self._create_test_events()

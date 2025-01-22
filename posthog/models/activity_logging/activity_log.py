@@ -5,6 +5,9 @@ from decimal import Decimal
 from typing import Any, Literal, Optional, Union
 from uuid import UUID
 
+from django.db.models.signals import post_save
+from django.dispatch.dispatcher import receiver
+from sentry_sdk import capture_exception
 import structlog
 from django.core.paginator import Paginator
 from django.core.exceptions import ObjectDoesNotExist
@@ -29,6 +32,7 @@ ActivityScope = Literal[
     "Insight",
     "Plugin",
     "PluginConfig",
+    "HogFunction",
     "DataManagement",
     "EventDefinition",
     "PropertyDefinition",
@@ -149,6 +153,12 @@ common_field_exclusions = [
 ]
 
 
+field_with_masked_contents: dict[ActivityScope, list[str]] = {
+    "HogFunction": [
+        "encrypted_inputs",
+    ],
+}
+
 field_exclusions: dict[ActivityScope, list[str]] = {
     "Cohort": [
         "version",
@@ -157,6 +167,10 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "is_calculating",
         "last_calculation",
         "errors_calculating",
+    ],
+    "HogFunction": [
+        "bytecode",
+        "icon_url",
     ],
     "Notebook": [
         "text_content",
@@ -284,35 +298,47 @@ def changes_between(
     if previous is not None:
         fields = current._meta.get_fields() if current is not None else []
         excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
-        filtered_fields = [f.name for f in fields if f.name not in excluded_fields]
+        masked_fields = field_with_masked_contents.get(model_type, [])
+        filtered_fields = [f for f in fields if f.name not in excluded_fields]
+        filtered_field_names = [f.name for f in filtered_fields]
 
         for field in filtered_fields:
-            left = safely_get_field_value(previous, field)
-            right = safely_get_field_value(current, field)
+            field_name = field.name
+            left = safely_get_field_value(previous, field_name)
+            right = safely_get_field_value(current, field_name)
 
-            if field == "tagged_items":
-                field = "tags"  # Or the UI needs to be coupled to this internal backend naming.
+            if field_name == "tagged_items":
+                field_name = "tags"  # Or the UI needs to be coupled to this internal backend naming.
 
-            if field == "dashboards" and "dashboard_tiles" in filtered_fields:
+            if field_name == "dashboards" and "dashboard_tiles" in filtered_field_names:
                 # Only process dashboard_tiles when it is present. It supersedes dashboards.
                 continue
 
-            if model_type == "Insight" and field == "dashboard_tiles":
+            if model_type == "Insight" and field_name == "dashboard_tiles":
                 # The API exposes this as dashboards and that's what the activity describers expect.
-                field = "dashboards"
+                field_name = "dashboards"
 
-            if left is None and right is not None:
-                changes.append(Change(type=model_type, field=field, action="created", after=right))
-            elif right is None and left is not None:
-                changes.append(Change(type=model_type, field=field, action="deleted", before=left))
+            # if is a django model field, check the empty_values list
+            left_is_none = left is None or (hasattr(field, "empty_values") and left in field.empty_values)
+            right_is_none = right is None or (hasattr(field, "empty_values") and right in field.empty_values)
+
+            left_value = "masked" if field_name in masked_fields else left
+            right_value = "masked" if field_name in masked_fields else right
+
+            if left_is_none and right_is_none:
+                pass  # could be {} vs None
+            elif left_is_none and not right_is_none:
+                changes.append(Change(type=model_type, field=field_name, action="created", after=right_value))
+            elif right_is_none and not left_is_none:
+                changes.append(Change(type=model_type, field=field_name, action="deleted", before=left_value))
             elif left != right:
                 changes.append(
                     Change(
                         type=model_type,
-                        field=field,
+                        field=field_name,
                         action="changed",
-                        before=left,
-                        after=right,
+                        before=left_value,
+                        after=right_value,
                     )
                 )
 
@@ -475,3 +501,37 @@ def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int 
     )
 
     return get_activity_page(activity_query, limit, page)
+
+
+@receiver(post_save, sender=ActivityLog)
+def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
+    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
+    from posthog.api.activity_log import ActivityLogSerializer
+    from posthog.api.shared import UserBasicSerializer
+
+    try:
+        serialized_data = ActivityLogSerializer(instance).data
+        # TODO: Move this into the producer to support dataclasses
+        serialized_data["detail"] = dataclasses.asdict(serialized_data["detail"])
+        user_data = UserBasicSerializer(instance.user).data if instance.user else None
+
+        if created and instance.team_id is not None:
+            produce_internal_event(
+                team_id=instance.team_id,
+                event=InternalEventEvent(
+                    event="$activity_log_entry_created",
+                    distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
+                    properties=serialized_data,
+                ),
+                person=InternalEventPerson(
+                    id=user_data["id"],
+                    properties=user_data,
+                )
+                if user_data
+                else None,
+            )
+    except Exception as e:
+        # We don't want to hard fail here.
+        logger.exception("Failed to produce internal event", data=serialized_data, error=e)
+        capture_exception(e)
+        return

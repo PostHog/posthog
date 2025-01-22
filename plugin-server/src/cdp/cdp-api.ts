@@ -4,26 +4,25 @@ import { DateTime } from 'luxon'
 import { Hub } from '../types'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
-import { FetchExecutor } from './fetch-executor'
-import { HogExecutor } from './hog-executor'
-import { HogFunctionManager } from './hog-function-manager'
-import { HogWatcher, HogWatcherState } from './hog-watcher'
-import { HogFunctionInvocationResult, HogFunctionType, LogEntry } from './types'
-import { createInvocation } from './utils'
+import { FetchExecutorService } from './services/fetch-executor.service'
+import { HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import { HogFunctionManagerService } from './services/hog-function-manager.service'
+import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
+import { HogFunctionInvocationResult, HogFunctionQueueParametersFetchRequest, HogFunctionType, LogEntry } from './types'
 
 export class CdpApi {
-    private hogExecutor: HogExecutor
-    private hogFunctionManager: HogFunctionManager
-    private fetchExecutor: FetchExecutor
-    private hogWatcher: HogWatcher
+    private hogExecutor: HogExecutorService
+    private hogFunctionManager: HogFunctionManagerService
+    private fetchExecutor: FetchExecutorService
+    private hogWatcher: HogWatcherService
 
     constructor(
         private hub: Hub,
         dependencies: {
-            hogExecutor: HogExecutor
-            hogFunctionManager: HogFunctionManager
-            fetchExecutor: FetchExecutor
-            hogWatcher: HogWatcher
+            hogExecutor: HogExecutorService
+            hogFunctionManager: HogFunctionManagerService
+            fetchExecutor: FetchExecutorService
+            hogWatcher: HogWatcherService
         }
     ) {
         this.hogExecutor = dependencies.hogExecutor
@@ -116,79 +115,103 @@ export class CdpApi {
 
             let lastResponse: HogFunctionInvocationResult | null = null
             let logs: LogEntry[] = []
+            const errors: any[] = []
 
-            let count = 0
+            const triggerGlobals = {
+                ...globals,
+                project: {
+                    id: team.id,
+                    name: team.name,
+                    url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                    ...globals.project,
+                },
+            }
 
-            while (!lastResponse || !lastResponse.finished) {
-                if (count > 5) {
-                    throw new Error('Too many iterations')
+            const {
+                invocations,
+                logs: filterLogs,
+                metrics: filterMetrics,
+            } = this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
+
+            // Add metrics to the logs
+            filterMetrics.forEach((metric) => {
+                if (metric.metric_name === 'filtered') {
+                    logs.push({
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: `Mapping trigger not matching filters was ignored.`,
+                    })
                 }
-                count += 1
+            })
 
-                let response: HogFunctionInvocationResult
+            filterLogs.forEach((log) => {
+                logs.push(log)
+            })
 
-                const invocation =
-                    lastResponse?.invocation ||
-                    createInvocation(
-                        {
-                            ...globals,
-                            project: {
-                                id: team.id,
-                                name: team.name,
-                                url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
-                            },
-                        },
-                        compoundConfiguration
-                    )
+            for (const _invocation of invocations) {
+                let count = 0
+                let invocation = _invocation
 
-                if (invocation.queue === 'fetch') {
-                    if (mock_async_functions) {
-                        // Add the state, simulating what executeAsyncResponse would do
+                while (!lastResponse || !lastResponse.finished) {
+                    if (count > MAX_ASYNC_STEPS * 2) {
+                        throw new Error('Too many iterations')
+                    }
+                    count += 1
 
-                        // Re-parse the fetch args for the logging
-                        const fetchArgs = {
-                            ...invocation.queueParameters,
-                        }
+                    let response: HogFunctionInvocationResult
 
-                        response = {
-                            invocation: {
-                                ...invocation,
-                                queue: 'hog',
-                                queueParameters: { response: { status: 200, body: '{}' } },
-                            },
-                            finished: false,
-                            logs: [
-                                {
-                                    level: 'info',
-                                    timestamp: DateTime.now(),
-                                    message: `Async function 'fetch' was mocked with arguments:`,
+                    if (invocation.queue === 'fetch') {
+                        if (mock_async_functions) {
+                            // Add the state, simulating what executeAsyncResponse would do
+                            // Re-parse the fetch args for the logging
+                            const fetchArgs: HogFunctionQueueParametersFetchRequest =
+                                this.hogExecutor.redactFetchRequest(
+                                    invocation.queueParameters as HogFunctionQueueParametersFetchRequest
+                                )
+
+                            response = {
+                                invocation: {
+                                    ...invocation,
+                                    queue: 'hog',
+                                    queueParameters: { response: { status: 200, headers: {} }, body: '{}' },
                                 },
-                                {
-                                    level: 'info',
-                                    timestamp: DateTime.now(),
-                                    message: `fetch(${JSON.stringify(fetchArgs, null, 2)})`,
-                                },
-                            ],
+                                finished: false,
+                                logs: [
+                                    {
+                                        level: 'info',
+                                        timestamp: DateTime.now(),
+                                        message: `Async function 'fetch' was mocked with arguments:`,
+                                    },
+                                    {
+                                        level: 'info',
+                                        timestamp: DateTime.now(),
+                                        message: `fetch(${JSON.stringify(fetchArgs, null, 2)})`,
+                                    },
+                                ],
+                            }
+                        } else {
+                            response = await this.fetchExecutor!.executeLocally(invocation)
                         }
                     } else {
-                        response = await this.fetchExecutor!.executeLocally(invocation)
+                        response = this.hogExecutor.execute(invocation)
                     }
-                } else {
-                    response = this.hogExecutor.execute(invocation)
-                }
 
-                logs = logs.concat(response.logs)
-                lastResponse = response
+                    logs = logs.concat(response.logs)
+                    lastResponse = response
+                    invocation = response.invocation
+                    if (response.error) {
+                        errors.push(response.error)
+                    }
+                }
             }
 
             res.json({
-                status: lastResponse.finished ? 'success' : 'error',
-                error: String(lastResponse.error),
+                errors: errors.map((e) => String(e)),
                 logs: logs,
             })
         } catch (e) {
             console.error(e)
-            res.status(500).json({ error: e.message })
+            res.status(500).json({ errors: [e.message] })
         }
     }
 }

@@ -10,7 +10,7 @@ on:
 jobs:
     lint-pr:
         name: Validate PR title against Conventional Commits
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         steps:
             - uses: amannn/action-semantic-pull-request@v5
               env:

@@ -13,7 +13,9 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
+from posthog.models.project import Project
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
 from posthog.test.base import (
@@ -22,6 +24,7 @@ from posthog.test.base import (
     QueryMatchingTest,
     snapshot_postgres_queries,
 )
+from ee.models.rbac.access_control import AccessControl
 
 valid_template: dict = {
     "template_name": "Sign up conversion template with variables",
@@ -80,6 +83,33 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(
             [dashboard["name"] for dashboard in response_data["results"]],
             dashboard_names,
+        )
+
+    def test_retrieve_dashboard_list_includes_other_environments(self):
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        _, team_in_other_project = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user
+        )
+
+        dashboard_a_id, _ = self.dashboard_api.create_dashboard({"name": "A"}, team_id=self.team.id)
+        dashboard_b_id, _ = self.dashboard_api.create_dashboard({"name": "B"}, team_id=other_team_in_project.id)
+        self.dashboard_api.create_dashboard({"name": "C"}, team_id=team_in_other_project.id)
+
+        response_project_data = self.dashboard_api.list_dashboards(self.project.id)
+        response_env_current_data = self.dashboard_api.list_dashboards(self.team.id, parent="environment")
+        response_env_other_data = self.dashboard_api.list_dashboards(other_team_in_project.id, parent="environment")
+
+        self.assertEqual(
+            {dashboard["id"] for dashboard in response_project_data["results"]},
+            {dashboard_a_id, dashboard_b_id},
+        )
+        self.assertEqual(
+            {dashboard["id"] for dashboard in response_env_current_data["results"]},
+            {dashboard_a_id, dashboard_b_id},
+        )
+        self.assertEqual(
+            {dashboard["id"] for dashboard in response_env_other_data["results"]},
+            {dashboard_a_id, dashboard_b_id},
         )
 
     @snapshot_postgres_queries
@@ -238,19 +268,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            with self.assertNumQueries(11):
+            baseline = 3
+
+            with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(baseline + 10 + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(baseline + 10 + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(baseline + 10 + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -267,7 +299,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(9):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
@@ -275,7 +307,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(FuzzyInt(8, 9)):
+            with self.assertNumQueries(FuzzyInt(10, 11)):
                 self.dashboard_api.list_dashboards(query_params={"limit": 300})
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:
@@ -555,7 +587,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         mock_view.action = "retrieve"
         mock_request = MagicMock()
         mock_request.query_params.get.return_value = None
-        dashboard_data = DashboardSerializer(dashboard, context={"view": mock_view, "request": mock_request}).data
+        dashboard_data = DashboardSerializer(
+            dashboard, context={"view": mock_view, "request": mock_request, "get_team": lambda: self.team}
+        ).data
         assert len(dashboard_data["tiles"]) == 1
 
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
@@ -1280,7 +1314,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "effective_privilege_level": 37,
                     "effective_restriction_level": 21,
                     "favorited": False,
-                    "filters": {"filter_test_accounts": True},
+                    "filters": {},
                     "filters_hash": ANY,
                     "hasMore": None,
                     "id": ANY,
@@ -1308,6 +1342,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "tags": [],
                     "timezone": None,
                     "updated_at": ANY,
+                    "user_access_level": "editor",
                     "hogql": ANY,
                     "types": ANY,
                 },
@@ -1361,3 +1396,86 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         for item in response["tiles"]:
             self.assertNotEqual(item.get("dashboard", None), existing_dashboard.pk)
+
+    def test_dashboard_variables(self):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+            variables={
+                str(variable.id): {
+                    "code_name": variable.code_name,
+                    "variableId": str(variable.id),
+                    "value": "some override value",
+                }
+            },
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test_1}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+            last_refresh=now(),
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+
+        assert response_data["variables"] is not None
+        assert isinstance(response_data["variables"], dict)
+        assert len(response_data["variables"].keys()) == 1
+        for key, value in response_data["variables"].items():
+            assert key == str(variable.id)
+            assert value["code_name"] == variable.code_name
+            assert value["variableId"] == str(variable.id)
+            assert value["value"] == "some override value"
+
+    def test_dashboard_access_control_filtering(self) -> None:
+        """Test that dashboards are properly filtered based on access control."""
+
+        user2 = User.objects.create_and_join(self.organization, "test2@posthog.com", None)
+
+        visible_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Public Dashboard",
+            created_by=self.user,
+        )
+        hidden_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Hidden Dashboard",
+            created_by=self.user,
+        )
+        AccessControl.objects.create(
+            resource="dashboard", resource_id=hidden_dashboard.id, team=self.team, access_level="none"
+        )
+
+        # Verify we can access visible dashboards
+        self.client.force_login(user2)
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboards/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dashboard_ids = [dashboard["id"] for dashboard in response.json()["results"]]
+        self.assertIn(visible_dashboard.id, dashboard_ids)
+        self.assertNotIn(hidden_dashboard.id, dashboard_ids)
+
+        # Verify we can access all dashboards as creator
+        self.client.force_login(self.user)
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboards/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(visible_dashboard.id, [dashboard["id"] for dashboard in response.json()["results"]])
+        self.assertIn(hidden_dashboard.id, [dashboard["id"] for dashboard in response.json()["results"]])

@@ -359,9 +359,9 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> tuple[str, dict]:
 def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> tuple[str, list, dict]:
     entity = kwargs.pop("entity", None)
     cohorts = (
-        Cohort.objects.filter(team_id=team.pk, pk__in=[b for b in filter.breakdown if b != "all"])
+        Cohort.objects.filter(team__project_id=team.project_id, pk__in=[b for b in filter.breakdown if b != "all"])
         if isinstance(filter.breakdown, list)
-        else Cohort.objects.filter(team_id=team.pk, pk=filter.breakdown)
+        else Cohort.objects.filter(team__project_id=team.project_id, pk=filter.breakdown)
     )
     cohort_queries, params = _parse_breakdown_cohorts(list(cohorts), filter.hogql_context)
     ids = [cohort.pk for cohort in cohorts]

@@ -37,13 +37,12 @@ class AvailableFeature(StrEnum):
     AUTOMATIC_PROVISIONING = "automatic_provisioning"
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
     DATA_PIPELINES = "data_pipelines"
+    ALERTS = "alerts"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 TREND_FILTER_TYPE_DATA_WAREHOUSE = "data_warehouse"
-
-SESSION_RECORDINGS_FILTER_IDS = "session_ids"
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"
@@ -258,20 +257,13 @@ class RetentionQueryType(StrEnum):
     TARGET_FIRST_TIME = "target_first_time"
 
 
-class ExperimentSignificanceCode(StrEnum):
-    SIGNIFICANT = "significant"
-    NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
-    LOW_WIN_PROBABILITY = "low_win_probability"
-    HIGH_LOSS = "high_loss"
-    HIGH_P_VALUE = "high_p_value"
-
-
 class ExperimentNoResultsErrorKeys(StrEnum):
     NO_EVENTS = "no-events"
     NO_FLAG_INFO = "no-flag-info"
     NO_CONTROL_VARIANT = "no-control-variant"
     NO_TEST_VARIANT = "no-test-variant"
     NO_RESULTS = "no-results"
+    NO_EXPOSURES = "no-exposures"
 
 
 class PropertyOperatorType(StrEnum):
@@ -311,8 +303,11 @@ class FlagRequestType(StrEnum):
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
-BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
+DATA_WAREHOUSE_TASK_QUEUE_V2 = "v2-data-warehouse-task-queue"
+BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
+SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
+
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 

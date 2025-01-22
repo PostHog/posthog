@@ -40,7 +40,7 @@ export interface FrequentMistakeAdvice {
 export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect(() => ({
-        actions: [userLogic, ['loadUser', 'switchTeam']],
+        actions: [userLogic, ['loadUser', 'switchTeam'], organizationLogic, ['loadCurrentOrganization']],
         values: [projectLogic, ['currentProject'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
@@ -103,6 +103,8 @@ export const teamLogic = kea<teamLogicType>([
                     const [patchedTeam] = await Promise.all(promises)
                     breakpoint()
 
+                    // We need to reload current org (which lists its teams) in organizationLogic AND in userLogic
+                    actions.loadCurrentOrganization()
                     actions.loadUser()
 
                     /* Notify user the update was successful  */
@@ -143,15 +145,19 @@ export const teamLogic = kea<teamLogicType>([
                     return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
                 },
                 resetToken: async () => await api.update(`api/environments/${values.currentTeamId}/reset_token`, {}),
+                /**
+                 * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
+                 */
                 addProductIntent: async ({
                     product_type,
+                    intent_context,
                 }: {
                     product_type: ProductKey
                     intent_context?: string | null
                 }) =>
                     await api.update(`api/environments/${values.currentTeamId}/add_product_intent`, {
                         product_type,
-                        intent_context: null,
+                        intent_context: intent_context ?? undefined,
                     }),
                 recordProductIntentOnboardingComplete: async ({ product_type }: { product_type: ProductKey }) =>
                     await api.update(`api/environments/${values.currentTeamId}/complete_product_onboarding`, {
@@ -182,7 +188,8 @@ export const teamLogic = kea<teamLogicType>([
             (selectors) => [selectors.currentTeam, selectors.currentTeamLoading],
             // If project has been loaded and is still null, it means the user just doesn't have access.
             (currentTeam, currentTeamLoading): boolean =>
-                !currentTeam?.effective_membership_level && !currentTeamLoading,
+                (!currentTeam?.effective_membership_level || currentTeam.user_access_level === 'none') &&
+                !currentTeamLoading,
         ],
         demoOnlyProject: [
             (selectors) => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],
@@ -204,8 +211,9 @@ export const teamLogic = kea<teamLogicType>([
         isTeamTokenResetAvailable: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): boolean =>
-                !!currentTeam?.effective_membership_level &&
-                currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin,
+                (!!currentTeam?.effective_membership_level &&
+                    currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin) ||
+                currentTeam?.user_access_level === 'admin',
         ],
         testAccountFilterFrequentMistakes: [
             (selectors) => [selectors.currentTeam],
@@ -260,7 +268,7 @@ export const teamLogic = kea<teamLogicType>([
         if (switchedTeam) {
             lemonToast.info(
                 <>
-                    You've switched to&nbsp;project
+                    You've switched to&nbsp;project{' '}
                     {values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]
                         ? `${currentProject?.name}, environment ${currentTeam?.name}`
                         : currentTeam?.name}

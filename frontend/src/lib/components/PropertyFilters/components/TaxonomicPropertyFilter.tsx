@@ -49,6 +49,7 @@ export function TaxonomicPropertyFilter({
     taxonomicFilterOptionsFromProp,
     allowRelativeDateOptions,
     exactMatchFeatureFlagCohortOperators,
+    hideBehavioralCohorts,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -114,6 +115,7 @@ export function TaxonomicPropertyFilter({
             schemaColumns={schemaColumns}
             propertyAllowList={propertyAllowList}
             optionsFromProp={taxonomicFilterOptionsFromProp}
+            hideBehavioralCohorts={hideBehavioralCohorts}
         />
     )
 

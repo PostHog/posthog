@@ -1,7 +1,6 @@
 import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
-import { getTrendLikeSeriesColor } from 'lib/colors'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { compare as compareFn } from 'natural-orderby'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -12,12 +11,15 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
+import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType, ItemMode } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import { countryCodeToName } from '../WorldMap'
 import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
+import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
@@ -75,10 +77,12 @@ export function InsightsTable({
         trendsFilter,
         isSingleSeries,
         hiddenLegendIndexes,
+        getTrendsColor,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
+    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -120,6 +124,7 @@ export function InsightsTable({
                     canEditSeriesNameInline={canEditSeriesNameInline}
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeries}
+                    hasBreakdown={isValidBreakdown(breakdownFilter)}
                 />
             )
             return hasCheckboxes ? (
@@ -144,19 +149,13 @@ export function InsightsTable({
 
     if (breakdownFilter?.breakdown) {
         const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
-            formatBreakdownLabel(item.breakdown_value, breakdownFilter, cohorts, formatPropertyValueForDisplay)
+            formatBreakdownLabel(item.breakdown_value, breakdownFilter, cohorts?.results, formatPropertyValueForDisplay)
 
         columns.push({
             title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
-            render: (_, item) => (
-                <BreakdownColumnItem
-                    item={item}
-                    canCheckUncheckSeries={canCheckUncheckSeries}
-                    isMainInsightView={isMainInsightView}
-                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
-                    formatItemBreakdownLabel={formatItemBreakdownLabel}
-                />
-            ),
+            render: (_, item) => {
+                return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
+            },
             key: 'breakdown',
             sorter: (a, b) => {
                 if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
@@ -186,22 +185,16 @@ export function InsightsTable({
                 formatBreakdownLabel(
                     Array.isArray(item.breakdown_value) ? item.breakdown_value[index] : item.breakdown_value,
                     breakdownFilter,
-                    cohorts,
+                    cohorts?.results,
                     formatPropertyValueForDisplay,
                     index
                 )
 
             columns.push({
                 title: <MultipleBreakdownColumnTitle>{breakdown.property?.toString()}</MultipleBreakdownColumnTitle>,
-                render: (_, item) => (
-                    <BreakdownColumnItem
-                        item={item}
-                        canCheckUncheckSeries={canCheckUncheckSeries}
-                        isMainInsightView={isMainInsightView}
-                        toggleHiddenLegendIndex={toggleHiddenLegendIndex}
-                        formatItemBreakdownLabel={formatItemBreakdownLabel}
-                    />
-                ),
+                render: (_, item) => {
+                    return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
+                },
                 key: `breakdown-${breakdown.property?.toString() || index}`,
                 sorter: (a, b) => {
                     const leftValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[index] : a.breakdown_value
@@ -217,6 +210,14 @@ export function InsightsTable({
                     return compareFn()(labelA, labelB)
                 },
             })
+        })
+    }
+
+    if (hasInsightColors) {
+        columns.push({
+            title: <ColorCustomizationColumnTitle />,
+            render: (_, item) => <ColorCustomizationColumnItem item={item} />,
+            key: 'color',
         })
     }
 
@@ -279,13 +280,20 @@ export function InsightsTable({
             columns={columns}
             rowKey="id"
             loading={insightDataLoading}
+            disableTableWhileLoading={false}
             emptyState="No insight results"
             data-attr="insights-table-graph"
             useURLForSorting={insightMode !== ItemMode.Edit}
             rowRibbonColor={
                 isLegend
-                    ? (item) =>
-                          getTrendLikeSeriesColor(item.colorIndex, !!item.compare && item.compare_label === 'previous')
+                    ? (item) => {
+                          const isPrevious = !!item.compare && item.compare_label === 'previous'
+
+                          const themeColor = getTrendsColor(item)
+                          const mainColor = isPrevious ? `${themeColor}80` : themeColor
+
+                          return mainColor
+                      }
                     : undefined
             }
             firstColumnSticky

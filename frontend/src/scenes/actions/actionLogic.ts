@@ -5,7 +5,8 @@ import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActionType, Breadcrumb, HogFunctionType } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActionType, ActivityScope, Breadcrumb, HogFunctionType } from '~/types'
 
 import { actionEditLogic } from './actionEditLogic'
 import type { actionLogicType } from './actionLogicType'
@@ -40,7 +41,7 @@ export const actionLogic = kea<actionLogicType>([
             null as HogFunctionType[] | null,
             {
                 loadMatchingHogFunctions: async () => {
-                    const res = await api.hogFunctions.list({ filters: { actions: [{ id: `${props.id}` }] } })
+                    const res = await api.hogFunctions.list({ actions: [{ id: `${props.id}` }] })
 
                     return res.results
                 },
@@ -103,6 +104,20 @@ export const actionLogic = kea<actionLogicType>([
         hasCohortFilters: [
             (s) => [s.action],
             (action) => action?.steps?.some((step) => step.properties?.find((p) => p.type === 'cohort')) ?? false,
+        ],
+
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.action],
+            (action): SidePanelSceneContext | null => {
+                return action?.id
+                    ? {
+                          activity_scope: ActivityScope.ACTION,
+                          activity_item_id: `${action.id}`,
+                          //   access_control_resource: 'action',
+                          //   access_control_resource_id: `${action.id}`,
+                      }
+                    : null
+            },
         ],
     }),
     listeners(({ actions, values }) => ({

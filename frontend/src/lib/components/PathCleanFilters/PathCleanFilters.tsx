@@ -9,11 +9,12 @@ import { PathCleanFilterAddItemButton } from './PathCleanFilterAddItemButton'
 import { PathCleanFilterItem } from './PathCleanFilterItem'
 
 export interface PathCleanFiltersProps {
-    filters?: PathCleaningFilter[]
+    filters?: PathCleaningFilter[] | null
     setFilters: (filters: PathCleaningFilter[]) => void
 }
 
-export function PathCleanFilters({ filters = [], setFilters: _setFilters }: PathCleanFiltersProps): JSX.Element {
+export function PathCleanFilters({ filters: _filters, setFilters: _setFilters }: PathCleanFiltersProps): JSX.Element {
+    const filters = _filters != null ? _filters : []
     const [localFilters, setLocalFilters] = useState(filters)
 
     const updateFilters = (filters: PathCleaningFilter[]): void => {

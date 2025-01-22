@@ -21,7 +21,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardFilter, Node } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
 import { InsightLogicProps, InsightShortId, ItemMode, QueryBasedInsightModel, SetInsightOptions } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -77,9 +77,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
         saveInsightFailure: true,
-        loadInsight: (shortId: InsightShortId, filtersOverride?: DashboardFilter | null) => ({
+        loadInsight: (
+            shortId: InsightShortId,
+            filtersOverride?: DashboardFilter | null,
+            variablesOverride?: Record<string, HogQLVariable> | null
+        ) => ({
             shortId,
             filtersOverride,
+            variablesOverride,
         }),
         updateInsight: (insightUpdate: Partial<QueryBasedInsightModel>, callback?: () => void) => ({
             insightUpdate,
@@ -91,26 +96,39 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             metadataUpdate,
         }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
+        setAccessDeniedToInsight: true,
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
             props.cachedInsight ?? createEmptyInsight(props.dashboardItemId || 'new'),
             {
-                loadInsight: async ({ shortId, filtersOverride }, breakpoint) => {
+                loadInsight: async ({ shortId, filtersOverride, variablesOverride }, breakpoint) => {
                     await breakpoint(100)
-                    const insight = await insightsApi.getByShortId(shortId, undefined, 'async', filtersOverride)
+                    try {
+                        const insight = await insightsApi.getByShortId(
+                            shortId,
+                            undefined,
+                            'async',
+                            filtersOverride,
+                            variablesOverride
+                        )
 
-                    if (!insight) {
-                        throw new Error(`Insight with shortId ${shortId} not found`)
+                        if (!insight) {
+                            throw new Error(`Insight with shortId ${shortId} not found`)
+                        }
+
+                        return insight
+                    } catch (error: any) {
+                        if (error.status === 403 && error.code === 'permission_denied') {
+                            actions.setAccessDeniedToInsight()
+                        }
+                        throw error
                     }
-
-                    return insight
                 },
                 updateInsight: async ({ insightUpdate, callback }, breakpoint) => {
                     if (!Object.entries(insightUpdate).length) {
                         return values.insight
                     }
-
                     const response = await insightsApi.update(values.insight.id as number, insightUpdate)
                     breakpoint()
                     const updatedInsight: QueryBasedInsightModel = {
@@ -221,6 +239,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 return { ...state, dashboards: state.dashboards?.filter((d) => d !== id) }
             },
         },
+        accessDeniedToInsight: [false, { setAccessDeniedToInsight: () => true }],
         /** The insight's state as it is in the database. */
         savedInsight: [
             () => props.cachedInsight || ({} as Partial<QueryBasedInsightModel>),
@@ -325,6 +344,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     ? await insightsApi.update(insightNumericId, insightRequest)
                     : await insightsApi.create(insightRequest)
                 savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
+                // remove draft query from local storage
+                localStorage.removeItem(`draft-query-${values.currentTeamId}`)
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
@@ -397,9 +418,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 query: values.query,
                 saved: true,
             })
-            lemonToast.info(
-                `You're now working on a copy of ${values.insight.name || values.insight.derived_name || name}`
-            )
+
+            if (router.values.location.pathname.includes(urls.dataWarehouse())) {
+                lemonToast.info(`You're now viewing ${values.insight.name || values.insight.derived_name || name}`)
+            } else {
+                lemonToast.info(
+                    `You're now working on a copy of ${values.insight.name || values.insight.derived_name || name}`
+                )
+            }
+
             persist && actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
 
@@ -417,7 +444,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
 
             if (!props.doNotLoad && !props.cachedInsight) {
-                actions.loadInsight(props.dashboardItemId as InsightShortId, props.filtersOverride)
+                actions.loadInsight(
+                    props.dashboardItemId as InsightShortId,
+                    props.filtersOverride,
+                    props.variablesOverride
+                )
             }
         },
     })),

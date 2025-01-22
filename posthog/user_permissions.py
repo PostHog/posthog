@@ -80,7 +80,7 @@ class UserPermissions:
 
     @cached_property
     def project_ids_visible_for_user(self) -> list[int]:
-        return list({team.project_id for team in self.teams_visible_for_user if team.project_id is not None})
+        return list({team.project_id for team in self.teams_visible_for_user})
 
     # Cached properties/functions for efficient lookups in other classes
 

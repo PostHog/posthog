@@ -4,7 +4,7 @@ use futures::future::join_all;
 use health::HealthHandle;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
-use rdkafka::ClientConfig;
+use rdkafka::{ClientConfig, ClientContext};
 use serde::Serialize;
 use serde_json::error::Error as SerdeError;
 use thiserror::Error;
@@ -43,6 +43,10 @@ pub async fn create_kafka_producer(
         .set(
             "queue.buffering.max.kbytes",
             (config.kafka_producer_queue_mib * 1024).to_string(),
+        )
+        .set(
+            "queue.buffering.max.messages",
+            config.kafka_producer_queue_messages.to_string(),
         );
 
     if config.kafka_tls {
@@ -85,9 +89,21 @@ pub enum KafkaProduceError {
     KafkaProduceCanceled,
 }
 
-pub async fn send_iter_to_kafka<T>(
-    kafka_producer: &FutureProducer<KafkaContext>,
+pub async fn send_iter_to_kafka<T, C: ClientContext>(
+    kafka_producer: &FutureProducer<C>,
     topic: &str,
+    iter: impl IntoIterator<Item = T>,
+) -> Result<(), KafkaProduceError>
+where
+    T: Serialize,
+{
+    send_keyed_iter_to_kafka(kafka_producer, topic, |_| None, iter).await
+}
+
+pub async fn send_keyed_iter_to_kafka<T, C: ClientContext>(
+    kafka_producer: &FutureProducer<C>,
+    topic: &str,
+    key_extractor: impl Fn(&T) -> Option<String>,
     iter: impl IntoIterator<Item = T>,
 ) -> Result<(), KafkaProduceError>
 where
@@ -96,9 +112,10 @@ where
     let mut payloads = Vec::new();
 
     for i in iter {
+        let key = key_extractor(&i);
         let payload = serde_json::to_string(&i)
             .map_err(|e| KafkaProduceError::SerializationError { error: e })?;
-        payloads.push(payload);
+        payloads.push((key, payload));
     }
 
     if payloads.is_empty() {
@@ -107,12 +124,12 @@ where
 
     let mut delivery_futures = Vec::new();
 
-    for payload in payloads {
+    for (key, payload) in payloads {
         match kafka_producer.send_result(FutureRecord {
             topic,
             payload: Some(&payload),
             partition: None,
-            key: None::<&str>,
+            key: key.as_deref(),
             timestamp: None,
             headers: None,
         }) {

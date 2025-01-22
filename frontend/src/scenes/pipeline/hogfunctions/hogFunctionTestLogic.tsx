@@ -3,9 +3,10 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { groupsModel } from '~/models/groupsModel'
-import { LogEntry } from '~/types'
+import { HogFunctionInvocationGlobals, LogEntry } from '~/types'
 
 import { hogFunctionConfigurationLogic, sanitizeConfiguration } from './hogFunctionConfigurationLogic'
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
@@ -31,24 +32,34 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     connect((props: HogFunctionTestLogicProps) => ({
         values: [
             hogFunctionConfigurationLogic({ id: props.id }),
-            ['configuration', 'configurationHasErrors', 'sampleGlobals', 'sampleGlobalsLoading', 'sampleGlobalsError'],
+            [
+                'configuration',
+                'configurationHasErrors',
+                'sampleGlobals',
+                'sampleGlobalsLoading',
+                'exampleInvocationGlobals',
+                'sampleGlobalsError',
+                'type',
+            ],
             groupsModel,
             ['groupTypes'],
         ],
         actions: [
             hogFunctionConfigurationLogic({ id: props.id }),
-            ['touchConfigurationField', 'loadSampleGlobalsSuccess', 'loadSampleGlobals'],
+            ['touchConfigurationField', 'loadSampleGlobalsSuccess', 'loadSampleGlobals', 'setSampleGlobals'],
         ],
     })),
     actions({
         setTestResult: (result: HogFunctionTestInvocationResult | null) => ({ result }),
         toggleExpanded: (expanded?: boolean) => ({ expanded }),
+        saveGlobals: (name: string, globals: HogFunctionInvocationGlobals) => ({ name, globals }),
+        deleteSavedGlobals: (index: number) => ({ index }),
     }),
     reducers({
         expanded: [
             false as boolean,
             {
-                toggleExpanded: (_, { expanded }) => (expanded === undefined ? !_ : expanded),
+                toggleExpanded: (state, { expanded }) => (expanded === undefined ? !state : expanded),
             },
         ],
 
@@ -58,16 +69,29 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 setTestResult: (_, { result }) => result,
             },
         ],
+
+        savedGlobals: [
+            [] as { name: string; globals: HogFunctionInvocationGlobals }[],
+            { persist: true, prefix: `${getCurrentTeamId()}__` },
+            {
+                saveGlobals: (state, { name, globals }) => [...state, { name, globals }],
+                deleteSavedGlobals: (state, { index }) => state.filter((_, i) => i !== index),
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
             actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
         },
+        setSampleGlobals: ({ sampleGlobals }) => {
+            actions.setTestInvocationValue('globals', JSON.stringify(sampleGlobals, null, 2))
+        },
     })),
+
     forms(({ props, actions, values }) => ({
         testInvocation: {
             defaults: {
-                mock_async_functions: true,
+                mock_async_functions: false,
             } as HogFunctionTestInvocationForm,
             alwaysShowErrors: true,
             errors: ({ globals }) => {
@@ -103,7 +127,25 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
-        actions.setTestInvocationValue('globals', '{/* Please wait, fetching a real event. */}')
+    afterMount(({ actions, values }) => {
+        if (values.type === 'email') {
+            const email = {
+                from: 'me@example.com',
+                to: 'you@example.com',
+                subject: 'Hello',
+                html: 'hello world',
+            }
+            actions.setTestInvocationValue(
+                'globals',
+                JSON.stringify({ email, person: values.exampleInvocationGlobals.person }, null, 2)
+            )
+        } else if (values.type === 'broadcast') {
+            actions.setTestInvocationValue(
+                'globals',
+                JSON.stringify({ person: values.exampleInvocationGlobals.person }, null, 2)
+            )
+        } else {
+            actions.setTestInvocationValue('globals', '{/* Please wait, fetching a real event. */}')
+        }
     }),
 ])

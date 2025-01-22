@@ -9,6 +9,7 @@ import { mswDecorator } from '~/mocks/browser'
 import featureFlags from './__mocks__/feature_flags.json'
 
 const meta: Meta = {
+    tags: ['ff'],
     title: 'Scenes-App/Feature Flags',
     parameters: {
         layout: 'fullscreen',
@@ -33,9 +34,16 @@ const meta: Meta = {
                     200,
                     featureFlags.results.find((r) => r.id === Number(req.params['flagId'])),
                 ],
+                '/api/projects/:team_id/feature_flags/:flagId/status': () => [
+                    200,
+                    {
+                        status: 'active',
+                        reason: 'Feature flag is active',
+                    },
+                ],
             },
             post: {
-                '/api/projects/:team_id/query': {},
+                '/api/environments/:team_id/query': {},
                 // flag targeting has loaders, make sure they don't keep loading
                 '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [
                     200,

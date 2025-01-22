@@ -113,12 +113,23 @@ export class HedgehogActor {
 
         this.x = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - SPRITE_SIZE)
         this.y = Math.min(Math.max(0, Math.floor(Math.random() * window.innerHeight)), window.innerHeight - SPRITE_SIZE)
+        this.preloadAnimationSprites()
         this.setAnimation('fall')
     }
 
     animations(): { [key: string]: SpriteInfo } {
         const animations = skins[this.hedgehogConfig.skin || 'default']
         return animations
+    }
+
+    preloadAnimationSprites(): void {
+        for (const animation of Object.values(this.animations())) {
+            const preload = document.createElement('link')
+            preload.rel = 'preload'
+            preload.as = 'image'
+            preload.href = spriteUrl(this.hedgehogConfig.skin || 'default', animation.img)
+            document.head.appendChild(preload)
+        }
     }
 
     private accessories(): AccessoryInfo[] {
@@ -764,7 +775,7 @@ export class HedgehogActor {
                             ref?.(r)
                         }
                     }}
-                    className="HedgehogBuddy cursor-pointer m-0"
+                    className="m-0 cursor-pointer HedgehogBuddy"
                     data-content={preloadContent}
                     onTouchStart={this.static ? undefined : () => onTouchOrMouseStart()}
                     onMouseDown={this.static ? undefined : () => onTouchOrMouseStart()}
@@ -824,10 +835,15 @@ export class HedgehogActor {
 
                         {this.accessories().map((accessory, index) => (
                             <div
-                                className={`absolute top-0 left-0 w-[${SPRITE_SIZE}px] h-[${SPRITE_SIZE}px] rendering-pixelated`}
+                                className="absolute rendering-pixelated"
                                 key={index}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
+                                    top: 0,
+                                    left: 0,
+                                    // NOTE: Don't use tailwind here as it can't pre-compute these values
+                                    width: SPRITE_SIZE,
+                                    height: SPRITE_SIZE,
                                     backgroundImage: `url(${spriteAccessoryUrl(accessory.img)})`,
                                     transform: accessoryPosition
                                         ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
@@ -838,9 +854,11 @@ export class HedgehogActor {
                         ))}
                         {this.overlayAnimation ? (
                             <div
-                                className="absolute top-0 left-0 rendering-pixelated"
+                                className="absolute rendering-pixelated"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
+                                    top: 0,
+                                    left: 0,
                                     width: SPRITE_SIZE,
                                     height: SPRITE_SIZE,
                                     backgroundImage: `url(${spriteOverlayUrl(this.overlayAnimation.spriteInfo.img)})`,
@@ -948,7 +966,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
 
     useEffect(() => {
         onPositionChange?.(actor)
-    }, [actor.x, actor.y])
+    }, [actor.x, actor.y, actor.direction])
 
     const onClick = (): void => {
         !actor.isDragging && _onClick?.(actor)
@@ -994,13 +1012,13 @@ export function MyHedgehogBuddy({
             fallbackPlacements={['bottom', 'left', 'right']}
             overflowHidden
             overlay={
-                <div className="max-w-140 flex flex-col flex-1 overflow-hidden">
+                <div className="flex flex-col flex-1 overflow-hidden max-w-140">
                     <ScrollableShadows className="flex-1 overflow-y-auto" direction="vertical">
                         <div className="p-2">
                             <HedgehogOptions />
                         </div>
                     </ScrollableShadows>
-                    <div className="flex shrink-0 justify-end gap-2 p-2 border-t">
+                    <div className="flex justify-end gap-2 p-2 border-t shrink-0">
                         <LemonButton type="secondary" status="danger" onClick={disappear}>
                             Good bye!
                         </LemonButton>
@@ -1021,7 +1039,7 @@ export function MyHedgehogBuddy({
                 hedgehogConfig={hedgehogConfig}
                 tooltip={
                     hedgehogConfig.party_mode_enabled ? (
-                        <div className="whitespace-nowrap flex items-center justify-center p-2">
+                        <div className="flex items-center justify-center p-2 whitespace-nowrap">
                             <ProfilePicture user={user} size="md" showName />
                         </div>
                     ) : undefined
@@ -1065,7 +1083,7 @@ export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType
                         <ProfilePicture user={member.user} size="xl" showName />
                     </div>
 
-                    <div className="flex items-end gap-2 border-t p-3">
+                    <div className="flex items-end gap-2 p-3 border-t">
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -1088,7 +1106,7 @@ export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType
                 onClick={onClick}
                 hedgehogConfig={memberHedgehogConfig}
                 tooltip={
-                    <div className="whitespace-nowrap flex items-center justify-center p-2">
+                    <div className="flex items-center justify-center p-2 whitespace-nowrap">
                         <ProfilePicture user={member.user} size="md" showName />
                     </div>
                 }

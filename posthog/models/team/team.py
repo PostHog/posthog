@@ -40,6 +40,8 @@ from posthog.utils import GenericEmails
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -109,6 +111,14 @@ class TeamManager(models.Manager):
         create_dashboard_from_template("DEFAULT_APP", dashboard)
         team.primary_dashboard = dashboard
 
+        # Create default session recording playlists
+        for playlist in DEFAULT_PLAYLISTS:
+            SessionRecordingPlaylist.objects.create(
+                team=team,
+                name=str(playlist["name"]),
+                filters=playlist["filters"],
+                description=str(playlist.get("description", "")),
+            )
         team.save()
         return team
 
@@ -177,6 +187,12 @@ class WeekStartDay(models.IntegerChoices):
         return "3" if self == WeekStartDay.MONDAY else "0"
 
 
+class CookielessServerHashMode(models.IntegerChoices):
+    DISABLED = 0, "Disabled"
+    STATELESS = 1, "Stateless"
+    STATEFUL = 2, "Stateful"
+
+
 class Team(UUIDClassicModel):
     """Team means "environment" (historically it meant "project", but now we have the Project model for that)."""
 
@@ -200,11 +216,7 @@ class Team(UUIDClassicModel):
         related_query_name="team",
     )
     project = models.ForeignKey(
-        "posthog.Project",
-        on_delete=models.CASCADE,
-        related_name="teams",
-        related_query_name="team",
-        null=True,
+        "posthog.Project", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
     api_token = models.CharField(
         max_length=200,
@@ -230,6 +242,7 @@ class Team(UUIDClassicModel):
     autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
+    person_processing_opt_out = models.BooleanField(null=True, default=False)
     session_recording_opt_in = models.BooleanField(default=False)
     session_recording_sample_rate = models.DecimalField(
         # will store a decimal between 0 and 1 allowing up to 2 decimal places
@@ -246,12 +259,23 @@ class Team(UUIDClassicModel):
     )
     session_recording_linked_flag = models.JSONField(null=True, blank=True)
     session_recording_network_payload_capture_config = models.JSONField(null=True, blank=True)
+    session_recording_url_trigger_config = ArrayField(
+        models.JSONField(null=True, blank=True), default=list, blank=True, null=True
+    )
+    session_recording_url_blocklist_config = ArrayField(
+        models.JSONField(null=True, blank=True), default=list, blank=True, null=True
+    )
+    session_recording_event_trigger_config = ArrayField(
+        models.TextField(null=True, blank=True), default=list, blank=True, null=True
+    )
     session_replay_config = models.JSONField(null=True, blank=True)
     survey_config = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
     capture_performance_opt_in = models.BooleanField(null=True, blank=True, default=True)
+    capture_dead_clicks = models.BooleanField(null=True, blank=True, default=False)
     surveys_opt_in = models.BooleanField(null=True, blank=True)
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
+    flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
@@ -269,6 +293,11 @@ class Team(UUIDClassicModel):
     person_display_name_properties: ArrayField = ArrayField(models.CharField(max_length=400), null=True, blank=True)
     live_events_columns: ArrayField = ArrayField(models.TextField(), null=True, blank=True)
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
+    human_friendly_comparison_periods = models.BooleanField(default=False, null=True, blank=True)
+    cookieless_server_hash_mode = models.SmallIntegerField(
+        default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
+    )
+    revenue_tracking_config = models.JSONField(null=True, blank=True)
 
     primary_dashboard = models.ForeignKey(
         "posthog.Dashboard",
@@ -278,12 +307,14 @@ class Team(UUIDClassicModel):
         blank=True,
     )  # Dashboard shown on project homepage
 
+    default_data_theme = models.IntegerField(null=True, blank=True)
+
     # Generic field for storing any team-specific context that is more temporary in nature and thus
     # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
     # during feature releases.
     extra_settings = models.JSONField(null=True, blank=True)
 
-    # Project level default HogQL query modifiers
+    # Environment-level default HogQL query modifiers
     modifiers = models.JSONField(null=True, blank=True)
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
@@ -512,7 +543,7 @@ class Team(UUIDClassicModel):
             return ", ".join(self.app_urls)
         return str(self.pk)
 
-    __repr__ = sane_repr("uuid", "name", "api_token")
+    __repr__ = sane_repr("id", "uuid", "project_id", "name", "api_token")
 
 
 @mutable_receiver(post_save, sender=Team)

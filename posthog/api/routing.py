@@ -18,16 +18,18 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
 )
 from posthog.models.organization import Organization
-from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
+from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
     APIScopePermission,
+    AccessControlPermission,
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
 )
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 
 if TYPE_CHECKING:
@@ -101,7 +103,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
         # override the entire method.
-        permission_classes: list = [IsAuthenticated, APIScopePermission]
+        permission_classes: list = [IsAuthenticated, APIScopePermission, AccessControlPermission]
 
         if self._is_team_view or self._is_project_view:
             permission_classes.append(TeamMemberAccessPermission)
@@ -145,19 +147,49 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         raise NotImplementedError()
 
     def get_queryset(self) -> QuerySet:
-        try:
-            return self.dangerously_get_queryset()
-        except NotImplementedError:
-            pass
+        # Add a recursion guard
+        if getattr(self, "_in_get_queryset", False):
+            return super().get_queryset()
 
-        queryset = super().get_queryset()
-        # First of all make sure we do the custom filters before applying our own
         try:
-            queryset = self.safely_get_queryset(queryset)
-        except NotImplementedError:
-            pass
+            self._in_get_queryset = True
 
-        return self._filter_queryset_by_parents_lookups(queryset)
+            try:
+                return self.dangerously_get_queryset()
+            except NotImplementedError:
+                pass
+
+            queryset = super().get_queryset()
+            # First of all make sure we do the custom filters before applying our own
+            try:
+                queryset = self.safely_get_queryset(queryset)
+            except NotImplementedError:
+                pass
+
+            queryset = self._filter_queryset_by_parents_lookups(queryset)
+
+            queryset = self._filter_queryset_by_access_level(queryset)
+
+            return queryset
+        finally:
+            self._in_get_queryset = False
+
+    def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
+        if self.action != "list":
+            # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
+            # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
+            return queryset
+
+        # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
+        include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
+
+        # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
+        if self.scope_object == "project":
+            include_all_if_admin = True
+
+        return self.user_access_control.filter_queryset_by_access_level(
+            queryset, include_all_if_admin=include_all_if_admin
+        )
 
     def dangerously_get_object(self) -> Any:
         """
@@ -242,14 +274,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     @cached_property
     def project_id(self) -> int:
         if team_from_token := self._get_team_from_request():
-            assert team_from_token.project_id is not None
             return team_from_token.project_id
 
         if self.param_derived_from_user_current_team == "project_id":
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
-            assert team.project_id is not None
             return team.project_id
 
         return self.parents_query_dict["project_id"]
@@ -279,7 +309,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                 current_organization_id = self.team.organization_id
             if self._is_project_view:
                 current_organization_id = self.project.organization_id
-            else:
+            elif user:
                 current_organization_id = user.current_organization_id
 
             if not current_organization_id:
@@ -410,3 +440,13 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     @cached_property
     def user_permissions(self) -> "UserPermissions":
         return UserPermissions(user=cast(User, self.request.user), team=self.team)
+
+    @cached_property
+    def user_access_control(self) -> "UserAccessControl":
+        team: Optional[Team] = None
+        try:
+            team = self.team
+        except (Team.DoesNotExist, KeyError):
+            pass
+
+        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)

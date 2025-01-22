@@ -15,7 +15,14 @@ class TestTemplateMetaAds(BaseHogFunctionTemplateTest):
             "eventName": "checkout",
             "eventTime": "1728812163",
             "actionSource": "website",
-            "userData": {"em": "3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98"},
+            "userData": {
+                "em": "3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98",
+                "fn": None,
+            },
+            "customData": {
+                "currency": "USD",
+                "price": "15",
+            },
         }
         inputs.update(kwargs)
         return inputs
@@ -27,6 +34,10 @@ class TestTemplateMetaAds(BaseHogFunctionTemplateTest):
             (
                 "https://graph.facebook.com/v21.0/123451234512345/events",
                 {
+                    "method": "POST",
+                    "headers": {
+                        "Content-Type": "application/json",
+                    },
                     "body": {
                         "access_token": "accessToken12345",
                         "data": [
@@ -35,12 +46,9 @@ class TestTemplateMetaAds(BaseHogFunctionTemplateTest):
                                 "event_time": "1728812163",
                                 "action_source": "website",
                                 "user_data": {"em": "3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98"},
+                                "custom_data": {"currency": "USD", "price": "15"},
                             }
                         ],
-                    },
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
                     },
                 },
             )

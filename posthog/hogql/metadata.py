@@ -2,20 +2,32 @@ from typing import Optional, cast
 
 from django.conf import settings
 
-from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql import ast
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
-from posthog.hogql.parser import parse_select, parse_program, parse_expr, parse_string_template
+from posthog.hogql.parser import (
+    parse_expr,
+    parse_program,
+    parse_select,
+    parse_string_template,
+)
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
-from posthog.schema import HogQLMetadataResponse, HogQLMetadata, HogQLNotice, HogLanguage
-from posthog.hogql import ast
+from posthog.schema import (
+    HogLanguage,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    HogQLNotice,
+)
+from posthog.hogql.visitor import TraversingVisitor
 
 
 def get_hogql_metadata(
@@ -29,6 +41,7 @@ def get_hogql_metadata(
         errors=[],
         warnings=[],
         notices=[],
+        table_names=[],
     )
 
     query_modifiers = create_default_modifiers_for_team(team)
@@ -64,6 +77,8 @@ def get_hogql_metadata(
             if len(finder.field_strings) > 0 or finder.has_expr_placeholders:
                 select_ast = cast(ast.SelectQuery, replace_placeholders(select_ast, query.globals))
             _is_valid_view = is_valid_view(select_ast)
+            table_names = get_table_names(select_ast)
+            response.table_names = table_names
             response.isValidView = _is_valid_view
             print_ast(
                 select_ast,
@@ -103,7 +118,7 @@ def get_hogql_metadata(
 def process_expr_on_table(
     node: ast.Expr,
     context: HogQLContext,
-    source_query: Optional[ast.SelectQuery | ast.SelectUnionQuery] = None,
+    source_query: Optional[ast.SelectQuery | ast.SelectSetQuery] = None,
 ):
     try:
         if source_query is not None:
@@ -118,15 +133,41 @@ def process_expr_on_table(
         raise
 
 
-def is_valid_view(select_query: ast.SelectQuery | ast.SelectUnionQuery) -> bool:
-    if isinstance(select_query, ast.SelectQuery):
-        for field in select_query.select:
-            if not isinstance(field, ast.Alias):
+def is_valid_view(select_query: ast.SelectQuery | ast.SelectSetQuery) -> bool:
+    """Is not a valid view if:
+    a) There are any function calls in the select clause
+    b) There are any wildcard fields in the select clause
+    """
+    for query in extract_select_queries(select_query):
+        for field in query.select:
+            if isinstance(field, ast.Call):
                 return False
-    elif isinstance(select_query, ast.SelectUnionQuery):
-        for select in select_query.select_queries:
-            for field in select.select:
-                if not isinstance(field, ast.Alias):
+            if isinstance(field, ast.Field):
+                if field.chain and field.chain[-1] == "*":
                     return False
-
     return True
+
+
+def get_table_names(select_query: ast.SelectQuery | ast.SelectSetQuery) -> list[str]:
+    # Don't need types, we're only interested in the table names as passed in
+    collector = TableCollector()
+    collector.visit(select_query)
+    return list(collector.table_names - collector.ctes)
+
+
+class TableCollector(TraversingVisitor):
+    def __init__(self):
+        self.table_names = set()
+        self.ctes = set()
+
+    def visit_cte(self, node: ast.CTE):
+        self.ctes.add(node.name)
+        super().visit(node.expr)
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        if isinstance(node.table, ast.Field):
+            self.table_names.add(node.table.chain[0])
+        else:
+            self.visit(node.table)
+
+        self.visit(node.next_join)

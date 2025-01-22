@@ -19,10 +19,10 @@ import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import { KafkaProducerWrapper } from './kafka/producer'
 import { ObjectStorage } from './main/services/object_storage'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
-import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from './utils/db/postgres'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
@@ -83,7 +83,10 @@ export enum PluginServerMode {
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
+    recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
+    recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
+    cdp_internal_events = 'cdp-internal-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     functional_tests = 'functional-tests',
@@ -123,10 +126,10 @@ export type CdpConfig = {
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
+    CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
 }
 
 export interface PluginsServerConfig extends CdpConfig {
-    WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
@@ -149,8 +152,6 @@ export interface PluginsServerConfig extends CdpConfig {
     CLICKHOUSE_PASSWORD: string | null
     CLICKHOUSE_CA: string | null // ClickHouse CA certs
     CLICKHOUSE_SECURE: boolean // whether to secure ClickHouse connection
-    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean // whether to disallow external schemas like protobuf for clickhouse kafka engine
-    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events for clickhouse ingestion
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data for clickhouse ingestion
     EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
@@ -166,15 +167,23 @@ export interface PluginsServerConfig extends CdpConfig {
     // Common redis params
     REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
     REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
+    // Kafka params - identical for client and producer
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
+    KAFKA_PRODUCER_HOSTS?: string // If specified - different hosts to produce to (useful for migrating between kafka clusters)
+    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
+    KAFKA_PRODUCER_SECURITY_PROTOCOL?: KafkaSecurityProtocol // If specified - different security protocol to produce to (useful for migrating between kafka clusters)
+    KAFKA_CLIENT_ID: string | undefined
+    KAFKA_PRODUCER_CLIENT_ID?: string // If specified - different client ID to produce to (useful for migrating between kafka clusters)
+
+    // Other methods that are generally only used by self-hosted users
     KAFKA_CLIENT_CERT_B64: string | undefined
     KAFKA_CLIENT_CERT_KEY_B64: string | undefined
     KAFKA_TRUSTED_CERT_B64: string | undefined
-    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     KAFKA_SASL_MECHANISM: KafkaSaslMechanism | undefined
     KAFKA_SASL_USER: string | undefined
     KAFKA_SASL_PASSWORD: string | undefined
-    KAFKA_CLIENT_ID: string | undefined
+
+    // Consumer specific settings
     KAFKA_CLIENT_RACK: string | undefined
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
@@ -232,7 +241,6 @@ export interface PluginsServerConfig extends CdpConfig {
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
-    APP_METRICS_GATHERED_FOR_ALL: boolean // whether to gather app metrics for all teams
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
@@ -242,6 +250,7 @@ export interface PluginsServerConfig extends CdpConfig {
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
+    SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
@@ -341,6 +350,7 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
+    eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
 }
 
@@ -357,7 +367,10 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
+    sessionRecordingBlobIngestionV2?: boolean
+    sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
+    cdpInternalEvents?: boolean
     cdpFunctionCallbacks?: boolean
     cdpCyclotronWorker?: boolean
     appManagementSingleton?: boolean
@@ -390,6 +403,11 @@ export enum JobName {
 export type PluginId = Plugin['id']
 export type PluginConfigId = PluginConfig['id']
 export type TeamId = Team['id']
+/**
+ * An integer, just like team ID. In fact project ID = ID of its first team, the one was created along with the project.
+ * A branded type here so that we don't accidentally pass a team ID as a project ID, or vice versa.
+ */
+export type ProjectId = Team['id'] & { __brand: 'ProjectId' }
 
 export enum MetricMathOperations {
     Increment = 'increment',
@@ -523,6 +541,12 @@ export enum PluginLogLevel {
     Critical = 4, // only error type and system source
 }
 
+export enum CookielessServerHashMode {
+    Disabled = 0,
+    Stateless = 1,
+    Stateful = 2,
+}
+
 export interface PluginLogEntry {
     id: string
     team_id: number
@@ -620,6 +644,7 @@ export interface RawOrganization {
 /** Usable Team model. */
 export interface Team {
     id: number
+    project_id: ProjectId
     uuid: string
     organization_id: string
     name: string
@@ -627,12 +652,15 @@ export interface Team {
     api_token: string
     slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
+    person_processing_opt_out: boolean | null
     heatmaps_opt_in: boolean | null
     ingested_event: boolean
     person_display_name_properties: string[] | null
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null
+    cookieless_server_hash_mode: CookielessServerHashMode | null
+    timezone: string
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
@@ -670,7 +698,7 @@ export interface EventMessage extends BaseEventMessage {
 interface BaseEvent {
     uuid: string
     event: string
-    team_id: number
+    team_id: TeamId
     distinct_id: string
     /** Person UUID. */
     person_id?: string
@@ -702,6 +730,14 @@ export interface RawClickHouseEvent extends BaseEvent {
     person_mode: PersonMode
 }
 
+export interface RawKafkaEvent extends RawClickHouseEvent {
+    /**
+     * The project ID field is only included in the `clickhouse_events_json` topic, not present in ClickHouse.
+     * That's because we need it in `property-defs-rs` and not elsewhere.
+     */
+    project_id: ProjectId
+}
+
 /** Parsed event row from ClickHouse. */
 export interface ClickHouseEvent extends BaseEvent {
     timestamp: DateTime
@@ -730,6 +766,7 @@ export interface PreIngestionEvent {
     eventUuid: string
     event: string
     teamId: TeamId
+    projectId: ProjectId
     distinctId: string
     properties: Properties
     timestamp: ISOTimestamp
@@ -1087,6 +1124,7 @@ export interface EventDefinitionType {
     volume_30_day: number | null
     query_usage_30_day: number | null
     team_id: number
+    project_id: number | null
     last_seen_at: string // DateTime
     created_at: string // DateTime
 }
@@ -1126,6 +1164,7 @@ export interface PropertyDefinitionType {
     volume_30_day: number | null
     query_usage_30_day: number | null
     team_id: number
+    project_id: number | null
     property_type?: PropertyType
     type: PropertyDefinitionTypeEnum
     group_type_index: number | null
@@ -1136,6 +1175,7 @@ export interface EventPropertyType {
     event: string
     property: string
     team_id: number
+    project_id: number | null
 }
 
 export type PluginFunction = 'onEvent' | 'processEvent' | 'pluginTask'
@@ -1237,6 +1277,62 @@ export type AppMetric2Type = {
         | 'disabled_permanently'
         | 'masked'
         | 'filtering_failed'
+        | 'inputs_failed'
         | 'fetch'
     count: number
+}
+
+interface TextOperator {
+    operator: 'equals' | 'startsWith' | 'includes'
+    value: string
+}
+
+export interface ModelDetails {
+    matches: string[]
+    searchTerms: string[]
+    info: {
+        releaseDate: string
+        maxTokens?: number
+        description: string
+        tradeOffs: string[]
+        benchmarks: {
+            [key: string]: number
+        }
+        capabilities: string[]
+        strengths: string[]
+        weaknesses: string[]
+        recommendations: string[]
+    }
+}
+
+export type ModelDetailsMap = {
+    [key: string]: ModelDetails
+}
+
+export interface ModelRow {
+    model: TextOperator
+    cost: {
+        prompt_token: number
+        completion_token: number
+    }
+    showInPlayground?: boolean
+    targetUrl?: string
+    dateRange?: {
+        start: string
+        end: string
+    }
+}
+
+export interface ModelRow {
+    model: TextOperator
+    cost: {
+        prompt_token: number
+        completion_token: number
+    }
+    showInPlayground?: boolean
+    targetUrl?: string
+    dateRange?: {
+        start: string
+        end: string
+    }
 }

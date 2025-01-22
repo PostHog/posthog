@@ -1,10 +1,15 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    UniversalFiltersGroup,
+} from '~/types'
 
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
-import { UniversalFiltersGroup } from './UniversalFilters'
 import { universalFiltersLogic } from './universalFiltersLogic'
 
 const propertyFilter: AnyPropertyFilter = {

@@ -4,7 +4,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId } from '~/types'
 
@@ -20,7 +20,7 @@ describe('insightDataLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team_id/insights/trend': [],
+                '/api/environments/:team_id/insights/trend': [],
             },
         })
         initKeaTests()

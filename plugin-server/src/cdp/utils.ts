@@ -1,6 +1,7 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
 import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
+import { Bytecodes } from '@posthog/hogvm'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
@@ -10,13 +11,15 @@ import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
 import { status } from '../utils/status'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
+import { CdpInternalEvent } from './schema'
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionInvocationLogEntry,
     HogFunctionInvocationQueueParameters,
-    HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
     HogFunctionLogEntrySerialized,
     HogFunctionType,
@@ -89,6 +92,47 @@ export function convertToHogFunctionInvocationGlobals(
     return context
 }
 
+export function convertInternalEventToHogFunctionInvocationGlobals(
+    data: CdpInternalEvent,
+    team: Team,
+    siteUrl: string
+): HogFunctionInvocationGlobals {
+    const projectUrl = `${siteUrl}/project/${team.id}`
+
+    let person: HogFunctionInvocationGlobals['person']
+
+    if (data.person) {
+        const personDisplayName = getPersonDisplayName(team, data.event.distinct_id, data.person.properties)
+
+        person = {
+            id: data.person.id,
+            properties: data.person.properties,
+            name: personDisplayName,
+            url: data.person.url ?? '',
+        }
+    }
+
+    const context: HogFunctionInvocationGlobals = {
+        project: {
+            id: team.id,
+            name: team.name,
+            url: projectUrl,
+        },
+        event: {
+            uuid: data.event.uuid,
+            event: data.event.event,
+            elements_chain: '', // Not applicable but left here for compatibility
+            distinct_id: data.event.distinct_id,
+            properties: data.event.properties,
+            timestamp: data.event.timestamp,
+            url: data.event.url ?? '',
+        },
+        person,
+    }
+
+    return context
+}
+
 function getElementsChainHref(elementsChain: string): string {
     // Adapted from SQL: extract(elements_chain, '(?::|\")href="(.*?)"'),
     const hrefRegex = new RE2(/(?::|")href="(.*?)"/)
@@ -134,12 +178,16 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
 
     for (const [_groupType, group] of Object.entries(globals.groups || {})) {
         groups[`group_${group.index}`] = {
+            key: group.id,
+            index: group.index,
             properties: group.properties,
         }
+        groups[_groupType] = groups[`group_${group.index}`]
     }
 
     const elementsChain = globals.event.elements_chain ?? globals.event.properties['$elements_chain']
     const response = {
+        ...groups,
         event: globals.event.event,
         elements_chain: elementsChain,
         elements_chain_href: '',
@@ -157,7 +205,6 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
               }
             : undefined,
         distinct_id: globals.event.distinct_id,
-        ...groups,
     } satisfies HogFunctionFilterGlobals
 
     // The elements_chain_* fields are stored as materialized columns in ClickHouse.
@@ -232,13 +279,8 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
     return JSON.parse(res.toString())
 }
 
-export const prepareLogEntriesForClickhouse = (
-    result: HogFunctionInvocationResult
-): HogFunctionLogEntrySerialized[] => {
+export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogFunctionLogEntrySerialized[] => {
     const preparedLogs: HogFunctionLogEntrySerialized[] = []
-    const logs = result.logs
-    result.logs = [] // Clear it to ensure it isn't passed on anywhere else
-
     const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
 
     if (sortedLogs.length === 0) {
@@ -259,10 +301,6 @@ export const prepareLogEntriesForClickhouse = (
 
         const sanitized: HogFunctionLogEntrySerialized = {
             ...logEntry,
-            team_id: result.invocation.teamId,
-            log_source: 'hog_function',
-            log_source_id: result.invocation.hogFunction.id,
-            instance_id: result.invocation.id,
             timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
         }
         preparedLogs.push(sanitized)
@@ -272,26 +310,19 @@ export const prepareLogEntriesForClickhouse = (
 }
 
 export function createInvocation(
-    globals: HogFunctionInvocationGlobals,
-    hogFunction: HogFunctionType
+    globals: HogFunctionInvocationGlobalsWithInputs,
+    hogFunction: HogFunctionType,
+    functionToExecute?: [string, any[]]
 ): HogFunctionInvocation {
-    // Add the source of the trigger to the globals
-    const modifiedGlobals: HogFunctionInvocationGlobals = {
-        ...globals,
-        source: {
-            name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-            url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
-        },
-    }
-
     return {
         id: new UUIDT().toString(),
-        globals: modifiedGlobals,
+        globals,
         teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',
         priority: 1,
         timings: [],
+        functionToExecute,
     }
 }
 
@@ -314,20 +345,13 @@ function prepareQueueParams(
     let parameters: HogFunctionInvocation['queueParameters'] = _params
     let blob: CyclotronJobUpdate['blob'] = undefined
 
-    if (parameters && 'body' in parameters) {
-        // Fetch request
-        const { body, ...rest } = parameters
-        parameters = rest
-        blob = body ? Buffer.from(body) : undefined
-    } else if (parameters && 'response' in parameters && parameters.response) {
-        // Fetch response
-        const { body, ...rest } = parameters.response
-        parameters = {
-            ...parameters,
-            response: rest,
-        }
-        blob = body ? Buffer.from(body) : undefined
+    if (!parameters) {
+        return { parameters, blob }
     }
+
+    const { body, ...rest } = parameters
+    parameters = rest
+    blob = body ? Buffer.from(body) : undefined
 
     return {
         parameters,
@@ -352,14 +376,7 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
     if (job.blob && params) {
         // Deserialize the blob into the params
         try {
-            const body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
-            if ('response' in params && params.response) {
-                // Fetch response
-                params.response.body = body
-            } else if ('method' in params) {
-                // Fetch request
-                params.body = body
-            }
+            params.body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
         } catch (e) {
             status.error('Error parsing blob', e, job.blob)
             captureException(e)
@@ -376,5 +393,48 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
         queueParameters: params,
         vmState: parsedState.vmState,
         timings: parsedState.timings,
+    }
+}
+
+/** Build bytecode that calls a function in another imported bytecode */
+export function buildExportedFunctionInvoker(
+    exportBytecode: any[],
+    exportGlobals: any,
+    functionName: string,
+    args: any[]
+): Bytecodes {
+    let argBytecodes: any[] = []
+    for (let i = 0; i < args.length; i++) {
+        argBytecodes = [
+            ...argBytecodes,
+            33, // integer
+            i + 1, // (index in args array)
+            32, // string
+            '__args',
+            1, // get global
+            2, // (chain length)
+        ]
+    }
+    const bytecode = [
+        '_H',
+        1,
+        ...argBytecodes,
+        32, // string
+        'x',
+        2, // call global
+        'import',
+        1, // (arg count)
+        32, // string
+        functionName,
+        45, // get property
+        54, // call local
+        args.length,
+        35, // pop
+    ]
+    return {
+        bytecodes: {
+            x: { bytecode: exportBytecode, globals: exportGlobals },
+            root: { bytecode, globals: { __args: args } },
+        },
     }
 }

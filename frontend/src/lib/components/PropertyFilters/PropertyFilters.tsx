@@ -39,6 +39,7 @@ interface PropertyFiltersProps {
     allowRelativeDateOptions?: boolean
     disabledReason?: string
     exactMatchFeatureFlagCohortOperators?: boolean
+    hideBehavioralCohorts?: boolean
 }
 
 export function PropertyFilters({
@@ -67,6 +68,7 @@ export function PropertyFilters({
     allowRelativeDateOptions,
     disabledReason = undefined,
     exactMatchFeatureFlagCohortOperators = false,
+    hideBehavioralCohorts,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -76,7 +78,7 @@ export function PropertyFilters({
     // Update the logic's internal filters when the props change
     useEffect(() => {
         setFilters(propertyFilters ?? [])
-    }, [propertyFilters])
+    }, [propertyFilters, setFilters])
 
     // do not open on initial render, only open if newly inserted
     useEffect(() => {
@@ -131,6 +133,7 @@ export function PropertyFilters({
                                             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
                                             allowRelativeDateOptions={allowRelativeDateOptions}
                                             exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}
+                                            hideBehavioralCohorts={hideBehavioralCohorts}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

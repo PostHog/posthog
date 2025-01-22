@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { Message } from 'node-rdkafka'
 
+import { CdpInternalEvent } from '../../src/cdp/schema'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
@@ -15,6 +16,7 @@ import { insertRow } from '../helpers/sql'
 export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
     const item: HogFunctionType = {
         id: randomUUID(),
+        type: 'destination',
         name: 'Hog Function',
         team_id: 1,
         enabled: true,
@@ -59,7 +61,7 @@ export const createIncomingEvent = (teamId: number, data: Partial<RawClickHouseE
     }
 }
 
-export const createMessage = (event: RawClickHouseEvent, overrides: Partial<Message> = {}): Message => {
+export const createKafkaMessage = (event: any, overrides: Partial<Message> = {}): Message => {
     return {
         partition: 1,
         topic: 'test',
@@ -68,6 +70,20 @@ export const createMessage = (event: RawClickHouseEvent, overrides: Partial<Mess
         size: 1,
         ...overrides,
         value: Buffer.from(JSON.stringify(event)),
+    }
+}
+
+export const createInternalEvent = (teamId: number, data: Partial<CdpInternalEvent>): CdpInternalEvent => {
+    return {
+        team_id: teamId,
+        event: {
+            timestamp: new Date().toISOString(),
+            properties: {},
+            uuid: randomUUID(),
+            event: '$pageview',
+            distinct_id: 'distinct_id',
+        },
+        ...data,
     }
 }
 
@@ -120,6 +136,7 @@ export const createHogExecutionGlobals = (
             url: 'http://localhost:8000/persons/1',
             properties: {
                 email: 'test@posthog.com',
+                first_name: 'Pumpkin',
             },
             ...(data.person ?? {}),
         },

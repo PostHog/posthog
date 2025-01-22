@@ -6,7 +6,6 @@ from sentry_sdk import capture_exception
 
 logger = structlog.get_logger(__name__)
 
-
 try:
     geoip: Optional[GeoIP2] = GeoIP2(cache=8)
     # Cache setting corresponds to MODE_MEMORY: Load database into memory. Pure Python.
@@ -26,6 +25,9 @@ VALID_GEOIP_PROPERTIES = [
     "time_zone",
 ]
 
+# GeoIP2 returns the city name as 'city', but we want to map it to 'city_name'
+GEOIP_KEY_MAPPING = {"city": "city_name"}
+
 
 def get_geoip_properties(ip_address: Optional[str]) -> dict[str, str]:
     """
@@ -40,8 +42,8 @@ def get_geoip_properties(ip_address: Optional[str]) -> dict[str, str]:
         $geoip_postal_code
         $geoip_time_zone
     """
-    if not ip_address or not geoip or ip_address == "127.0.0.1":
-        # "127.0.0.1" would throw "The address 127.0.0.1 is not in the database." below
+    if not ip_address or not geoip or ip_address == "127.0.0.1" or ip_address.startswith("192.168."):
+        # Local addresses would otherwise throw "The address 127.0.0.1 is not in the database." below
         return {}
 
     try:
@@ -52,6 +54,8 @@ def get_geoip_properties(ip_address: Optional[str]) -> dict[str, str]:
 
     properties = {}
     for key, value in geoip_properties.items():
-        if value and key in VALID_GEOIP_PROPERTIES:
-            properties[f"$geoip_{key}"] = value
+        if value:
+            mapped_key = GEOIP_KEY_MAPPING.get(key, key)
+            if mapped_key in VALID_GEOIP_PROPERTIES:
+                properties[f"$geoip_{mapped_key}"] = value
     return properties

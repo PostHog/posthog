@@ -33,6 +33,8 @@ jobs:
                       dockerfile: ./rust/Dockerfile
                     - image: cymbal
                       dockerfile: ./rust/Dockerfile
+                    - image: batch-import-worker
+                      dockerfile: ./rust/Dockerfile
         runs-on: depot-ubuntu-22.04-4
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -44,6 +46,7 @@ jobs:
             cyclotron-fetch_digest: ${{ steps.digest.outputs.cyclotron-fetch_digest }}
             cyclotron-janitor_digest: ${{ steps.digest.outputs.cyclotron-janitor_digest }}
             property-defs-rs_digest: ${{ steps.digest.outputs.property-defs-rs_digest }}
+            batch-import-worker_digest: ${{ steps.digest.outputs.batch-import-worker_digest }}
             hook-api_digest: ${{ steps.digest.outputs.hook-api_digest }}
             hook-janitor_digest: ${{ steps.digest.outputs.hook-janitor_digest }}
             hook-worker_digest: ${{ steps.digest.outputs.hook-worker_digest }}
@@ -107,8 +110,6 @@ jobs:
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
                   platforms: linux/arm64,linux/amd64
-                  cache-from: type=gha
-                  cache-to: type=gha,mode=max
                   build-args: BIN=${{ matrix.image }}
 
             - name: Container image digest
@@ -120,7 +121,7 @@ jobs:
 
     deploy:
         name: deploy ${{ matrix.release }}
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         needs: build
         if: github.ref == 'refs/heads/master'
         strategy:
@@ -144,10 +145,14 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.property-defs-rs_digest }}'
-                    # - release: cymbal - disabled until a charts in place, for now we just build
-                    #   values:
-                    #       image:
-                    #           sha: '${{ needs.build.outputs.cymbal_digest }}'
+                    - release: batch-import-worker
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.batch-import-worker_digest }}'
+                    - release: cymbal
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.cymbal_digest }}'
                     - release: hoghooks
                       values:
                           api_image:

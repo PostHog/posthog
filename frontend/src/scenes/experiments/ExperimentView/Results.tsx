@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { useValues } from 'kea'
 
 import { experimentLogic } from '../experimentLogic'
@@ -7,13 +5,17 @@ import { ResultsHeader, ResultsQuery } from './components'
 import { SummaryTable } from './SummaryTable'
 
 export function Results(): JSX.Element {
-    const { experimentResults } = useValues(experimentLogic)
+    const { experiment, metricResults } = useValues(experimentLogic)
+    const result = metricResults?.[0]
+    if (!result) {
+        return <></>
+    }
 
     return (
         <div>
             <ResultsHeader />
-            <SummaryTable />
-            <ResultsQuery targetResults={experimentResults} showTable={true} />
+            <SummaryTable metric={experiment.metrics[0]} />
+            <ResultsQuery result={result} showTable={true} />
         </div>
     )
 }

@@ -6,6 +6,7 @@ from antlr4.error.ErrorListener import ErrorListener
 from prometheus_client import Histogram
 
 from posthog.hogql import ast
+from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST
 from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import BaseHogQLError, NotImplementedError, SyntaxError
@@ -132,7 +133,7 @@ def parse_select(
     timings: Optional[HogQLTimings] = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
-) -> ast.SelectQuery | ast.SelectUnionQuery:
+) -> ast.SelectQuery | ast.SelectSetQuery:
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
@@ -327,28 +328,39 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     ##### HogQL rules
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):
-        return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
+        return self.visit(ctx.selectSetStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
-    def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
-        select_queries: list[ast.SelectQuery | ast.SelectUnionQuery | ast.Placeholder] = [
-            self.visit(select) for select in ctx.selectStmtWithParens()
-        ]
-        flattened_queries: list[ast.SelectQuery] = []
-        for query in select_queries:
-            if isinstance(query, ast.SelectQuery):
-                flattened_queries.append(query)
-            elif isinstance(query, ast.SelectUnionQuery):
-                flattened_queries.extend(query.select_queries)
-            elif isinstance(query, ast.Placeholder):
-                flattened_queries.append(query)  # type: ignore
+    def visitSelectSetStmt(self, ctx: HogQLParser.SelectSetStmtContext):
+        select_queries: list[SelectSetNode] = []
+
+        initial_query = self.visit(ctx.selectStmtWithParens())
+
+        for subsequent in ctx.subsequentSelectSetClause():
+            if subsequent.UNION() and subsequent.ALL():
+                union_type = "UNION ALL"
+            elif subsequent.UNION() and subsequent.DISTINCT():
+                union_type = "UNION DISTINCT"
+            elif subsequent.INTERSECT() and subsequent.DISTINCT():
+                union_type = "INTERSECT DISTINCT"
+            elif subsequent.INTERSECT():
+                union_type = "INTERSECT"
+            elif subsequent.EXCEPT():
+                union_type = "EXCEPT"
             else:
-                raise Exception(f"Unexpected query node type {type(query).__name__}")
-        if len(flattened_queries) == 1:
-            return flattened_queries[0]
-        return ast.SelectUnionQuery(select_queries=flattened_queries)
+                raise SyntaxError(
+                    "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT"
+                )
+            select_query = self.visit(subsequent.selectStmtWithParens())
+            select_queries.append(
+                SelectSetNode(select_query=select_query, set_operator=cast(ast.SetOperator, union_type))
+            )
+
+        if len(select_queries) == 0:
+            return initial_query
+        return ast.SelectSetQuery(initial_select_query=initial_query, subsequent_select_queries=select_queries)
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
-        return self.visit(ctx.selectStmt() or ctx.selectUnionStmt() or ctx.placeholder())
+        return self.visit(ctx.selectStmt() or ctx.selectSetStmt() or ctx.placeholder())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(
@@ -673,7 +685,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Dict(items=self.visit(ctx.kvPairList()) if ctx.kvPairList() else [])
 
     def visitColumnExprSubquery(self, ctx: HogQLParser.ColumnExprSubqueryContext):
-        return self.visit(ctx.selectUnionStmt())
+        return self.visit(ctx.selectSetStmt())
 
     def visitColumnExprLiteral(self, ctx: HogQLParser.ColumnExprLiteralContext):
         return self.visitChildren(ctx)
@@ -795,6 +807,39 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedError(f"Unsupported interval type: {ctx.interval().getText()}")
 
         return ast.Call(name=name, args=[self.visit(ctx.columnExpr())])
+
+    def visitColumnExprIntervalString(self, ctx: HogQLParser.ColumnExprIntervalStringContext):
+        if ctx.STRING_LITERAL():
+            text = parse_string_literal_ctx(ctx.STRING_LITERAL())
+        else:
+            raise NotImplementedError(f"Unsupported interval type: {ctx.STRING_LITERAL()}")
+
+        count, unit = text.split(" ")
+        if count.isdigit():
+            int_count = int(count)
+        else:
+            raise NotImplementedError(f"Unsupported interval count: {count}")
+
+        if unit == "second" or unit == "seconds":
+            name = "toIntervalSecond"
+        elif unit == "minute" or unit == "minutes":
+            name = "toIntervalMinute"
+        elif unit == "hour" or unit == "hours":
+            name = "toIntervalHour"
+        elif unit == "day" or unit == "days":
+            name = "toIntervalDay"
+        elif unit == "week" or unit == "weeks":
+            name = "toIntervalWeek"
+        elif unit == "month" or unit == "months":
+            name = "toIntervalMonth"
+        elif unit == "quarter" or unit == "quarters":
+            name = "toIntervalQuarter"
+        elif unit == "year" or unit == "years":
+            name = "toIntervalYear"
+        else:
+            raise NotImplementedError(f"Unsupported interval unit: {unit}")
+
+        return ast.Call(name=name, args=[ast.Constant(value=int_count)])
 
     def visitColumnExprIsNull(self, ctx: HogQLParser.ColumnExprIsNullContext):
         return ast.CompareOperation(
@@ -958,7 +1003,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ctes
 
     def visitWithExprSubquery(self, ctx: HogQLParser.WithExprSubqueryContext):
-        subquery = self.visit(ctx.selectUnionStmt())
+        subquery = self.visit(ctx.selectSetStmt())
         name = self.visit(ctx.identifier())
         return ast.CTE(name=name, expr=subquery, cte_type="subquery")
 
@@ -992,7 +1037,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Field(chain=chain)
 
     def visitTableExprSubquery(self, ctx: HogQLParser.TableExprSubqueryContext):
-        return self.visit(ctx.selectUnionStmt())
+        return self.visit(ctx.selectSetStmt())
 
     def visitTableExprPlaceholder(self, ctx: HogQLParser.TableExprPlaceholderContext):
         return self.visit(ctx.placeholder())

@@ -19,8 +19,10 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.hogql.database.database import create_hogql_database
 from posthog.client import sync_execute
 from posthog.schema import (
     HogQLQueryResponse,
@@ -35,7 +37,7 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 def execute_hogql_query(
-    query: Union[str, ast.SelectQuery, ast.SelectUnionQuery],
+    query: Union[str, ast.SelectQuery, ast.SelectSetQuery],
     team: Team,
     *,
     query_type: str = "hogql_query",
@@ -54,7 +56,9 @@ def execute_hogql_query(
         timings = HogQLTimings()
 
     if context is None:
-        context = HogQLContext(team_id=team.pk)
+        context = HogQLContext(team_id=team.pk, timings=timings)
+        with timings.measure("create_hogql_database"):
+            context.database = create_hogql_database(team.pk, modifiers, team_arg=team, timings=timings)
 
     query_modifiers = create_default_modifiers_for_team(team, modifiers)
     debug = modifiers is not None and modifiers.debug
@@ -65,7 +69,7 @@ def execute_hogql_query(
     metadata: Optional[HogQLMetadataResponse] = None
 
     with timings.measure("query"):
-        if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectUnionQuery):
+        if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectSetQuery):
             select_query = query
             query = None
         else:
@@ -90,10 +94,7 @@ def execute_hogql_query(
             select_query = cast(ast.SelectQuery, replace_placeholders(select_query, placeholders))
 
     with timings.measure("max_limit"):
-        select_queries = (
-            select_query.select_queries if isinstance(select_query, ast.SelectUnionQuery) else [select_query]
-        )
-        for one_query in select_queries:
+        for one_query in extract_select_queries(select_query):
             if one_query.limit is None:
                 one_query.limit = ast.Constant(value=get_default_limit_for_context(limit_context))
 
@@ -123,8 +124,8 @@ def execute_hogql_query(
             )
             print_columns = []
             columns_query = (
-                select_query_hogql.select_queries[0]
-                if isinstance(select_query_hogql, ast.SelectUnionQuery)
+                next(extract_select_queries(select_query_hogql))
+                if isinstance(select_query_hogql, ast.SelectSetQuery)
                 else select_query_hogql
             )
             for node in columns_query.select:

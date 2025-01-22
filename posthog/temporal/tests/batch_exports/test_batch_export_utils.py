@@ -175,6 +175,7 @@ async def test_make_retryable_with_exponential_backoff_raises_if_not_retryable()
         ([b'{"asdf": "\udee5\ud83e\udee5\\ud83e"}'], [{"asdf": "????"}]),
         ([b'{"asdf": "\\"Hello\\" \\udfa2"}'], [{"asdf": '"Hello" ?'}]),
         ([b'{"asdf": "\n"}'], [{"asdf": "\n"}]),
+        ([b'{"asdf": "\\n"}'], [{"asdf": "\n"}]),
         (
             [b'{"finally": "a", "normal": "json", "thing": 1, "bool": false}'],
             [{"finally": "a", "normal": "json", "thing": 1, "bool": False}],

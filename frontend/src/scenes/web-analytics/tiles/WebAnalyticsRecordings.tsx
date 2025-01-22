@@ -4,7 +4,7 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { RecordingRow } from 'scenes/project-homepage/RecentRecordings'
+import { RecordingRow } from 'scenes/project-homepage/WatchNextPanel'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -16,6 +16,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
     const { layout } = tile
     const { replayFilters, webAnalyticsFilters } = useValues(webAnalyticsLogic)
     const { currentTeam } = useValues(teamLogic)
+
     const sessionRecordingsListLogicInstance = sessionRecordingsPlaylistLogic({
         logicKey: 'webAnalytics',
         filters: replayFilters,

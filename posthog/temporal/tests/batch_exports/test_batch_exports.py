@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import json
 import operator
@@ -8,9 +9,13 @@ from django.test import override_settings
 
 from posthog.batch_exports.service import BatchExportModel
 from posthog.temporal.batch_exports.batch_exports import (
+    RecordBatchProducerError,
+    TaskNotDoneError,
+    generate_query_ranges,
     get_data_interval,
     iter_model_records,
     iter_records,
+    raise_on_produce_task_failure,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
@@ -403,4 +408,162 @@ async def test_iter_records_uses_extra_query_parameters(clickhouse_client):
 def test_get_data_interval(interval, data_interval_end, expected):
     """Test get_data_interval returns the expected data interval tuple."""
     result = get_data_interval(interval, data_interval_end)
+    assert result == expected
+
+
+async def test_raise_on_produce_task_failure_raises_record_batch_producer_error():
+    """Test a `RecordBatchProducerError` is raised with the right cause."""
+    cause = ValueError("Oh no!")
+
+    async def fake_produce_task():
+        raise cause
+
+    task = asyncio.create_task(fake_produce_task())
+    await asyncio.wait([task])
+
+    with pytest.raises(RecordBatchProducerError) as exc_info:
+        await raise_on_produce_task_failure(task)
+
+    assert exc_info.type == RecordBatchProducerError
+    assert exc_info.value.__cause__ == cause
+
+
+async def test_raise_on_produce_task_failure_raises_task_not_done():
+    """Test a `TaskNotDoneError` is raised if we don't let the task start."""
+    cause = ValueError("Oh no!")
+
+    async def fake_produce_task():
+        raise cause
+
+    task = asyncio.create_task(fake_produce_task())
+
+    with pytest.raises(TaskNotDoneError):
+        await raise_on_produce_task_failure(task)
+
+
+async def test_raise_on_produce_task_failure_does_not_raise():
+    """Test nothing is raised if task finished succesfully."""
+
+    async def fake_produce_task():
+        return True
+
+    task = asyncio.create_task(fake_produce_task())
+    await asyncio.wait([task])
+
+    await raise_on_produce_task_failure(task)
+
+
+@pytest.mark.parametrize(
+    "remaining_range,done_ranges,expected",
+    [
+        # Case 1: One done range at the beginning
+        (
+            (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC)),
+            [(dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC))],
+            [
+                (
+                    dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC),
+                )
+            ],
+        ),
+        # Case 2: Single done range equal to full range.
+        (
+            (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC)),
+            [(dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC))],
+            [],
+        ),
+        # Case 3: Disconnected done ranges cover full range.
+        (
+            (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC)),
+            [
+                (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC)),
+                (
+                    dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 12, 45, 0, tzinfo=dt.UTC),
+                ),
+                (
+                    dt.datetime(2023, 7, 31, 12, 45, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC),
+                ),
+            ],
+            [],
+        ),
+        # Case 4: Disconnect done ranges within full range.
+        (
+            (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC)),
+            [
+                (
+                    dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 12, 45, 0, tzinfo=dt.UTC),
+                ),
+                (
+                    dt.datetime(2023, 7, 31, 12, 50, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 12, 55, 0, tzinfo=dt.UTC),
+                ),
+            ],
+            [
+                (
+                    dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC),
+                ),
+                (
+                    dt.datetime(2023, 7, 31, 12, 45, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 12, 50, 0, tzinfo=dt.UTC),
+                ),
+                (
+                    dt.datetime(2023, 7, 31, 12, 55, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC),
+                ),
+            ],
+        ),
+        # Case 5: Empty done ranges.
+        (
+            (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC)),
+            [],
+            [
+                (
+                    dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC),
+                ),
+            ],
+        ),
+        # Case 6: Disconnect done ranges within full range and one last done range connected to the end.
+        (
+            (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC)),
+            [
+                (
+                    dt.datetime(2023, 7, 31, 12, 15, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 12, 25, 0, tzinfo=dt.UTC),
+                ),
+                (
+                    dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 12, 45, 0, tzinfo=dt.UTC),
+                ),
+                (
+                    dt.datetime(2023, 7, 31, 12, 50, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC),
+                ),
+            ],
+            [
+                (
+                    dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 12, 15, 0, tzinfo=dt.UTC),
+                ),
+                (
+                    dt.datetime(2023, 7, 31, 12, 25, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC),
+                ),
+                (
+                    dt.datetime(2023, 7, 31, 12, 45, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 7, 31, 12, 50, 0, tzinfo=dt.UTC),
+                ),
+            ],
+        ),
+    ],
+    ids=["1", "2", "3", "4", "5", "6"],
+)
+def test_generate_query_ranges(remaining_range, done_ranges, expected):
+    """Test get_data_interval returns the expected data interval tuple."""
+    result = list(generate_query_ranges(remaining_range, done_ranges))
     assert result == expected

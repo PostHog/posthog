@@ -10,10 +10,10 @@ import { urls } from 'scenes/urls'
 import { notebooksModel } from '~/models/notebooksModel'
 
 import { notebookLogic, NotebookLogicProps } from './Notebook/notebookLogic'
-import { openNotebookShareDialog } from './Notebook/NotebookShare'
 
 export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
     const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
+    const { openShareModal } = useActions(notebookLogic({ shortId }))
     const { exportJSON, setShowHistory } = useActions(notebookLogic({ shortId }))
 
     return (
@@ -32,14 +32,17 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                 {
                     label: 'Share',
                     icon: <IconShare />,
-                    onClick: () => openNotebookShareDialog({ shortId }),
+                    onClick: () => openShareModal(),
                 },
                 !isLocalOnly &&
                     !notebook?.is_template && {
                         label: 'Delete',
                         icon: <IconTrash />,
                         status: 'danger',
-
+                        disabledReason:
+                            notebook?.user_access_level !== 'editor'
+                                ? 'You do not have permission to delete this notebook.'
+                                : undefined,
                         onClick: () => {
                             notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
                             router.actions.push(urls.notebooks())
