@@ -17,6 +17,29 @@ R = TypeVar("R")
 CacheKey = tuple[tuple[Any, ...], frozenset[tuple[Any, Any]]]
 
 
+def make_cache_key(args, kwargs):
+    """Create a cache key from args and kwargs that can handle non-JSON-serializable types."""
+
+    def serialize_value(v):
+        if isinstance(v, str | int | float | bool | type(None)):
+            return repr(v)
+        elif isinstance(v, list | tuple):
+            return tuple(serialize_value(x) for x in v)
+        elif isinstance(v, dict):
+            return tuple(sorted((k, serialize_value(val)) for k, val in v.items()))
+        elif hasattr(v, "model_dump_json"):  # For pydantic models
+            return v.model_dump_json()
+        elif hasattr(v, "__dict__"):  # For custom objects
+            return serialize_value(v.__dict__)
+        else:
+            return repr(v)
+
+    return (
+        tuple(serialize_value(arg) for arg in args),
+        frozenset(sorted((k, serialize_value(v)) for k, v in kwargs.items())),
+    )
+
+
 @dataclass(slots=True)
 class CachedFunction(Generic[P, R]):
     _fn: Callable[P, R]
@@ -31,7 +54,7 @@ class CachedFunction(Generic[P, R]):
             return self._fn(*args, **kwargs)
 
         current_time = now()
-        key: CacheKey = (args, frozenset(sorted(kwargs.items())))
+        key: CacheKey = make_cache_key(args, kwargs)
 
         def refresh():
             try:

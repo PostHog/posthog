@@ -334,7 +334,9 @@ def create_hogql_database(
             )
         with timings.measure("initial_channel_type"):
             database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-                "$virt_initial_channel_type", modifiers.customChannelTypeRules
+                "$virt_initial_channel_type",
+                modifiers.customChannelTypeRules,
+                use_cache=True,  # This is normally implied but mocking tests is impossible otherwise
             )
 
     with timings.measure("group_type_mapping"):

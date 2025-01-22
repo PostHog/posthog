@@ -1,9 +1,13 @@
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Optional, Union
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
 from posthog.hogql.parser import parse_expr
+from posthog.cache_utils import cache_for
+
+
 from posthog.schema import (
     CustomChannelRule,
     CustomChannelOperator,
@@ -61,6 +65,9 @@ if(
     )
 
 
+@cache_for(
+    timedelta(days=30)
+)  # Cached in runtime, so a new deploy will refresh cache. Only way output changes is if customchannelrule changes
 def create_initial_channel_type(name: str, custom_rules: Optional[list[CustomChannelRule]] = None):
     return ExpressionField(
         name=name,

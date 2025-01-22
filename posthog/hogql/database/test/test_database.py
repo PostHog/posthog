@@ -2,6 +2,7 @@ import json
 from typing import Any, cast
 
 from unittest.mock import patch
+from posthog.hogql.database.schema.channel_type import create_channel_type_expr
 import pytest
 from django.test import override_settings
 from parameterized import parameterized
@@ -17,7 +18,14 @@ from posthog.hogql.context import HogQLContext
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.schema import DatabaseSchemaDataWarehouseTable, HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.schema import (
+    DatabaseSchemaDataWarehouseTable,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
+    CustomChannelRule,
+    CustomChannelCondition,
+    FilterLogicalOperator,
+)
 from posthog.test.base import BaseTest, QueryMatchingTest, FuzzyInt
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseSavedQuery
 from posthog.hogql.query import execute_hogql_query
@@ -271,7 +279,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             query
-            == f"SELECT numbers.number AS number, multiply(numbers.number, 2) AS double, plus(plus(1, 1), numbers.number) FROM numbers(2) AS numbers LIMIT {MAX_SELECT_RETURNED_ROWS}"
+            == f"SELECT numbers.number AS number, multiply(numbers.number, 2) AS double, plus(plus(1, 1), numbers.number) AS expression_number FROM numbers(2) AS numbers LIMIT {MAX_SELECT_RETURNED_ROWS}"
         ), query
 
         sql = "select double from (select double from numbers(2))"
@@ -589,3 +597,56 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "some_field" in person_on_event_table.join_table.fields.keys()  # type: ignore
 
         print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+
+    def test_create_hogql_database_caching(self):
+        # mock_cache.return_value = False
+        from posthog.hogql.database.database import create_hogql_database
+        from posthog.schema import HogQLQueryModifiers
+        from unittest.mock import patch
+
+        # First call with no modifiers
+        with patch(
+            "posthog.hogql.database.schema.channel_type.create_channel_type_expr", side_effect=create_channel_type_expr
+        ) as mock_create_expr:
+            create_hogql_database(team_id=self.team.pk)
+            # Should be called once with no custom rules
+            mock_create_expr.assert_called_once()
+            mock_create_expr.reset_mock()
+
+            # Second call with same parameters
+            create_hogql_database(team_id=self.team.pk)
+            # Should not be called again due to caching
+            mock_create_expr.assert_not_called()
+            mock_create_expr.reset_mock()
+
+            # Call with custom channel rule
+            rule = CustomChannelRule(
+                items=[CustomChannelCondition(key="utm_source", op="exact", value="1", id="1")],
+                channel_type="Test1",
+                combiner=FilterLogicalOperator.AND_,
+                id="a",
+            )
+            modifiers = HogQLQueryModifiers(customChannelTypeRules=[rule])
+            create_hogql_database(team_id=self.team.pk, modifiers=modifiers)
+            # Should be called with custom rules
+            mock_create_expr.assert_called_once()
+            mock_create_expr.reset_mock()
+
+            # Same custom channel rule should use cache
+            create_hogql_database(team_id=self.team.pk, modifiers=modifiers)
+            # Should not be called again due to caching
+            mock_create_expr.assert_not_called()
+            mock_create_expr.reset_mock()
+
+            # Different custom channel rule should create new object
+            different_rule = CustomChannelRule(
+                items=[CustomChannelCondition(key="utm_source", op="exact", value="2", id="2")],
+                channel_type="Test2",
+                combiner=FilterLogicalOperator.AND_,
+                id="b",
+            )
+
+            different_modifiers = HogQLQueryModifiers(customChannelTypeRules=[different_rule])
+            create_hogql_database(team_id=self.team.pk, modifiers=different_modifiers)
+            # Should be called with different custom rules
+            mock_create_expr.assert_called_once()
