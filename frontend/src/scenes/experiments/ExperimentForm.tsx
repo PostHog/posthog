@@ -16,7 +16,7 @@ import { experimentLogic } from './experimentLogic'
 
 const ExperimentFormFields = (): JSX.Element => {
     const { experiment, groupTypes, aggregationLabel } = useValues(experimentLogic)
-    const { addExperimentGroup, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
+    const { addVariant, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
         useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
@@ -219,7 +219,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                 <LemonButton
                                     className="ml-9 mt-2"
                                     type="secondary"
-                                    onClick={() => addExperimentGroup()}
+                                    onClick={() => addVariant()}
                                     icon={<IconPlusSmall />}
                                     data-attr="add-test-variant"
                                 >

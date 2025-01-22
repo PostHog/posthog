@@ -9,7 +9,7 @@ import { QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 
 import { llmObservabilityLogic } from './llmObservabilityLogic'
-import { formatLLMCost, formatLLMUsage } from './utils'
+import { formatLLMCost, formatLLMUsage, removeMilliseconds } from './utils'
 
 export function LLMObservabilityTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
@@ -62,7 +62,10 @@ export function LLMObservabilityTraces(): JSX.Element {
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     return (
-        <Link className="ph-no-capture font-semibold" to={urls.llmObservabilityTrace(row.id)}>
+        <Link
+            className="ph-no-capture font-semibold"
+            to={urls.llmObservabilityTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
+        >
             {row.id}
         </Link>
     )

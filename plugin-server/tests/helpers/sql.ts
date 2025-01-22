@@ -50,7 +50,7 @@ export async function resetTestDatabase(
     { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
-    const db = new PostgresRouter(config, undefined)
+    const db = new PostgresRouter(config)
     await db.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, 'delete-tables')
 
     const mocks = makePluginObjects(code)
@@ -271,7 +271,7 @@ export async function getTeams(hub: Hub): Promise<Team[]> {
         'fetchAllTeams'
     )
     for (const row of selectResult.rows) {
-        row.project_id = parseInt(row.project_id as unknown as string)
+        row.project_id = parseInt(row.project_id as unknown as string) as ProjectId
     }
     return selectResult.rows
 }

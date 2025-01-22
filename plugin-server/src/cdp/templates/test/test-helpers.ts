@@ -4,7 +4,7 @@ import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
 import { Hub } from '../../../types'
-import { buildGlobalsWithInputs, HogExecutor } from '../../hog-executor'
+import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
 import {
     HogFunctionInputType,
     HogFunctionInvocation,
@@ -25,7 +25,7 @@ export type DeepPartialHogFunctionInvocationGlobals = {
 
 export class TemplateTester {
     public template: HogFunctionTemplateCompiled
-    private executor: HogExecutor
+    private executor: HogExecutorService
     private mockHub: Hub
 
     public mockFetch = jest.fn()
@@ -39,7 +39,7 @@ export class TemplateTester {
         this.mockHub = {} as any
         const mockHogFunctionManager = {} as any
 
-        this.executor = new HogExecutor(this.mockHub, mockHogFunctionManager)
+        this.executor = new HogExecutorService(this.mockHub, mockHogFunctionManager)
     }
 
     /*
@@ -76,7 +76,7 @@ export class TemplateTester {
         }
 
         const mockHogFunctionManager = {} as any
-        this.executor = new HogExecutor(this.mockHub, mockHogFunctionManager)
+        this.executor = new HogExecutorService(this.mockHub, mockHogFunctionManager)
     }
 
     createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
