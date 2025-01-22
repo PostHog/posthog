@@ -381,6 +381,10 @@ export class PersonState {
         })
         unsetProperties.forEach((propertyKey) => {
             if (propertyKey in personProperties) {
+                if (typeof propertyKey !== 'string') {
+                    status.warn('🔔', 'unset_property_key_not_string', { propertyKey, unsetProperties })
+                    return
+                }
                 updated = true
                 metricsKeys.add(this.getMetricKey(propertyKey))
                 delete personProperties[propertyKey]

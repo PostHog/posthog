@@ -58,7 +58,13 @@ pub async fn main() -> Result<(), Error> {
 
     start_health_liveness_server(&config, context.clone());
 
+    let liveness = context
+        .health_registry
+        .register("main-loop".to_string(), Duration::from_secs(30))
+        .await;
+
     while context.is_running() {
+        liveness.report_healthy().await;
         info!("Looking for next job");
         let Some(model) = JobModel::claim_next_job(context.clone()).await? else {
             if !context.is_running() {
@@ -73,6 +79,7 @@ pub async fn main() -> Result<(), Error> {
 
         let mut next_step = Some(Job::new(model, context.clone()).await?);
         while let Some(job) = next_step {
+            liveness.report_healthy().await;
             if !context.is_running() {
                 info!("Shutting down, dropping job");
                 // if we're shutting down, we just drop the job - it'll remain leased for a few minutes, then another

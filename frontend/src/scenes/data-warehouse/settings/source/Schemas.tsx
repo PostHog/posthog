@@ -1,4 +1,3 @@
-import { TZLabel } from '@posthog/apps-common'
 import {
     LemonButton,
     LemonModal,
@@ -12,6 +11,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect } from 'react'
 import { defaultQuery } from 'scenes/data-warehouse/utils'
