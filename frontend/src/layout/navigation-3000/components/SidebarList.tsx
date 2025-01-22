@@ -43,6 +43,13 @@ const isSidebarCategory = (category: SidebarCategory | SidebarCategoryBase): cat
     return 'loading' in category
 }
 
+const SENSOR_OPTIONS = {
+    activationConstraint: {
+        delay: 100,
+        tolerance: 5,
+    },
+}
+
 export function SidebarList({ category }: { category: SidebarCategory | ListItemAccordion }): JSX.Element {
     const listRef = useRef<List | null>(null)
     const {
@@ -59,20 +66,7 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
     const { moveViewToFolder } = useActions(editorSidebarLogic)
     const [activeId, setActiveId] = useState<string | null>(null)
 
-    const sensors = useSensors(
-        useSensor(MouseSensor, {
-            activationConstraint: {
-                delay: 100,
-                tolerance: 5,
-            },
-        }),
-        useSensor(TouchSensor, {
-            activationConstraint: {
-                delay: 100,
-                tolerance: 5,
-            },
-        })
-    )
+    const sensors = useSensors(useSensor(MouseSensor, SENSOR_OPTIONS), useSensor(TouchSensor, SENSOR_OPTIONS))
 
     const handleDragEnd = (event: DragEndEvent): void => {
         const { active, over } = event
