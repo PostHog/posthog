@@ -247,13 +247,18 @@ class TestExperimentTrendsStatistics(APIBaseTest):
             intervals = calculate_credible_intervals([control, test_a, test_b, test_c])
 
             self.assertEqual(len(probabilities), 4)
-            self.assertTrue(probabilities[2] > 0.9)  # test_b should be winning
-            self.assertTrue(probabilities[1] < 0.1)  # test_a should be losing
-            self.assertTrue(probabilities[0] < 0.1)  # control should be losing
             self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
             if stats_version == 2:
+                self.assertTrue(probabilities[0] < 0.1)  # control is losing
+                self.assertTrue(probabilities[1] > 0.7)  # test_a beats control, but less confidently
+                self.assertTrue(probabilities[2] > 0.9)  # test_b beats control
+                self.assertTrue(probabilities[3] > 0.9)  # test_c beats control
                 self.assertEqual(p_value, 0)
             else:
+                self.assertTrue(probabilities[0] < 0.1)  # control should be losing
+                self.assertTrue(probabilities[1] < 0.1)  # test_a should be losing
+                self.assertTrue(probabilities[2] > 0.9)  # test_b should be winning
+                self.assertTrue(probabilities[3] < 0.1)  # test_c should be losing
                 self.assertLess(p_value, 0.001)
 
             # Control at 10%
