@@ -1872,6 +1872,74 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("Call", "{s:s,s:[N]}", "name", name, "args", visitAsPyObject(ctx->columnExpr()));
   }
 
+  VISIT(ColumnExprIntervalString) {
+    if (!ctx->STRING_LITERAL()) {
+      throw NotImplementedError("Unsupported interval type: missing string literal");
+    }
+
+    // The text should contain something like "5 day", "2 weeks", etc.
+    std::string text = parse_string_literal_ctx(ctx->STRING_LITERAL());
+
+    auto space_pos = text.find(' ');
+    if (space_pos == std::string::npos) {
+      throw NotImplementedError("Unsupported interval type: must be in the format '<count> <unit>'");
+    }
+    std::string count_str = text.substr(0, space_pos);
+    std::string unit_str = text.substr(space_pos + 1);
+
+    for (char c : count_str) {
+      if (!std::isdigit(static_cast<unsigned char>(c))) {
+        throw NotImplementedError(("Unsupported interval count: " + count_str).c_str());
+      }
+    }
+    int count_int = std::stoi(count_str);
+
+    std::string name;
+    if (unit_str == "second" || unit_str == "seconds") {
+      name = "toIntervalSecond";
+    } else if (unit_str == "minute" || unit_str == "minutes") {
+      name = "toIntervalMinute";
+    } else if (unit_str == "hour" || unit_str == "hours") {
+      name = "toIntervalHour";
+    } else if (unit_str == "day" || unit_str == "days") {
+      name = "toIntervalDay";
+    } else if (unit_str == "week" || unit_str == "weeks") {
+      name = "toIntervalWeek";
+    } else if (unit_str == "month" || unit_str == "months") {
+      name = "toIntervalMonth";
+    } else if (unit_str == "quarter" || unit_str == "quarters") {
+      name = "toIntervalQuarter";
+    } else if (unit_str == "year" || unit_str == "years") {
+      name = "toIntervalYear";
+    } else {
+      throw NotImplementedError(("Unsupported interval unit: " + unit_str).c_str());
+    }
+
+    PyObject* py_count = PyLong_FromLong(count_int);
+    if (!py_count) {
+      throw PyInternalError();
+    }
+    PyObject* constant_count = build_ast_node("Constant", "{s:N}", "value", py_count);
+    if (!constant_count) {
+      Py_DECREF(py_count);
+      throw PyInternalError();
+    }
+
+    PyObject* ret = build_ast_node(
+      "Call", 
+      "{s:s,s:[O]}",  // s:[O] means "args" => [the single PyObject]
+      "name", name.c_str(),
+      "args", constant_count
+    );
+
+    if (!ret) {
+      Py_DECREF(constant_count);
+      throw PyInternalError();
+    }
+
+    return ret;
+  }
+
   VISIT(ColumnExprIsNull) {
     PyObject* null_constant = build_ast_node("Constant", "{s:O}", "value", Py_None);
     if (!null_constant) throw PyInternalError();

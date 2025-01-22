@@ -1,6 +1,6 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { ProducerRecord } from 'kafkajs'
+import { TopicMessage } from 'kafka/producer'
 import { Counter } from 'prom-client'
 
 import { defaultConfig } from '../../config/config'
@@ -181,7 +181,7 @@ export function hasDifferenceWithProposedNewNormalisationMode(properties: Proper
     return !areMapsEqual(setOnce, filteredSetOnce)
 }
 
-export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): ProducerRecord {
+export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): TopicMessage {
     return {
         topic: KAFKA_PERSON,
         messages: [

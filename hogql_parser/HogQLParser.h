@@ -1610,6 +1610,16 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprIntervalStringContext : public ColumnExprContext {
+  public:
+    ColumnExprIntervalStringContext(ColumnExprContext *ctx);
+
+    antlr4::tree::TerminalNode *INTERVAL();
+    antlr4::tree::TerminalNode *STRING_LITERAL();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprTrimContext : public ColumnExprContext {
   public:
     ColumnExprTrimContext(ColumnExprContext *ctx);
