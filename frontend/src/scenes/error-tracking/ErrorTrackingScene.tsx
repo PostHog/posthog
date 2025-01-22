@@ -53,13 +53,15 @@ export function ErrorTrackingScene(): JSX.Element {
         },
         showOpenEditorButton: false,
         insightProps: insightProps,
+        emptyStateHeading: 'No issues found',
+        emptyStateDetail: 'Try changing the date range, changing the filters or removing the assignee.',
     }
 
     return (
         <AlphaAccessScenePrompt>
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
-                <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
+                <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
                 <ErrorTrackingFilters.FilterGroup>
                     <ErrorTrackingFilters.UniversalSearch />
                 </ErrorTrackingFilters.FilterGroup>
