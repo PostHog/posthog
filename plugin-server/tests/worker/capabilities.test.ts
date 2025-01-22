@@ -48,11 +48,6 @@ describe('capabilities', () => {
                 export function randomFunction (event, meta) { return event}
                 export function onEvent (event, meta) { return event }
                 export function getSettings (meta) { return { handlesLargeBatches: true } }
-                export function runEveryHour(meta) {console.log('1')}
-
-                export const jobs = {
-                    x: (event, meta) => console.log(event)
-                }
             `)
             expect(capabilities).toEqual({
                 methods: ['onEvent', 'processEvent', 'getSettings'],

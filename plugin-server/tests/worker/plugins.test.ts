@@ -501,8 +501,6 @@ describe('plugins', () => {
             export function randomFunction (event, meta) { return event}
             export function onEvent (event, meta) { return event }
 
-            export function runEveryHour(meta) {console.log('1')}
-
             export const jobs = {
                 x: (event, meta) => console.log(event)
             }

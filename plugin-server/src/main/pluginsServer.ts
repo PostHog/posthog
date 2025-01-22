@@ -32,6 +32,7 @@ import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import { RustyHook } from '../worker/rusty-hook'
+import { reloadPlugins } from '../worker/tasks'
 import { syncInlinePlugins } from '../worker/vm/inline/inline'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
 import { startAnalyticsEventsIngestionHistoricalConsumer } from './ingestion-queues/analytics-events-ingestion-historical-consumer'
@@ -301,19 +302,16 @@ export async function startPluginsServer(
         if (serverInstance.hub) {
             const hub = serverInstance.hub
             // TODO: Fix this
-            // pubSub = new PubSub(hub, {
-            //     [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-            //         status.info('⚡', 'Reloading plugins!')
-            //         await piscina?.broadcastTask({ task: 'reloadPlugins' })
-
-            //     },
-            //     'reset-available-product-features-cache': async (message) => {
-            //         await piscina?.broadcastTask({
-            //             task: 'resetAvailableProductFeaturesCache',
-            //             args: JSON.parse(message),
-            //         })
-            //     }
-            // })
+            pubSub = new PubSub(hub, {
+                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
+                    status.info('⚡', 'Reloading plugins!')
+                    await reloadPlugins(hub)
+                },
+                'reset-available-product-features-cache': (message) => {
+                    const args = JSON.parse(message)
+                    hub.organizationManager.resetAvailableProductFeaturesCache(args.organization_id)
+                },
+            })
 
             // await pubSub.start()
 

@@ -152,7 +152,6 @@ export async function createHub(
         pluginConfigsPerTeam: new Map(),
         pluginConfigSecrets: new Map(),
         pluginConfigSecretLookup: new Map(),
-        pluginSchedule: null,
 
         teamManager,
         organizationManager,
