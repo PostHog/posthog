@@ -1,4 +1,3 @@
-import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -164,15 +163,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                         key: savedQuery.id,
                                         name: savedQuery.name,
                                         url: '',
-                                        icon: savedQuery.status ? (
-                                            <Tooltip title="Materialized view">
-                                                <IconCalculate />
-                                            </Tooltip>
-                                        ) : (
-                                            <Tooltip title="View">
-                                                <IconClipboardEdit />
-                                            </Tooltip>
-                                        ),
+                                        icon: savedQuery.status ? <IconCalculate /> : <IconClipboardEdit />,
                                         onClick: () => {
                                             editorSceneLogic.actions.selectSchema(savedQuery)
                                         },
@@ -315,15 +306,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                               key: savedQuery.id,
                                               name: savedQuery.name,
                                               url: '',
-                                              icon: savedQuery.status ? (
-                                                  <Tooltip title="Materialized view">
-                                                      <IconCalculate />
-                                                  </Tooltip>
-                                              ) : (
-                                                  <Tooltip title="View">
-                                                      <IconClipboardEdit />
-                                                  </Tooltip>
-                                              ),
+                                              icon: savedQuery.status ? <IconCalculate /> : <IconClipboardEdit />,
                                               onClick: () => {
                                                   editorSceneLogic.actions.selectSchema(savedQuery)
                                               },

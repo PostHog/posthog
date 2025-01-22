@@ -359,7 +359,7 @@ function SidebarListItem({ item, validateName, active, style: styleFromProps }: 
         )
     } else if (isItemClickable(item)) {
         content = (
-            <li
+            <div
                 className="SidebarListItem__button"
                 onClick={item.onClick}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -367,7 +367,7 @@ function SidebarListItem({ item, validateName, active, style: styleFromProps }: 
             >
                 {item.icon && <div className="SidebarListItem__icon">{item.icon}</div>}
                 <h5 className="SidebarListItem__name">{item.name}</h5>
-            </li>
+            </div>
         )
     } else if (!save || (!isItemTentative(item) && newName === null)) {
         if (isItemTentative(item)) {
@@ -708,7 +708,7 @@ function SidebarListItemAccordion({
     }, [isRenaming, onEditing])
 
     return (
-        <li className="SidebarListItemAccordion" role="region" aria-expanded={isExpanded}>
+        <div className="SidebarListItemAccordion" role="region" aria-expanded={isExpanded}>
             <div
                 id={`sidebar-list-item-accordion-${keyString}`}
                 className="SidebarListItemAccordion__header"
@@ -749,6 +749,6 @@ function SidebarListItemAccordion({
                     <h4>{category.name || capitalizeFirstLetter(pluralizeCategory(category.noun))}</h4>
                 )}
             </div>
-        </li>
+        </div>
     )
 }
