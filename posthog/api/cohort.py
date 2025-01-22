@@ -305,6 +305,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
+            if self.request.query_params.get("search"):
+                queryset = queryset.filter(name__icontains=self.request.query_params["search"])
+
             if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
                 all_cohorts = {cohort.id: cohort for cohort in queryset.all()}
                 behavioral_cohort_ids = self._find_behavioral_cohorts(all_cohorts)

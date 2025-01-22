@@ -1675,6 +1675,24 @@ email@example.org,
         async_deletion = AsyncDeletion.objects.all()[0]
         self.assertEqual(async_deletion.key, f"{cohort_id}_2")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
+        self.assertEqual(async_deletion.delete_verified_at, None)
+
+        # optimise cohortpeople table, so all collapsing / replcaing on the merge tree is done
+        sync_execute(f"OPTIMIZE TABLE cohortpeople FINAL SETTINGS mutations_sync = 2")
+
+        # check clickhouse data is gone from cohortpeople table
+        res = sync_execute(
+            "SELECT count() FROM cohortpeople WHERE cohort_id = %(cohort_id)s",
+            {"cohort_id": cohort_id},
+        )
+        self.assertEqual(res[0][0], 1)
+
+        # now let's ensure verification of deletion happens on next run
+        clickhouse_clear_removed_data.delay()
+
+        async_deletion = AsyncDeletion.objects.all()[0]
+        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 
     def test_deletion_of_cohort_cancels_async_deletion(self):
