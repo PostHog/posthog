@@ -1,6 +1,6 @@
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
-import { connect, events, kea, path, selectors } from 'kea'
+import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -37,6 +37,8 @@ const savedQueriesfuse = new Fuse<DataWarehouseSavedQuery>([], {
     includeMatches: true,
 })
 
+export const TEMPORARY_FOLDER_KEY = '$__temp__$'
+
 export const editorSidebarLogic = kea<editorSidebarLogicType>([
     path(['data-warehouse', 'editor', 'editorSidebarLogic']),
     connect({
@@ -55,6 +57,17 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery'],
             viewLinkLogic,
             ['selectSourceTable', 'toggleJoinTableModal'],
+        ],
+    }),
+    actions({
+        setTemporaryFolder: (folder: { parentId: string | null } | null) => ({ folder }),
+    }),
+    reducers({
+        temporaryFolder: [
+            null as { parentId: string | null } | null,
+            {
+                setTemporaryFolder: (_, { folder }) => folder,
+            },
         ],
     }),
     loaders(({ values }) => ({
@@ -124,6 +137,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                 s.dataWarehouseTablesBySourceType,
                 s.databaseLoading,
                 s.folders,
+                s.temporaryFolder,
             ],
             (
                 dataWarehouseSavedQueries,
@@ -132,11 +146,12 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                 relevantSources,
                 dataWarehouseTablesBySourceType,
                 databaseLoading,
-                folders
+                folders,
+                temporaryFolder
             ) => {
                 // Helper to build nested folder structure
                 const buildFolderTree = (parentId: string | null = null): ListItemAccordion[] => {
-                    return folders
+                    const regularFolders = folders
                         .filter((folder) => folder.parent === parentId)
                         .map((folder) => {
                             const folderItems = folder.items
@@ -201,7 +216,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                     {
                                         label: 'Add folder',
                                         onClick: () => {
-                                            actions.addFolder({ name: 'NewFolder', parentId: folder.id })
+                                            actions.setTemporaryFolder({ parentId: folder.id })
                                         },
                                     },
                                     {
@@ -215,6 +230,26 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                 items: [...buildFolderTree(folder.id), ...folderItems],
                             } as ListItemAccordion
                         })
+
+                    if (temporaryFolder && temporaryFolder.parentId === parentId) {
+                        regularFolders.push({
+                            key: TEMPORARY_FOLDER_KEY,
+                            name: '',
+                            noun: ['folder', 'folders'],
+                            items: [],
+                            onRename: async (newName: string) => {
+                                if (newName.trim()) {
+                                    actions.addFolder({ name: newName, parentId: temporaryFolder.parentId })
+                                }
+                                actions.setTemporaryFolder(null)
+                            },
+                            onCancelRename: () => {
+                                actions.setTemporaryFolder(null)
+                            },
+                        } as ListItemAccordion)
+                    }
+
+                    return regularFolders
                 }
 
                 return [
@@ -226,7 +261,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                             {
                                 label: 'Add folder',
                                 onClick: () => {
-                                    actions.addFolder({ name: 'NewFolder', parentId: null })
+                                    actions.setTemporaryFolder({ parentId: null })
                                 },
                             },
                         ],

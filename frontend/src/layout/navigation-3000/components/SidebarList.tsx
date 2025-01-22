@@ -1,7 +1,6 @@
 import { DndContext, DragEndEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Link, TZLabel } from '@posthog/apps-common'
 import { IconCheckCircle, IconEllipsis, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag, lemonToast } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
@@ -19,7 +18,7 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
 import { List, ListProps } from 'react-virtualized/dist/es/List'
 
-import { editorSidebarLogic } from '~/scenes/data-warehouse/editor/editorSidebarLogic'
+import { editorSidebarLogic, TEMPORARY_FOLDER_KEY } from '~/scenes/data-warehouse/editor/editorSidebarLogic'
 
 import { ITEM_KEY_PART_SEPARATOR, navigation3000Logic } from '../navigationLogic'
 import {
@@ -108,8 +107,6 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
         setActiveId(event.active.id.toString())
     }
 
-    const emptyStateSkeletonCount = useMemo(() => 4 + Math.floor(Math.random() * 4), [])
-
     const { items: _items } = category
 
     const listItems = useMemo(() => {
@@ -197,9 +194,7 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
                 <AutoSizer disableWidth>
                     {({ height }) =>
                         'loading' in category && category.items.length === 0 ? (
-                            Array(emptyStateSkeletonCount)
-                                .fill(null)
-                                .map((_, index) => <SidebarListItemSkeleton key={index} style={{ height: 32 }} />)
+                            <SidebarListSkeleton numberOfItems={4} itemHeight={32} />
                         ) : remote ? (
                             <InfiniteLoader
                                 isRowLoaded={({ index }) => remote.isItemLoaded(index)}
@@ -606,6 +601,24 @@ function ExtraContext({ data }: { data: ExtraListItemContext }): JSX.Element {
     return isDayjs(data) ? <TZLabel time={data} /> : <>{data}</>
 }
 
+function SidebarListSkeleton({
+    numberOfItems,
+    itemHeight,
+}: {
+    numberOfItems: number
+    itemHeight: number
+}): JSX.Element {
+    return (
+        <>
+            {Array(numberOfItems)
+                .fill(null)
+                .map((_, index) => (
+                    <SidebarListItemSkeleton key={index} style={{ height: itemHeight }} />
+                ))}
+        </>
+    )
+}
+
 function SidebarListItemSkeleton({ style }: { style: React.CSSProperties }): JSX.Element {
     return (
         <li
@@ -628,7 +641,7 @@ function SidebarListItemAccordion({
     const { listItemAccordionCollapseMapping } = useValues(navigation3000Logic)
     const { toggleListItemAccordion } = useActions(navigation3000Logic)
     const [isRenaming, setIsRenaming] = useState(false)
-    const [newName, setNewName] = useState(category.name || capitalizeFirstLetter(pluralizeCategory(category.noun)))
+    const [newName, setNewName] = useState(category.name)
     const [isSaving, setIsSaving] = useState(false)
 
     const ref = useRef<HTMLDivElement>(null)
@@ -644,9 +657,18 @@ function SidebarListItemAccordion({
         }
     }, [category.onRename])
 
+    useEffect(() => {
+        if (category.key.toString().includes(TEMPORARY_FOLDER_KEY)) {
+            setIsRenaming(true)
+        }
+    }, [category.key])
+
     const cancelRenaming = (): void => {
         setIsRenaming(false)
-        setNewName(category.name || capitalizeFirstLetter(pluralizeCategory(category.noun)))
+        setNewName(category.name)
+        if (category.onCancelRename) {
+            category.onCancelRename()
+        }
     }
 
     const saveNewName = async (): Promise<void> => {
@@ -719,7 +741,6 @@ function SidebarListItemAccordion({
                                     cancelRenaming()
                                 }
                             }}
-                            placeholder="Renaming..."
                             disabled={isSaving}
                             autoFocus
                         />

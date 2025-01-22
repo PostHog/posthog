@@ -69,6 +69,7 @@ export interface ListItemAccordion extends SidebarCategoryBase {
         onClick: () => void
     }[]
     onRename?: ListItemSaveHandler
+    onCancelRename?: () => void
 }
 
 /** A category of items. This is either displayed directly for sidebars with only one category, or as an accordion. */
