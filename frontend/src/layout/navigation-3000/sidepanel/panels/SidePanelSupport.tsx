@@ -34,6 +34,7 @@ import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { SIDE_PANEL_TABS } from '../SidePanel'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import { sidePanelStatusLogic } from './sidePanelStatusLogic'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 
 const PRODUCTS = [
     {
@@ -306,6 +307,19 @@ export const SidePanelSupport = (): JSX.Element => {
                                             targetBlank
                                         >
                                             Request a feature
+                                        </LemonButton>
+                                    </li>
+                                    <li>
+                                        <LemonButton
+                                            type="secondary"
+                                            status="alt"
+                                            to={`https://github.com/PostHog/posthog/issues/new?&labels=bug&template=bug_report.yml&debug-info=${encodeURIComponent(
+                                                getPublicSupportSnippet(region, currentOrganization, currentTeam)
+                                            )}`}
+                                            icon={<IconErrorOutline />}
+                                            targetBlank
+                                        >
+                                            Report a bug
                                         </LemonButton>
                                     </li>
                                 </ul>
