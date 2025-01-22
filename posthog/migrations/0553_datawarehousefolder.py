@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0545_insight_filters_to_query"),
+        ("posthog", "0552_turn_off_all_action_webhooks"),
     ]
 
     operations = [
@@ -24,7 +24,12 @@ class Migration(migrations.Migration):
                         default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
                     ),
                 ),
-                ("name", models.CharField(max_length=255)),
+                (
+                    "name",
+                    models.CharField(
+                        max_length=255, validators=[posthog.warehouse.models.datawarehouse_folder.validate_folder_name]
+                    ),
+                ),
                 ("items", models.JSONField(default=list)),
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
                 ("updated_at", models.DateTimeField(auto_now=True)),

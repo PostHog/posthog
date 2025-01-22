@@ -201,7 +201,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                     {
                                         label: 'Add folder',
                                         onClick: () => {
-                                            actions.addFolder({ name: 'New Folder', parentId: folder.id })
+                                            actions.addFolder({ name: 'NewFolder', parentId: folder.id })
                                         },
                                     },
                                     {
@@ -226,7 +226,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                             {
                                 label: 'Add folder',
                                 onClick: () => {
-                                    actions.addFolder({ name: 'New Folder', parentId: null })
+                                    actions.addFolder({ name: 'NewFolder', parentId: null })
                                 },
                             },
                         ],

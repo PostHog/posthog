@@ -24,7 +24,7 @@ class DataWarehouseFolderSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "updated_at"]
 
     def get_created_by(self, obj):
-        return obj.created_by.first_name if obj.created_by else None
+        return obj.created_by.email if obj.created_by else None
 
     def validate(self, attrs):
         instance = cast(DataWarehouseFolder, self.instance)
