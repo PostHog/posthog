@@ -364,6 +364,7 @@ export function PropertiesTable({
             {
                 key: 'key',
                 title: 'Key',
+                // Minimize the width of the key column when nested
                 style: nestingLevel > 0 ? { width: '0px' } : undefined,
                 render: function Key(_, item: any): JSX.Element {
                     return (
